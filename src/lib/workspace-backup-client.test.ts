@@ -25,6 +25,13 @@ describe("full-backup browser state", () => {
     expect(storage.getItem("omb-show-run-card")).toBe("1");
   });
 
+  it("carries the unconfigured providers visibility choice in a workspace backup", () => {
+    const storage = memory({ "omb-show-unready-providers": "1" });
+    expect(collectWorkspaceClientState(storage)).toEqual({ "omb-show-unready-providers": "1" });
+    applyWorkspaceClientState({ "omb-show-unready-providers": "0" }, storage);
+    expect(storage.getItem("omb-show-unready-providers")).toBe("0");
+  });
+
   it.each([null, [], { "auth-token": "injected" }, { "omb-webhook-credentials": "source URL" }, { "omb-drafts": 1 }])("rejects invalid client state before clearing anything (%j)", (value) => {
     const storage = memory({ "omb-drafts": "old", "auth-token": "keep" });
     expect(() => applyWorkspaceClientState(value, storage)).toThrow("Invalid backup browser state");

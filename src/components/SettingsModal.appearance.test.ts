@@ -25,6 +25,8 @@ const fixture = vi.hoisted(() => ({
   api: vi.fn(),
   dispatch: vi.fn(),
   switches: [] as ComponentProps<typeof Switch>[],
+  showUnreadyProviders: false,
+  setShowUnreadyProviders: vi.fn(),
 }));
 // Cards read the host platform (what a saved sign-in still locked asks for).
 vi.mock("./DesktopCapabilities", () => ({ useDesktopCapabilities: () => ({ capabilities: { host: { platform: "darwin" } } }) }));
@@ -44,6 +46,10 @@ vi.mock("@/lib/thread-preferences", () => ({
 vi.mock("@/lib/run-card-preferences", () => ({
   useShowRunCard: () => fixture.showRunCard,
   setShowRunCard: fixture.setShowRunCard,
+}));
+vi.mock("@/lib/unready-providers-preference", () => ({
+  useShowUnreadyProviders: () => fixture.showUnreadyProviders,
+  setShowUnreadyProviders: fixture.setShowUnreadyProviders,
 }));
 vi.mock("@/lib/sidebar-preferences", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/sidebar-preferences")>(),
@@ -85,6 +91,7 @@ beforeEach(() => {
   fixture.nudgeSound = true;
   fixture.locals = {};
   fixture.switches = [];
+  fixture.showUnreadyProviders = false;
   vi.stubGlobal("window", {});
   vi.stubGlobal("document", { documentElement: { dataset: {} } });
   setLocale("en");
@@ -149,6 +156,24 @@ describe("Settings → Appearance", () => {
     expect(fixture.dispatch).not.toHaveBeenCalled();
   });
 
+  it("offers the unconfigured providers toggle in Appearance, off by default", () => {
+    const html = render();
+    expect(html).toContain('aria-label="Show unconfigured providers"');
+    expect(html).toContain("Unconfigured providers");
+    const toggle = fixture.switches.find((props) => props["aria-label"] === "Show unconfigured providers")!;
+    expect(toggle.checked).toBe(false);
+    toggle.onClick!({} as never);
+    expect(fixture.setShowUnreadyProviders).toHaveBeenCalledWith(true);
+    expect(fixture.api).not.toHaveBeenCalled();
+    expect(fixture.dispatch).not.toHaveBeenCalled();
+
+    fixture.switches = [];
+    fixture.showUnreadyProviders = true;
+    render();
+    const on = fixture.switches.find((props) => props["aria-label"] === "Show unconfigured providers")!;
+    expect(on.checked).toBe(true);
+  });
+
   it("offers the run card visibility toggle in Appearance", () => {
     fixture.showRunCard = true;
     const html = render();
@@ -182,6 +207,7 @@ describe("Settings → Appearance", () => {
     expect(html).not.toContain('aria-label="Show threads"');
     expect(html).not.toContain('aria-label="Choose sidebar density"');
     expect(html).not.toContain('aria-label="Show tool calls in chat"');
+    expect(html).not.toContain('aria-label="Show unconfigured providers"');
     expect(html).not.toContain("Midnight");
   });
 

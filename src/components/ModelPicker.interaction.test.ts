@@ -60,6 +60,10 @@ vi.mock("@/state/store", async (importOriginal) => ({
 
 // These cases cover the full picker; Simple mode has its own file.
 vi.mock("@/lib/interface-mode", () => ({ useAdvancedMode: () => true, setAdvancedMode: () => {} }));
+vi.mock("@/lib/unready-providers-preference", () => ({
+  useShowUnreadyProviders: () => false,
+  setShowUnreadyProviders: () => {},
+}));
 
 const { FollowBotModelRow, ModelEngineRail, ModelPicker } = await import("./ModelPicker");
 const { ModelDropdown } = await import("./ModelDropdown");

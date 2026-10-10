@@ -1,4 +1,4 @@
-import { Children, createElement, type ChangeEvent, type ReactElement, type ReactNode } from "react";
+import { Children, createElement, isValidElement, type ChangeEvent, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -26,8 +26,12 @@ vi.mock("@/state/store", async (importOriginal) => ({
 
 // These cases cover the full picker; Simple mode has its own file.
 vi.mock("@/lib/interface-mode", () => ({ useAdvancedMode: () => true, setAdvancedMode: () => {} }));
+vi.mock("@/lib/unready-providers-preference", () => ({
+  useShowUnreadyProviders: () => false,
+  setShowUnreadyProviders: () => {},
+}));
 
-const { ClaudeAccountSelect, EffortRow, ModelEngineRail, ModelPicker, ModelVariantRow, modelSelectionForPick } = await import("./ModelPicker");
+const { ClaudeAccountSelect, EffortRow, ModelEngineRail, ModelPicker, ModelVariantRow, modelSelectionForPick, providerRailUnready } = await import("./ModelPicker");
 
 afterAll(() => vi.unstubAllGlobals());
 
@@ -68,6 +72,17 @@ function levelButtons(markup: string): Array<{ label: string; pressed: boolean }
 function renderEffort(instances: InstanceInfo[], effort?: EffortLevel): string {
   fixture.instances = instances;
   return renderToStaticMarkup(createElement(EffortRow, { bot: bot(effort) }));
+}
+
+function railButtons(rail: ReactElement<{ children?: ReactNode }>): Array<ReactElement<Record<string, unknown> & { children?: ReactNode }>> {
+  const walk = (node: ReactNode): Array<ReactElement<Record<string, unknown> & { children?: ReactNode }>> =>
+    Children.toArray(node).flatMap((child) => {
+      if (!isValidElement(child)) return [];
+      const element = child as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+      if (element.type === "button") return [element];
+      return walk(element.props.children);
+    });
+  return walk(rail.props.children);
 }
 
 describe("EffortRow", () => {
@@ -372,7 +387,7 @@ describe("OpenAI sign-ins in the rail", () => {
   it("opens the remembered OpenAI sign-in", () => {
     const onSelect = vi.fn();
     const rail = ModelEngineRail({ instances: [codex, plan], openaiInstance: plan, onSelect });
-    const button = Children.toArray(rail.props.children).find((child) => (child as ReactElement).type === "button") as ReactElement<{ onClick: () => void }>;
+    const button = railButtons(rail)[0] as ReactElement<{ onClick: () => void }>;
     button.props.onClick();
     expect(onSelect).toHaveBeenLastCalledWith(plan);
   });
@@ -400,7 +415,7 @@ describe("Claude provider and account selection", () => {
     const onSelect = vi.fn();
     for (const claudeInstance of [work, undefined]) {
       const rail = ModelEngineRail({ instances: [personal, work], claudeInstance, onSelect });
-      const button = Children.toArray(rail.props.children).find((child) => (child as ReactElement).type === "button") as ReactElement<{ onClick: () => void }>;
+      const button = railButtons(rail)[0] as ReactElement<{ onClick: () => void }>;
       button.props.onClick();
       expect(onSelect).toHaveBeenLastCalledWith(claudeInstance ?? personal);
     }
@@ -412,7 +427,7 @@ describe("Claude provider and account selection", () => {
     for (const claudeInstance of [workIcon, undefined]) {
       const target = claudeInstance ?? personalIcon;
       const rail = ModelEngineRail({ instances: [personalIcon, workIcon], claudeInstance, onSelect: () => {} });
-      const button = Children.toArray(rail.props.children).find((child) => (child as ReactElement).type === "button") as ReactElement<{ children: ReactNode }>;
+      const button = railButtons(rail)[0];
       const mark = Children.toArray(button.props.children)[0] as ReactElement<{ instance: InstanceInfo }>;
       expect(mark.props.instance).toBe(target);
     }
@@ -428,6 +443,86 @@ describe("Claude provider and account selection", () => {
     const select = Children.toArray(dropdown.props.children)[1] as ReactElement<{ onChange: (event: ChangeEvent<HTMLSelectElement>) => void }>;
     select.props.onChange({ target: { value: personal.instanceId } } as ChangeEvent<HTMLSelectElement>);
     expect(onSelect).toHaveBeenCalledExactlyOnceWith(personal);
+  });
+});
+
+describe("unready providers in the rail", () => {
+  const grok: InstanceInfo = {
+    ...engine(), instanceId: "grok", driverKind: "grokAgent", displayName: "Grok",
+    snapshot: { state: "available", authenticated: true },
+  };
+  const kimi: InstanceInfo = {
+    ...engine(), instanceId: "kimi", driverKind: "kimiAgent", displayName: "Kimi",
+    snapshot: { state: "available", authenticated: false },
+  };
+  const qwen: InstanceInfo = {
+    ...engine(), instanceId: "qwen", driverKind: "qwenAgent", displayName: "Qwen", access: "custom",
+    snapshot: { state: "available", authenticated: false },
+  };
+
+  it("treats org attention as unready and ignores an update on a connected engine", () => {
+    expect(providerRailUnready(kimi)).toBe(true);
+    expect(providerRailUnready(grok)).toBe(false);
+    expect(providerRailUnready(grok, { attention: true })).toBe(true);
+    expect(providerRailUnready({ ...grok, snapshot: { ...grok.snapshot, update: { title: "Update", message: "A newer CLI", command: "npm i" } } })).toBe(false);
+  });
+
+  it("folds sign-in required providers in each group and keeps the selected one visible", () => {
+    const html = renderToStaticMarkup(createElement(ModelEngineRail, {
+      instances: [grok, kimi, qwen], selectedInstance: grok, wide: true, onSelect: () => {},
+    }));
+    expect(html).toContain('data-rail-provider="grok"');
+    expect(html).toContain("data-rail-unready");
+    expect(html).toContain("1 needs sign-in or has no access");
+    const cloud = html.slice(html.indexOf(">Cloud<"), html.indexOf(">Local<"));
+    expect(cloud.indexOf('data-rail-provider="grok"')).toBeLessThan(cloud.indexOf("data-rail-unready"));
+    expect(cloud.indexOf("data-rail-unready")).toBeLessThan(cloud.indexOf('data-rail-provider="kimi"'));
+    expect(html.slice(html.indexOf(">Local<"))).toContain("data-rail-unready");
+  });
+
+  it("counts several unready Cloud providers in one fold", () => {
+    const gemini: InstanceInfo = {
+      ...engine(), instanceId: "gemini", driverKind: "geminiAgent", displayName: "Gemini",
+      snapshot: { state: "available", authenticated: false },
+    };
+    const html = renderToStaticMarkup(createElement(ModelEngineRail, {
+      instances: [grok, kimi, gemini], selectedInstance: grok, wide: true, onSelect: () => {},
+    }));
+    expect(html).toContain('data-rail-unready-count="2"');
+    expect(html).toContain("2 need sign-in or have no access");
+  });
+
+  it("folds an org No access yet provider even when the CLI session looks signed in", () => {
+    const opencode: InstanceInfo = {
+      ...engine(), instanceId: "opencode", driverKind: "opencodeGo", displayName: "OpenCode",
+      snapshot: { state: "available", authenticated: true },
+    };
+    const html = renderToStaticMarkup(createElement(ModelEngineRail, {
+      instances: [grok, opencode], selectedInstance: grok, wide: true, onSelect: () => {},
+      statusOf: (instance) => instance.instanceId === "opencode"
+        ? { label: "No access yet", attention: true }
+        : { label: "Connected", attention: false },
+    }));
+    const cloud = html.slice(html.indexOf(">Cloud<"));
+    expect(cloud.indexOf("data-rail-unready")).toBeLessThan(cloud.indexOf('data-rail-provider="opencode"'));
+    expect(html).toContain("No access yet");
+  });
+
+  it("keeps a selected unready provider out of the folded group", () => {
+    const html = renderToStaticMarkup(createElement(ModelEngineRail, {
+      instances: [kimi], selectedInstance: kimi, wide: true, onSelect: () => {},
+    }));
+    expect(html).toContain('data-rail-provider="kimi"');
+    expect(html).not.toContain("data-rail-unready");
+  });
+
+  it("lists unready providers in the group when the appearance setting is on", () => {
+    const html = renderToStaticMarkup(createElement(ModelEngineRail, {
+      instances: [grok, kimi, qwen], selectedInstance: grok, wide: true, showUnready: true, onSelect: () => {},
+    }));
+    expect(html).toContain('data-rail-provider="kimi"');
+    expect(html).toContain('data-rail-provider="qwen"');
+    expect(html).not.toContain("data-rail-unready");
   });
 });
 

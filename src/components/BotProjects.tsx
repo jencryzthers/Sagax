@@ -23,7 +23,7 @@ export function navigateThreadMenu(event: React.KeyboardEvent<HTMLDivElement>) {
   buttons[next]?.focus();
 }
 
-export function FolderActions({ project, canMoveUp, canMoveDown, canMarkRead, saving, menu, onMenuChange, onEdit, onMove, onMarkRead }: {
+export function FolderActions({ project, canMoveUp, canMoveDown, canMarkRead, saving, menu, onMenuChange, onEdit, onMove, onMarkRead, onNewThread }: {
   project: BotProject;
   canMoveUp: boolean;
   canMoveDown: boolean;
@@ -34,6 +34,7 @@ export function FolderActions({ project, canMoveUp, canMoveDown, canMarkRead, sa
   onEdit: () => void;
   onMove: (direction: -1 | 1, onSaved: () => void) => void;
   onMarkRead: (onSaved: () => void) => void;
+  onNewThread?: () => void;
 }) {
   const actionRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -65,6 +66,7 @@ export function FolderActions({ project, canMoveUp, canMoveDown, canMarkRead, sa
       className={cn("fixed z-50 w-[220px] rounded-lg border border-hairline/50 popover-surface bg-card p-1 shadow-xl", motion.className)} {...motion.exitProps}
       onMouseDown={(event) => event.stopPropagation()}
       onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); } else navigateThreadMenu(event); }}>
+      {onNewThread && <button type="button" role="menuitem" onClick={() => { close(); onNewThread(); }} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-[12px] text-ink hover:bg-raised"><Plus size={12} />{t("task.newIn", { name: project.name })}</button>}
       <button type="button" role="menuitem" onClick={() => { close(); onEdit(); }} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-[12px] text-ink hover:bg-raised"><Pencil size={12} />{t("folder.settings")}</button>
       <button type="button" role="menuitem" disabled={!canMarkRead || saving} onClick={() => onMarkRead(close)} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-[12px] text-ink hover:bg-raised disabled:opacity-40"><CheckCheck size={12} />{t("folder.markRead")}</button>
       <button type="button" role="menuitem" disabled={!canMoveUp || saving} onClick={() => move(-1)} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-[12px] text-ink hover:bg-raised disabled:opacity-40"><ArrowUp size={12} />{t("folder.moveUp")}</button>

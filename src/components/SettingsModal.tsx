@@ -71,6 +71,7 @@ import { cn } from "@/lib/cn";
 import { setAdvancedMode, useAdvancedMode } from "@/lib/interface-mode";
 import { simpleHidesSettingsSection } from "@/lib/interface-visibility";
 import { setShowThreads, setThreadsLocation, useShowThreadsChoice, useThreadsLocationChoice, type ThreadsLocation } from "@/lib/thread-preferences";
+import { setShowUnreadyProviders, useShowUnreadyProviders } from "@/lib/unready-providers-preference";
 import { parseSidebarDensity, setSidebarDensity, SIDEBAR_DENSITIES, useSidebarDensity, type SidebarDensity } from "@/lib/sidebar-preferences";
 import { currentPhonePairingTarget } from "@/lib/phone-pairing";
 import { setShowRunCard, useShowRunCard } from "@/lib/run-card-preferences";
@@ -93,7 +94,7 @@ export const SECTIONS: Array<{
 }> = [
   { id: "general", labelKey: "settings.section.general", icon: User, keywords: ["profile", "name", "email", "about me", "about", "suggestions", "suggested", "memory", "updates", "effort", "new bots", "reasoning", "threads", "parallel", "concurrency", "cleanup", "retention", "event log", "event-log", "log size", "automatic recovery", "backup model", "fallback", "routines", "conversation", "schedule"] },
   { id: "organization", labelKey: "settings.section.organization", icon: Building2, keywords: ["company", "organization", "organisation", "sign in", "enroll", "managed", "models", "disconnect", "workspace", "cloud", "hosted", "vps", "server", "servers", "connect", "pair", "switch", "local"] },
-  { id: "appearance", labelKey: "settings.section.appearance", icon: Palette, keywords: ["skin", "theme", "appearance", "advanced", "simple", "mode", "tools", "tool calls", "threads", "show threads", "hide threads", "sidebar", "hidden", "hide", "show", "density", "compact", "comfortable", "avatars", "display", "run", "this run", "run card", "commands", "mascot", "owl", "desktop", "fly", "floating", "app icon", "dock", "icon", "taskbar"] },
+  { id: "appearance", labelKey: "settings.section.appearance", icon: Palette, keywords: ["skin", "theme", "appearance", "advanced", "simple", "mode", "tools", "tool calls", "threads", "show threads", "hide threads", "sidebar", "hidden", "hide", "show", "density", "compact", "comfortable", "avatars", "display", "run", "this run", "run card", "commands", "mascot", "owl", "desktop", "fly", "floating", "app icon", "dock", "icon", "taskbar", "providers", "sign-in", "unconfigured", "fournisseurs", "connexion", "non configurés"] },
   { id: "notifications", labelKey: "settings.section.notifications", icon: Bell, keywords: ["notifications", "notification", "sound", "sounds", "mute", "silent", "chime", "alert", "alerts", "banner", "badge", "dock", "unread", "nudge", "wizz", "shake", "secousse", "son", "persistent", "stay"] },
   { id: "memory", labelKey: "settings.section.memory", icon: BookOpen, keywords: ["memory", "obsidian", "vault", "sync", "git", "perspicax", "mémoire", "cache", "pending"] },
   { id: "privacy", labelKey: "settings.section.privacy", icon: ShieldCheck, keywords: ["privacy", "read receipts", "seen", "vu", "confidentialité", "accusés de lecture", "presence", "online", "away", "offline", "last seen", "status", "en ligne", "absent", "hors ligne", "privacidade"] },
@@ -634,6 +635,19 @@ function ShowThreadsRow() {
         checked={enabled}
         aria-label={t("settings.threadDisplay.show")}
         onClick={() => setShowThreads(!enabled)}
+      />
+    </SettingRow>
+  );
+}
+
+function ShowUnreadyProvidersRow() {
+  const enabled = useShowUnreadyProviders();
+  return (
+    <SettingRow title={t("settings.unreadyProviders.title")} subtitle={t("settings.unreadyProviders.subtitle")}>
+      <Switch
+        checked={enabled}
+        aria-label={t("settings.unreadyProviders.show")}
+        onClick={() => setShowUnreadyProviders(!enabled)}
       />
     </SettingRow>
   );
@@ -1346,6 +1360,7 @@ export function SettingsModal() {
                   {advanced && <InspectorButtonRow />}
                   <ShowThreadsRow />
                   <ThreadsLocationRow />
+                  <ShowUnreadyProvidersRow />
                   <SidebarHiddenSettings />
                   <FloatingFlyAwayRow />
                   <FloatingLivelinessRow />
