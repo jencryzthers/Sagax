@@ -95,6 +95,19 @@ const CONTROL_PLANE_FIXTURE = {
   SAGAX_LICENSE_KEY: "license-should-not-leak", SAGAX_INSTALLATION_CREDENTIAL: "fleet-should-not-leak",
 };
 
+/** Grok mounts connector MCP servers through the gate (tool names Grok cannot
+ * qualify, server/mcp-tool-names.ts); these tests check what is behind it. */
+type AcpServer = { name: string; command: string; args: string[]; env: Array<{ name: string; value: string }> };
+function ungated<T>(value: T): T {
+  const servers = value as unknown as AcpServer[];
+  return servers.map((server) => {
+    const upstream = server.env?.find((entry) => entry.name === "SAGAX_GATE_UPSTREAM")?.value;
+    if (!upstream || !server.env.some((entry) => entry.name === "SAGAX_GATE_TOOL_NAMES")) return server;
+    const spec = JSON.parse(upstream) as { command: string; args: string[]; env: Record<string, string> };
+    return { name: server.name, command: spec.command, args: spec.args, env: Object.entries(spec.env).map(([name, value]) => ({ name, value })) };
+  }) as unknown as T;
+}
+
 describe("skipSubscriptionAuthForLocalInject", () => {
   it("is true only for a host:: inject id", () => {
     expect(skipSubscriptionAuthForLocalInject("omlx::MiniMax-M3-4bit")).toBe(true);
@@ -944,7 +957,7 @@ describe("ACP turns (fake CLI)", () => {
     });
     await recorder.until((event) => event.type === "turn.completed");
     const seen = JSON.parse(readFileSync(dump, "utf8"));
-    expect(seen.mcpServers).toContainEqual({
+    expect(ungated(seen.mcpServers)).toContainEqual({
       name: "notes",
       command: "npx",
       args: ["-y", "@x/notes-mcp"],
@@ -977,16 +990,16 @@ describe("ACP turns (fake CLI)", () => {
       await instance.adapter.sendTurn({ threadId: "t-remote-mcp", text: "go", integrations: { custom: remoteServers } });
       await recorder.until((event) => event.type === "turn.completed");
       const seen = JSON.parse(readFileSync(dump, "utf8"));
-      expect(seen.mcpServers.map((server: { name: string }) => server.name)).toEqual(["docs", "legacy", "notes"]);
+      expect(ungated(seen.mcpServers).map((server: { name: string }) => server.name)).toEqual(["docs", "legacy", "notes"]);
       // never ACP's http/sse shape, so the agent's own client never connects
-      expect(seen.mcpServers.some((server: object) => "url" in server || "type" in server)).toBe(false);
-      const docs = seen.mcpServers.find((server: { name: string }) => server.name === "docs");
+      expect(ungated(seen.mcpServers).some((server: object) => "url" in server || "type" in server)).toBe(false);
+      const docs = ungated(seen.mcpServers).find((server: { name: string }) => server.name === "docs");
       expect(docs.args.join(" ")).toContain("mcp-remote-proxy");
       expect(docs.args.join(" ")).not.toContain("tok-docs");
       expect(proxied(docs)).toEqual(remoteServers.docs);
       // the agent searches tools itself: the catalog passes through
       expect(docs.env.some((entry: { name: string }) => entry.name === "SAGAX_REMOTE_MCP_DIRECTORY")).toBe(false);
-      expect(proxied(seen.mcpServers.find((server: { name: string }) => server.name === "legacy"))).toEqual(remoteServers.legacy);
+      expect(proxied(ungated(seen.mcpServers).find((server: { name: string }) => server.name === "legacy"))).toEqual(remoteServers.legacy);
     } finally {
       delete process.env.FAKE_ACP_MCP_TRANSPORTS;
     }

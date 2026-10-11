@@ -441,6 +441,11 @@ export interface AcpSupport {
   /** A standing line appended to the stable system half (and the full
    * system prompt), delivered with it once per native session. */
   stableSystemHint?: string;
+  /** The agent skips MCP tool names it cannot qualify as `server__tool`
+   * (Grok: a second `__`, a dot, a key over 256). Every MCP server is then
+   * mounted through the gate, which registers each tool under an admissible
+   * alias and maps calls back (server/mcp-tool-names.ts). */
+  mcpToolNames?: "grok";
   /** A context section added to the volatile half each turn. The section
    * split (prompt-split.ts) re-sends it only when its text changes. */
   volatileSection?(input: { botId?: string; serverNames: string[] }): { id: string; text: string } | null;
@@ -957,18 +962,30 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         // user-configured servers, after the built-ins: a residual name
         // collision keeps the built-in (reserved names are filtered at the
         // config boundary; this is defense in depth).
+        const custom = new Set<string>();
         for (const [name, server] of Object.entries(turn.integrations?.custom ?? {})) {
           if (servers.some((existing) => existing.name === name)) continue;
           const stdio = "url" in server ? mcpStdioServer(server, { nodeEnv: { ELECTRON_RUN_AS_NODE: "1" } }) : server;
-          if (!stdio) continue;
+          if (!stdio) {
+            // Never a silent drop: a connector that cannot be mounted says so.
+            console.warn(`[acp] MCP server "${name}" could not be mounted for ${support.displayName}: unsupported server shape; its tools are NOT available this turn`);
+            continue;
+          }
           servers.push({ name, command: stdio.command, args: stdio.args ?? [], env: acpEnv(stdio.env ?? {}) });
+          custom.add(name);
         }
-        if (turn.toolScope === undefined) return servers;
-        return servers.filter((server) => canUseMcpServer(turn.toolScope, server.name)).map((server) => {
+        // Sagax's own servers (agents, composio, browser, computer) name their
+        // tools admissibly; connectors (Perspicax profiles, URL and stdio
+        // servers) can name them anything, so those ride the gate.
+        const toolNames = support.mcpToolNames;
+        const renames = (server: AcpMcpServer) => Boolean(toolNames) && custom.has(server.name);
+        if (turn.toolScope === undefined && !servers.some(renames)) return servers;
+        return servers.filter((server) => turn.toolScope === undefined || canUseMcpServer(turn.toolScope, server.name)).map((server) => {
+          if (turn.toolScope === undefined && !renames(server)) return server;
           const original = { command: server.command, args: server.args, env: Object.fromEntries(server.env.map(({ name, value }) => [name, value])) };
           const gated = gateServer({ name: server.name, server: original, threadId: turn.threadId, budget: 0,
-            toolScope: turn.toolScope, nodeEnv: { ELECTRON_RUN_AS_NODE: "1" } });
-          if (!gated) throw new Error("Tool selection requires an MCP gate.");
+            toolScope: turn.toolScope, nodeEnv: { ELECTRON_RUN_AS_NODE: "1" }, ...(toolNames && renames(server) ? { toolNames } : {}) });
+          if (!gated) throw new Error(turn.toolScope === undefined ? "Tool names require an MCP gate." : "Tool selection requires an MCP gate.");
           return { name: server.name, command: gated.command, args: gated.args, env: acpEnv(gated.env) };
         });
       };

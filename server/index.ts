@@ -284,6 +284,7 @@ import {
 } from "./mcp-registry.ts";
 import { withDisabledTools } from "./mcp-tool-filter.ts";
 import { probeMcpServer } from "./mcp-probe.ts";
+import { readToolNameReports } from "./mcp-tool-name-reports.ts";
 import { callbackPage, DEFAULT_MCP_ACCOUNT, isMcpAccountId, McpOAuthError, McpOAuthManager, McpOAuthVault, parseMcpAccountChoices, phoneOAuthReturns, phoneReturnLocation, resolveVaultKey, type VaultKeySource } from "./mcp-oauth.ts";
 import {
   GROUP_GOAL_MAX_TURNS,
@@ -35215,6 +35216,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return json(res, started.status, started.body);
     }
 
+    // Connector tool-name status: what each MCP gate saw the server advertise
+    // and what the engine registers (renames, anything that could not be
+    // registered). Written by server/mcp-gate.ts; names only, no values.
+    if (method === "GET" && path === "/api/mcp/tool-names") {
+      return json(res, 200, { reports: readToolNameReports() });
+    }
+
     const mcpTest = /^\/api\/mcp\/servers\/([a-z][a-z0-9_-]{0,31})\/test$/.exec(path);
     if (method === "POST" && mcpTest) {
       // Only a configured server is ever probed: the name is looked up among
@@ -35236,12 +35244,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       mcpProbesInFlight += 1;
       try {
         const server = parsed.server;
-        if (!isRemoteMcpServer(server)) return json(res, 200, await probeMcpServer(server, undefined, controller.signal));
+        if (!isRemoteMcpServer(server)) return json(res, 200, await probeMcpServer(server, undefined, controller.signal, name));
         await mcpOAuth.refresh(name, server, false, controller.signal).catch(() => false);
-        let result = await probeMcpServer({ ...server, ...mcpOAuth.withAuthHeaders({ [name]: server })[name] }, undefined, controller.signal);
+        let result = await probeMcpServer({ ...server, ...mcpOAuth.withAuthHeaders({ [name]: server })[name] }, undefined, controller.signal, name);
         // A token the server refuses: one forced refresh, then one retry.
         if (!result.ok && /HTTP 401\b/.test(result.error) && await mcpOAuth.refresh(name, server, true, controller.signal).catch(() => false)) {
-          result = await probeMcpServer({ ...server, ...mcpOAuth.withAuthHeaders({ [name]: server })[name] }, undefined, controller.signal);
+          result = await probeMcpServer({ ...server, ...mcpOAuth.withAuthHeaders({ [name]: server })[name] }, undefined, controller.signal, name);
         }
         if (!result.ok && /HTTP 40[13]\b/.test(result.error)) await mcpOAuth.probe(name, server, controller.signal).catch(() => undefined);
         return json(res, 200, result);

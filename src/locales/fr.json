@@ -4435,5 +4435,7 @@
   "mascot.crabSkin.plain": "Uni",
   "mascot.crabSkin.sand": "Sable",
   "persona.files.collapse": "Replier {name}",
-  "persona.files.expand": "Déplier {name}"
+  "persona.files.expand": "Déplier {name}",
+  "mcp.engineName.renamed": "Grok : enregistré sous {name}.",
+  "mcp.engineName.unregistrable": "Grok : IMPOSSIBLE d'enregistrer cet outil ({reason}) ; les bots sur Grok ne l'ont pas."
 }

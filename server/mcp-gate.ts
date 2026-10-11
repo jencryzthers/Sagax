@@ -24,6 +24,7 @@ import { allowsTool, parseToolScope, type ToolScope } from "../shared/tool-scope
 import { resolveCliSpawn } from "./env-path.ts";
 import { directoryCallTarget, isDirectoryTool } from "./mcp-directory.ts";
 import { DEFAULT_RESULT_BUDGET, trimResultText, trimStructured } from "./mcp-trim.ts";
+import { ToolNameAliases } from "./mcp-tool-names.ts";
 import { killCliTree } from "./procs.ts";
 
 type Json = Record<string, unknown>;
@@ -45,7 +46,7 @@ function gateEnvironment(): NodeJS.ProcessEnv {
   }
 }
 /** The gate's own settings never reach the upstream server's environment. */
-const GATE_ENV_KEYS = ["SAGAX_GATE_NAME", "SAGAX_GATE_SPILL_DIR", "SAGAX_GATE_BUDGET", "SAGAX_GATE_UPSTREAM", "SAGAX_GATE_SPILL_HINT", "SAGAX_GATE_TOOL_SCOPE", "SAGAX_GATE_DIRECTORY"];
+const GATE_ENV_KEYS = ["SAGAX_GATE_NAME", "SAGAX_GATE_SPILL_DIR", "SAGAX_GATE_BUDGET", "SAGAX_GATE_UPSTREAM", "SAGAX_GATE_SPILL_HINT", "SAGAX_GATE_TOOL_SCOPE", "SAGAX_GATE_DIRECTORY", "SAGAX_GATE_TOOL_NAMES", "SAGAX_GATE_REPORT_DIR"];
 const gateEnv = gateEnvironment();
 const NAME = gateEnv.SAGAX_GATE_NAME || "mcp";
 const SPILL_DIR = gateEnv.SAGAX_GATE_SPILL_DIR || "";
@@ -66,6 +67,12 @@ const SPILL_HINT = gateEnv.SAGAX_GATE_SPILL_HINT === "1";
  * runs nothing and is answered by the directory. The proxy guarantees those
  * three names mean nothing else. */
 const DIRECTORY = gateEnv.SAGAX_GATE_DIRECTORY === "1";
+/** `grok`: the engine skips tool names it cannot qualify (mcp-tool-names.ts).
+ * The gate registers every tool under an admissible name and maps calls
+ * back through an explicit alias map. Never a silent drop: every rename and
+ * any tool still unregistrable is logged loudly and written to the report. */
+const ALIASES = gateEnv.SAGAX_GATE_TOOL_NAMES === "grok" ? new ToolNameAliases(NAME) : undefined;
+const REPORT_DIR = gateEnv.SAGAX_GATE_REPORT_DIR || "";
 
 function fail(message: string): never {
   process.stderr.write(`mcp-gate(${NAME}): ${message}\n`);
@@ -193,6 +200,31 @@ function trimCallResult(result: Json, tool: string): boolean {
   return trimmed;
 }
 
+/** The connector status the harness and Settings read: what the server
+ * advertised, what the engine registers, and every rename or failure. */
+function reportToolNames(advertised: string[], outcome: ReturnType<ToolNameAliases["catalog"]>): void {
+  for (const entry of outcome.renamed) {
+    process.stderr.write(`mcp-gate(${NAME}): WARNING tool "${entry.upstream}" is registered for Grok as "${entry.registered}" (${entry.reason}); calls are mapped back\n`);
+  }
+  for (const entry of outcome.unregistrable) {
+    process.stderr.write(`mcp-gate(${NAME}): ERROR tool "${entry.upstream}" cannot be registered for Grok (${entry.reason}); it is NOT available to the bot\n`);
+  }
+  for (const problem of outcome.parity) process.stderr.write(`mcp-gate(${NAME}): ERROR tool parity: ${problem}\n`);
+  if (!REPORT_DIR) return;
+  try {
+    mkdirSync(REPORT_DIR, { recursive: true, mode: 0o700 });
+    const safe = NAME.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 80) || "server";
+    writeFileSync(join(REPORT_DIR, `${safe}.json`), JSON.stringify({
+      server: NAME, engine: "grok", at: new Date().toISOString(), advertised: advertised.length,
+      registered: advertised.length - outcome.unregistrable.length, renamed: outcome.renamed,
+      unregistrable: outcome.unregistrable, parity: outcome.parity,
+      status: outcome.unregistrable.length || outcome.parity.length ? "mismatch" : outcome.renamed.length ? "renamed" : "ok",
+    }, null, 2), { mode: 0o600 });
+  } catch (error) {
+    process.stderr.write(`mcp-gate(${NAME}): could not write the tool-name report: ${String(error)}\n`);
+  }
+}
+
 // Validate before starting a process: corrupt policy must never become pass-through.
 const scope = toolScope();
 const spec = upstreamSpec();
@@ -265,6 +297,14 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   }
   const id = requestKey(message?.id);
   const params = isRecord(message?.params) ? message.params : undefined;
+  // An alias resolves through the map, before any check sees the name.
+  if (ALIASES && message?.method === "tools/call" && params && typeof params.name === "string") {
+    const upstream = ALIASES.upstream(params.name);
+    if (upstream !== params.name) {
+      params.name = upstream;
+      line = JSON.stringify(message);
+    }
+  }
   if (scope && message?.method === "tools/call") {
     if (!id || typeof params?.name !== "string"
       || (params.arguments !== undefined && !isRecord(params.arguments))) {
@@ -284,7 +324,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       const name = typeof params?.name === "string" ? params.name : "tool";
       const target = callTarget(name, params?.arguments);
       pending.set(id, { kind: "call", tool: target ?? name, trim: target !== undefined });
-    } else if (scope) {
+    } else if (scope || (ALIASES && message.method === "tools/list")) {
       pending.set(id, { kind: message.method === "tools/list" ? "list" : "other" });
     }
   }
@@ -322,6 +362,12 @@ createInterface({ input: child.stdout }).on("line", (line) => {
     }
     result.tools = result.tools.filter((tool: Json) => (DIRECTORY && isDirectoryTool(tool.name))
       || allowsTool(scope, { kind: "mcp", server: NAME, name: tool.name as string }));
+  }
+  if (ALIASES && request?.kind === "list" && message.error === undefined && isRecord(result) && Array.isArray(result.tools)) {
+    const tools = result.tools.filter((tool: unknown): tool is Json & { name: string } => isRecord(tool) && typeof tool.name === "string" && tool.name.length > 0);
+    const outcome = ALIASES.catalog(tools);
+    result.tools = outcome.tools;
+    reportToolNames(tools.map((tool) => tool.name), outcome);
   }
   if (request?.kind === "call" && request.trim && isRecord(result)) {
     try {
