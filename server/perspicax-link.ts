@@ -260,6 +260,13 @@ export type RoutineDelegationIssue =
    * token was refused; link: the link token was refused. */
   | { ok: false; error: "unsupported" | "subject" | "link" | "rate_limited" | "unreachable"; retryAfterMs?: number };
 
+/** What a link-authenticated POST answered (linkPostJson): `link` the link
+ * is missing or refused, `unreachable` no answer in time, `too_large` the
+ * answer passed its limit, `refused` a non-2xx answer (its JSON body kept). */
+export type LinkPostResult =
+  | { ok: true; status: number; body: unknown }
+  | { ok: false; error: "link" | "unreachable" | "too_large" | "refused"; status?: number; body?: unknown };
+
 export interface PerspicaxDirectoryOptions {
   /** SAGAX_PERSPICAX_ISSUER: the subjects' `iss`. */
   issuer: string;
@@ -732,6 +739,55 @@ export class PerspicaxDirectory {
     }
     this.keyCache.set(cacheKey, { key, fingerprint, until: this.now() + PROVIDER_KEY_CACHE_MS });
     return { ok: true, key, fingerprint };
+  }
+
+  /** 2026-10-11: POST a JSON body to a Perspicax route that takes the link
+   * token (the memory signals, server/perspicax-memory.ts). A 401 re-reads
+   * the link file once. Bounded by `timeoutMs` and `maxBytes`; never throws,
+   * never logs the token or the body. */
+  async linkPostJson(path: string, body: unknown, limits: { timeoutMs: number; maxBytes: number }): Promise<LinkPostResult> {
+    let link = this.link ?? this.readLink();
+    if (!link) return { ok: false, error: "link" };
+    const payload = JSON.stringify(body);
+    const call = (token: string) => this.fetcher(`${this.options.serverBase.replace(/\/+$/, "")}${path}`, {
+      method: "POST",
+      redirect: "error",
+      signal: AbortSignal.timeout(limits.timeoutMs),
+      headers: { accept: "application/json", "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: payload,
+    });
+    let response: Response;
+    try {
+      response = await call(link.linkToken);
+      if (response.status === 401) {
+        void response.body?.cancel().catch(() => {});
+        const again = this.readLink();
+        if (!again) return { ok: false, error: "link" };
+        link = again;
+        response = await call(link.linkToken);
+      }
+    } catch {
+      return { ok: false, error: "unreachable" };
+    }
+    if (response.status === 401 || response.status === 403) {
+      void response.body?.cancel().catch(() => {});
+      return { ok: false, error: "link", status: response.status };
+    }
+    let text: string | null;
+    try {
+      text = await readLimited(response, limits.maxBytes);
+    } catch {
+      return { ok: false, error: "unreachable" };
+    }
+    if (text === null) return { ok: false, error: "too_large", status: response.status };
+    let parsed: unknown = null;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      parsed = null;
+    }
+    if (response.status < 200 || response.status >= 300) return { ok: false, error: "refused", status: response.status, body: parsed };
+    return { ok: true, status: response.status, body: parsed };
   }
 
   /** A person's avatar at a given version, read through the link and kept

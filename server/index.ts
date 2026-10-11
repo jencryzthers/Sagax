@@ -513,7 +513,7 @@ import { redactSecretsInText } from "./redact.ts";
 import * as vps from "./vps-computer.ts";
 import { runAsOptions, runAsRefusal, type RunAsChooser, type RunAsPerson } from "./routine-run-as.ts";
 import { parseRoutineScopeQuery, routineRunClearable, routineScopeRefusal, scopedRoutineListing, type RoutineScopeCaller, type RoutineScopeDeps, type RoutineScopeFacts } from "./routine-scope.ts";
-import { RoutineManager, setRoutineTimeZone, type Routine, type RoutineAdmission, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger, type RoutineSuspendReason } from "./routines.ts";
+import { RoutineManager, setRoutineTimeZone, type Routine, type RoutineAdmission, type RoutineMemoryHint, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger, type RoutineSuspendReason } from "./routines.ts";
 import { RoutineConsents, routineRenewMs, type RoutineConsentEnd } from "./org-routine-consent.ts";
 import { CalendarCallManager, type CalendarCall } from "./calendar-calls.ts";
 import { BUILT_IN_BROWSER_SYSTEM_PROMPT } from "./browser-engine.ts";
@@ -818,6 +818,7 @@ import { IDP_REFRESH_WAIT_MS, IDP_SWEEP_INTERVAL_MS, IdpGrantVault, IdpSessionMa
 import { acceptOpenInvitesForEmail, createPublicInviteRoutes, createSoloOrgRoutes, inviteMailMessage, PUBLIC_INVITE_PATH, type OrgState } from "./org-routes.ts";
 import { createDirectGrantRoutes } from "./direct-grants.ts";
 import { directoryIntervalMs, PerspicaxDirectory, type ModelProvider } from "./perspicax-link.ts";
+import { duplicateNote, PerspicaxMemory } from "./perspicax-memory.ts";
 import { PERSPICAX_UNAVAILABLE_WHY, PerspicaxMcp, perspicaxUnavailableRow, type PerspicaxUnavailableReason } from "./perspicax-mcp.ts";
 import { createPerspicaxOrgRoutes, orgDirectoryEntries, type OrgSettings, type PendingAdminApproval } from "./perspicax-org-routes.ts";
 import { ORG_FULL_ACCESS_DEFAULT_MARKER, orgFullAccessAllowed, orgFullAccessGrandfathered, orgFullAccessGrantRefusal, orgFullAccessHolds, orgNewBotApprovalMode, ORG_FULL_ACCESS_DISABLED } from "./org-full-access.ts";
@@ -3016,6 +3017,9 @@ const internalCapabilities = new Map<string, InternalCapability>();
  * the server is linked to Perspicax; declared here because capability revokes
  * reach it. */
 let perspicaxMcp: PerspicaxMcp | null = null;
+/** 2026-10-11: the work rows and duplicate checks sent to Perspicax's
+ * organization memory (server/perspicax-memory.ts); null without a link. */
+let perspicaxMemory: PerspicaxMemory | null = null;
 /** The revocations started by the last revokeAllInternalCapabilities (shutdown waits for them). */
 let perspicaxEnding: Promise<void> = Promise.resolve();
 const activeInternalGenerationByThread = new Map<string, string>();
@@ -4334,6 +4338,42 @@ function perspicaxServerName(label: string, taken: ReadonlySet<string>): string 
     if (!taken.has(candidate)) return candidate;
   }
 }
+/** The Perspicax user id of a principal of this organization, or null (the
+ * operator, an interim or local principal, another issuer). */
+function perspicaxSubOf(principalId: string): string | null {
+  if (IDENTITY.kind !== "perspicax" || !principalId || !isPrincipalId(principalId)) return null;
+  const person = principals.byId(principalId);
+  return person?.subject?.iss === IDENTITY.issuer && person.disabledAt === undefined ? person.subject.sub : null;
+}
+/** 2026-10-11: a turn with Perspicax tools mounted starts vendor work: one
+ * row of the organization's work log, metadata only (never the message). */
+function recordPerspicaxWork(bot: BotRecord, threadId: string, speaker: TurnSpeaker, principalId: string, profiles: readonly string[]): void {
+  const person = perspicaxSubOf(principalId);
+  if (!person || !perspicaxMemory) return;
+  const routine = routineLineage(speaker);
+  const origin = IDENTITY.kind === "perspicax" ? IDENTITY.publicOrigin.replace(/\/+$/, "") : "";
+  perspicaxMemory.recordWork({
+    person,
+    actor_kind: routine || speaker.origin === "peer" ? "bot" : "person",
+    intent: `${routine ? "Routine run" : "Turn"} on ${bot.name} with ${profiles.join(", ")}`,
+    action: routine ? "run" : "turn",
+    objects: [`sagax:bot:${bot.id}`, `sagax:thread:${threadId}`],
+    // the turn just started: in progress
+    result: "partial",
+    ...(origin ? { link: `${origin}/#thread=${encodeURIComponent(threadId)}&bot=${encodeURIComponent(bot.id)}` } : {}),
+  });
+}
+/** 2026-10-11: before a routine run, whether the organization memory knows
+ * of similar work (bounded, fail open). */
+async function routineMemoryHint(run: RoutineRun, prompt: string): Promise<{ hint: RoutineMemoryHint; note: string } | null> {
+  const bot = store.bot(run.botId);
+  if (!perspicaxMemory || !bot) return null;
+  const runAs = run.runAs ?? effectiveRunAs({ botId: run.botId });
+  const person = runAs ? perspicaxSubOf(runAs) : null;
+  if (!person) return null;
+  const hint = await perspicaxMemory.checkDuplicates({ person, text: prompt, objects: [`sagax:routine:${run.routineId}`] });
+  return hint ? { hint, note: duplicateNote(hint) } : null;
+}
 /** The engine servers, the system note and the activity rows of a turn's
  * Perspicax profiles, for whoever speaks (never the owner for someone
  * else). Nothing in solo mode, without a link, or for a bot without
@@ -4369,6 +4409,7 @@ async function perspicaxTurnIntegration(input: {
     speakerOrigin: input.speaker.origin,
     ...(routine ? { routine: true } : {}),
   });
+  if (plan.mounted.length && !input.quiet) recordPerspicaxWork(live, input.threadId, input.speaker, speakerPrincipalId, plan.mounted.map((profile) => profile.name));
   const custom: Record<string, McpServerSpec> = {};
   const taken = new Set(input.taken);
   for (const profile of plan.mounted) {
@@ -15312,6 +15353,7 @@ routines = new RoutineManager({
     : payload),
   ...(IDENTITY.kind === "perspicax" ? {
     admit: routineAdmission,
+    memoryHint: routineMemoryHint,
     onSuspended: routineSuspended,
     onResumed: (routine: Routine) => routineAudit("routine.resumed", effectiveRunAs(routine), { routine }),
   } : {}),
@@ -24140,6 +24182,7 @@ if (IDENTITY.kind === "perspicax" && oidcRp && idpSessions && process.env.SAGAX_
   perspicaxDirectory.start(intervalMs);
   // Slice 5: per-turn MCP tokens for the person who speaks.
   const directory = perspicaxDirectory;
+  perspicaxMemory = new PerspicaxMemory({ link: () => directory });
   const issuer = IDENTITY.issuer;
   perspicaxMcp = new PerspicaxMcp({
     issuer,

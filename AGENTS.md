@@ -115,6 +115,36 @@ automatically for the signed-in person (today pasted from the Perspicax
 console page `/console/memory/sync`), a file watcher (the sync runs from the
 button).
 
+## Organization memory signals (2026-10-11)
+
+Perspicax keeps the organization's work log and a duplicate detector over
+it (its `docs/memory.md` "Work log" and "Duplicate detector"). Sagax feeds
+them with the link token (`server/perspicax-memory.ts`, `linkPostJson` in
+`server/perspicax-link.ts`). Keep these rules, covered by
+`server/perspicax-memory.test.ts` (a fake Perspicax over HTTP) and
+`server/routines.test.ts` ("the organization memory before a run"):
+
+- A turn that mounts Perspicax profiles (`perspicaxTurnIntegration`, not a
+  quiet call warm) queues one `POST /api/v1/memory/work` row: the person's
+  Perspicax user id, `actor_kind` `bot` for routine lineage and peers else
+  `person`, `action` `run` or `turn`, `result` `partial` (just started), an
+  intent built from the bot's and profiles' names only (never the message),
+  objects `sagax:bot:<id>` and `sagax:thread:<id>`, and the thread link.
+  Rows are batched (50 at most, Perspicax's cap), one batch in flight, at
+  most 500 waiting; a refused or failed batch is dropped and logged once.
+- Before a routine run's turn (`RoutineManagerOptions.memoryHint`, after
+  admission), `POST /api/v1/memory/duplicates` with the run-as person and
+  the routine's own instructions (4,000 characters at most; Perspicax never
+  stores them). Hints are kept on the run (`RoutineRun.memoryHint`, at most
+  three, the intent and link only for a tier the person reads; redacted in
+  a wider routine scope) and a short note naming the `work:<id>` pointers
+  follows the run's prompt. The run waits at most
+  `ROUTINE_MEMORY_HINT_MAX_MS` (2 s; the call itself 1.5 s).
+- Fail open everywhere: no turn or run ever waits on, or fails because of,
+  these calls; nothing is sent for a speaker with no Perspicax identity; no
+  token, prompt or answer body is logged. `feedback` (`POST
+  /api/v1/memory/feedback`) is in the client, not wired to a turn yet.
+
 ## Mail settings
 
 Settings > Email (`src/components/MailSettings.tsx`, `server/mail-routes.ts`,
