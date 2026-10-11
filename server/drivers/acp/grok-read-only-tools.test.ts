@@ -28,7 +28,7 @@ describe("grokReadOnlyAllowRules", () => {
 
   it("allows only the reviewed read tools on a Perspicax bridge", () => {
     const rules = grokReadOnlyAllowRules({ custom: { perspicax_jc: bridge() } });
-    expect(rules).toEqual([...PERSPICAX_READ_ONLY_TOOLS].map((n) => `MCPTool(perspicax_jc__${n})`).sort());
+    expect(rules).toEqual([...PERSPICAX_READ_ONLY_TOOLS, "cw_psa_query"].map((n) => `MCPTool(perspicax_jc__${n})`).sort());
     expect(rules).toContain("MCPTool(perspicax_jc__cw_psa__query)");
     expect(rules).toContain("MCPTool(perspicax_jc__memory_search)");
   });
@@ -39,6 +39,10 @@ describe("grokReadOnlyAllowRules", () => {
       expect(rules.some((rule) => rule.endsWith(`__${tool})`))).toBe(false);
     }
     expect(rules.some((rule) => rule.includes("sagax-environment__run_command"))).toBe(false);
+    // nor their gate aliases (cw_psa__write -> cw_psa_write)
+    for (const alias of ["cw_psa_write", "cw_psa_action"]) {
+      expect(rules.some((rule) => rule.endsWith(`__${alias})`))).toBe(false);
+    }
     // agents write tools stay gated too
     for (const tool of ["create_bot", "send_message", "delegate", "workspace_write", "create_routine"]) {
       expect(rules).not.toContain(`MCPTool(agents__${tool})`);

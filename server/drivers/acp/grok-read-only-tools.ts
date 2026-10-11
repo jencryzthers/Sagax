@@ -50,6 +50,11 @@ export function isPerspicaxBridge(server: McpServerSpec | undefined, bridgePath:
     && typeof spec.env?.SAGAX_PERSPICAX_PROFILE === "string" && spec.env.SAGAX_PERSPICAX_PROFILE !== "";
 }
 
+/** Grok's admissible alias of a reviewed tool name (`_` runs -> `_`). */
+function grokAlias(tool: string): string {
+  return tool.replace(/_{2,}/g, "_");
+}
+
 /** The `--allow` rules for this turn's read-only tools, sorted and unique. */
 export function grokReadOnlyAllowRules(integrations: Integrations, bridgePath?: string): string[] {
   const names = new Set<string>();
@@ -59,7 +64,15 @@ export function grokReadOnlyAllowRules(integrations: Integrations, bridgePath?: 
   for (const [server, spec] of Object.entries(integrations?.custom ?? {})) {
     // a custom entry cannot stand in for the built-in agents server
     if (server === "agents" || !SAFE_SERVER.test(server) || !isPerspicaxBridge(spec, bridgePath)) continue;
-    for (const tool of PERSPICAX_READ_ONLY_TOOLS) names.add(`${server}__${tool}`);
+    for (const tool of PERSPICAX_READ_ONLY_TOOLS) {
+      names.add(`${server}__${tool}`);
+      // Grok cannot name a tool with a second `__`; Sagax's MCP gate
+      // registers it under its alias with `_` runs collapsed (cw_psa__query
+      // -> cw_psa_query, mcp-tool-names.ts), so the reviewed tool keeps its
+      // rule under that name. The Perspicax catalog has no tool of its own
+      // named like an alias.
+      if (tool.includes("__")) names.add(`${server}__${grokAlias(tool)}`);
+    }
   }
   return [...names].sort().map((name) => `MCPTool(${name})`);
 }
