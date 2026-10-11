@@ -201,7 +201,7 @@ public final class LiveCallEngine {
     private var enrolling: (recorder: CallEnrollmentRecorder, progress: (Double) -> Void, done: CheckedContinuation<CallVoiceprint?, Never>)?
 
     /// "Soft tone": how long after the person stopped a slow answer gets the
-    /// tone (the desktop's THINKING_CUE_MS, 1.2 s).
+    /// tone (the desktop's THINKING_CUE_MS, 1.2 s; 0.4 s under full duplex).
     public var thinkingCueSeconds: TimeInterval = 1.2
     private var cueTask: Task<Void, Never>?
     private var cueTurn = 0
@@ -455,6 +455,9 @@ public final class LiveCallEngine {
     // MARK: - The state machine's effects
 
     private func dispatch(_ event: CallEvent) {
+        let duplex = settings().fullDuplex
+        if state.duplex != duplex { state.duplex = duplex }
+        thinkingCueSeconds = duplex ? 0.4 : 1.2
         // A turn that starts right after the last one, before the bot said a
         // word, is the same utterance cut by a pause: it is sent whole, and
         // the turn the fragment started is stopped.

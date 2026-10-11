@@ -118,14 +118,18 @@ public struct CallSettings: Codable, Equatable, Sendable {
     /// `LiveCallEngine.thinkingCueSeconds` after the person stopped), so the
     /// silence is not a dead line
     public var thinkingCue: Bool
+    /// Advanced: talking while the bot works or speaks cancels that reply
+    /// and never stacks the next ones. Off by default.
+    public var fullDuplex: Bool
 
-    public init(input: Input = .auto, earcons: Bool = true, pause: CallPause = .normal, advancedOpen: Bool = false, onlyMyVoice: Bool = true, thinkingCue: Bool = true) {
+    public init(input: Input = .auto, earcons: Bool = true, pause: CallPause = .normal, advancedOpen: Bool = false, onlyMyVoice: Bool = true, thinkingCue: Bool = true, fullDuplex: Bool = false) {
         self.input = input
         self.earcons = earcons
         self.pause = pause
         self.advancedOpen = advancedOpen
         self.onlyMyVoice = onlyMyVoice
         self.thinkingCue = thinkingCue
+        self.fullDuplex = fullDuplex
     }
 
     public static let storageKey = "omb.voiceCall.v1"
@@ -140,14 +144,15 @@ public struct CallSettings: Codable, Equatable, Sendable {
             pause: (record["pause"] as? String).flatMap(CallPause.init(rawValue:)) ?? .normal,
             advancedOpen: record["advancedOpen"] as? Bool ?? false,
             onlyMyVoice: record["onlyMyVoice"] as? Bool ?? true,
-            thinkingCue: record["thinkingCue"] as? Bool ?? true
+            thinkingCue: record["thinkingCue"] as? Bool ?? true,
+            fullDuplex: record["fullDuplex"] as? Bool ?? false
         )
     }
 
     public var encoded: String {
         let record: [String: Any] = [
             "input": input.rawValue, "earcons": earcons, "pause": pause.rawValue, "advancedOpen": advancedOpen,
-            "onlyMyVoice": onlyMyVoice, "thinkingCue": thinkingCue,
+            "onlyMyVoice": onlyMyVoice, "thinkingCue": thinkingCue, "fullDuplex": fullDuplex,
         ]
         let data = (try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])) ?? Data()
         return String(decoding: data, as: UTF8.self)

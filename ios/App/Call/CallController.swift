@@ -561,7 +561,8 @@ final class CallController: ObservableObject {
                     // delivers it once, whatever retries (desktop LiveCall)
                     let meta = VoiceCallMeta(
                         callId: callId, interrupted: turn.interrupted, language: voiceSettings.language,
-                        utteranceId: "utt-" + UUID().uuidString.lowercased(), cut: turn.cut, continues: turn.continues
+                        utteranceId: "utt-" + UUID().uuidString.lowercased(), cut: turn.cut, continues: turn.continues,
+                        duplex: callSettings.fullDuplex
                     )
                     var sent = await session.sendCallTurn(words, to: bot, threadId: threadId, voiceCall: meta)
                     if !sent, self.target?.id == target.id {

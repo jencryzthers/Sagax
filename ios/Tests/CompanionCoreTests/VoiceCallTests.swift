@@ -67,6 +67,16 @@ final class CallMachineTests: XCTestCase {
         XCTAssertEqual(talk.state.phase, .hearing)
     }
 
+    func testDuplexTalkingWhileTheBotWorksSilentlyCancelsIt() {
+        var working = CallMachine.step(CallMachine.step(.initial, .connected).state, .botBusy(true)).state
+        working.duplex = true
+        XCTAssertEqual(working.phase, .thinking)
+        let talk = CallMachine.step(working, .speechStart)
+        XCTAssertEqual(talk.effects, [.cancelSpeech, .earcon(.interrupted), .interruptBot])
+        XCTAssertEqual(talk.state.phase, .interrupted)
+        XCTAssertFalse(talk.state.botAudible)
+    }
+
     func testTheInterruptButtonStopsTheVoiceButNotTheTurn() {
         let (state, effects) = run([.connected, .botBusy(true), .botAudioStart, .interrupt])
         XCTAssertEqual(state.phase, .thinking)
@@ -734,7 +744,17 @@ final class VoiceModeClientTests: XCTestCase {
         XCTAssertEqual(call["interrupted"] as? Bool, true)
         XCTAssertEqual(call["language"] as? String, "fr")
         XCTAssertEqual(call["utteranceId"] as? String, "utt-0123456789abcdef")
+        XCTAssertNil(call["duplex"])
         XCTAssertEqual(json["sendId"] as? String, "utt-0123456789abcdef", "the utterance is the send: delivered once")
+    }
+
+    func testADuplexCallTurnMarksTheSend() async throws {
+        VoiceStub.body = Data(#"{"ok":true}"#.utf8)
+        try await client.send(text: "Bonjour", toBot: "ara", threadId: "th-1", voiceCall: VoiceCallMeta(callId: "c-12345678", duplex: true))
+        let (_, body) = try XCTUnwrap(VoiceStub.requests.first)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(body)) as? [String: Any])
+        let call = try XCTUnwrap(json["voiceCall"] as? [String: Any])
+        XCTAssertEqual(call["duplex"] as? Bool, true)
     }
 
     func testTheCallTellsTheServerItStartsAndEnds() async throws {
