@@ -30,6 +30,13 @@ export const STATIC_GROK_MODELS: ModelCatalog = {
   ],
 };
 
+/** Appended to the stable system half of every Grok turn (acp/core.ts
+ * stableSystemHint): skip a search round for tools already discovered. */
+export const GROK_TOOL_REUSE_HINT =
+  "\n\nTool calls: each search_tool call costs a full extra round trip. When search_tool already showed you a tool earlier in this conversation," +
+  " call it again directly with use_tool (same tool_name, arguments per the schema you saw) instead of searching again. Use search_tool only for a tool you have not seen yet," +
+  " and when one search returns several tools you need, call them without searching again.";
+
 const SLUG = /^[a-z0-9][a-z0-9._-]*$/i;
 
 /** Grok's own home: `$GROK_HOME`, else `~/.grok`. Its grok.com sign-in,
@@ -816,6 +823,13 @@ const support: AcpSupport = {
   // reach the agent-stdio system prompt (verified against 1.0.0), so the
   // persona is prepended codex-style.
   buildPromptText: (turn) => (turn.system ? `${turn.system}\n\n${turn.text}` : turn.text),
+
+  // Grok reaches every Sagax MCP tool through search_tool then use_tool, and
+  // each of those is a full model round trip carrying the whole context.
+  // Measured on the GOX server (2026-10-11): a one-tool turn took three
+  // rounds (search_tool, use_tool, answer), ~3.5 s each. A tool already found
+  // in this conversation needs no second search.
+  stableSystemHint: GROK_TOOL_REUSE_HINT,
 };
 
 export const GrokAgentDriver = createAcpDriver(support);

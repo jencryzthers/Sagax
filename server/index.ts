@@ -14701,6 +14701,7 @@ async function startTurn(
         system: prompt.text,
         systemStable: prompt.stable,
         systemVolatile: prompt.volatile,
+        systemVolatileSections: prompt.volatileSections,
         // the mentions half describes this turn: identical consecutive tags
         // must still deliver their note (SendTurnInput.mentionTurn)
         // and so does an interrupted call turn's marker
@@ -17535,6 +17536,7 @@ async function runGroupMemberTurn(
         system: roomSystem.text,
         systemStable: roomSystem.stable,
         systemVolatile: roomSystem.volatile,
+        systemVolatileSections: roomSystem.volatileSections,
         cwd,
         integrations,
         ...(withholdHostToolsFor(instance) ? { withholdHostTools: true } : {}),

@@ -50,7 +50,7 @@ export function buildSystemPrompt(
   persona: string,
   soul: string,
   parts: PromptPart[],
-): { text: string; sections: PromptSection[]; stable: string; volatile: string } {
+): { text: string; sections: PromptSection[]; stable: string; volatile: string; volatileSections: Array<{ id: string; text: string }> } {
   // RULES.md (server/workspace-files.ts) rides right after the soul and
   // before everything else, wherever a call site lists it: hard constraints
   // belong next to the standing instructions, ahead of memory.
@@ -65,7 +65,13 @@ export function buildSystemPrompt(
     .map((part) => ({ ...part, bytes: Buffer.byteLength(part.text, "utf8") }));
   const halves = (volatile: boolean) =>
     sections.filter((section) => VOLATILE_SECTIONS.has(section.id) === volatile).map((section) => section.text).join("");
-  return { text: sections.map((section) => section.text).join(""), sections, stable: halves(false), volatile: halves(true) };
+  return {
+    text: sections.map((section) => section.text).join(""),
+    sections,
+    stable: halves(false),
+    volatile: halves(true),
+    volatileSections: sections.filter((section) => VOLATILE_SECTIONS.has(section.id)).map(({ id, text }) => ({ id, text })),
+  };
 }
 
 // The "box*" prompt kinds are Boat's historical kind literals; events and
