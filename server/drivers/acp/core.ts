@@ -162,7 +162,11 @@ interface AcpTurn {
     usageCompacted: boolean;
     /** The context window the agent reports beside `used` (ACP `size`). */
     usageSize?: number | null;
+    /** the agent streamed something (text, thought, tool) for this prompt */
+    promptActivity?: boolean;
   };
+  /** inputs of this turn's tool calls by id, for onToolCompleted */
+  toolInputs?: Map<string, unknown>;
   acknowledge: () => void;
   asks: Map<string, AcpAskFinish>;
   /** Tool calls the agent started and has not yet reported finished. A tool
@@ -437,6 +441,14 @@ export interface AcpSupport {
   /** A standing line appended to the stable system half (and the full
    * system prompt), delivered with it once per native session. */
   stableSystemHint?: string;
+  /** A context section added to the volatile half each turn. The section
+   * split (prompt-split.ts) re-sends it only when its text changes. */
+  volatileSection?(input: { botId?: string; serverNames: string[] }): { id: string; text: string } | null;
+  /** A tool call finished successfully, with the input it was started with. */
+  onToolCompleted?(input: { botId?: string; rawInput: unknown }): void;
+  /** Ask once more when the agent sends nothing at all (no text, thought or
+   * tool call, no question) for this many ms after the prompt; 0 is off. */
+  stallRetryMs?(): number;
   /** Rewrite a picker id (`omlx::model`) into the CLI-native id before spawn
    * and session/select. Local inject writers live here so the child sees a
    * model it already knows. */
@@ -1448,6 +1460,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           }
           if (current && ["agent_message_chunk", "agent_thought_chunk", "tool_call", "tool_call_update"].includes(p.update?.sessionUpdate)) {
             current.state.startupActivity = true;
+            if (current.state.promptSent) current.state.promptActivity = true;
           }
           if (!current || !current.state.promptSent) return;
           const u = p.update ?? {};
@@ -1481,6 +1494,9 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             case "tool_call": {
               current.flushAssistantText();
               trackRunningTool(current, u, "pending");
+              if (support.onToolCompleted && typeof u.toolCallId === "string" && u.rawInput !== undefined) {
+                (current.toolInputs ??= new Map()).set(u.toolCallId, u.rawInput);
+              }
               emit({
                 ...base(threadId, current.turnId),
                 type: "item.started",
@@ -1497,6 +1513,13 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               trackRunningTool(current, u);
               if (u.status === "completed" || u.status === "failed") {
                 current.state.producedItem = true;
+                if (support.onToolCompleted && typeof u.toolCallId === "string") {
+                  const rawInput = u.rawInput ?? current.toolInputs?.get(u.toolCallId);
+                  current.toolInputs?.delete(u.toolCallId);
+                  if (u.status === "completed" && rawInput !== undefined) {
+                    try { support.onToolCompleted({ botId: current.turn.botId, rawInput }); } catch { /* bookkeeping only */ }
+                  }
+                }
                 emit({
                   ...base(threadId, current.turnId),
                   type: "item.completed",
@@ -2283,8 +2306,20 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             // the stable half, so it rides once per session like the rest.
             const hint = support.stableSystemHint ?? "";
             const split = promptHalves(turn);
-            const halves = hint && split.stable !== null ? { ...split, stable: split.stable + hint } : split;
+            let halves = hint && split.stable !== null ? { ...split, stable: split.stable + hint } : split;
             if (hint && promptTurn.system) promptTurn = { ...promptTurn, system: promptTurn.system + hint };
+            // A support's own context section (Grok: the tools this bot
+            // already used) rides the volatile half as one more section, so
+            // a change re-sends that section alone.
+            let volatileSections = turn.systemVolatileSections;
+            const extraSection = halves.stable !== null
+              ? support.volatileSection?.({ botId: turn.botId, serverNames: mcpServers.map((server) => server.name) }) ?? null
+              : null;
+            if (extraSection && extraSection.text.trim()) {
+              halves = { ...halves, volatile: halves.volatile ? `${halves.volatile}\n\n${extraSection.text}` : extraSection.text };
+              volatileSections = [...(volatileSections ?? []), extraSection];
+              if (promptTurn.system) promptTurn = { ...promptTurn, system: `${promptTurn.system}\n\n${extraSection.text}` };
+            }
             let promptInput = promptTurn;
             if (halves.stable !== null) {
               const receiptKey = JSON.stringify([threadId, sessionId]);
@@ -2300,7 +2335,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                 promptTurn.text,
                 Boolean(turn.mentionTurn),
                 ACP_PROMPT_RE_ANCHOR_TURNS,
-                turn.systemVolatileSections,
+                volatileSections,
               );
               promptInput = { ...promptTurn, system: "", text: composed.text };
               pendingSplitReceipt = { key: receiptKey, receipt: composed.receipt, previous: previousReceipt };
@@ -2324,7 +2359,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             acknowledge();
             const promptIdleMs = promptIdleTimeoutMs();
             const quiet = startQuietWatch(threadId, session, current);
-            const result = await request(
+            const sendPrompt = () => request(
               "session/prompt",
               { sessionId, prompt: [{ type: "text", text }, ...imageBlocks] },
               undefined,
@@ -2337,6 +2372,41 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                   "Send the message again to retry. On a self-hosted server, SAGAX_ACP_PROMPT_IDLE_TIMEOUT_MS sets this limit (0 turns it off).";
               },
               );
+            // A Grok-side stall: the provider sometimes takes 30-90 s to its
+            // first token (measured on the GOX server, 2026-10-11; the CLI
+            // logged a single attempt each time). When nothing at all has come
+            // back - no text, thought, tool call or question - nothing has run
+            // and nothing was approved, so the prompt is cancelled and asked
+            // once more. Any sign of life, a running tool or an open ask turns
+            // the retry off for this turn.
+            const stallMs = support.stallRetryMs?.() ?? 0;
+            let result: any;
+            if (stallMs > 0) {
+              state.promptActivity = false;
+              let stalled = false;
+              const stallTimer = setTimeout(() => {
+                if (state.promptActivity || state.settled || state.stopped || session.closing || session.current !== current
+                    || current.asks.size || current.runningTools.size) return;
+                stalled = true;
+                emit({
+                  ...base(threadId, turnId),
+                  type: "runtime.notice",
+                  message: `${support.displayName} sent nothing for ${Math.round(stallMs / 1000)} s, so Sagax asked again.`,
+                });
+                session.acp.send({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId } });
+              }, stallMs);
+              stallTimer.unref?.();
+              try {
+                result = await sendPrompt();
+              } finally {
+                clearTimeout(stallTimer);
+              }
+              if (stalled && result?.stopReason === "cancelled" && !state.promptActivity && !state.stopped && !state.settled && !session.closing) {
+                result = await sendPrompt();
+              }
+            } else {
+              result = await sendPrompt();
+            }
             if (pendingSplitReceipt) {
               // session/prompt resolving is the acceptance boundary: a
               // rejected prompt leaves the receipt unwritten, so the next

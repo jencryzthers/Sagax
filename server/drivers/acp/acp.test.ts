@@ -1585,6 +1585,64 @@ describe("ACP turns (fake CLI)", () => {
     expect(instance.adapter.hasSession("t-stall-tool")).toBe(false);
   });
 
+  describe("Grok stall retry", () => {
+    const promptCount = (file: string) => readFileSync(file, "utf8").trim().split("\n")
+      .filter((line) => JSON.parse(line).method === "session/prompt").length;
+    afterEach(() => {
+      delete process.env.SAGAX_GROK_STALL_RETRY_MS;
+      delete process.env.FAKE_ACP_RPC_APPEND_FILE;
+    });
+
+    it("asks once more when Grok sends nothing at all, and the turn completes", async () => {
+      process.env.SAGAX_GROK_STALL_RETRY_MS = "150";
+      const appendFile = join(scratch, "rpc-stall.jsonl");
+      process.env.FAKE_ACP_RPC_APPEND_FILE = appendFile;
+      await create(GrokAgentDriver, "stall-first-prompt");
+      await instance.adapter.sendTurn({ threadId: "t-stall-retry", text: "go" });
+      expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+      expect(promptCount(appendFile)).toBe(2);
+      const notices = recorder.events.filter((e) => e.type === "runtime.notice") as Array<{ message: string }>;
+      expect(notices.some((n) => /so Sagax asked again/.test(n.message))).toBe(true);
+      expect(recorder.events.some((e) => e.type === "content.delta")).toBe(true);
+    });
+
+    it("retries only once: a second silence is left to the idle guard", async () => {
+      process.env.SAGAX_GROK_STALL_RETRY_MS = "100";
+      process.env.SAGAX_ACP_PROMPT_IDLE_TIMEOUT_MS = "600";
+      const appendFile = join(scratch, "rpc-hang.jsonl");
+      process.env.FAKE_ACP_RPC_APPEND_FILE = appendFile;
+      await create(GrokAgentDriver, "hang");
+      await instance.adapter.sendTurn({ threadId: "t-stall-twice", text: "go" });
+      expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: false });
+      expect(promptCount(appendFile)).toBe(2);
+    });
+
+    it("never retries once Grok has streamed anything", async () => {
+      process.env.SAGAX_GROK_STALL_RETRY_MS = "100";
+      process.env.SAGAX_ACP_PROMPT_IDLE_TIMEOUT_MS = "500";
+      const appendFile = join(scratch, "rpc-text.jsonl");
+      process.env.FAKE_ACP_RPC_APPEND_FILE = appendFile;
+      await create(GrokAgentDriver, "stall-after-text");
+      await instance.adapter.sendTurn({ threadId: "t-stall-text", text: "go" });
+      expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: false, stopReason: "rpc_error" });
+      expect(promptCount(appendFile)).toBe(1);
+      expect((recorder.events.filter((e) => e.type === "runtime.notice") as Array<{ message: string }>)
+        .some((n) => /asked again/.test(n.message))).toBe(false);
+    });
+
+    it("never retries while a permission card is open", async () => {
+      process.env.SAGAX_GROK_STALL_RETRY_MS = "100";
+      const appendFile = join(scratch, "rpc-perm.jsonl");
+      process.env.FAKE_ACP_RPC_APPEND_FILE = appendFile;
+      await create(GrokAgentDriver, "permission");
+      await instance.adapter.sendTurn({ threadId: "t-stall-perm", text: "go" });
+      await recorder.until((e) => e.type === "request.opened");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(promptCount(appendFile)).toBe(1);
+      await instance.adapter.interruptTurn?.("t-stall-perm");
+    });
+  });
+
   // A quiet agent is not a black box: the person is told what it is doing.
   it("tells the person what a quiet agent is doing, then finishes the turn", async () => {
     // Test the driver's notices, not how fast this OS starts ps/PowerShell.
