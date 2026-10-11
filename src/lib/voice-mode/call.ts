@@ -45,7 +45,8 @@ import { LevelVad, SileroVad, VAD_FRAME, type VoiceProbability } from "./vad";
 import type { VoiceModeSettings } from "../../../shared/voice-mode";
 
 const RATE = 16_000;
-const PREROLL_FRAMES = 10; // 320 ms before the first voiced frame
+const PREROLL_IDLE_FRAMES = 10; // 320 ms before the first voiced frame
+const PREROLL_BARGE_FRAMES = 15; // 480 ms: first syllables over the bot stay in the STT window
 /** A turn that starts this soon after the last one ended, before the bot
  * said anything, continues it: one utterance cut by a pause. */
 export const CONTINUATION_MS = 1_500;
@@ -657,10 +658,11 @@ export class VoiceCall {
       return;
     }
     switch (event.type) {
-      case "candidate":
+      case "candidate": {
         this.keepPreroll(frame);
         this.turnPartial = "";
-        this.transcriber.begin(this.preroll);
+        const n = (event.bargeIn || this.state.botAudible) ? PREROLL_BARGE_FRAMES : PREROLL_IDLE_FRAMES;
+        this.transcriber.begin(this.preroll.slice(-n));
         this.preroll = [];
         this.turnLevel = { sum: level, frames: 1 };
         this.lastVoicedAt = this.now();
@@ -668,6 +670,7 @@ export class VoiceCall {
         if (event.bargeIn) this.bargeIn = { candidateAt: this.now() };
         this.dispatch({ type: "speech-candidate" });
         return;
+      }
       case "start":
         this.transcriber.push(frame);
         this.lastVoicedAt = this.now();
@@ -686,7 +689,7 @@ export class VoiceCall {
 
   private keepPreroll(frame: Float32Array): void {
     this.preroll.push(frame);
-    if (this.preroll.length > PREROLL_FRAMES) this.preroll.shift();
+    if (this.preroll.length > PREROLL_BARGE_FRAMES) this.preroll.shift();
   }
 
   private beginTurnMetrics(stoppedAt: number, earlyEnd = false, contourEnd = false): void {

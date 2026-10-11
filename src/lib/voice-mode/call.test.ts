@@ -249,6 +249,27 @@ describe("VoiceCall", () => {
     expect(t.call.current.phase).toBe("thinking");
   });
 
+  it("barge-in over the bot begins STT with 480 ms of preroll so the onset is not clipped", async () => {
+    const t = await setup({ transcripts: ["wait stop now please"] });
+    t.call.setBotBusy(true);
+    void t.call.say("Here is a long answer that keeps going for a while.");
+    await t.feed(0.02, 0.001, 20);
+    const before = t.socket().audioBytes;
+    await t.feed(0.95, 0.06, 1);
+    const sent = t.socket().audioBytes - before;
+    expect(sent).toBeGreaterThanOrEqual(15 * VAD_FRAME * 2);
+  });
+
+  it("an idle start begins STT with 320 ms of preroll, not the barge-in window", async () => {
+    const t = await setup();
+    await t.feed(0.02, 0.001, 20);
+    const before = t.socket().audioBytes;
+    await t.feed(0.95, 0.05, 1);
+    const sent = t.socket().audioBytes - before;
+    expect(sent).toBeGreaterThanOrEqual(10 * VAD_FRAME * 2);
+    expect(sent).toBeLessThan(15 * VAD_FRAME * 2);
+  });
+
   it("barge-in: ducks the bot on the first voiced frame, cancels it within 160 ms, interrupts its running turn", async () => {
     const t = await setup({ transcripts: ["wait, stop"] });
     t.call.setBotBusy(true);
