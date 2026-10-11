@@ -5,7 +5,7 @@
 // never runs it: a move only shows its face (closed eyes for sleep).
 import { clamp01, easeInOut } from "./shape-art";
 import { blinkOpen, blinkSchedule } from "./shape-engine";
-import { CRAB_PIVOTS } from "./crab-art";
+import { CRAB_PIVOTS, CRAB_PX } from "./crab-art";
 
 export interface CrabNumbers {
   x: number;
@@ -18,6 +18,9 @@ export interface CrabNumbers {
   blink: number;
   armLRot: number;
   armRRot: number;
+  clawL: number;
+  clawR: number;
+  spark: number;
   leg0: number;
   leg1: number;
   leg2: number;
@@ -39,6 +42,9 @@ export const CRAB_REST: Readonly<CrabNumbers> = Object.freeze({
   blink: 0,
   armLRot: 0,
   armRRot: 0,
+  clawL: 0,
+  clawR: 0,
+  spark: 0,
   leg0: 0,
   leg1: 0,
   leg2: 0,
@@ -82,7 +88,16 @@ export const isCrabMove = (value: unknown): value is CrabMove => typeof value ==
 const LIFT = -10;
 
 export const CRAB_TRACKS: Readonly<Record<CrabMove, CrabTrack>> = {
-  idle: { duration: 2.4, loop: true, reduced: "none", keys: [{ at: 0 }, { at: 0.5, y: -2.4 }, { at: 1 }] },
+  idle: {
+    duration: 2.4,
+    loop: true,
+    reduced: "none",
+    keys: [
+      { at: 0, y: 0, sx: 1, sy: 1, clawL: 0.12, clawR: 0.18 },
+      { at: 0.5, y: -2.4, sx: 1.03, sy: 0.97, clawL: 0.28, clawR: 0.1 },
+      { at: 1, y: 0, sx: 1, sy: 1, clawL: 0.12, clawR: 0.18 },
+    ],
+  },
   blink: { duration: 0.22, loop: false, reduced: "none", keys: [{ at: 0 }, { at: 0.45, blink: 1 }, { at: 1 }] },
   look: {
     duration: 1.6,
@@ -96,11 +111,11 @@ export const CRAB_TRACKS: Readonly<Record<CrabMove, CrabTrack>> = {
     reduced: "face",
     keys: [
       { at: 0, face: "happy" },
-      { at: 0.16, ease: "out", armRRot: -55, rot: -4 },
-      { at: 0.32, armRRot: -18, rot: -4 },
-      { at: 0.48, armRRot: -55, rot: -4 },
-      { at: 0.64, armRRot: -18, rot: -4 },
-      { at: 0.8, armRRot: -48, rot: -4 },
+      { at: 0.16, ease: "out", armRRot: -62, clawR: 1, rot: -4 },
+      { at: 0.32, armRRot: -18, clawR: 0.15, rot: -4 },
+      { at: 0.48, armRRot: -62, clawR: 1, rot: -4 },
+      { at: 0.64, armRRot: -18, clawR: 0.15, rot: -4 },
+      { at: 0.8, armRRot: -52, clawR: 0.85, rot: -4 },
       { at: 1, ease: "inOut" },
     ],
   },
@@ -148,17 +163,20 @@ export const CRAB_TRACKS: Readonly<Record<CrabMove, CrabTrack>> = {
       { at: 1, ease: "inOut" },
     ],
   },
+  // Clawd's clap strip: squash, claws up, sparkles, squint, bounce, rest.
   celebrate: {
-    duration: 1.6,
+    duration: 1.8,
     loop: false,
     reduced: "face",
     keys: [
       { at: 0, face: "excited" },
-      { at: 0.1, ease: "inOut", sy: 0.92, sx: 1.06 },
-      { at: 0.28, ease: "out", y: -16, armLRot: -40, armRRot: 40, sy: 1.05 },
-      { at: 0.42, ease: "in", y: 0, sy: 0.94 },
-      { at: 0.58, ease: "out", y: -16, armLRot: 40, armRRot: -40, sy: 1.05, face: "happy" },
-      { at: 0.74, ease: "in", y: 0 },
+      { at: 0.08, ease: "inOut", sy: 0.88, sx: 1.12, y: 2 },
+      { at: 0.2, ease: "out", y: -14, sy: 1.08, sx: 0.94, armLRot: -72, armRRot: 72, clawL: 0.9, clawR: 0.9, spark: 1, face: "happy" },
+      { at: 0.34, y: -3, armLRot: -36, armRRot: 36, spark: 1 },
+      { at: 0.48, ease: "out", y: -18, armLRot: -88, armRRot: 88, sy: 1.06, clawL: 1, clawR: 1, spark: 1 },
+      { at: 0.62, ease: "in", y: 0, sy: 0.92, sx: 1.08, armLRot: -24, armRRot: 24, spark: 0.35 },
+      { at: 0.76, ease: "out", y: -12, armLRot: -80, armRRot: 80, spark: 1, face: "happy" },
+      { at: 0.9, y: 0, spark: 0.15 },
       { at: 1, ease: "inOut" },
     ],
   },
@@ -176,7 +194,7 @@ export const CRAB_TRACKS: Readonly<Record<CrabMove, CrabTrack>> = {
     duration: 0.42,
     loop: true,
     reduced: "face",
-    keys: [{ at: 0, face: "happy", y: 0, sy: 0.98 }, { at: 0.5, y: -2, sy: 1.04 }, { at: 1, y: 0, sy: 0.98 }],
+    keys: [{ at: 0, face: "excited", y: 0, sy: 0.98 }, { at: 0.5, y: -2, sy: 1.04 }, { at: 1, y: 0, sy: 0.98 }],
   },
   listen: {
     duration: 2.2,
@@ -247,7 +265,7 @@ export function crabReducedFace(move: CrabMove): Pick<CrabPose, "expression" | "
 }
 
 const SCALED = new Set<keyof CrabNumbers>(["sx", "sy"]);
-const CLOSING = new Set<keyof CrabNumbers>(["blink"]);
+const CLOSING = new Set<keyof CrabNumbers>(["blink", "spark"]);
 
 export function layerPose(base: CrabPose, top: CrabPose, w: number): CrabPose {
   if (w <= 0) return base;
@@ -276,7 +294,16 @@ export function crabIdlePose(t: number, blinks: readonly number[]): CrabPose {
   const pose = crabRestPose();
   const lift = 0.5 + 0.5 * Math.sin((Math.PI * 2 * t) / CRAB_BREATH_S);
   pose.y = -2.2 * lift;
+  pose.sx = 1 + 0.025 * lift;
+  pose.sy = 1 - 0.02 * lift;
+  pose.rot = 1.6 * Math.sin((Math.PI * 2 * t) / 7.3);
+  pose.lookX = 3.4 * Math.sin((Math.PI * 2 * t) / 10.9) + 1.1 * Math.sin((Math.PI * 2 * t) / 3.9);
+  pose.lookY = 1.8 * Math.sin((Math.PI * 2 * t) / 8.7 + 0.7);
   pose.blink = 1 - blinkOpen(t, blinks);
+  pose.clawL = 0.16 + 0.14 * Math.sin((Math.PI * 2 * t) / 3.6);
+  pose.clawR = 0.16 + 0.14 * Math.sin((Math.PI * 2 * t) / 3.6 + 1.15);
+  pose.armLRot = 5 * Math.sin((Math.PI * 2 * t) / CRAB_BREATH_S);
+  pose.armRRot = -5 * Math.sin((Math.PI * 2 * t) / CRAB_BREATH_S);
   return pose;
 }
 
@@ -371,7 +398,7 @@ function origin(point: readonly [number, number]): string {
   return `${point[0]} ${point[1]}`;
 }
 
-export const CRAB_GROUPS = ["whole", "armL", "armR", "eyes", "eyeL", "eyeR", "leg0", "leg1", "leg2", "leg3"] as const;
+export const CRAB_GROUPS = ["whole", "armL", "armR", "pincerL", "pincerR", "eyes", "eyeL", "eyeR", "leg0", "leg1", "leg2", "leg3", "sparkles"] as const;
 export type CrabGroup = (typeof CRAB_GROUPS)[number];
 
 export function crabTransforms(pose: CrabPose): Record<CrabGroup, string> {
@@ -380,6 +407,10 @@ export function crabTransforms(pose: CrabPose): Record<CrabGroup, string> {
   const arm = (side: "L" | "R", rot: number) => {
     const p = CRAB_PIVOTS[`arm${side}`];
     return `rotate(${rot.toFixed(2)} ${p[0]} ${p[1]})`;
+  };
+  const pinch = (side: "L" | "R", open: number) => {
+    const d = open * CRAB_PX;
+    return side === "L" ? `translate(${(-d).toFixed(2)} ${(-d).toFixed(2)})` : `translate(${d.toFixed(2)} ${(-d).toFixed(2)})`;
   };
   const leg = (i: 0 | 1 | 2 | 3) => `translate(0 ${pose[`leg${i}`].toFixed(2)})`;
   const blink = Math.max(0.08, 1 - pose.blink);
@@ -391,6 +422,8 @@ export function crabTransforms(pose: CrabPose): Record<CrabGroup, string> {
     whole,
     armL: arm("L", pose.armLRot),
     armR: arm("R", pose.armRRot),
+    pincerL: pinch("L", pose.clawL),
+    pincerR: pinch("R", pose.clawR),
     eyes: `translate(${pose.lookX.toFixed(2)} ${pose.lookY.toFixed(2)})`,
     eyeL: eye("L"),
     eyeR: eye("R"),
@@ -398,5 +431,6 @@ export function crabTransforms(pose: CrabPose): Record<CrabGroup, string> {
     leg1: leg(1),
     leg2: leg(2),
     leg3: leg(3),
+    sparkles: `translate(0 ${(-4 * pose.spark).toFixed(2)})`,
   };
 }

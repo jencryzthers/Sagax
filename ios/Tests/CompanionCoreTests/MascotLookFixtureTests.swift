@@ -304,5 +304,18 @@ final class MascotLookFixtureTests: XCTestCase {
         XCTAssertEqual(MascotUnlocks.tier(.crab, skin: "plain"), .common)
         XCTAssertEqual(MascotUnlocks.tier(.crab, skin: "mint"), .common)
         XCTAssertTrue(MascotUnlocks.defaultCharacters.contains(.crab))
+        XCTAssertEqual(CrabArt.grid, 16)
+        XCTAssertEqual(CrabArt.ox, 2)
+        XCTAssertEqual(CrabArt.oy, 4)
+        XCTAssertEqual(CrabArt.eyeL.w, 12)
+        XCTAssertEqual(CrabArt.eyeL.h, 12)
+        XCTAssertEqual(CrabArt.feet.count, 4)
+        XCTAssertEqual(CrabArt.eyes("happy").pupils.0.h, 6)
+        XCTAssertNil(CrabArt.eyes("happy").shines)
+        XCTAssertNotEqual(CrabArt.eyes("sleepy").pupils.0.y, CrabArt.eyes("happy").pupils.0.y)
+        XCTAssertNotNil(CrabArt.eyes("excited").shines)
+        XCTAssertNotNil(CrabArt.eyes(nil).shines)
+        XCTAssertEqual(CrabArt.paint(.plain, hex: "#377FE6").shine.uppercased(), "#F8F4EE")
+        XCTAssertEqual(CrabArt.paint(.ink, hex: "#377FE6").shine.uppercased(), "#1A1816")
     }
 }
