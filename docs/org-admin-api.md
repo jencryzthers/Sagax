@@ -561,6 +561,7 @@ document without `format` still works).
 | `GET routines?q&status&bot&owner&limit&cursor` | manager | every routine in reach |
 | `GET routines/{id}` | manager | one routine |
 | `GET routines/{id}/runs?limit&cursor` | manager | its runs, newest first |
+| `GET routines/runs?from&to&scope&bot&routine&state&q&limit&cursor` | employee | the calendar: every run in a window, past and planned |
 | `POST routines/{id}/run` | manager in reach, admin | run now |
 | `POST routines/{id}/pause` | manager in reach, admin | pause or resume |
 
@@ -619,6 +620,73 @@ bot id; `owner` the bot owner's principal id or Perspicax user id.
 `turns` and `costUsd` come from the usage ledger (the run's own cost when
 the run carries one). The thread opens in Sagax at
 `<server>/#thread=<threadId>&bot=<botId>`.
+
+### `GET routines/runs` (the calendar)
+
+```http
+GET /api/org/admin/routines/runs?from=2026-10-05&to=2026-10-11&scope=all&limit=200
+```
+
+```json
+{
+  "from": 1791158400000, "to": 1791763199999, "scope": "all",
+  "items": [
+    {
+      "id": "run_9", "routineId": "r_1", "routineName": "Daily digest", "botId": "5e38...", "botName": "Atlas",
+      "owner": { "principalId": "pr_1abf...", "sub": "01J9...", "name": "Alice" },
+      "runAs": { "principalId": "pr_1abf...", "sub": "01J9...", "name": "Alice" },
+      "startedAt": 1791500000000, "endedAt": 1791500050000, "durationMs": 50000,
+      "state": "failed", "planned": false, "trigger": "schedule",
+      "reason": "rate_limited", "label": "The provider is rate limiting", "threadId": "a5fe..."
+    },
+    {
+      "id": "planned:r_1:1791586400000", "routineId": "r_1", "routineName": "Daily digest", "botId": "5e38...", "botName": "Atlas",
+      "owner": { "principalId": "pr_1abf...", "sub": "01J9...", "name": "Alice" }, "runAs": { "principalId": "pr_1abf...", "sub": "01J9...", "name": "Alice" },
+      "startedAt": 1791586400000, "endedAt": null, "durationMs": 1800000,
+      "state": "planned", "planned": true, "trigger": "schedule", "reason": null, "label": null, "threadId": null,
+      "redacted": true
+    }
+  ],
+  "next": "bzoyMDA",
+  "truncated": false
+}
+```
+
+- `from` and `to`: milliseconds, an ISO date (`to` as a date covers that
+  whole UTC day) or an ISO date and time; at most 92 days apart. Without
+  them: the last 7 days and the next 7. The answer echoes the window in
+  milliseconds.
+- Items are every run that overlaps the window (started or scheduled
+  before `to`, ended or still going after `from`), then the planned
+  occurrences from now (or `from`, when later) to `to`, computed from each
+  enabled routine's schedule in the routines' time zone; a suspended or
+  paused routine plans nothing, and an occurrence already queued is listed
+  once, as that run. Sorted by `startedAt`, then routine.
+- `state`: `ok`, `failed`, `skipped` (cancelled or missed), `running`
+  (queued, running or waiting; `startedAt` is then its scheduled time until
+  it starts) or `planned`. `reason` and `label` as on `GET routines` (codes,
+  words in the assertion's language). `trigger`: `schedule`, `manual` or
+  `webhook`. `durationMs`: the run's own length once it ended; on a planned
+  item, the routine's calendar length (its `durationMinutes`).
+- `scope` (default `mine`), the console's reach and the Automations scope
+  together:
+  - `mine`: the routines whose bot the caller owns or that run as them.
+  - `team`: mine, plus every routine whose bot owner or run-as person is in
+    one of the caller's teams (the assertion's `teams`), or whose bot is
+    shared with one of them; for a manager also every routine in their
+    reach. Managers, admins, and anyone holding `routines.viewTeam` or
+    `routines.viewAll`.
+  - `all`: every routine. Admins and holders of `routines.viewAll`.
+  A scope the caller may not ask for is `403 routine_scope_not_allowed`
+  with the missing `permission`.
+- A run outside the caller's console reach (an admin reaches everyone, a
+  manager their teams' people, anyone else themselves) comes with
+  `redacted: true` and `threadId` null. No prompt, output or message is
+  ever answered.
+- `bot`, `routine` (ids) and `state` narrow the list; `q` searches the
+  routine, bot, owner and run-as names. Pages of `limit` 1 to 500 (default
+  200) by `cursor`. A routine plans at most 500 occurrences per window and
+  a window at most 20,000 items; past either, `truncated` is true.
 
 ### `POST routines/{id}/run`
 

@@ -124,7 +124,8 @@ export function compileRoutes(routes: readonly ConsoleRoute[]): CompiledRoute[] 
 }
 
 /** The routes whose template matches `sub`, with their decoded parameters;
- * a parameter that is not a plain id makes the path unmatched. */
+ * a parameter that is not a plain id makes the path unmatched. A literal
+ * segment wins over a parameter: `routines/runs` before `routines/{id}`. */
 export function matchRoutes(compiled: readonly CompiledRoute[], sub: string): Array<{ route: ConsoleRoute; params: Record<string, string> }> {
   const hits: Array<{ route: ConsoleRoute; params: Record<string, string> }> = [];
   for (const entry of compiled) {
@@ -144,7 +145,7 @@ export function matchRoutes(compiled: readonly CompiledRoute[], sub: string): Ar
     });
     if (valid) hits.push({ route: entry.route, params });
   }
-  return hits;
+  return hits.sort((a, b) => Object.keys(a.params).length - Object.keys(b.params).length);
 }
 
 export interface PageRequest {

@@ -513,7 +513,7 @@ import { redactSecretsInText } from "./redact.ts";
 import * as vps from "./vps-computer.ts";
 import { runAsOptions, runAsRefusal, type RunAsChooser, type RunAsPerson } from "./routine-run-as.ts";
 import { parseRoutineScopeQuery, routineRunClearable, routineScopeRefusal, scopedRoutineListing, type RoutineScopeCaller, type RoutineScopeDeps, type RoutineScopeFacts } from "./routine-scope.ts";
-import { RoutineManager, setRoutineTimeZone, type Routine, type RoutineAdmission, type RoutineMemoryHint, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger, type RoutineSuspendReason } from "./routines.ts";
+import { nextOccurrence, RoutineManager, setRoutineTimeZone, type Routine, type RoutineAdmission, type RoutineMemoryHint, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger, type RoutineSuspendReason } from "./routines.ts";
 import { RoutineConsents, routineRenewMs, type RoutineConsentEnd } from "./org-routine-consent.ts";
 import { CalendarCallManager, type CalendarCall } from "./calendar-calls.ts";
 import { BUILT_IN_BROWSER_SYSTEM_PROMPT } from "./browser-engine.ts";
@@ -832,6 +832,7 @@ import { botLook, botPersona, readBotAvatar } from "./org-admin-look.ts";
 import { ConsoleRefusal } from "./org-admin-console.ts";
 import { routineScheduleLabel } from "./org-admin-schedule.ts";
 import { routinesRoutes, type RoutinesDeps } from "./org-admin-routines.ts";
+import { routineRunsRoutes, type RoutineRunsDeps } from "./org-admin-runs.ts";
 import { opsRoutes, type ConnectionsView, type OpsDeps, type TestResult } from "./org-admin-ops.ts";
 import { createOrgImportRoute } from "./org-import-routes.ts";
 import { readSandboxdKey } from "./sandboxd-auth.ts";
@@ -24906,6 +24907,22 @@ const orgRoutinesDeps: RoutinesDeps = {
   },
 };
 
+/** The console's routines calendar (server/org-admin-runs.ts): every run
+ * in a window, past and planned, with the Automations scope rules. */
+const orgRoutineRunsDeps: RoutineRunsDeps = {
+  routines: () => routines?.listRoutines() ?? [],
+  runs: (from, to) => routines?.listRuns(from, to) ?? [],
+  bot: orgRoutinesDeps.bot,
+  runAs: (value) => effectiveRunAs(value) ?? null,
+  person: adminPerson,
+  teams: (value) => routineScopeFacts(value).teamIds.slice(),
+  permissions: (principalId) => {
+    const effective = principalPermissions(principalId);
+    return { viewTeam: can(effective, "routines.viewTeam"), viewAll: can(effective, "routines.viewAll") };
+  },
+  next: (schedule, after) => nextOccurrence(schedule, after),
+};
+
 /** A reachability check of an address an admin configured (an MCP server,
  * a marketplace): any HTTP answer below 500 means it is up. No credential
  * is sent; redirects are not followed. */
@@ -25307,6 +25324,7 @@ const orgAdmin = createOrgAdminRoutes({
     ...overviewRoutes(orgOverviewDeps),
     ...peopleRoutes(orgPeopleDeps),
     ...botsRoutes(orgBotsDeps),
+    ...routineRunsRoutes(orgRoutineRunsDeps),
     ...routinesRoutes(orgRoutinesDeps),
     ...opsRoutes(orgOpsDeps),
   ],

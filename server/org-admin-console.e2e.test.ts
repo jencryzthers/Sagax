@@ -14,6 +14,7 @@
 //   C4  routines and approvals
 //   C5  connections, usage, logs, incidents, audit, settings
 //   C6  a bot's look and persona, its picture
+//   C7  the routines calendar: past and planned runs, by scope
 import { spawn, type ChildProcess } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { connect, type Socket } from "node:net";
@@ -559,5 +560,38 @@ posixOnly("Perspicax console: the Sagax admin routes", () => {
     // a manager out of reach, and an employee, never see it
     expect((await admin("GET", `bots/${pixel.id}/avatar`, MONA)).status).toBe(404);
     expect((await admin("GET", `bots/${pixel.id}/avatar`, ZOE)).body.code).toBe("forbidden_role");
+  }, 60_000);
+
+  it("C7: the routines calendar: a run and the planned ones, by scope", async () => {
+    const clock = await createBot(alice, "Clock", "claude");
+    const created = await api("POST", "/api/routines", alice, { name: "Hourly check", botId: clock.id, prompt: "Check the clock.", enabled: true,
+      schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 } });
+    expect(created.status, created.text).toBe(201);
+    const id = created.body.routine.id as string;
+    const started = await admin("POST", `routines/${id}/run`, ALICE, {});
+    expect(started.status, started.text).toBe(200);
+    await waitFor(async () => {
+      const got = await admin("GET", `routines/${id}/runs`, ALICE);
+      return (got.body.items as Array<any> | undefined)?.[0]?.status === "ok";
+    }, 40_000);
+    const window = `from=${Date.now() - 86_400_000}&to=${Date.now() + 86_400_000}`;
+    const all = await admin("GET", `routines/runs?scope=all&routine=${id}&${window}`, ALICE);
+    expect(all.status, all.text).toBe(200);
+    const items = all.body.items as Array<any>;
+    expect(items[0]).toMatchObject({
+      id: started.body.run.id, routineId: id, routineName: "Hourly check", botId: clock.id, botName: "Clock", state: "ok", planned: false,
+      trigger: "manual", owner: { principalId: ids.alice, name: "Alice" }, runAs: { principalId: ids.alice }, threadId: expect.any(String), endedAt: expect.any(Number),
+    });
+    const planned = items.filter((item) => item.planned);
+    expect(planned.length).toBeGreaterThanOrEqual(23);
+    expect(planned[0]).toMatchObject({ state: "planned", threadId: null, durationMs: expect.any(Number) });
+    expect(all.text).not.toContain("Check the clock.");
+    // a member sees their own routines only; a wider scope needs its permission
+    expect((await admin("GET", `routines/runs?${window}`, ZOE)).body.items.some((item: { routineId: string }) => item.routineId === id)).toBe(false);
+    expect((await admin("GET", `routines/runs?scope=team&${window}`, ZOE)).body).toMatchObject({ code: "routine_scope_not_allowed", permission: "routines.viewTeam" });
+    expect((await admin("GET", `routines/runs?scope=team&${window}`, MONA)).body.items.some((item: { routineId: string }) => item.routineId === id)).toBe(false);
+    expect((await admin("GET", "routines/runs?from=2026-01-01&to=2026-06-01", ALICE)).body.code).toBe("bad_request");
+    expect((await admin("GET", `routines/${id}`, ALICE)).status).toBe(200);
+    expect((await admin("POST", `routines/${id}/pause`, ALICE, { paused: true })).status).toBe(200);
   }, 60_000);
 });
