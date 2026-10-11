@@ -21,7 +21,8 @@
 //   the default setting; post: one POST /voice/stream per sentence),
 //   BENCH_FASTER_END (1: "Faster end of turn", the default setting; 0: off),
 //   BENCH_UNPUNCTUATED (1: the words never carry punctuation, so only the
-//   voice's ending can shorten the endpoint), BENCH_REPLY (the engine's
+//   voice's ending can shorten the endpoint), BENCH_DUPLEX (1: fullDuplex
+//   on; 0: off, the default), BENCH_REPLY (the engine's
 //   answer), BENCH_OUT (a JSON file).
 //
 // The microphone's voiced frames are a voice-like tone (a fundamental and a
@@ -299,7 +300,7 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
       botId: bot.id,
       threadId: () => threadId,
       voice: voiceSettings,
-      settings: () => ({ ...DEFAULT_CALL_SETTINGS, onlyMyVoice: false, earcons: false, thinkingCue: false, pause: "normal", streamingVoice: useSocket, fasterEndOfTurn: fasterEnd }) as never,
+      settings: () => ({ ...DEFAULT_CALL_SETTINGS, onlyMyVoice: false, earcons: false, thinkingCue: false, pause: "normal", streamingVoice: useSocket, fasterEndOfTurn: fasterEnd, fullDuplex: process.env.BENCH_DUPLEX === "1" }) as never,
       player: new ClockPlayer() as unknown as PcmPlayer,
       transcriber,
       models: async () => ({ vad: scriptedVad, embedder: null }),
