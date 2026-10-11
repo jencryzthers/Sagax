@@ -273,9 +273,7 @@ struct DesktopSidebarList: View {
     /// pinned, the Primary Bot included; a pinned group stays in its
     /// section), in the roster's order. The sections leave them out.
     private var pinnedChats: [Chat] {
-        let chiefs = ([layout.unsectionedChief].compactMap { $0 } + layout.sections.flatMap(\.chiefs)).filter { $0.pinned == true }
-        let pinned = Set((layout.pinnedBots + chiefs).map(\.id))
-        return session.state.bots.filter { pinned.contains($0.id) }.map(Chat.bot)
+        layout.pinnedBots.map(Chat.bot)
     }
 
     private func previewMap() -> [String: String] {

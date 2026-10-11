@@ -617,6 +617,7 @@ struct ChatListView: View {
                 }
                 .buttonStyle(.plain)
                 .contextMenu { chatMenu(summary.chat) }
+                .sidebarBotPinSwipe(summary.chat, session: session)
                 .accessibilityIdentifier("chat-row.\(summary.chat.id)")
                 if case let .bot(bot) = summary.chat, sidebarPrefs.threadsPlacement.inSidebar {
                     BotThreadTree(
@@ -1391,6 +1392,7 @@ extension ChatListView {
                 }
                 .buttonStyle(.plain)
                 .contextMenu { chatMenu(chat) }
+                .sidebarBotPinSwipe(chat, session: session)
                 .accessibilityIdentifier("pinned.\(chat.id)")
             }
         }
@@ -1503,6 +1505,7 @@ extension ChatListView {
             }
             .buttonStyle(.plain)
             .contextMenu { chatMenu(chat) }
+            .sidebarBotPinSwipe(chat, session: session)
             .accessibilityIdentifier("chat-row.\(chat.id)")
         }
     }

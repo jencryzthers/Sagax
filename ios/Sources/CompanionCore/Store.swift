@@ -164,7 +164,7 @@ public struct CompanionState: Sendable {
         let visibleBots = bots.filter { $0.hidden != true }
         let visibleChannels = rooms.filter { $0.dm != true }
         let sectionChiefs = visibleBots.filter {
-            $0.chiefOfStaff == true && Self.sectionName($0.section) != nil
+            $0.chiefOfStaff == true && !Self.isSidebarPinned($0) && Self.sectionName($0.section) != nil
         }
         let sectionBots = visibleBots.filter {
             $0.chiefOfStaff != true && !Self.isSidebarPinned($0) && Self.sectionName($0.section) != nil
@@ -198,6 +198,7 @@ public struct CompanionState: Sendable {
         bots.first {
             $0.hidden != true
                 && $0.chiefOfStaff == true
+                && !Self.isSidebarPinned($0)
                 && Self.sectionName($0.section) == nil
         }
     }
@@ -233,7 +234,7 @@ public struct CompanionState: Sendable {
     }
 
     private static func isSidebarPinned(_ bot: Bot) -> Bool {
-        bot.pinned == true && bot.chiefOfStaff != true
+        SidebarBotPinning.isPinned(bot)
     }
 
     /// Every unanswered approval or question, newest first. This is the

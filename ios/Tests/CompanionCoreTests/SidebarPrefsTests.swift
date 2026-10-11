@@ -236,6 +236,21 @@ final class SidebarPrefsTests: XCTestCase {
         return state
     }
 
+    func testAPinnedPrimaryBotJoinsThePinnedSection() throws {
+        var state = try layoutState()
+        state.bots[2].chiefOfStaff = true
+        state.bots[2].pinned = true
+        var prefs = SidebarPrefs()
+        var layout = state.sidebarLayout(prefs: prefs, personal: nil, viewerId: "me")
+        XCTAssertEqual(layout.pinnedBots.map(\.id), ["c"])
+        XCTAssertNil(layout.unsectionedChief)
+
+        state.bots[2].pinned = false
+        layout = state.sidebarLayout(prefs: prefs, personal: nil, viewerId: "me")
+        XCTAssertEqual(layout.unsectionedChief?.id, "c")
+        XCTAssertTrue(layout.pinnedBots.isEmpty)
+    }
+
     func testLayoutAppliesOrderHiddenAndKeepsEmptySections() throws {
         let state = try layoutState()
         var prefs = SidebarPrefs()
