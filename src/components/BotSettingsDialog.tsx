@@ -42,7 +42,7 @@ export function BotSettingsDialog({ bot, onOpenVmWorkspace }: {
   const showInspector = useShowInspectorButton();
   const advanced = useAdvancedMode();
   const { state, dispatch } = useStore();
-  const { padClass } = useCaptionChrome();
+  const { padClass, dragProps } = useCaptionChrome();
   const { macInset, browser } = useMacInsetChrome();
   const section = state.botSettingsSection;
   const dialogRef = useRef<HTMLElement | null>(null);
@@ -151,7 +151,7 @@ export function BotSettingsDialog({ bot, onOpenVmWorkspace }: {
         {(macInset || browser) && <div className="content-topbar-strip" />}
         {/* Top bar: only the controls, the way Grok Bot's panel opens. On
             Windows it drops below the caption buttons (padClass). */}
-        <div className={cn("content-topbar relative flex h-12 shrink-0 items-center justify-between px-3", padClass)}>
+        <div {...dragProps} className={cn("content-topbar relative flex h-12 shrink-0 items-center justify-between px-3", padClass)}>
           <span />
           <div className="flex items-center gap-2">
             <button

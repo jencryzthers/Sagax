@@ -12,6 +12,7 @@ export function SidebarSectionHeader({
   name,
   collapsed,
   attention,
+  alert,
   onToggle,
   reorderable,
   dragging,
@@ -23,6 +24,7 @@ export function SidebarSectionHeader({
   name: string;
   collapsed: boolean;
   attention?: SidebarSectionAttention;
+  alert?: boolean;
   onToggle?: () => void;
   reorderable: boolean;
   dragging: boolean;
@@ -67,6 +69,12 @@ export function SidebarSectionHeader({
         </span>
       )}
       {attentionLabel && <span className="sr-only">{attentionLabel}</span>}
+      {alert && (
+        <>
+          <span data-testid="section-alert" aria-hidden="true" className="size-2 shrink-0 rounded-full bg-danger" />
+          <span className="sr-only">{t("computer.routines.needsYou")}</span>
+        </>
+      )}
     </>
   );
 

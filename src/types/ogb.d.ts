@@ -316,6 +316,9 @@ const __SAGAX_DEFAULT_SERVER__: string;
       };
       /** Receives a GitHub package URL opened through openmausbot://install. */
       onPackageInstall?(cb: (url: string) => void): () => void;
+      /** Receives a chat link (openmausbot://thread/… or openmausbot://bot/…)
+       * opened from outside the app. */
+      onChatLink?(cb: (link: string) => void): () => void;
       /** The desktop shell's app-menu Preferences… item was activated; open
        * app Settings. Local-shell only: remote server pages never receive
        * the channel, and the bridge is absent in the browser. "cloud" is the
@@ -440,6 +443,8 @@ export interface UpdaterState {
    * newest first and drops anything that is not text.
    */
   notes?: string | Array<{ version: string; note: string }>;
+  /** the release's notes as one string (HTML or Markdown), when the feed has them */
+  releaseNotes?: string;
   percent?: number;
   message?: string;
   /** pre-release versions are offered (opt-in, this computer only) */

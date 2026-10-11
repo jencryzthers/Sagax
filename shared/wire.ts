@@ -9,6 +9,7 @@
  * fails compilation until it is either declared here or explicitly listed
  * as server-private. */
 import type { ParallelTaskRef, TaskParallelOf } from "./parallel-tasks.ts";
+import type { DataBroadcast } from "./data-surface.ts";
 import type { ApprovalMode } from "./approval-mode.ts";
 import type { ToolScope } from "./tool-scope.ts";
 import type { CommandAllowlistCandidate } from "./command-allowlist.ts";
@@ -181,6 +182,9 @@ export interface WireTask {
   autoApprove?: boolean;
   alwaysAllow?: string[];
   unread?: boolean;
+  /** The newest message on screen the last time the person read this
+   * conversation. The New divider goes after it. */
+  lastReadMessageId?: string;
   /** true after an edit/branch-switch rewound the visible conversation. */
   rewound?: boolean;
   pinnedMessageId?: string;
@@ -533,7 +537,7 @@ export interface WireMessage {
    * and video a bot attached with attach_file; they are opened through the
    * message-scoped file route, never by path. */
   attachments?: Array<
-    | { kind: "image"; path: string; mime: string }
+    | { kind: "image"; path: string; mime: string; name?: string }
     | { kind: "file"; path: string; mime: string; name: string }
     | { kind: "audio"; path: string; mime: string; durationMs?: number }
   >;
@@ -635,8 +639,12 @@ export interface WireMessage {
    * not know it ignore it. */
   routedBy?: { provider: "jev"; probability: number };
   /** Set on the user-role line another bot delivered into this bot's own
-   * conversation (ask_bot, start_thread). */
-  peerAsk?: { botId: string; name: string; unattended?: boolean };
+   * conversation (ask_bot, start_thread). `incident`: the line is
+   * Sagax's Team incidents report about that bot's broken run in
+   * `threadId` (server/incidents.ts), not its words; `notified`: that
+   * failure already buzzed the person (a run that could not start, a
+   * failed routine). */
+  peerAsk?: { botId: string; name: string; unattended?: boolean; incident?: { threadId: string; notified?: boolean } };
   /** Auto: the model this delivered work ran on, and why (the delegation
    * card and the worker's activity row). Clients that do not know it ignore it. */
   autoModel?: AutoModelRecord;
@@ -650,6 +658,13 @@ export interface WireMessage {
   /** thread chips: "Opened thread #Title on @X". */
   /** `gone` is stamped at read time when the target thread no longer exists. */
   threadRef?: { botId: string; threadId: string; title: string; gone?: boolean };
+  /** A published Data result, linked to its bot's main viewer. */
+  dataResult?: { botId: string; cardId: string; title: string; kind: "table" | "chart" | "text"; sql?: string };
+  /** user messages: the Data result the person was viewing when they sent
+   * this (shared/data-context.ts). Its own field, so `text` stays exactly
+   * what they typed; the server puts the hint in front of the text it
+   * sends the model for this turn and for every retry of it. */
+  dataContext?: { cardId: string; draftSql?: string };
   /** user messages waiting in the steer-queue while the bot is mid-turn. */
   queued?: boolean;
   /** A parallel task this line belongs to (shared/parallel-tasks.ts): the
@@ -848,6 +863,10 @@ export interface GroupTask {
    * before threads existed (titled "General" by the migration). Clients may
    * show the title localized while it is still "General". */
   general?: true;
+  /** Whether a turn is actively running in this thread. */
+  working?: boolean;
+  /** The member bot currently speaking or generating in this thread, if any. */
+  busyBotId?: string | null;
 }
 
 /** A room as a client may see it: the record plus the computed working
@@ -874,6 +893,9 @@ export interface WireGroup {
   unread: boolean;
   /** Kept in the home's pinned row (the phone's, like a bot's `pinned`). */
   pinned?: boolean;
+  /** The newest message on screen the last time the person read this
+   * conversation. The New divider goes after it. */
+  lastReadMessageId?: string;
   createdAt: number;
   /** Organization server: the principal who created the room. A bot's
    * follow-up no person asked for runs in this person's server environment
@@ -1013,6 +1035,9 @@ export type ServerFrame =
    * computer (absent: a Local VM). */
   | { kind: "computer"; botId: string; state: "provisioning" | "waking" | "ready"; place?: "cloud" }
   | { kind: "computer-control"; botId: string; held: boolean; helpReason: string | null }
+  /** A bot's data sheet changed (a card added, updated, failed, removed; a
+   * table loaded). Whole sheet each time: see shared/data-surface.ts. */
+  | DataBroadcast
   | { kind: "bot.deleted"; botId: string }
   /** A person's own unlocks (server/achievements.ts), to their streams only. */
   | { kind: "achievements"; audience: string; unlocked: Array<{ id: string; points: number; unlockedAt: number }> }

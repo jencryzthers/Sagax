@@ -5,6 +5,7 @@ import {
   Archive,
   BellDot,
   Check,
+  CheckCheck,
   ChevronRight,
   ClipboardCopy,
   ArrowLeftRight,
@@ -12,6 +13,7 @@ import {
   EyeOff,
   Folder,
   FolderMinus,
+  FolderOpen,
   FolderPlus,
   Loader2,
   MoreHorizontal,
@@ -96,8 +98,10 @@ import { ShareTeamDialog } from "./ShareTeamDialog";
 import { TeamDialog } from "./TeamDialog";
 import { RenameTitle } from "./RenameTitle";
 import { BotProjectDialog, FolderActions, FolderIcon, navigateThreadMenu } from "./BotProjects";
+import { NewTaskFolderDialog } from "./NewTaskFolderDialog";
+import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
 import { draggedFolder, FOLDER_DRAG_TYPE, moveFolder, placeFolder } from "@/lib/folder-order";
-import { folderUnreadThreadIds, markFolderRead, markGroupFolderRead } from "@/lib/folder-read";
+import { botUnreadThreadIds, folderUnreadThreadIds, markBotRead, markFolderRead, markGroupFolderRead } from "@/lib/folder-read";
 import { personPickerThreads } from "@/lib/person-threads";
 import { approvalModeFor } from "../../shared/approval-mode";
 import { liveActivityLabel } from "@/lib/live-activity";
@@ -156,6 +160,8 @@ import { botShowsUnread } from "@/lib/bot-unread";
 import { SidebarBotActivity, sidebarBotActivityTasks } from "./SidebarBotActivity";
 import { citationPreviewText } from "@/lib/citations";
 import { groupMemberBots } from "@/lib/group-members";
+import { plainPreviewText } from "@/lib/plain-preview";
+import { isClientCancellation } from "../../shared/client-cancel";
 
 
 
@@ -258,12 +264,15 @@ function preview(bot: Bot, visible: Message[], instances: InstanceInfo[]): strin
     return (last.card.requestId && last.card.tool && !last.card.questionRequest && approvalCardOutcome(last.card)) || last.card.title;
   }
   // a failed turn reads as the chat row says it, never "error: …"
-  if (last.kind === "activity" && last.tool) return activityPreview(last.tool, botEngine(bot, instances));
+  if (last.kind === "activity" && last.tool) return activityPreview(last.tool, botEngine(bot, instances), last.dataResult);
   if (last.kind === "screen") return t("sidebar.preview.screenFrame");
   if (last.kind === "connector" && last.connector) return sidebarConnectorPreview(last.connector, t);
+  // one line of what the reply says, never the Markdown that draws it
+  // (`**[repo](https://…)**` reads as "repo")
   const peer = peerLine(last);
-  if (peer) return `${peer.name}: ${peer.body}`;
-  return citationPreviewText(last.text ?? "");
+  if (peer) return `${peer.name}: ${plainPreviewText(peer.body)}`;
+  if (last.role !== "user" && isClientCancellation(last.text ?? "")) return t("chat.turnStopped");
+  return plainPreviewText(citationPreviewText(last.text ?? ""));
 }
 
 export interface MenuState {
@@ -294,14 +303,18 @@ export function groupPreview(group: Group, bots: Bot[], config: ConfigStatus | n
   const last = lastNonReceipt(group.messages);
   if (!last) return t("sidebar.preview.noMessages");
   if (last.kind === "nudge" && last.nudge) return nudgeLineText(last.nudge, viewerId);
+  if (last.kind === "text" && last.role !== "user" && isClientCancellation(last.text ?? "")) {
+    const stopped = t("chat.turnStopped");
+    return last.from ? `${last.from.name}: ${stopped}` : stopped;
+  }
   const text = last.kind === "activity" && last.tool
-    ? activityPreview(last.tool, botEngine(bots.find((bot) => bot.id === last.from?.botId), instances))
+    ? activityPreview(last.tool, botEngine(bots.find((bot) => bot.id === last.from?.botId), instances), last.dataResult)
     : last.kind === "goal.run" && last.goalRun
       ? sidebarGoalRunPreview(last.goalRun)
       : last.kind === "connector" && last.connector
         ? sidebarConnectorPreview(last.connector, t)
         : (last.text ?? "");
-  const readable = citationPreviewText(text);
+  const readable = plainPreviewText(citationPreviewText(text));
   if (last.role === "user") {
     // Someone else's words (src/lib/viewer.ts): a direct conversation's row
     // already names them, a room's line says who.
@@ -1109,6 +1122,29 @@ export function BotContextMenu({
   const bot = shown ? state.bots.find((b) => b.id === shown.botId) : undefined;
   const floating = useSyncExternalStore(subscribeFloatingBots, () => (shown ? isBotFloating(shown.botId) : false), () => false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const latestMenu = useRef(menu);
+  useLayoutEffect(() => { latestMenu.current = menu; }, [menu]);
+  const readInFlight = useRef(false);
+  const [readingBotId, setReadingBotId] = useState<string | null>(null);
+  const [readError, setReadError] = useState<{ botId: string; message: string } | null>(null);
+  useEffect(() => { setReadError(null); }, [menu?.botId]);
+  const readAll = async (owner: Bot) => {
+    if (readInFlight.current) return;
+    readInFlight.current = true;
+    setReadingBotId(owner.id);
+    setReadError(null);
+    const openedMenu = menu;
+    try {
+      await markBotRead(owner, api, (updated) => dispatch({ type: "botPatched", bot: updated }));
+      if (latestMenu.current === openedMenu) onClose();
+    } catch (error) {
+      const guidance = t("sidebar.bot.markAllReadFailed");
+      setReadError({ botId: owner.id, message: error instanceof Error ? `${guidance} ${error.message}` : guidance });
+    } finally {
+      readInFlight.current = false;
+      setReadingBotId(null);
+    }
+  };
   useLayoutEffect(() => {
     const element = menuRef.current;
     if (!element || !shown) return;
@@ -1165,7 +1201,7 @@ export function BotContextMenu({
     icon: React.ReactNode,
     label: string,
     onClick?: () => void,
-    opts?: { danger?: boolean; disabled?: boolean; hint?: string; id?: string; showHint?: boolean },
+    opts?: { danger?: boolean; disabled?: boolean; hint?: string; id?: string; showHint?: boolean; keepOpen?: boolean },
   ) => (
     <button
       key={label}
@@ -1175,7 +1211,7 @@ export function BotContextMenu({
       disabled={opts?.disabled}
       onClick={() => {
         onClick?.();
-        onClose();
+        if (!opts?.keepOpen) onClose();
       }}
       title={opts?.hint}
       className={cn(
@@ -1301,6 +1337,12 @@ export function BotContextMenu({
         item(<BellDot size={16} className="text-ink" />, t("sidebar.bot.markUnread"), () =>
           dispatch({ type: "markUnread", botId: bot.id }),
         ),
+        item(
+          readingBotId === bot.id ? <Loader2 size={16} className="animate-spin text-ink-secondary" /> : <CheckCheck size={16} className="text-ink-secondary" />,
+          readingBotId === bot.id ? t("sidebar.bot.markingAllRead") : t("sidebar.bot.markAllRead"),
+          () => { void readAll(bot); },
+          { disabled: readingBotId !== null || botUnreadThreadIds(bot).length === 0, keepOpen: true },
+        ),
         divider("d1"),
         ...(canRename ? [item(<Pencil size={16} className="text-ink" />, "Rename Bot", () => onRename(bot.id))] : []),
         item(<ClipboardCopy size={16} className="text-ink" />, t("sidebar.copyConversationId"), () => {
@@ -1329,6 +1371,7 @@ export function BotContextMenu({
         />] : []),
       ]}
       {primaryItem && <>{divider("primary")}{primaryItem}</>}
+      {readError?.botId === bot.id && <p role="alert" className="px-3.5 py-2 text-[12px] text-danger">{readError.message}</p>}
     </div>,
     document.body,
   );
@@ -1410,7 +1453,7 @@ type ThreadTreeActions = Omit<Parameters<typeof SidebarThreadRow>[0], "task" | "
  * One tree for every owner of threads: a bot (BotThreadList) and a
  * conversation with a person (PersonThreadList); the owner decides only
  * where its actions go. */
-function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, tasks, projects, selected, density, query, hidden, mine, actions, rowState, activeActivityLabel, onNew, onReorder, canMarkRead, markRead, children }: {
+function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, tasks, projects, selected, density, query, hidden, mine, actions, rowState, activeActivityLabel, onNew, onNewInFolder, onReorder, canMarkRead, markRead, children }: {
   ownerId: string;
   ownerName: string;
   owner: FolderOwnerKind;
@@ -1429,6 +1472,9 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
   rowState?: (task: ThreadTreeTask) => Partial<ThreadTreeTask>;
   activeActivityLabel?: string;
   onNew: (projectId?: string) => void;
+  /** A new thread in a working folder the person picks (a bot's owner or an
+   * admin, Advanced mode): opens NewTaskFolderDialog. Absent: no such item. */
+  onNewInFolder?: () => void;
   onReorder: (projectIds: string[], onSaved: () => void, onError: (message: string) => void) => void;
   canMarkRead: (projectId: string) => boolean;
   markRead: (projectId: string) => Promise<void>;
@@ -1612,6 +1658,7 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
         onMouseDown={(event) => event.stopPropagation()}
         onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setListMenu(null); } else navigateThreadMenu(event); }}>
         <button type="button" role="menuitem" onClick={() => { setListMenu(null); onNew(); }} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-[12px] text-ink hover:bg-raised"><Plus size={12} />{t("task.newShort")}</button>
+        {onNewInFolder && <button type="button" role="menuitem" onClick={() => { setListMenu(null); onNewInFolder(); }} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-[12px] text-ink hover:bg-raised"><FolderOpen size={12} />{t("task.folder.new")}</button>}
         <button type="button" role="menuitem" onClick={() => { setListMenu(null); setCreatingProject(true); }} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-[12px] text-ink hover:bg-raised"><FolderPlus size={12} />{t("folder.new")}</button>
       </div>, document.body)}
       {creatingProject && <BotProjectDialog bot={folderOwner} owner={owner} onClose={() => setCreatingProject(false)} />}
@@ -1638,6 +1685,11 @@ export function BotThreadList({ bot, selected, density = "comfortable", query = 
   // ("Reading a file"), passed to the active thread's row while it works
   const activeActivityLabel = liveActivityLabel(visibleMessages(bot).at(-1));
   const generatedTitles = llmThreadTitlesEnabled(state.config);
+  // A new thread in a chosen working folder: a host path, so the owner of
+  // this computer or an admin, and only in Advanced mode (upstream #2550).
+  const canChooseFolder = useOwnerOrAdmin() === true;
+  const advanced = useAdvancedMode();
+  const [folderDialog, setFolderDialog] = useState(false);
   // One set of row actions per bot, so memoized rows skip the list's renders;
   // they read the bot as it is when used.
   const latest = useRef(bot);
@@ -1673,9 +1725,13 @@ export function BotThreadList({ bot, selected, density = "comfortable", query = 
     <ThreadTree ownerId={bot.id} ownerName={bot.name} owner="bot" folderOwner={bot} openThreadId={bot.threadId} tasks={tasks} projects={bot.projects ?? []}
       selected={selected} density={density} query={query} hidden={hidden} mine={mine} actions={actions} rowState={rowState} activeActivityLabel={activeActivityLabel}
       onNew={(projectId) => dispatch({ type: "newTask", botId: bot.id, ...(projectId ? { projectId } : {}) })}
+      onNewInFolder={canChooseFolder && advanced ? () => setFolderDialog(true) : undefined}
       onReorder={(projectIds, onSaved, onError) => dispatch({ type: "reorderProjects", botId: bot.id, projectIds, onSaved, onError })}
       canMarkRead={(projectId) => folderUnreadThreadIds(bot, projectId).length > 0}
       markRead={(projectId) => markFolderRead(bot, projectId, api, (updated) => dispatch({ type: "botPatched", bot: updated }))}>
+      {folderDialog && <NewTaskFolderDialog bot={bot} onClose={() => setFolderDialog(false)} onReturnFocus={() => {
+        document.querySelector<HTMLElement>(`[data-sidebar-bot-row="${CSS.escape(bot.id)}"]`)?.focus();
+      }} />}
       <FullAccessWarning
         open={permissionRefresh?.kind === "full"}
         scope="thread"
@@ -1897,7 +1953,7 @@ export function BotListItem({
                   <span className="sr-only">{t("sidebar.preview.working")}</span>
                 </span>
               ) : (
-                <span className="truncate">{waiting ? t("sidebar.preview.waiting") : teammateWait ? t("sidebar.preview.waitingOnTeammate") : queued ? t("task.queued") : preview(bot, visible, instances)}</span>
+                <span dir="auto" className="truncate">{waiting ? t("sidebar.preview.waiting") : teammateWait ? t("sidebar.preview.waitingOnTeammate") : queued ? t("task.queued") : preview(bot, visible, instances)}</span>
               )}
             </span>
           )}
@@ -1921,7 +1977,7 @@ export function BotListItem({
 
   return (
     <>
-    <div className="group relative" title={iconOnly ? bot.name : undefined}>
+    <div className="group relative" title={iconOnly ? [bot.name, bot.title?.trim()].filter(Boolean).join(" · ") : undefined}>
       {/* Keep this wrapper mounted while RenameTitle swaps its label for an
           input. Replacing the wrapper tree remounts RenameTitle, loses its
           editing state, and leaves the row stuck in rename mode. Omitting

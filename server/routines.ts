@@ -410,6 +410,8 @@ const WAKE_HORIZON_MS = 60 * 60_000;
 /** How long a run may sit deferred behind a busy target before the user
  * hears about it once. Surfacing only; dispatch semantics stay unchanged. */
 export const ROUTINE_DEFERRAL_NOTICE_MS = 30 * 60_000;
+/** Why a run still going when the server stopped failed at the next start. */
+export const ROUTINE_RESTARTED = "Sagax restarted while this routine was running";
 const MAX_DATE_MS = 8_640_000_000_000_000;
 const LOCAL_DAY_MS = 24 * 60 * 60_000;
 const INTERVAL_RESTRICTION_SEARCH_MS = 9 * LOCAL_DAY_MS;
@@ -916,11 +918,19 @@ export class RoutineManager {
   private readonly now: () => number;
   private readonly options: RoutineManagerOptions;
   private routines: Routine[] = [];
+  /** Stored routines whose schedule no longer loads. They stay hidden and
+   * never run, but every save writes them back unchanged so unrelated work
+   * cannot delete a row that is still repairable on disk. */
+  private unloadedRoutines: Routine[] = [];
   private runs: RoutineRun[] = [];
   private routineRequestReceipts: RoutineRequestReceipt[] = [];
   private webhookRunReceipts: WebhookRunReceipt[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
   private ticking = false;
+  /** The file existed but could not be read (corrupt JSON or a schema
+   * failure). Saves are refused while set so a fresh empty state can never
+   * overwrite whatever is on disk. Missing means a first run. */
+  private unreadable = false;
 
   constructor(options: RoutineManagerOptions) {
     this.options = options;
@@ -928,10 +938,21 @@ export class RoutineManager {
     this.now = options.now ?? Date.now;
     try {
       const disk = JSON.parse(readFileSync(this.file, "utf8")) as Partial<RoutineFile>;
+      // A store with the wrong top-level shape is damaged, not empty: a
+      // present collection must be a list. Absent ones stay tolerant so
+      // older files without newer receipt fields still load.
+      if (disk === null || typeof disk !== "object" || Array.isArray(disk)) throw new Error("Invalid routines file");
+      for (const key of ["routines", "runs", "routineRequestReceipts", "webhookRunReceipts"] as const) {
+        if (key in disk && !Array.isArray(disk[key])) throw new Error(`Invalid routines file: ${key} is not a list`);
+      }
       this.routines = Array.isArray(disk.routines)
         ? disk.routines.flatMap((routine) => {
             const schedule = loadSchedule(routine.schedule, this.now());
-            if (!schedule) return [];
+            if (!schedule) {
+              console.warn(`routines: keeping ${String(routine.id)} on disk unscheduled; its schedule could not load`);
+              this.unloadedRoutines.push(routine);
+              return [];
+            }
             const target = loadTarget(routine.target);
             const loaded: Routine = {
               ...routine,
@@ -1010,11 +1031,22 @@ export class RoutineManager {
         this.webhookRunReceipts.push({ webhookId: run.webhookId, deliveryId: run.deliveryId, runId: run.id, acceptedAt: run.createdAt });
         known.add(key);
       }
-    } catch {
+    } catch (error) {
       this.routines = [];
+      this.unloadedRoutines = [];
       this.runs = [];
       this.routineRequestReceipts = [];
       this.webhookRunReceipts = [];
+      // Missing means no routines yet. Any other read failure disables
+      // overwriting the file: the next save must not replace it with nothing.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        this.unreadable = true;
+        // JSON.parse echoes a fragment of its input in some messages, so a
+        // malformed file must never be copied into the server log.
+        const reason = error instanceof SyntaxError ? "invalid JSON"
+          : error instanceof Error ? error.message : "unable to read routines";
+        console.error(`routines: ignoring unreadable ${this.file}: ${reason}`);
+      }
     }
     // A local process cannot still own these turns after a full restart.
     const recovered: RoutineRun[] = [];
@@ -1022,7 +1054,7 @@ export class RoutineManager {
       if (run.status === "running" || run.status === "waiting") {
         run.status = "failed";
         if (run.target === "room-goal") run.goalStatus = "failed";
-        run.error = "Sagax restarted while this routine was running";
+        run.error = ROUTINE_RESTARTED;
         run.attention = undefined;
         run.finishedAt = this.now();
         recovered.push(cloneRun(run));
@@ -1177,6 +1209,7 @@ export class RoutineManager {
   }
 
   create(input: RoutineInput, request?: RoutineRequestCommitFor<"create">, meta?: RoutineWriteMeta): Routine {
+    this.assertWritable();
     if (request) {
       const receipt = this.matchingRoutineRequestReceipt(request);
       if (receipt) {
@@ -1218,6 +1251,7 @@ export class RoutineManager {
     request?: RoutineRequestCommitFor<"update" | "pause" | "resume">,
     meta?: RoutineWriteMeta,
   ): Routine | null {
+    this.assertWritable();
     if (request) {
       const receipt = this.matchingRoutineRequestReceipt(request);
       if (receipt) {
@@ -1304,6 +1338,7 @@ export class RoutineManager {
   }
 
   remove(id: string, request?: RoutineRequestCommitFor<"delete">): boolean {
+    this.assertWritable();
     if (request) {
       const receipt = this.matchingRoutineRequestReceipt(request);
       if (receipt) {
@@ -1437,6 +1472,7 @@ export class RoutineManager {
     deliveryId: string;
     receivedAt: number;
   }): { id: string } {
+    this.assertWritable();
     const existing = this.webhookRunReceipt(input.webhookId, input.deliveryId);
     if (existing) return existing;
     if (this.options.botState(input.botId) === "missing") {
@@ -2248,6 +2284,10 @@ export class RoutineManager {
     this.routineRequestReceipts.unshift({ ...request, resultId, appliedAt });
   }
 
+  private assertWritable(): void {
+    if (this.unreadable) throw Object.assign(new Error("Saved routines could not be read. Repair routines.json before changing them."), { status: 503 });
+  }
+
   /**
    * A confirmation receipt is only true once the scheduler mutation and its
    * receipt reached the same atomic file. Restore the complete in-memory
@@ -2277,6 +2317,10 @@ export class RoutineManager {
   }
 
   private save() {
+    // The file on disk failed to load, so it may still hold routines this
+    // process cannot see. Management writes refuse above; background saves
+    // (ticks, run events) skip here rather than replacing it with nothing.
+    if (this.unreadable) return;
     // Active receipts own cancellation, timeout, and provider-event routing;
     // evicting one would strand live work. Treat MAX_RUNS as a soft history
     // cap and reclaim only the oldest terminal receipts. An unusually large
@@ -2293,7 +2337,7 @@ export class RoutineManager {
     mkdirSync(dirname(this.file), { recursive: true });
     writeFileAtomic(this.file, JSON.stringify({
       version: 1,
-      routines: this.routines,
+      routines: [...this.routines, ...this.unloadedRoutines],
       runs: this.runs,
       routineRequestReceipts: this.routineRequestReceipts,
       webhookRunReceipts: this.webhookRunReceipts,

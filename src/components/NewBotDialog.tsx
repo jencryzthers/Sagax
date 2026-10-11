@@ -169,7 +169,10 @@ export function LocalNewBotDialog({ defaultsMode = false, onClose, section, onCr
       .then(result => {
         if (cancelled) return;
         const defaults = structuredClone(result.defaults);
-        defaults.profile.modelSelection ??= result.modelSelection;
+        const selection = defaults.profile.modelSelection;
+        if (!selection || (selection.instanceId === "" && selection.model === "")) {
+          defaults.profile.modelSelection = result.modelSelection;
+        }
         if (!defaultsMode) defaults.profile.name = defaults.profile.name?.trim() || result.suggestedName;
         if (section !== undefined) defaults.profile.section = section;
         setDraft(new BotCreationDraft(defaults, () => render(value => value + 1)));
@@ -486,8 +489,8 @@ export function DefaultBotSettings() {
   return <>
     <div className="flex items-center justify-between gap-4 px-3.5 py-2.5"><DefaultsTitle summary={summary} />
       <div className="flex shrink-0 gap-2">
-        <button type="button" onClick={() => setSharing(true)} className="rounded-lg px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink">{t("newBot.sharePreset")}</button>
-        <button type="button" onClick={() => setOpen(true)} className="rounded-lg bg-control px-3 py-1.5 text-[13px] text-ink hover:bg-raised-hover">{t("newBot.edit")}</button>
+        <button type="button" onClick={() => setSharing(true)} className="cursor-pointer rounded-lg px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink">{t("newBot.sharePreset")}</button>
+        <button type="button" onClick={() => setOpen(true)} className="cursor-pointer rounded-lg bg-control px-3 py-1.5 text-[13px] text-ink hover:bg-raised-hover">{t("newBot.edit")}</button>
       </div>
     </div>
     {open && <NewBotDialog defaultsMode onClose={() => setOpen(false)} />}

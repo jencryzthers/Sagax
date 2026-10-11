@@ -17,6 +17,7 @@ import { IntegrationsManagedNotice } from "../settings/MyConnectionsSettings";
 import { Switch } from "../SettingsPrimitives";
 import { inputCls } from "./field";
 import { OrgSkillsCard } from "./OrgSkillsCard";
+import { WriteCommandCard } from "./WriteCommandCard";
 
 export interface ManagedSkill {
   name: string;
@@ -548,6 +549,8 @@ export function SkillsSection({ bot }: { bot: Bot }) {
         )}
         {error && <div role="alert" className="mt-2 text-[12px] text-danger">{error}</div>}
       </div>
+
+      {skillWrites && <WriteCommandCard bot={bot} taken={skills.map((skill) => skill.name)} onSaved={() => void refresh()} />}
 
       {skillWrites && <OrgSkillsCard bot={bot} onAdded={() => void refresh()} />}
 

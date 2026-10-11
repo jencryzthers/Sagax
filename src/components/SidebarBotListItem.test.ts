@@ -190,6 +190,15 @@ describe("BotListItem", () => {
     expect(markup).toContain("truncate");
   });
 
+  it("previews the last reply as plain text, without its markdown", () => {
+    const markup = renderRow(bot({
+      messages: [{ id: "b1", role: "bot", kind: "text", text: "I read **[Prudctual/Sagax](https://github.com/Prudctual/Sagax)**. Run `pnpm install` first.", at: 1 }] as Bot["messages"],
+    }));
+    expect(markup).toContain(">I read Prudctual/Sagax. Run pnpm install first.<");
+    expect(markup).not.toContain("**");
+    expect(markup).not.toContain("](https://");
+  });
+
   it("shows typing dots instead of preview text while the bot works", () => {
     const markup = renderRow(bot({ busy: true }));
 
