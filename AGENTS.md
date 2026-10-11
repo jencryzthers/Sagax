@@ -382,9 +382,9 @@ A permission ask stays in the chat only while it is still waiting. Once it
 is allowed, denied, dismissed or expired, `ChatView` and `GroupView` leave
 it out (`approvalCardStaysInChat`). The message stays stored. A question
 and a quiz are unchanged. The phone and iPad drop the same rows
-(`settledPermissionLeavesChat` in `transcriptRows`). Covered by
-`src/components/ApprovalCard.chat.test.ts` and
-`ios/Tests/CompanionCoreTests/ChatPreferencesTests.swift`.
+(`settledPermissionLeavesChat` in `transcriptRows`). Covered on the phone
+and iPad by `ios/Tests/CompanionCoreTests/ChatPreferencesTests.swift`; no
+web test covers `approvalCardStaysInChat` yet.
 
 ## Profile on an organization server
 
@@ -2447,9 +2447,9 @@ it after an upstream merge instead of renaming by hand.
 - Environment: an old `OMB_*`, `OPENMAUSBOT_*` or `OPENMAUS_*` variable is
   moved onto `SAGAX_*` at start for one release (`bridgeLegacyEnv`; names
   saved as data go through `currentEnvName`/`readEnvName`). The fleet unit
-  template and instance env files (`server/fleet.ts`), `cloud-home-start.ts`,
-  the `Dockerfile`, the compose files, `.env.example` and `deploy/` still
-  write `OMB_*`: installed units and operators' `.env` files use them.
+  template and instance env files (`server/fleet.ts`), the `Dockerfile`, the
+  compose files, `.env.example` and `deploy/` still write `OMB_*`: installed
+  units and operators' `.env` files use them.
 - Data: `~/.sagax` (an old `~/.openmausbot` moves there once), but the lease
   `openmausbot-server.lease`, `.openmausbot-server-child`, the container path
   `/data/.openmausbot` and `~/.openmausbot-companion` keep their names.
