@@ -1104,9 +1104,10 @@ Electron restart (no HMR); launch-test them before committing.
   moves; optional `premium: { price }` and `isNew` badge its tile, none is
   set yet); adding one is adding an entry. The desktop owl is the flat one (`Owl25D.tsx`, owl-art's own SVG
   parts). A stored look `style` of `3d` still validates and is drawn flat.
-  The modeled owl under `owl3d/` stays for its own checks; the editor and
-  the floating window do not load it. `src/lib/floating-bots.test.ts` guards
-  that.
+  The modeled 3D owl and three.js are gone (2026-10-11); a skin's material
+  finish (`skinFinish`) lives in `src/lib/owl/owl-skins.ts`.
+  `src/lib/floating-bots.test.ts` guards that nothing brings a 3D renderer
+  back.
 - `fit.ts` sizes the stage for the widest pose; `pilot.ts` moves the window
   (flights, walks) through `floating-bots:geometry`, `move-to` and
   `autopilot`; main clamps every move and never saves spots flown to.
