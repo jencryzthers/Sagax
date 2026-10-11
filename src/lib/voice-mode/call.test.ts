@@ -226,6 +226,28 @@ describe("VoiceCall", () => {
     expect(callAudioConstraints("mic-2", {})).toMatchObject({ deviceId: { exact: "mic-2" } });
   });
 
+  it("loads an AudioWorklet capture module when the context offers one, and falls back if it cannot", async () => {
+    const addModule = vi.fn(async () => { throw new Error("worklet unavailable in this test"); });
+    const createScriptProcessor = vi.fn(() => ({ connect() {}, disconnect() {}, onaudioprocess: null }));
+    await setup({
+      options: {
+        createCaptureContext: () => ({
+          sampleRate: 16_000,
+          state: "running",
+          audioWorklet: { addModule },
+          createMediaStreamSource: () => ({ connect() {}, disconnect() {} }),
+          createAnalyser: () => ({ fftSize: 0, disconnect() {} }),
+          createScriptProcessor,
+          destination: {},
+          close: async () => {},
+          resume: async () => {},
+        }) as unknown as AudioContext,
+      },
+    });
+    expect(addModule).toHaveBeenCalled();
+    expect(createScriptProcessor).toHaveBeenCalled();
+  });
+
   it("connects, hears a turn and sends its words once, streaming only the turn's audio", async () => {
     const t = await setup();
     expect(t.call.current.phase).toBe("listening");

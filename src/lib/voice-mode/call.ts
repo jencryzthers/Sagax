@@ -37,6 +37,7 @@ import { SpeechSocket } from "./speech-stream";
 import { estimatePitch } from "./prosody";
 import { spokenPart } from "./spoken";
 import { judge, readVoiceprint, saveVoiceprint, SpeakerEmbedder, voiceprintOf, type Voiceprint } from "./speaker-id";
+import { attachVoiceCapture, type VoiceCapture } from "./capture-worklet";
 import { LiveTranscriber } from "./stt-stream";
 import { completeClause, CONTOUR_CONTINUATION_MS, FRAME_MS, incompleteClause, TurnDetector } from "./turns";
 import { formatTimeline, materiallyDifferent, normalizedWords, type TurnMetrics } from "./latency";
@@ -189,7 +190,7 @@ export class VoiceCall {
   };
   private stream: MediaStream | null = null;
   private capture: AudioContext | null = null;
-  private processor: ScriptProcessorNode | null = null;
+  private captureNode: VoiceCapture | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private micAnalyser: AnalyserNode | null = null;
   private resample: ((input: Float32Array) => Float32Array[]) | null = null;
@@ -553,30 +554,33 @@ export class VoiceCall {
     const analyser = context.createAnalyser();
     analyser.fftSize = 1024;
     const size = context.sampleRate === RATE ? VAD_FRAME : 2048;
-    // ScriptProcessor rather than an AudioWorklet: no module file to serve
-    // from a bundle that may be drawn on a server's origin
-    const processor = context.createScriptProcessor(size, 1, 1);
-    processor.onaudioprocess = (event) => this.onAudio(event.inputBuffer.getChannelData(0));
     source.connect(analyser);
-    source.connect(processor);
-    processor.connect(context.destination);
+    const captureNode = await attachVoiceCapture(context, source, (samples) => this.onAudio(samples), { bufferSize: size, frameSize: size });
+    if (this.closed) {
+      captureNode.disconnect();
+      source.disconnect();
+      analyser.disconnect();
+      for (const track of stream.getTracks()) track.stop();
+      void context.close().catch(() => {});
+      return;
+    }
     for (const track of stream.getAudioTracks()) track.enabled = !this.state.muted && this.state.phase !== "held";
     this.stream = stream;
     this.capture = context;
     this.source = source;
     this.micAnalyser = analyser;
-    this.processor = processor;
+    this.captureNode = captureNode;
     if (context.state === "suspended") await context.resume().catch(() => {});
   }
 
   private release(): void {
     this.closed = true;
-    this.processor?.disconnect();
+    this.captureNode?.disconnect();
     this.source?.disconnect();
     this.micAnalyser?.disconnect();
     for (const track of this.stream?.getTracks() ?? []) track.stop();
     const capture = this.capture;
-    this.processor = null;
+    this.captureNode = null;
     this.source = null;
     this.micAnalyser = null;
     this.stream = null;
