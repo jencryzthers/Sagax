@@ -97,7 +97,6 @@ export function fail(status: number, code: string, message: string, extra: Recor
 
 export const notFound = (what = "No such record.") => fail(404, "not_found", what);
 export const badRequest = (message: string) => fail(400, "bad_request", message);
-export const forbiddenRole = (min: ConsoleRole) => fail(403, "forbidden_role", `This needs the ${min} role in Perspicax.`);
 
 /** A route not offered by this server yet: the read side exists, this write
  * does not. */
