@@ -735,6 +735,51 @@ engine) is enforced everywhere since 2026-10-09:
   models. A provider the person already connected but no longer allowed
   shows once, disabled, as "Not allowed by your organization".
 
+## Link routes (`/api/org/link/*`)
+
+Routes Perspicax calls on its own behalf, not for a person: their only
+credential is the link token Perspicax wrote to this server's link file
+(`SAGAX_PERSPICAX_LINK_FILE`, the `link_token` field), never a console
+assertion. Code: `server/org-link-routes.ts`.
+
+| Method and path | Credential | What |
+|---|---|---|
+| `POST /api/org/link/directory-refresh` | link token | read the directory now |
+
+### `POST /api/org/link/directory-refresh`
+
+```http
+POST /api/org/link/directory-refresh
+Authorization: Bearer pxat1.<link token>
+```
+
+Sagax re-reads the directory (`GET /api/v1/pulsabot/directory`) every
+`SAGAX_PERSPICAX_DIRECTORY_SECONDS` (300 by default), so a rights change
+made in Perspicax (a permission set or its assignment, `sagax_bots`,
+`sagax_integrations`, a team, a profile, a role) reached Sagax up to five
+minutes later. Perspicax calls this route right after such a change, and
+Sagax fetches the directory at once. Call it once per change; no body.
+
+- Answers `202 {"ok": true, "refresh": "started"}`, or `"queued"` when a
+  fetch is running or one started less than 2 s ago: exactly one more fetch
+  then follows, so a change committed during a running fetch is still read.
+  The fetch runs after the answer; its outcome is in the server log and in
+  `GET overview` like a poll's. Nothing else is written.
+- `401 {"error": "unauthorized"}` for a missing or wrong token, a token sent
+  any other way than `Authorization: Bearer` (query, Basic, cookie) included.
+  A token Perspicax just rotated is accepted: a mismatch re-reads the link
+  file once.
+- `429 {"error": "rate_limited"}` with `Retry-After: 60` after 10 failed
+  authentications from one socket address in 60 s (even with the good token
+  until the window passes), or beyond 60 accepted calls in a minute.
+- `404 {"error": "not_found"}` on a solo server or an organization server
+  with no link file; `405` for another method.
+- Every answer carries `Cache-Control: no-store`.
+
+Perspicax holds the link token only where it writes the link file itself
+(the server of `pulsabot_origin` with `PXC_PULSABOT_LINK_FILE`); a server
+linked from the console keeps the poll and the refresh at each sign-in.
+
 ## Not offered yet
 
 | Route | Why |

@@ -297,6 +297,24 @@ named permission (`shared/permissions.ts`, spec
   (PM-1 to PM-5), `shared/permissions.test.ts`,
   `server/org-permissions.test.ts` and `server/request-auth.test.ts`.
 
+## Directory refresh on demand (organization mode, 2026-10-11)
+
+Rights changed in Perspicax reach Sagax through the directory, read every
+`SAGAX_PERSPICAX_DIRECTORY_SECONDS` (300). `POST
+/api/org/link/directory-refresh` (`server/org-link-routes.ts`) lets
+Perspicax have it read now. Keep these rules, covered by
+`server/org-link-routes.test.ts` and `server/perspicax-link.test.ts`:
+
+- The only credential is the link token of the link file, `Authorization:
+  Bearer`, compared in constant time (`PerspicaxDirectory.linkTokenMatches`,
+  a mismatch re-reads the file once). Never a cookie, loopback trust or a
+  console assertion.
+- Failures are counted per socket address (`AuthFailureLimiter`, 10 in
+  60 s), accepted calls capped at 60 a minute; the body is never read.
+- Coalesced (`DirectoryRefreshScheduler`): one fetch at a time, at least
+  2 s apart, and a call during a fetch schedules exactly one more. 202
+  `{ok, refresh: "started" | "queued"}`.
+
 ## Automations scope (organization mode, 2026-10-09)
 
 Anyone may be allowed to see the automation schedule beyond their own

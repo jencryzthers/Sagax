@@ -237,6 +237,23 @@ describe("PerspicaxDirectory", () => {
     expect(await h.sync.refresh()).toMatchObject({ state: "error", error: "link_refused" });
   });
 
+  it("knows its own link token in constant time, follows a rotation, and refuses anything else (2026-10-11)", async () => {
+    const h = harness(directoryOf([person("BOB")]));
+    // before any fetch: the file is read on demand
+    expect(h.sync.linkTokenMatches(TOKEN_A)).toBe(true);
+    expect(h.sync.linkTokenMatches(TOKEN_B)).toBe(false);
+    expect(h.sync.linkTokenMatches("")).toBe(false);
+    expect(h.sync.linkTokenMatches(`${TOKEN_A}x`)).toBe(false);
+    // Perspicax rotates the token and rewrites the file: the new one opens, the old one no longer
+    writeLink(h.linkFile, linkDoc({ link_token: TOKEN_B }));
+    expect(h.sync.linkTokenMatches(TOKEN_B)).toBe(true);
+    expect(h.sync.linkTokenMatches(TOKEN_A)).toBe(false);
+    // a link file this server refuses (here, readable by others) closes it once it is read again
+    writeLink(h.linkFile, linkDoc({ link_token: TOKEN_B }), 0o644);
+    expect(h.sync.linkTokenMatches(TOKEN_A)).toBe(false);
+    expect(h.sync.linkTokenMatches(TOKEN_B)).toBe(false);
+  });
+
   it("runs one refresh at a time", async () => {
     const h = harness(directoryOf([person("BOB")]));
     const [a, b] = await Promise.all([h.sync.refresh(), h.sync.refresh()]);

@@ -15,6 +15,7 @@
 //
 // Spec: docs/superpowers/specs/2026-09-29-perspicax-multiuser-design.md,
 // sections 5 and 6 (link file, directory), 9 (T5).
+import { createHash, timingSafeEqual } from "node:crypto";
 import { lstatSync, readFileSync } from "node:fs";
 import { z } from "zod";
 
@@ -333,6 +334,13 @@ async function readLimited(response: Response, max: number): Promise<string | nu
 
 const VERSION_HEADER = /^[0-9A-Za-z.+-]{1,64}$/;
 
+/** Constant-time comparison of two secrets of any length (their SHA-256
+ * digests, so the length of neither leaks). */
+export function sameSecret(presented: string, expected: string): boolean {
+  if (!presented || !expected) return false;
+  return timingSafeEqual(createHash("sha256").update(presented).digest(), createHash("sha256").update(expected).digest());
+}
+
 /** The organization's people, read from Perspicax with the link token. One
  * refresh at a time; a failed call keeps the last good data. */
 export class PerspicaxDirectory {
@@ -369,6 +377,17 @@ export class PerspicaxDirectory {
   /** The server id Perspicax gave this server, once a link file was read. */
   serverId(): string | undefined {
     return this.link?.serverId;
+  }
+
+  /** Whether `token` is this server's link token (2026-10-11, the
+   * directory refresh route). Compared in constant time against the token
+   * last read; a mismatch re-reads the link file once, so a token Perspicax
+   * just rotated is accepted. Never logs either token. */
+  linkTokenMatches(token: string): boolean {
+    if (!token) return false;
+    if (this.link && sameSecret(token, this.link.linkToken)) return true;
+    const reread = this.readLink();
+    return reread !== null && sameSecret(token, reread.linkToken);
   }
 
   /** The last directory Perspicax sent, or null before the first answer. */

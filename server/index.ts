@@ -810,6 +810,7 @@ import { OidcRelyingParty } from "./oidc-rp.ts";
 import type { BotAttachment, BotFileRoot } from "./org-admin-files.ts";
 import { ADMIN_ACTIVITY_CATEGORIES } from "./admin-activity.ts";
 import { createOrgMemberRoutes, type MemberPerson, type MemberRequest } from "./org-member-routes.ts";
+import { createOrgLinkRoutes, DirectoryRefreshScheduler } from "./org-link-routes.ts";
 import { MemberLiveText } from "./member-live-text.ts";
 import { createOrgAdminRoutes, type AccessKind, type AdminApproval, type AdminEngine, type AdminBot, type AdminBotReach, type AdminPerson, type ApprovalAnswer, type ApprovalType, type OrgAdminViewer } from "./org-admin-routes.ts";
 import { RevocationQueue } from "./idp-revocations.ts";
@@ -25234,6 +25235,14 @@ const orgAdmin = createOrgAdminRoutes({
     },
   },
 });
+/** 2026-10-11: Perspicax asks for an immediate directory fetch after a
+ * rights change (server/org-link-routes.ts), with the link token only. */
+const directoryRefresh = new DirectoryRefreshScheduler(() => perspicaxDirectory?.refresh("perspicax") ?? Promise.resolve());
+const orgLink = createOrgLinkRoutes({
+  linked: () => IDENTITY.kind === "perspicax" && perspicaxDirectory !== null,
+  linkTokenMatches: (token) => perspicaxDirectory?.linkTokenMatches(token) ?? false,
+  scheduler: directoryRefresh,
+});
 /** Lot C.3: the words each bot is writing now, for the member API's
  * streamed turn (server/member-live-text.ts). */
 const memberLiveText = new MemberLiveText();
@@ -25484,6 +25493,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (await orgAdmin(req, res, url)) return;
     // 2026-10-09: the member API, same credential rule: an assertion only.
     if (await orgMember(req, res, url)) return;
+    // 2026-10-11: Perspicax's link routes, the link token only.
+    if (await orgLink(req, res, url)) return;
     // An organization server signs people in with Pulsatrix only: the
     // interim email codes and invitation links are refused outright.
     if (IDENTITY.kind === "perspicax") {
