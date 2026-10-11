@@ -86,7 +86,9 @@ final class DesktopShellModel: ObservableObject {
     @Published var page: DesktopPage?
     @Published var panelOpen = false
     @Published var panelTab: BotPanelTab = .details
-    /// The Advanced section open in the panel; nil shows the list.
+    /// The persona editor sheet over the panel ("Edit persona").
+    @Published var personaOpen = false
+    /// The persona editor's open section; nil shows its list.
     @Published var panelSection: DesktopPanelSection?
     /// The character editor over the panel (the mascot's Edit avatar).
     @Published var avatarEditorOpen = false
@@ -203,11 +205,18 @@ final class DesktopShellModel: ObservableObject {
         if !panelOpen { avatarEditorOpen = false }
     }
 
-    /// Opens the panel on a tab (and an Advanced section).
-    func showPanel(_ tab: BotPanelTab, section: DesktopPanelSection? = nil) {
+    /// Opens the panel on a tab.
+    func showPanel(_ tab: BotPanelTab) {
         panelTab = tab
+        if !panelOpen { togglePanel() }
+    }
+
+    /// Opens the persona editor over the panel, on its list or on a section
+    /// (a deep link such as the allowlist's Permissions).
+    func showPersona(_ section: DesktopPanelSection? = nil) {
         panelSection = section
         if !panelOpen { togglePanel() }
+        personaOpen = true
     }
 
     /// The panel's Inspector button (`toggleInspector`): the Inspector takes
@@ -535,6 +544,7 @@ private struct DesktopShellRouting: ViewModifier {
                 model.panelOpen = screen.opensBotPanel
                 if let tab = screen.panelTab { model.panelTab = tab }
                 model.panelSection = screen.panelSection
+                model.personaOpen = screen.opensPersonaEditor
                 model.avatarEditorOpen = screen == .panelAvatarEditor
                 model.modelPickerOpen = screen == .chatModelPicker
                 model.applyParityModals(screen)

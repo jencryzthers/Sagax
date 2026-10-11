@@ -4395,5 +4395,11 @@
   "releaseNotes.notNow": "Pas maintenant",
   "releaseNotes.readyBody": "Redémarrez pour terminer l’installation de {app} {version}. Vos bots et votre travail vous attendront là où vous les avez laissés.",
   "releaseNotes.readyTitle": "Mise à jour prête",
-  "releaseNotes.update": "Mettre à jour"
+  "releaseNotes.update": "Mettre à jour",
+  "orgComputer.choice.label": "Afficher l’écran de",
+  "orgComputer.choice.cloud": "Infonuagique",
+  "orgComputer.choice.worksHere": "{name} : ce bot travaille ici",
+  "computer.view.screen": "Écran",
+  "computer.view.browser": "Navigateur",
+  "computer.browserOf": "Navigateur de {name}"
 }

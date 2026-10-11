@@ -1,5 +1,6 @@
-// iPad I4 and I4b: the docked bot panel's tabs (Details, Library, Computer,
-// More), More sections and search, against bot-settings/panel-tabs.ts and
+// iPad I4 and I4b: the docked bot panel's tabs (Details, Library, Computer;
+// no More tab), the persona editor's sections and search, against
+// bot-settings/panel-tabs.ts, lib/persona-sections.ts and
 // bot-settings/sections.ts as the current desktop draws them, gated by
 // SurfaceGate.
 import XCTest
@@ -8,7 +9,8 @@ import XCTest
 final class DesktopBotPanelTests: XCTestCase {
     func testAdminSeesEveryTabAndTheDesktopSectionOrder() {
         let admin = SurfaceGate(scope: .serverAdmin)
-        XCTAssertEqual(DesktopPanelTab.visible(gate: admin), [.details, .library, .computer, .more])
+        XCTAssertEqual(DesktopPanelTab.visible(gate: admin), [.details, .library, .computer])
+        XCTAssertTrue(DesktopPersonaEditor.offered(gate: admin))
         // a served page that is not an organization's adds "Who can see it"
         XCTAssertEqual(
             DesktopPanelSection.visible(gate: admin),
@@ -53,7 +55,9 @@ final class DesktopBotPanelTests: XCTestCase {
         let client = SurfaceGate(scope: .serverClient)
         let sections = DesktopPanelSection.visible(gate: client)
         XCTAssertEqual(sections, [.voice, .usage])
-        XCTAssertEqual(DesktopPanelTab.visible(gate: client).last, .more)
+        // no More tab: Voice and Usage open from Edit persona
+        XCTAssertEqual(DesktopPanelTab.visible(gate: client), [.details, .library, .computer])
+        XCTAssertTrue(DesktopPersonaEditor.offered(gate: client))
     }
 
     func testSearchMatchesLabelAndKeywords() {
@@ -66,9 +70,9 @@ final class DesktopBotPanelTests: XCTestCase {
         XCTAssertFalse(DesktopPanelSection.usage.matches("soul", label: "Usage"))
     }
 
-    func testDeepLinksLandOnMore() {
-        XCTAssertEqual(DesktopPanelTab.holding(.memory), .more)
-        XCTAssertEqual(DesktopPanelTab.holding(.worksOn), .more)
+    func testThereIsNoMoreTab() {
+        // the desktop dropped it for the persona editor (panel-tabs.test.ts)
+        XCTAssertEqual(DesktopPanelTab.allCases.map(\.rawValue), ["details", "library", "computer"])
     }
 
     func testWorksOnIsListedOnlyOnAnOrganizationServer() {

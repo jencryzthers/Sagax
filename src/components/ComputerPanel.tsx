@@ -15,6 +15,7 @@ import { z } from "zod";
 import { waitForLocalVmReady } from "@/lib/local-vm-readiness";
 import {
   Columns2,
+  Globe,
   Hand,
   Loader2,
   Maximize2,
@@ -60,7 +61,9 @@ import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
 import { requestSettingsCard } from "./SettingsPrimitives";
 import { SettingsText } from "./SettingsLink";
-import { OrgComputerTab } from "./computer/OrgComputerTab";
+import { BrowserScreen, OrgComputerTab, ScreenPicker } from "./computer/OrgComputerTab";
+import { BrowserPanel } from "./BrowserPanel";
+import { browserAvailable, builtInBrowserEnabled } from "@/lib/feature-flags";
 
 import { useDesktopBridgeStatus } from "@/lib/desktop-bridge";
 
@@ -229,6 +232,11 @@ export function ComputerPanel({
   // there now: the tab for that place carries the live dot.
   const liveTask = profileBot.tasks?.find((task) => task.threadId === profileBot.threadId);
   const livePlace = effectivePlace(profileBot, liveTask);
+  // Browser mode: the bot's live browser in the screen's frame, from the
+  // screen picker's Browser chip, where this server has the built-in browser.
+  const browserOffered = builtInBrowserEnabled(state.config) || browserAvailable(state.config);
+  // A bot that works on its browser opens on it.
+  const [soloView, setSoloView] = useState<"screen" | "browser">(() => profileBot.computer === "browser" ? "browser" : "screen");
   const threadBot = currentTaskBot(profileBot);
   const connectionKey = `${profileBot.id}:${profileBot.threadId}:${livePlace}:${profileBot.cloudBackend ?? "box"}:${threadBot.modelSelection.instanceId}`;
   const [autoSurface, setAutoSurface] = useState<{ key: string; surface: Bot["computer"] } | null>(null);
@@ -1226,8 +1234,23 @@ export function ComputerPanel({
     error: bot.computer === "cloud" && (cloudRefused || placeBlocked(cloudView)) ? cloudView.line : t("computer.phase.error"),
   } satisfies Record<Exclude<Phase, "ready" | "local" | "vm">, string>;
 
+  // Screen and Browser on a solo server, when it has the built-in browser.
+  const soloPicker = browserOffered ? (
+    <div className="mt-2 flex justify-center">
+      <ScreenPicker
+        items={[
+          { key: "screen", label: t("computer.view.screen"), icon: Monitor },
+          { key: "browser", label: t("computer.view.browser"), icon: Globe },
+        ]}
+        chosen={soloView}
+        onPick={(key) => setSoloView(key === "browser" ? "browser" : "screen")}
+      />
+    </div>
+  ) : null;
+
   const deviceBody = (
       <div className={embedded ? "pb-5" : "flex-1 overflow-y-auto px-5 pb-5"}>
+          {soloPicker}
           {/* Screen preview. Works on lives in Edit persona > Access. */}
           <div className="mb-1.5 mt-2 flex items-center justify-between text-[13px] text-ink-secondary">
             <span>{t("computer.screenOf", { name: bot.name })}</span>
@@ -1604,10 +1627,18 @@ export function ComputerPanel({
         place={livePlace}
         computerOff={livePlace === "off"}
         botName={bot.name}
+        browser={browserOffered ? <BrowserPanel bot={bot} /> : null}
       />
       {!embedded && <div className="mt-6">
         <RoutinesSection key={bot.id} bot={bot} routines={botRoutines} runs={state.routineRuns} defaultRunOn={cloudRoutineReady ? "cloud" : "maus"} />
       </div>}
+    </div>
+  ) : browserOffered && soloView === "browser" ? (
+    <div className={embedded ? "pb-5" : "flex-1 overflow-y-auto px-5 pb-5"}>
+      {soloPicker}
+      <div className="mt-3">
+        <BrowserScreen caption={t("computer.browserOf", { name: bot.name })}><BrowserPanel bot={bot} /></BrowserScreen>
+      </div>
     </div>
   ) : deviceBody;
 

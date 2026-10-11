@@ -20,10 +20,14 @@ private let log = Logger(subsystem: "ca.pulsatrix.sagax", category: "stream")
 public struct SSEEvent: Equatable, Sendable {
     public var id: String?
     public var data: String
+    /// The `event:` field: the message type of a stream that names it there
+    /// (the live browser's), nil for the harness's own stream.
+    public var event: String?
 
-    public init(id: String? = nil, data: String) {
+    public init(id: String? = nil, data: String, event: String? = nil) {
         self.id = id
         self.data = data
+        self.event = event
     }
 }
 
@@ -66,16 +70,18 @@ public struct SSEParser: Sendable {
 
     static func event(from fields: [(name: String, value: String)]) -> SSEEvent? {
         var id: String?
+        var name: String?
         var dataLines: [String] = []
         for field in fields {
             switch field.name {
             case "data": dataLines.append(field.value)
             case "id": id = field.value
+            case "event": name = field.value
             default: break
             }
         }
         guard !dataLines.isEmpty else { return nil }
-        return SSEEvent(id: id, data: dataLines.joined(separator: "\n"))
+        return SSEEvent(id: id, data: dataLines.joined(separator: "\n"), event: name)
     }
 }
 

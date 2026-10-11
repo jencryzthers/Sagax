@@ -1760,7 +1760,13 @@ the bot engine's (`shared/harness-commands.ts`, `server/harness-commands.ts`,
 ## Bot panel
 
 The bot's side panel (`src/components/BotSettingsDialog.tsx`, tabs in
-`bot-settings/panel-tabs.ts`) shows Details | Library | Computer | More. The
+`bot-settings/panel-tabs.ts`) shows Details | Library | Computer, then an
+"Edit persona" button that opens every other section in the persona editor
+(`PersonaEditorModal.tsx`); there is no More tab. iPhone and iPad match it
+(2026-10-11): the same three tabs (`DesktopPanelTab`), then "Edit persona"
+under them (`DesktopPersonaEditor.offered`), a pushed page on the phone
+(`panel-edit-persona`, also first in the "..." menu) and a sheet on the
+iPad (`desktop-panel-edit-persona`, `DesktopShellModel.showPersona`). The
 name and label are edited where they show (`InlineEditableText`). The
 description is not a line under the label; `IdentitySection` still edits it.
 There are no Name or Label fields in this panel. Details lists Coding,
@@ -2191,8 +2197,28 @@ The Computer tab (`src/components/computer/OrgComputerTab.tsx`) draws the
 solo screen: one rounded screen (`ComputerScreen.tsx`) with Play / Pause /
 Stop on it and "<Bot>'s screen" below, and a usage panel that keeps
 polling while the environment is off. Works on is not on this tab. It is
-its own section of More, labelled Computer, immediately after Access
+in Edit persona > Access, labelled Computer
 (`worksOn` in `src/components/bot-settings/sections.ts`, `WorksOnSetting`).
+
+Above the screen, one segmented control (`ScreenPicker`) when there is more
+than one choice (2026-10-11): Cloud, then each of the person's online
+computers that can run a Local VM, by the name its Sagax app registered
+(`os.hostname()`), the most recently seen first (`computerChoices` in
+`src/lib/desktop-bridge.ts`), so a person with two PCs sees two Local VMs.
+A dot marks where the bot works; the first screen shown is that one
+(`chosenComputer`). Picking one changes only what is shown and where that
+Local VM's buttons go: `POST /api/me/desktop-bridge/local-vm` takes an
+optional `desktopId` (a desktop id of the person's own, else 400), and
+`DesktopBridges.request(..., desktopId)` reaches that desktop or answers 409
+`not_connected` ("That computer is not connected right now ... or pick
+another computer"); without it, the current one as before. Never another
+person's desktop: the lookup stays by person. Browser mode is the
+control's last chip, Browser, where the server has the built-in browser
+(`builtInBrowserEnabled` or an installed engine; Screen | Browser on a solo
+server): `BrowserPanel` in the screen's frame (`BrowserScreen`, "<Bot>'s
+browser" below), opened first when the bot works on its browser. Tests:
+`OrgComputerTab.test.ts`, `ComputerPanel.browser.test.ts`,
+`server/desktop-bridge.test.ts`, `server/desktop-bridge-local-vm.test.ts`.
 States are words (Off, Starting, Running, Paused, Error); never show the desktop's raw
 answer. The server environment's live view is view-only with "Take control"
 in the middle of the screen and a "Release control" chip while in control.
@@ -2246,8 +2272,15 @@ The Local VM in server mode lives on the person's computer
   not send `use`. A sidecar pairing is not an organization, so the
   companion allow-list is not widened for these routes: the app does not
   ask them there. Auto and Cloud keep the existing computer viewer.
+  The same picker sits above the screen (`ios/App/ComputerChooser.swift`,
+  `PersonDesktopBridge.computerChoices` and `chosen`, `desktopId` on
+  `localVm(action:)`), and its Browser chip is browser mode: the bot's live
+  browser, watched only (`ios/App/BrowserLiveView.swift` over
+  `GET /api/bots/:id/browser/live`, each frame acknowledged; never input or
+  navigation from the phone; `BrowserLive.swift`, `BrowserLiveClient.swift`).
   Tests: `ios/Tests/CompanionCoreTests/LocalVmComputerTests.swift`
-  (`swift test` in `ios/`).
+  (`ComputerChoiceTests`), `BrowserLiveTests.swift` (`swift test` in
+  `ios/`).
 
 ## Group settings
 

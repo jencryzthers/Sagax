@@ -1,4 +1,4 @@
-// The iPhone's bot panel: the same tabs and More sections as the iPad and
+// The iPhone's bot panel: the same tabs and persona sections as the iPad and
 // the desktop for each pairing, the doors into it, its top bar actions and
 // the Library's chips.
 import XCTest
@@ -20,7 +20,8 @@ final class PhoneBotPanelTests: XCTestCase {
     func testEveryPairingGetsTheDesktopTabsInOrder() {
         for gate in [SurfaceGate(scope: .serverAdmin), SurfaceGate(scope: .serverClient), SurfaceGate(scope: .sidecar),
                      SurfaceGate(scope: .sidecar, sidecarRoutes: []), SurfaceGate(scope: .serverAdmin, organization: true)] {
-            XCTAssertEqual(DesktopPanelTab.visible(gate: gate), [.details, .library, .computer, .more], "\(gate)")
+            XCTAssertEqual(DesktopPanelTab.visible(gate: gate), [.details, .library, .computer], "\(gate)")
+            XCTAssertTrue(DesktopPersonaEditor.offered(gate: gate), "\(gate)")
         }
     }
 

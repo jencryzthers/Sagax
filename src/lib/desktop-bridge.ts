@@ -111,6 +111,38 @@ export function currentDesktop(status: DesktopBridgeStatus | null): DesktopBridg
   return online.sort((a, b) => b.lastSeenAt - a.lastSeenAt)[0] ?? null;
 }
 
+/** One computer whose screen the bot's Computer tab can show: the person's
+ * server environment ("Cloud"), or one of their own computers by its name
+ * (the host name the desktop app registered), each with its Local VM. */
+export type ComputerChoice =
+  | { key: "server"; source: "server" }
+  | { key: string; source: "local"; desktopId: string; name: string; platform: string };
+
+/** The screens the person can look at, in order: Cloud, then each of their
+ * online computers that can run a Local VM, the most recently seen first.
+ * A person with two PCs sees both; looking is not where the bot works. */
+export function computerChoices(status: DesktopBridgeStatus | null): ComputerChoice[] {
+  const desktops = (status?.desktops ?? [])
+    .filter((desktop) => desktop.online && desktop.capabilities?.localVm)
+    .sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+  return [
+    { key: "server", source: "server" },
+    ...desktops.map((desktop): ComputerChoice => ({
+      key: `desktop:${desktop.id}`, source: "local", desktopId: desktop.id, name: desktop.name.trim() || "Computer", platform: desktop.platform,
+    })),
+  ];
+}
+
+/** The screen shown first: the one the bot works on (Cloud, or the person's
+ * current computer), unless they picked another still on offer. */
+export function chosenComputer(choices: ComputerChoice[], source: "server" | "local", status: DesktopBridgeStatus | null, picked: string | null): ComputerChoice | null {
+  const kept = picked ? choices.find((choice) => choice.key === picked) : undefined;
+  if (kept) return kept;
+  if (source === "server") return choices[0] ?? null;
+  const current = currentDesktop(status);
+  return choices.find((choice) => choice.source === "local" && choice.desktopId === current?.id) ?? null;
+}
+
 /** The person's own Local VM through their connected desktop app. Returns
  * the desktop's answer as plain text. */
 export async function localVmThroughDesktop(action: "status" | "start", fetchImpl: typeof fetch = fetch): Promise<string> {

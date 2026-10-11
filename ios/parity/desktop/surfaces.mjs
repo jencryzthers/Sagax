@@ -210,24 +210,31 @@ add({ id: "panel-library", phase: "main", note: "bot panel: Library tab (the bot
   open: async (ctx) => { await openPanel(ctx); await ctx.click('[data-panel-tab="library"]'); await ctx.sleep(600); } });
 add({ id: "panel-computer", phase: "main", note: "bot panel: Computer tab",
   open: async (ctx) => { await ctx.dispatch({ type: "toggleComputer", open: true }); await ctx.sleep(900); } });
-add({ id: "panel-more", phase: "main", note: "bot panel: More tab (searchable section list)",
-  open: async (ctx) => { await openPanel(ctx); await ctx.click('[data-panel-tab="more"]'); await ctx.sleep(400); } });
+// The desktop dropped the More tab for the persona editor (Edit persona,
+// PersonaEditorModal.tsx); the surfaces keep their panel-more ids, which the
+// iOS parity screens name.
+add({ id: "panel-more", phase: "main", note: "bot panel: Edit persona (searchable section list)",
+  open: async (ctx) => { await openPanel(ctx); await ctx.click("[data-edit-persona]"); await ctx.sleep(400); } });
 // Slack: a hosted workspace's link to its Admin; Shared with, Perspicax
 // tools and Works on: a server signed in with Perspicax (the organization
 // pass draws them on one server). Who can see it: an admin on a served page
 // of a server that is not an organization's.
 const MORE_WHERE = { slack: { org: true }, worksOn: { org: true }, sharing: { org: true }, perspicax: { org: true }, visibility: { served: true } };
+// sections the persona editor folds into another category (persona-sections.ts FOLDED_INTO)
+const PERSONA_CATEGORY = { worksOn: "access", slack: "access", visibility: "overview", sharing: "overview" };
 for (const section of ["overview", "slack", "soul", "skills", "memory", "access", "worksOn", "model", "permissions", "voice", "visibility", "sharing", "perspicax", "history", "usage"]) {
   const where = MORE_WHERE[section] ?? {};
-  add({ id: `panel-more-${section.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`, phase: "main", note: `bot panel: More > ${section}${where.org ? " (organization server)" : where.served ? " (served page)" : ""}`, ...where,
+  add({ id: `panel-more-${section.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`, phase: "main", note: `bot panel: Edit persona > ${section}${where.org ? " (organization server)" : where.served ? " (served page)" : ""}`, ...where,
     open: async (ctx) => {
       await openPanel(ctx);
-      await ctx.click('[data-panel-tab="more"]');
+      await ctx.click("[data-edit-persona]");
       await ctx.sleep(300);
+      const category = PERSONA_CATEGORY[section] ?? section;
+      const selector = `[data-persona-category="${category}"]`;
       // these rows wait for the server's answer (the organization, the Slack link, the viewer)
-      if (where.org || where.served) await ctx.waitFor(`Boolean(document.querySelector(${jsLiteral(`[data-bot-settings-section="${section}"]`)}))`, { timeoutMs: 8_000 }).catch(() => {});
-      if (!(await ctx.exists(`[data-bot-settings-section="${section}"]`))) return { skip: `section ${section} not listed for this bot` };
-      await ctx.click(`[data-bot-settings-section="${section}"]`);
+      if (where.org || where.served) await ctx.waitFor(`Boolean(document.querySelector(${jsLiteral(selector)}))`, { timeoutMs: 8_000 }).catch(() => {});
+      if (!(await ctx.exists(selector))) return { skip: `section ${section} not listed for this bot` };
+      await ctx.click(selector);
       await ctx.sleep(900);
     } });
 }

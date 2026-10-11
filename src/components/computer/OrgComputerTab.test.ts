@@ -1,12 +1,13 @@
 // The Computer tab on an organization server: one screen like the solo panel
 // (Play / Pause / Stop on it, "<Bot>'s screen" below), the computer the bot's
-// Works on is More > Computer (no selector on this screen), the usage panel,
-// and words for every state, never the desktop's raw answer.
+// Works on chooses (Works on itself is never a control on this screen), a
+// picker of the screens to look at (Cloud and each PC by its name), the
+// usage panel, and words for every state, never the desktop's raw answer.
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import type { DesktopBridgeStatus } from "@/lib/desktop-bridge";
+import { chosenComputer, computerChoices, type DesktopBridgeStatus } from "@/lib/desktop-bridge";
 import { localVmView, parseLocalVmAnswer, runtimeSummaryKey, type DesktopLocalVmStatus } from "@/lib/desktop-local-vm";
 import { formatBytes, powerState } from "@/lib/server-environment";
 import { BOT_SECTIONS } from "../bot-settings/sections";
@@ -44,10 +45,11 @@ describe("Computer tab on an organization server", () => {
     }
   });
 
-  it("shows only the screen: Works on is More > Computer, not inside this screen", () => {
+  it("shows only the screen: Works on is not a control inside this screen", () => {
     for (const place of ["auto", "cloud", "vm", "local"] as const) {
       const markup = renderToStaticMarkup(createElement(OrgComputerTab, { bridge: bridge(true, "computer"), place, computerOff: false, botName: "Luna" }));
-      expect(markup).not.toContain('role="radiogroup"');
+      // the one radio group is the screen picker, never Works on
+      expect(markup.match(/role="radiogroup"/g)?.length ?? 0).toBeLessThanOrEqual(1);
       expect(markup).not.toContain("data-works-on-setting");
     }
     const ids = BOT_SECTIONS.map((entry) => entry.id);
@@ -55,6 +57,43 @@ describe("Computer tab on an organization server", () => {
     expect(ids.indexOf("worksOn")).toBe(ids.indexOf("access") + 1);
     expect(worksOn?.label).toBe("Computer");
     expect(worksOn?.labelKey).toBe("botSettings.nav.computer");
+  });
+
+  it("lists Cloud and each of the person's computers by name, and shows the one picked", () => {
+    const two: DesktopBridgeStatus = {
+      ...bridge(true, "computer"),
+      desktops: [
+        { id: "d1", name: "JeanChrophesMBP", platform: "darwin", online: true, busy: false, lastSeenAt: 1, capabilities: { localVm: true } },
+        { id: "d2", name: "GOX-PC-07", platform: "win32", online: true, busy: false, lastSeenAt: 5, capabilities: { localVm: true } },
+        { id: "d3", name: "Old-Laptop", platform: "linux", online: false, busy: false, lastSeenAt: 9, capabilities: { localVm: true } },
+        { id: "d4", name: "NoVm", platform: "darwin", online: true, busy: false, lastSeenAt: 3, capabilities: { localVm: false } },
+      ],
+    };
+    const choices = computerChoices(two);
+    // Cloud first, then the online computers that can run a Local VM, newest first
+    expect(choices.map((choice) => choice.key)).toEqual(["server", "desktop:d2", "desktop:d1"]);
+    // the first screen is where the bot works, unless another was picked
+    expect(chosenComputer(choices, "server", two, null)?.key).toBe("server");
+    expect(chosenComputer(choices, "local", two, null)?.key).toBe("desktop:d2");
+    expect(chosenComputer(choices, "server", two, "desktop:d1")?.key).toBe("desktop:d1");
+    expect(chosenComputer(choices, "server", two, "desktop:d3")?.key).toBe("server");
+
+    const markup = renderToStaticMarkup(createElement(OrgComputerTab, { bridge: two, place: "vm", computerOff: false, botName: "Luna" }));
+    expect(markup).toContain('data-computer-picker=""');
+    expect(markup).toContain(">Cloud<");
+    expect(markup).toContain(">GOX-PC-07<");
+    expect(markup).toContain(">JeanChrophesMBP<");
+    expect(markup).not.toContain("Old-Laptop");
+    expect(markup).not.toContain(">NoVm<");
+    // the bot works on the current computer: its chip is checked and dotted
+    expect(markup).toMatch(/aria-checked="true" data-computer-choice="desktop:d2"[^>]*title="GOX-PC-07: this bot works here"/);
+    expect(markup).toContain("Luna&#x27;s screen · GOX-PC-07");
+    expect(markup).toContain('data-org-computer="user-desktop"');
+  });
+
+  it("shows no picker when there is only the cloud to look at", () => {
+    const markup = renderToStaticMarkup(createElement(OrgComputerTab, { bridge: bridge(false, "server"), place: "cloud", computerOff: false, botName: "Luna" }));
+    expect(markup).not.toContain("data-computer-picker");
   });
 
   it("shows the owner's stale Local VM as an error with Repair, never raw JSON", () => {

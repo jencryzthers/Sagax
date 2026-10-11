@@ -2,14 +2,17 @@
 // trailing edge from 1024 pt, over the leading edge below
 // (`max-lg:absolute`). Its tabs are the current desktop's
 // (`bot-settings/panel-tabs.ts`): Details (Coding, Activity, Routines),
-// Library (Files, Skills, Plugins: BotPanelLibrary.swift), Computer, More (every other section
-// behind a searchable list). The name, label and description are edited
-// where they show, under the mascot (`InlineEditableText.tsx`). Which tabs
-// and sections a pairing shows is `DesktopPanelTab` / `DesktopPanelSection`
+// Library (Files, Skills, Plugins: BotPanelLibrary.swift), Computer; no More
+// tab. Under the tabs, "Edit persona" (the desktop's `data-edit-persona`)
+// opens every other section behind a searchable list in a sheet, the
+// persona editor (`PersonaEditorModal.tsx`). The name, label and
+// description are edited where they show, under the mascot
+// (`InlineEditableText.tsx`). Which tabs and sections a pairing shows is
+// `DesktopPanelTab` / `DesktopPanelSection` / `DesktopPersonaEditor`
 // (CompanionCore), from `SurfaceGate`.
 //
 // Sizes from desktop-1366x1024-33-panel-details.json: top bar 48 with 36 pt
-// round buttons at y 6 (Back on a More section; Export, Inspector when the
+// round buttons at y 6 (Export, Inspector when the
 // Appearance switch shows it, Close), the 112x119 mascot button at y 72 (it
 // opens the character editor), the name 17/24 medium in a 28 pt button at
 // y 211, the label 12.5/16 at y 241, the description 11.5/16 at y 263, tabs
@@ -32,7 +35,6 @@ extension DesktopPanelTab: Identifiable {
         case .details: "Details"
         case .library: "Library"
         case .computer: "Computer"
-        case .more: "More"
         }
     }
 }
@@ -75,6 +77,10 @@ private struct BotPanelContent: View {
                     AnyView(tabRow)
                         .padding(.top, 16)
                         .padding(.bottom, 12)
+                    if DesktopPersonaEditor.offered(gate: session.surfaceGate, slack: slackURL != nil) {
+                        AnyView(editPersonaButton)
+                            .padding(.bottom, 12)
+                    }
                     AnyView(tabBody)
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
@@ -101,6 +107,12 @@ private struct BotPanelContent: View {
             }
         }
         .sheet(item: $sharedFile) { file in ActivityShareSheet(items: [file.url]) }
+        .sheet(isPresented: $model.personaOpen, onDismiss: { model.panelSection = nil }) {
+            BotPersonaEditorSheet(bot: current, slackURL: slackURL)
+                .environmentObject(session)
+                .environmentObject(model)
+                .environment(\.desktopTheme, theme)
+        }
         .task(id: session.connection?.id) {
             if session.surfaceGate.allows(.botSlack) {
                 slackURL = await session.profileClient?.slackManagementURL(botId: bot.id)
@@ -115,10 +127,6 @@ private struct BotPanelContent: View {
 
     private var topBar: some View {
         HStack(spacing: 8) {
-            if tab == .more, model.panelSection != nil {
-                DesktopRoundButton(systemImage: "chevron.left", label: "Back") { model.panelSection = nil }
-                    .accessibilityIdentifier("desktop-panel-back")
-            }
             Spacer(minLength: 0)
             DesktopRoundButton(systemImage: "square.and.arrow.up", label: "Export conversation", active: exportOpen, icon: .share) { exportOpen.toggle() }
                 .overlay(alignment: .topTrailing) {
@@ -201,9 +209,31 @@ private struct BotPanelContent: View {
     }
 
     private func choose(_ item: DesktopPanelTab) {
-        // the More tab opens on its list
-        if item == .more { model.panelSection = nil }
         model.panelTab = item
+    }
+
+    /// "Edit persona" under the tabs, as the desktop draws it: a bordered
+    /// 13 pt button with a pencil, opening the persona editor on its list.
+    private var editPersonaButton: some View {
+        Button { model.showPersona() } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "pencil")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(theme.inkSecondary)
+                Text("Edit persona")
+                    .font(theme.font(13))
+                    .foregroundStyle(theme.ink)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 30)
+            .background(theme.elevated, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(theme.hairlineWeak, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .hoverEffect(.highlight)
+        .frame(maxWidth: .infinity)
+        .accessibilityIdentifier("desktop-panel-edit-persona")
     }
 
     @ViewBuilder
@@ -215,9 +245,49 @@ private struct BotPanelContent: View {
             AnyView(BotPanelLibrary(bot: current, docked: docked))
         case .computer:
             AnyView(BotPanelComputer(bot: current))
-        case .more:
-            AnyView(BotPanelMore(bot: current, slackURL: slackURL))
         }
+    }
+}
+
+// MARK: - Persona editor
+
+/// The persona editor (`PersonaEditorModal.tsx`) as an iPad sheet: its
+/// searchable list of sections, a section's page in place with Back, and
+/// Close (Escape).
+private struct BotPersonaEditorSheet: View {
+    @Environment(\.desktopTheme) private var theme
+    @EnvironmentObject private var model: DesktopShellModel
+    let bot: Bot
+    let slackURL: URL?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                if model.panelSection != nil {
+                    DesktopRoundButton(systemImage: "chevron.left", label: "Back") { model.panelSection = nil }
+                        .accessibilityIdentifier("desktop-panel-back")
+                }
+                Text("Edit persona")
+                    .font(theme.font(15, .semibold))
+                    .foregroundStyle(theme.ink)
+                Spacer(minLength: 0)
+                DesktopRoundButton(systemImage: "xmark", label: "Close") { model.personaOpen = false }
+                    .keyboardShortcut(.escape, modifiers: [])
+                    .accessibilityIdentifier("desktop-persona-close")
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 52)
+            ScrollView {
+                AnyView(BotPanelMore(bot: bot, slackURL: slackURL))
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .padding(.top, 4)
+            }
+            .scrollDismissesKeyboard(.interactively)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(theme.app)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("desktop-persona-editor")
     }
 }
 

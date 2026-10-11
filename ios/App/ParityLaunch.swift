@@ -226,13 +226,18 @@ enum IPadParityScreen: String, CaseIterable {
         case .panelDetails, .panelAvatarEditor: .details
         case .panelLibrary, .panelLibrarySkills, .panelLibraryPlugins: .library
         case .panelComputer: .computer
-        case .panelMore: .more
-        default: panelSection != nil ? .more : nil
+        // the persona editor opens over Details, as on the desktop
+        case .panelMore: .details
+        default: panelSection != nil ? .details : nil
         }
     }
 
-    /// The More section open on a `panel-more-<section>` surface (the
-    /// section's id in kebab case: `panel-more-works-on` is worksOn).
+    /// The persona editor is open on this surface (`panel-more` and its
+    /// sections keep their ids from when it was the More tab).
+    var opensPersonaEditor: Bool { self == .panelMore || panelSection != nil }
+
+    /// The persona editor section open on a `panel-more-<section>` surface
+    /// (the section's id in kebab case: `panel-more-works-on` is worksOn).
     var panelSection: DesktopPanelSection? {
         guard rawValue.hasPrefix("panel-more-") else { return nil }
         let id = String(rawValue.dropFirst("panel-more-".count))

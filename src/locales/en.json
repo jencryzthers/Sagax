@@ -6366,5 +6366,11 @@
   "releaseNotes.notNow": "Not now",
   "releaseNotes.readyBody": "Restart to finish installing {app} {version}. Your bots and work will be right where you left them.",
   "releaseNotes.readyTitle": "Update ready",
-  "releaseNotes.update": "Update"
+  "releaseNotes.update": "Update",
+  "orgComputer.choice.label": "Show the screen of",
+  "orgComputer.choice.cloud": "Cloud",
+  "orgComputer.choice.worksHere": "{name}: this bot works here",
+  "computer.view.screen": "Screen",
+  "computer.view.browser": "Browser",
+  "computer.browserOf": "{name}’s browser"
 }

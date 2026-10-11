@@ -57,13 +57,16 @@ export function parseLocalVmAnswer(body: { result?: { content?: { type?: string;
   return answer;
 }
 
-export async function desktopLocalVm(action: LocalVmAction, extra: { choice?: InstallChoice } = {}, fetchImpl: typeof fetch = fetch): Promise<LocalVmAnswer> {
+/** `desktopId`: the person's computer they picked by name (several PCs);
+ * without it the server asks their current one. */
+export async function desktopLocalVm(action: LocalVmAction, extra: { choice?: InstallChoice; desktopId?: string } = {}, fetchImpl: typeof fetch = fetch): Promise<LocalVmAnswer> {
+  const body = { action, ...(extra.choice !== undefined ? { choice: extra.choice } : {}), ...(extra.desktopId ? { desktopId: extra.desktopId } : {}) };
   const response = await fetchImpl("/api/me/desktop-bridge/local-vm", {
-    method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, ...extra }),
+    method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
   });
-  const body = await response.json().catch(() => ({})) as Parameters<typeof parseLocalVmAnswer>[0] & { error?: string };
-  if (!response.ok) throw new Error(body.error ?? `local VM ${response.status}`);
-  return parseLocalVmAnswer(body);
+  const answer = await response.json().catch(() => ({})) as Parameters<typeof parseLocalVmAnswer>[0] & { error?: string };
+  if (!response.ok) throw new Error(answer.error ?? `local VM ${response.status}`);
+  return parseLocalVmAnswer(answer);
 }
 
 /** The screen's five states, as the person reads them. */

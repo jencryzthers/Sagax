@@ -133,6 +133,7 @@ export const DESKTOP_BRIDGE_MESSAGES = {
   busy: "Your computer is busy with other bot actions. Wait for them to finish.",
   capability: "Your Sagax desktop app does not offer this on this computer.",
   ended: "The requesting turn ended.",
+  chosenOffline: "That computer is not connected right now. Open the Sagax desktop app on it, signed in to this server, or pick another computer. Nothing ran.",
 } as const;
 
 export class DesktopBridges {
@@ -319,15 +320,20 @@ export class DesktopBridges {
   }
 
   /** One operation on `person`'s own connected desktop. Another person's
-   * desktop is never reachable from here: the lookup is by person. */
-  request(person: string | null, operation: DesktopBridgeOperation, active: () => boolean, onProgress?: (message: string) => void): Promise<unknown> {
+   * desktop is never reachable from here: the lookup is by person. With
+   * `desktopId` (a person with several computers picking one by its name,
+   * from their Computer tab) it is that desktop of theirs or nothing;
+   * without it, their most recently connected online desktop. */
+  request(person: string | null, operation: DesktopBridgeOperation, active: () => boolean, onProgress?: (message: string) => void, desktopId?: string): Promise<unknown> {
     const key = normalize(person);
     if (!key) return Promise.reject(failure("No person asked in this turn, so no one's computer can be used.", 403, "no_person"));
     let entry: Bridge | null = null;
     for (const candidate of this.bridges.values()) {
       if (candidate.person !== key || !this.online(candidate)) continue;
+      if (desktopId !== undefined && candidate.registration.id !== desktopId) continue;
       if (!entry || candidate.connectedAt > entry.connectedAt) entry = candidate;
     }
+    if (!entry && desktopId !== undefined) return Promise.reject(failure(DESKTOP_BRIDGE_MESSAGES.chosenOffline, 409, "not_connected"));
     if (!entry) return Promise.reject(failure(DESKTOP_BRIDGE_MESSAGES.offline, 409, "not_connected"));
     if (!entry.registration.capabilities[desktopBridgeCapability(operation.action)]) return Promise.reject(failure(DESKTOP_BRIDGE_MESSAGES.capability, 403, "capability"));
     if (entry.jobs.size >= MAX_QUEUED) return Promise.reject(failure(DESKTOP_BRIDGE_MESSAGES.busy, 429, "busy"));
