@@ -283,8 +283,8 @@ final class ProfileUITests: XCTestCase {
         defer { _ = try? api("PATCH", "/api/bots/\(id)", ["soul": before]) }
         let app = launchProfile()
 
-        // More > Soul (the standing instructions), where the pairing has it
-        element("panel-tab.more", in: app).tap()
+        // Edit persona > Soul (the standing instructions), where the pairing has it
+        element("panel-edit-persona", in: app).tap()
         let soul = element("panel-row.soul", in: app)
         guard soul.waitForExistence(timeout: 10) else { throw XCTSkip("this pairing has no Soul section: start the fixture with PARITY_OWNER=1") }
         soul.tap()

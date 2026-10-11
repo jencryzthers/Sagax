@@ -1,17 +1,23 @@
 // Update prompt. Updates download by themselves (upstream #2342), so nothing
-// shows while one checks or downloads. A downloaded update opens a notes
-// dialog before the restart; errors and the Linux package hand-off stay on
+// shows while one checks or downloads. A downloaded update opens a small
+// "Update ready" dialog (Not now, Update) whose release notes unfold under
+// "What's new"; "Not now" leaves the sidebar's update button, which opens
+// it again (openUpdatePrompt). Errors and the Linux package hand-off stay on
 // the small bottom-left card.
 import { useEffect, useRef, useState } from "react";
-import { ArrowDownToLine, Loader2, PackageOpen, RefreshCw, Sparkles, X } from "lucide-react";
+import { ChevronDown, Loader2, Sparkles, X } from "lucide-react";
 import { brand } from "@/lib/brand";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { useUpdaterState, type UpdaterState } from "@/lib/updater";
+import { useUpdatePromptRequests } from "@/lib/update-prompt";
 import { ReleaseNotesBody } from "./ReleaseNotesMarkdown";
 
-const primaryAction =
-  "flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent py-1.5 text-[13px] font-medium text-accent-ink transition-colors disabled:cursor-default disabled:bg-control disabled:text-ink-secondary";
+/** The dialog's two pills: the same size side by side, "Update" inverted. */
+const pill =
+  "flex h-11 flex-1 items-center justify-center gap-1.5 rounded-full text-[15px] font-medium transition-[filter,background-color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-elevated disabled:cursor-default";
+const primaryPill = `${pill} bg-ink text-app hover:brightness-90 disabled:bg-control disabled:text-ink-secondary disabled:hover:brightness-100`;
+const secondaryPill = `${pill} bg-control text-ink hover:bg-raised-hover`;
 
 const NOTES_STATUS = new Set<UpdaterState["status"]>(["preparing", "downloaded", "installing"]);
 
@@ -40,8 +46,16 @@ function notesTitle(s: UpdaterState): string {
   if (s.status === "installing") {
     return s.installMode === "handoff" ? t("settings.updates.openingTerminal") : t("releaseNotes.restarting");
   }
-  if (s.status === "downloaded") return t("releaseNotes.updateReady", { version });
+  if (s.status === "downloaded") return t("releaseNotes.readyTitle");
   return t("releaseNotes.updateTitle", { name: brand().name, version });
+}
+
+/** The sentence under "Update ready": what the restart does, or the
+ * terminal hand-off of a system package. */
+export function readyBody(s: UpdaterState): string {
+  if (s.installMode === "handoff") return t("settings.updates.readyInstall", { version: s.version ?? "" });
+  // An unknown version leaves a double space behind, in every language.
+  return t("releaseNotes.readyBody", { app: brand().name, version: s.version ?? "" }).replace("  ", " ");
 }
 
 export function UpdateBanner() {
@@ -50,6 +64,11 @@ export function UpdateBanner() {
   const [pending, setPending] = useState<"install" | "check" | null>(null);
   const status = s?.status;
   useEffect(() => setPending(null), [status]);
+  // the sidebar's update button asks for the dialog again after "Not now"
+  const requests = useUpdatePromptRequests();
+  useEffect(() => {
+    if (requests > 0) setDismissed(null);
+  }, [requests]);
 
   if (!s || s.status === "idle" || s.status === "checking" || s.status === "downloading") return null;
   const key = `${s.status}:${s.version ?? ""}`;
@@ -94,6 +113,7 @@ function UpdateNotesDialog({
   onUpdate: () => void;
 }) {
   const primaryRef = useRef<HTMLButtonElement>(null);
+  const [notesOpen, setNotesOpen] = useState(false);
   const installing = s.status === "installing";
   const preparing = s.status === "preparing";
   const busy = s.status === "downloading" || preparing || installing || pending !== null;
@@ -113,7 +133,7 @@ function UpdateNotesDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [busy, onDismiss]);
 
-  const primaryLabel = handoff ? t("settings.updates.install") : t("releaseNotes.updateRestart");
+  const primaryLabel = handoff ? t("settings.updates.install") : t("releaseNotes.update");
 
   return (
     <div
@@ -124,35 +144,26 @@ function UpdateNotesDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="update-notes-title"
-        className="flex max-h-[calc(100vh-3rem)] w-full max-w-[520px] flex-col rounded-[14px] border border-border bg-elevated p-5"
+        aria-describedby="update-notes-body"
+        data-update-dialog=""
+        className={cn(
+          "flex max-h-[calc(100vh-3rem)] w-full flex-col rounded-[22px] border border-border bg-elevated p-5 shadow-2xl transition-[max-width]",
+          notesOpen ? "max-w-[520px]" : "max-w-[360px]",
+        )}
       >
-        <div className="flex items-start gap-2">
-          <h2 id="update-notes-title" className="min-w-0 flex-1 text-[16px] font-semibold text-ink">
-            {notesTitle(s)}
-          </h2>
-          {!busy && (
-            <button
-              type="button"
-              onClick={onDismiss}
-              className="shrink-0 rounded-md p-1 text-ink-secondary hover:bg-control hover:text-ink"
-              title={t("releaseNotes.later")}
-            >
-              <X size={14} />
-            </button>
-          )}
-        </div>
+        <h2 id="update-notes-title" className="text-[17px] font-semibold leading-6 text-ink">
+          {notesTitle(s)}
+        </h2>
 
-        {s.status === "preparing" && (
-          <p className="mt-2 text-[13px] leading-relaxed text-ink-secondary">{t("settings.updates.preparing")}</p>
-        )}
-        {s.status === "installing" && s.message && (
-          <p className="mt-2 text-[13px] leading-relaxed text-ink-secondary">{s.message}</p>
-        )}
-        {s.status === "downloaded" && handoff && (
-          <p className="mt-2 text-[13px] leading-relaxed text-ink-secondary">
-            {t("settings.updates.readyInstall", { version: s.version ?? "" })}
-          </p>
-        )}
+        <p id="update-notes-body" className="mt-2 text-[15px] leading-[22px] text-ink-secondary">
+          {s.status === "downloaded"
+            ? readyBody(s)
+            : preparing
+              ? t("settings.updates.preparing")
+              : installing && s.message
+                ? s.message
+                : null}
+        </p>
 
         {s.status === "downloading" && (
           <div className="mt-3">
@@ -170,34 +181,36 @@ function UpdateNotesDialog({
           </div>
         )}
 
-        <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
-          <ReleaseNotesBody notes={s.notes} fallbackVersion={s.version ?? ""} />
-        </div>
+        {/* The feed's notes stay one tap away rather than filling the dialog. */}
+        <button
+          type="button"
+          onClick={() => setNotesOpen((open) => !open)}
+          aria-expanded={notesOpen}
+          data-update-notes-toggle=""
+          className="mt-3 inline-flex items-center gap-1 self-start rounded-md text-[13px] text-ink-secondary hover:text-ink"
+        >
+          {t("releaseNotes.whatsNew", { version: s.version ?? "" }).replace(/\s+$/, "")}
+          <ChevronDown size={13} className={cn("transition-transform", notesOpen && "rotate-180")} />
+        </button>
+        {notesOpen && (
+          <div className="mt-2 min-h-0 flex-1 overflow-y-auto">
+            <ReleaseNotesBody notes={s.notes} fallbackVersion={s.version ?? ""} />
+          </div>
+        )}
 
-        <div className="mt-4 flex gap-2">
+        <div className="mt-5 flex gap-3">
+          <button type="button" onClick={onDismiss} disabled={busy} className={cn(secondaryPill, busy && "opacity-50")}>
+            {t("releaseNotes.notNow")}
+          </button>
           {busy ? (
-            <button type="button" disabled className={primaryAction}>
-              <Loader2 size={13} className="animate-spin" />
+            <button type="button" disabled className={primaryPill}>
+              <Loader2 size={15} className="animate-spin" />
               {busyLabel(s, pending)}
             </button>
           ) : (
-            <>
-              <button ref={primaryRef} type="button" onClick={onUpdate} className={primaryAction}>
-                {handoff ? (
-                  s.status === "downloaded" ? <PackageOpen size={13} /> : <ArrowDownToLine size={13} />
-                ) : (
-                  <RefreshCw size={13} />
-                )}
-                {primaryLabel}
-              </button>
-              <button
-                type="button"
-                onClick={onDismiss}
-                className="rounded-lg px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink"
-              >
-                {t("releaseNotes.later")}
-              </button>
-            </>
+            <button ref={primaryRef} type="button" onClick={onUpdate} className={primaryPill}>
+              {primaryLabel}
+            </button>
           )}
         </div>
       </div>

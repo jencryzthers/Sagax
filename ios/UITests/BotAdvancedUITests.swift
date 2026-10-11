@@ -103,9 +103,9 @@ final class BotAdvancedUITests: XCTestCase {
         app.launchArguments = arguments
         app.launch()
         XCTAssertTrue(element("profile-name", in: app).waitForExistence(timeout: 30))
-        // the bot panel's More tab: every section, in the desktop's order
-        element("panel-tab.more", in: app).tap()
-        XCTAssertTrue(element("panel-more", in: app).waitForExistence(timeout: 10))
+        // the bot panel's Edit persona: every section, in the desktop's order
+        element("panel-edit-persona", in: app).tap()
+        XCTAssertTrue(element("panel-persona-list", in: app).waitForExistence(timeout: 10))
         return app
     }
 

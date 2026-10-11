@@ -1,13 +1,14 @@
 import Foundation
 
-// The iPad's docked bot panel (packages I4 and I4b of the iPad desktop
-// parity): which tabs and More sections a pairing shows, in the desktop's
-// order, and the More list's search. The desktop's own rules are
-// `bot-settings/panel-tabs.ts` (Details, Library, Computer, More; identity
-// and routines live on Details, every other section on More) and
-// `bot-settings/sections.ts` (the order, the labels' keywords). What a
-// pairing may reach comes from `SurfaceGate`: a section the computer can
-// only refuse is not listed.
+// The bot panel (iPad docked, iPhone full screen): which tabs a pairing
+// shows and which sections its persona editor lists, in the desktop's order,
+// and that list's search. The desktop's own rules are
+// `bot-settings/panel-tabs.ts` (Details, Library, Computer; no More tab
+// since the persona editor) and `lib/persona-sections.ts` with
+// `bot-settings/sections.ts` (the order, the labels' keywords): every other
+// section opens from the panel's "Edit persona" button. What a pairing may
+// reach comes from `SurfaceGate`: a section the computer can only refuse is
+// not listed.
 
 /// A tab of the bot panel.
 public enum DesktopPanelTab: String, CaseIterable, Hashable, Sendable {
@@ -16,24 +17,27 @@ public enum DesktopPanelTab: String, CaseIterable, Hashable, Sendable {
     /// The bot's files (was Files).
     case library
     case computer
-    /// Every other section behind one searchable list (was Advanced).
-    case more
 
-    /// The tabs this pairing shows, in order. More only when one of its
-    /// sections is reachable.
+    /// The tabs this pairing shows, in order: the desktop's three, for
+    /// every pairing (the persona editor holds the rest).
     public static func visible(gate: SurfaceGate, slack: Bool = false) -> [DesktopPanelTab] {
-        var tabs: [DesktopPanelTab] = [.details, .library, .computer]
-        if !DesktopPanelSection.visible(gate: gate, slack: slack).isEmpty { tabs.append(.more) }
-        return tabs
+        [.details, .library, .computer]
     }
-
-    /// The tab a deep link to a section lands on (`tabForSection`): every
-    /// section the list holds is on More.
-    public static func holding(_ section: DesktopPanelSection) -> DesktopPanelTab { .more }
 }
 
-/// A section of the More tab (`BOT_SECTIONS` less identity and routines,
-/// which Details holds).
+/// The persona editor (`PersonaEditorModal.tsx`): the panel's "Edit
+/// persona" button opens a searchable list of every section but identity
+/// and routines (Details holds those).
+public enum DesktopPersonaEditor {
+    /// Whether the panel offers "Edit persona": one of its sections is
+    /// reachable on this pairing.
+    public static func offered(gate: SurfaceGate, slack: Bool = false) -> Bool {
+        !DesktopPanelSection.visible(gate: gate, slack: slack).isEmpty
+    }
+}
+
+/// A section of the persona editor (`BOT_SECTIONS` less identity and
+/// routines, which Details holds).
 public enum DesktopPanelSection: String, CaseIterable, Hashable, Sendable {
     case overview, slack, soul, skills, memory, access, worksOn, model, permissions, voice
     case visibility, sharing, perspicax, history, usage
@@ -78,7 +82,7 @@ public enum DesktopPanelSection: String, CaseIterable, Hashable, Sendable {
         }
     }
 
-    /// The More list for this pairing, in the desktop's order.
+    /// The persona editor's list for this pairing, in the desktop's order.
     public static func visible(gate: SurfaceGate, slack: Bool = false) -> [DesktopPanelSection] {
         allCases.filter { $0.reachable(gate: gate, slack: slack) }
     }
@@ -208,7 +212,7 @@ public enum DesktopWorksOn: String, CaseIterable, Hashable, Sendable {
     public var stored: String { rawValue }
 }
 
-/// One webhook as More > Access lists it (`GET /api/webhooks`, the
+/// One webhook as Edit persona > Access lists it (`GET /api/webhooks`, the
 /// fields of `shared/webhooks.ts` the card shows; the credential never
 /// rides this list).
 public struct WebhookListing: Decodable, Hashable, Identifiable, Sendable {
@@ -246,7 +250,7 @@ public struct WebhooksResponse: Decodable, Sendable {
 }
 
 public extension CompanionClient {
-    /// `GET /api/webhooks`: the triggers (More > Access's Webhooks card).
+    /// `GET /api/webhooks`: the triggers (Edit persona > Access's Webhooks card).
     func webhooks() async throws -> WebhooksResponse {
         try await send(makeRequest("GET", "/api/webhooks"), as: WebhooksResponse.self)
     }
@@ -319,7 +323,7 @@ public enum DesktopInlineEdit {
     }
 }
 
-/// More > Access's Works on choices and their notes (`AccessSection.tsx`
+/// Edit persona > Access's Works on choices and their notes (`AccessSection.tsx`
 /// with `src/lib/place.ts` and `src/lib/feature-flags.ts`).
 public enum DesktopWorksOnRules {
     /// Whether this server offers a place (`placeOffered`): every place on
@@ -397,7 +401,7 @@ public enum DesktopWorksOnRules {
 // MARK: - The iPhone's bot panel
 
 // The iPhone shows the same panel as the iPad and the desktop
-// (`BotSettingsDialog.tsx`): the same tabs and More sections, from the same
+// (`BotSettingsDialog.tsx`): the same tabs and persona sections, from the same
 // `DesktopPanelTab` / `DesktopPanelSection` rules, full screen. What is the
 // phone's own is below: the doors into it, the bot's actions in its top
 // bar, and the Library's chips (the conversation's files by kind, and the

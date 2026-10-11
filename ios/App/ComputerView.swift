@@ -12,7 +12,9 @@
 //
 // On an organization server, Works on Local VM or This computer does not
 // use that viewer. `LocalVmComputerPanel` below shows a still and the
-// power buttons, and it never takes control.
+// power buttons, and it never takes control. There, `ComputerChooser` above
+// the screen lists Cloud and each of the person's computers by name, and
+// shows the one picked (the bot's own first).
 import SwiftUI
 import CompanionCore
 import UIKit
@@ -30,6 +32,11 @@ struct ComputerView: View {
     @State private var confirmingDesktop = false
     @State private var openingDesktop = false
     @State private var desktopURL: URL?
+    @StateObject private var choices = ComputerChoicesModel()
+    /// The screen the person picked (`ComputerChoice.key`, or browser
+    /// mode's key); nil is the one the bot works on.
+    @State private var picked: String?
+    @State private var config: ConfigStatus?
     @AppStorage("companion.computer.fit") private var fitRaw = ComputerFit.fit.rawValue
     @AppStorage("companion.computer.specialKeys") private var specialKeys = false
 
@@ -63,11 +70,53 @@ struct ComputerView: View {
         OrgLocalVmScreen.shows(worksOn: DesktopWorksOn.of(current), organization: session.surfaceGate.organization)
     }
 
+    /// The screen shown on an organization server once the person's
+    /// desktops are known: the bot's own, or the one picked.
+    private var chosen: ComputerChoice? {
+        guard session.surfaceGate.organization else { return nil }
+        return choices.bridge?.chosen(worksOnLocal: showsLocalVm, picked: picked)
+    }
+
+    /// A Local VM is on screen: the one picked, else the bot's own (Works on
+    /// Local VM or This computer, connected or not).
+    private var showsLocal: Bool {
+        if let chosen { return chosen != .cloud }
+        return showsLocalVm
+    }
+
+    /// Browser mode is offered: the server has the built-in browser and this
+    /// bot's own switch is not off.
+    private var browserOffered: Bool {
+        DesktopWorksOnRules.browserAvailable(config) && DesktopWorksOnRules.browserFeature(config) && current.browser != false
+    }
+
+    /// Browser mode: picked, or the bot works on its browser and nothing
+    /// else was picked.
+    private var showsBrowser: Bool {
+        guard browserOffered else { return false }
+        return picked == ComputerChooser.browserKey || (picked == nil && DesktopWorksOn.of(current) == .browser)
+    }
+
     var body: some View {
-        if showsLocalVm {
+        Group { screens }
+            .onAppear {
+                if session.surfaceGate.organization { choices.start { [weak session] in session?.computerClient } }
+            }
+            .onDisappear { choices.stop() }
+            .task { config = await session.configStatus() }
+    }
+
+    @ViewBuilder
+    private var screens: some View {
+        if showsBrowser {
+            browserScreen
+        } else if showsLocal {
             localVmScreen
         } else if let embeddedWidth {
-            AnyView(lifecycle(AnyView(embedded(width: embeddedWidth))))
+            VStack(spacing: 12) {
+                AnyView(chooser(dark: false))
+                AnyView(lifecycle(AnyView(embedded(width: embeddedWidth))))
+            }
         } else {
             AnyView(lifecycle(AnyView(fullScreen))
                 .toolbar(.hidden, for: .navigationBar)
@@ -82,12 +131,15 @@ struct ComputerView: View {
     @ViewBuilder
     private var localVmScreen: some View {
         if let embeddedWidth {
-            LocalVmComputerPanel(name: current.name, chrome: .phone)
-                .frame(width: embeddedWidth)
-                .background(Theme.bgComputer, in: RoundedRectangle(cornerRadius: Theme.Metric.cardRadius, style: .continuous))
-                .environment(\.colorScheme, .dark)
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("panel-computer")
+            VStack(spacing: 12) {
+                AnyView(chooser(dark: false))
+                localVmPanel
+                    .frame(width: embeddedWidth)
+                    .background(Theme.bgComputer, in: RoundedRectangle(cornerRadius: Theme.Metric.cardRadius, style: .continuous))
+                    .environment(\.colorScheme, .dark)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("panel-computer")
+            }
         } else {
             VStack(spacing: 0) {
                 HStack {
@@ -100,7 +152,75 @@ struct ComputerView: View {
                 }
                 .padding(.horizontal, Theme.Metric.screenEdge)
                 .padding(.top, 6)
-                LocalVmComputerPanel(name: current.name, chrome: .phone)
+                AnyView(chooser(dark: true))
+                    .padding(.horizontal, Theme.Metric.screenEdge)
+                    .padding(.bottom, 12)
+                localVmPanel
+                    .padding(.horizontal, Theme.Metric.screenEdge)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Theme.bgComputer.ignoresSafeArea())
+            .toolbar(.hidden, for: .navigationBar)
+            .navigationBarBackButtonHidden(true)
+            .background(SwipeBackBridge())
+            .preferredColorScheme(.dark)
+        }
+    }
+
+    /// The Local VM shown: the one picked by name, else the person's current
+    /// computer. A new computer starts over (its own status and stills).
+    private var localVmPanel: some View {
+        LocalVmComputerPanel(name: current.name, chrome: .phone, desktopId: chosen?.desktopId, computerName: chosen?.name)
+            .id(chosen?.key ?? "current")
+    }
+
+    /// Cloud and each of the person's computers (an organization server),
+    /// then Browser, when there is more than one choice. `dark`: on the
+    /// black full screen view rather than the panel's page.
+    @ViewBuilder
+    private func chooser(dark: Bool) -> some View {
+        let items = ComputerChooser.items(bridge: choices.bridge, organization: session.surfaceGate.organization,
+                                          worksOnLocal: showsLocalVm, browser: browserOffered)
+        if items.count > 1 {
+            ComputerChooser(
+                items: items,
+                chosen: showsBrowser ? ComputerChooser.browserKey : (chosen?.key ?? "screen"),
+                colors: dark
+                    ? .init(ink: Theme.Computer.ink, secondary: Theme.Computer.ink.opacity(0.6), track: Theme.Computer.glassFill,
+                            selected: Theme.Computer.ink.opacity(0.18), dot: Theme.accent)
+                    : .init(ink: Theme.textPrimary, secondary: Theme.textSecondary, track: Theme.card,
+                            selected: Theme.cardRaised, dot: Theme.accent)
+            ) { picked = $0 }
+        }
+    }
+
+    /// Browser mode: the bot's live browser in place of the screen.
+    @ViewBuilder
+    private var browserScreen: some View {
+        if let embeddedWidth {
+            VStack(spacing: 12) {
+                AnyView(chooser(dark: false))
+                BrowserLiveView(bot: current, secondary: Theme.textSecondary, track: Theme.card)
+                    .frame(width: embeddedWidth)
+                    .accessibilityIdentifier("panel-computer")
+            }
+        } else {
+            VStack(spacing: 0) {
+                HStack {
+                    GlassCircleButton(
+                        systemImage: "chevron.left", fill: Theme.Computer.glassFill, accessibilityLabel: "Back",
+                        glyphSize: 18, glyphOffset: CGSize(width: 0.85, height: -0.25), glyphColor: Theme.Computer.ink
+                    ) { dismiss() }
+                        .accessibilityIdentifier("computer-back")
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, Theme.Metric.screenEdge)
+                .padding(.top, 6)
+                AnyView(chooser(dark: true))
+                    .padding(.horizontal, Theme.Metric.screenEdge)
+                    .padding(.bottom, 12)
+                BrowserLiveView(bot: current, secondary: Theme.Computer.ink.opacity(0.6), track: Theme.Computer.glassFill)
                     .padding(.horizontal, Theme.Metric.screenEdge)
                 Spacer(minLength: 0)
             }
@@ -716,6 +836,10 @@ struct LocalVmComputerPanel: View {
     @Environment(\.scenePhase) private var scenePhase
     let name: String
     let chrome: LocalVmComputerChrome
+    /// The computer the person picked by name; their current one when nil.
+    var desktopId: String? = nil
+    /// That computer's name, under the screen.
+    var computerName: String? = nil
     @StateObject private var model = LocalVmComputerModel()
     @State private var consent: LocalVmConsent?
 
@@ -748,9 +872,16 @@ struct LocalVmComputerPanel: View {
                     .frame(maxWidth: .infinity)
                     .accessibilityIdentifier("local-vm-error")
             }
-            Text("\(name)'s screen")
+            Group {
+                if let computerName {
+                    Text("\(name)'s screen · \(computerName)")
+                } else {
+                    Text("\(name)'s screen")
+                }
+            }
                 .font(.system(size: 13))
                 .foregroundStyle(chrome.secondary)
+                .lineLimit(1)
                 .frame(maxWidth: .infinity)
             if model.status?.setup?.state == "done", let folder = model.status?.setup?.previousFolder, !folder.isEmpty {
                 Text("The files of the previous Local VM are still in \(folder).")
@@ -763,7 +894,7 @@ struct LocalVmComputerPanel: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("local-vm-computer")
         .onAppear {
-            model.attach { [weak session] in session?.computerClient }
+            model.attach(desktopId: desktopId) { [weak session] in session?.computerClient }
             if scenePhase == .active { model.start() }
         }
         .onDisappear { model.stop() }
@@ -954,6 +1085,8 @@ final class LocalVmComputerModel: ObservableObject {
     @Published private(set) var busy = false
 
     private var clientProvider: @MainActor () -> CompanionClient? = { nil }
+    /// The computer asked (`desktopId`); the person's current one when nil.
+    private var desktopId: String?
     private var pending: LocalVmAction?
     private var connected = false
     private var bridgeKnown = false
@@ -962,7 +1095,8 @@ final class LocalVmComputerModel: ObservableObject {
     private var statusLoop: Task<Void, Never>?
     private var frameLoop: Task<Void, Never>?
 
-    func attach(_ provider: @escaping @MainActor () -> CompanionClient?) {
+    func attach(desktopId: String? = nil, _ provider: @escaping @MainActor () -> CompanionClient?) {
+        self.desktopId = desktopId
         clientProvider = provider
     }
 
@@ -997,7 +1131,7 @@ final class LocalVmComputerModel: ObservableObject {
         error = ""
         publish()
         do {
-            let answer = try await client.localVm(action: action, choice: choice)
+            let answer = try await client.localVm(action: action, choice: choice, desktopId: desktopId)
             if !answer.ok { error = answer.text }
         } catch {
             self.error = Self.failed(error)
@@ -1052,7 +1186,7 @@ final class LocalVmComputerModel: ObservableObject {
                 publish()
                 return
             }
-            let picked = bridge.localVmDesktop()
+            let picked = bridge.localVmDesktop(id: desktopId)
             connected = picked.connected
             platform = picked.platform
             bridgeKnown = true
@@ -1066,7 +1200,7 @@ final class LocalVmComputerModel: ObservableObject {
     private func refreshStatus() async {
         guard connected, let client = clientProvider() else { return }
         do {
-            let answer = try await client.localVm(action: .status)
+            let answer = try await client.localVm(action: .status, desktopId: desktopId)
             if let next = answer.status {
                 status = next
                 publish()
@@ -1081,7 +1215,7 @@ final class LocalVmComputerModel: ObservableObject {
     private func grab() async {
         guard !Task.isCancelled, view.state == .running, let client = clientProvider() else { return }
         do {
-            let answer = try await client.localVm(action: .screenshot)
+            let answer = try await client.localVm(action: .screenshot, desktopId: desktopId)
             guard !Task.isCancelled, view.state == .running, let data = answer.image, let picture = UIImage(data: data) else { return }
             image = picture
         } catch {

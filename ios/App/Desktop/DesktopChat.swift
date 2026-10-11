@@ -119,7 +119,7 @@ struct DesktopChatColumn: View {
             inspectorOpen: inspectorOpen,
             togglePanel: { model.togglePanel() },
             showPanel: { tab in model.showPanel(tab) },
-            showAllowlist: { model.showPanel(.more, section: .permissions) },
+            showAllowlist: { model.showPersona(.permissions) },
             toggleInspector: { toggleInspector() },
             openModelPicker: { model.modelPickerOpen = true }
         ))

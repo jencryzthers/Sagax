@@ -117,6 +117,25 @@ describe("the bridge relays only for its own signed-in person", () => {
     await expect(bridges.request(ADA, { action: "list_files" }, () => live)).rejects.toThrow(/turn ended/);
   });
 
+  it("a person with two computers reaches the one they picked, never another person's", async () => {
+    const { bridges, people } = hub();
+    people.set("ada-pc-session", ADA);
+    const mac = registration("Ada's Mac");
+    const pc = registration("ADA-PC");
+    const bobs = registration("Bob's PC");
+    bridges.register(mac, "ada-session", secret);
+    bridges.register(pc, "ada-pc-session", secret);
+    bridges.register(bobs, "bob-session", secret);
+    const answer = bridges.request(ADA, { action: "vm_status" }, () => true, undefined, mac.id);
+    expect(await bridges.poll(pc.id, "ada-pc-session", secret, 10)).toBeNull();
+    const job = await bridges.poll(mac.id, "ada-session", secret, 10);
+    expect(job?.operation).toEqual({ action: "vm_status" });
+    bridges.complete(mac.id, "ada-session", secret, job!.id, { status: "running" });
+    await expect(answer).resolves.toEqual({ status: "running" });
+    await expect(bridges.request(ADA, { action: "vm_status" }, () => true, undefined, bobs.id)).rejects.toMatchObject({ code: "not_connected", message: expect.stringMatching(/pick another computer/) });
+    expect(bridges.status(ADA).map((desktop) => desktop.name).sort()).toEqual(["ADA-PC", "Ada's Mac"]);
+  });
+
   it("an action the desktop does not offer is refused before it is queued", async () => {
     const { bridges } = hub();
     bridges.register(registration(), "ada-session", secret);

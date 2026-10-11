@@ -11,13 +11,16 @@
 //            Delete), each once
 //   tabs     Details (Coding, Activity, Routines) | Library (Files: the
 //            conversation's files by kind and the bot's links; Skills;
-//            Plugins) |
-//            Computer (the live computer, embedded) | More (a searchable
-//            list in the desktop's order; each row pushes its page)
+//            Plugins) | Computer (the live computer, embedded), the
+//            desktop's three (no More tab)
+//   Edit persona  under the tabs, as on the desktop: a page with the
+//            searchable list of every other section in the desktop's
+//            order; each row pushes its page (also first in "...")
 //
 // Which tabs and sections a pairing shows is `DesktopPanelTab` /
-// `DesktopPanelSection` (CompanionCore, from SurfaceGate), the same rules
-// as the iPad's. Every door into it is a `BotPanelDoor`.
+// `DesktopPanelSection` / `DesktopPersonaEditor` (CompanionCore, from
+// SurfaceGate), the same rules as the iPad's. Every door into it is a
+// `BotPanelDoor`.
 //
 // Each sub-tree is type-erased (`AnyView`): a deep SwiftUI type overflowed
 // the iPad's main-thread stack once (I1, build 6).
@@ -95,6 +98,7 @@ private struct PhoneBotPanelContent: View {
                     }
                 }
                 .navigationDestination(for: PanelComputerRoute.self) { _ in ComputerView(bot: current) }
+                .navigationDestination(for: PanelPersonaRoute.self) { _ in AnyView(personaPage) }
         }
         .tint(Theme.accentText)
         .sheet(isPresented: $editingAvatar) { PhoneBotAvatarSheet(bot: current, draft: $draft) }
@@ -166,6 +170,10 @@ private struct PhoneBotPanelContent: View {
                             AnyView(identity)
                             AnyView(tabBar)
                                 .padding(.top, 24)
+                            if !sections.isEmpty {
+                                AnyView(editPersonaButton)
+                                    .padding(.top, 12)
+                            }
                             AnyView(tabBody(width: proxy.size.width))
                                 .padding(.top, 20)
                             Color.clear.frame(height: 1).id("panel-end")
@@ -250,7 +258,11 @@ private struct PhoneBotPanelContent: View {
     }
 
     private var menuItems: [GlassMenuItem] {
-        BotPanelAction.available(gate: gate, bot: current, viewerId: viewerId).map { action in
+        // Edit persona first, as in the desktop's bot menu
+        let persona: [GlassMenuItem] = sections.isEmpty ? [] : [
+            GlassMenuItem(id: "edit-persona", title: Text("Edit persona"), systemImage: "pencil") { openPersona() },
+        ]
+        let actions: [GlassMenuItem] = BotPanelAction.available(gate: gate, bot: current, viewerId: viewerId).map { action in
             switch action {
             case .shareTemplate:
                 GlassMenuItem(id: "share-template", title: Text("Share as Template"), systemImage: "square.and.arrow.up.on.square") {
@@ -275,6 +287,7 @@ private struct PhoneBotPanelContent: View {
                 GlassMenuItem(id: "delete", title: Text("Delete Bot"), systemImage: "trash", destructive: true) { confirmingDelete = true }
             }
         }
+        return persona + actions
     }
 
     // MARK: Identity
@@ -361,8 +374,36 @@ private struct PhoneBotPanelContent: View {
                 path.append(PanelComputerRoute())
             }
             .frame(maxWidth: .infinity))
-        case .more: AnyView(more)
         }
+    }
+
+    /// "Edit persona" under the tabs (the desktop's `data-edit-persona`
+    /// button): the persona editor's list, pushed as its own page.
+    private var editPersonaButton: some View {
+        Button(action: openPersona) {
+            HStack(spacing: 6) {
+                Image(systemName: "pencil")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Theme.textSecondary)
+                Text("Edit persona")
+                    .font(Theme.Font.body)
+                    .foregroundStyle(Theme.textPrimary)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 36)
+            .background(Theme.card, in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, Theme.Profile.cardMargin)
+        .accessibilityIdentifier("panel-edit-persona")
+    }
+
+    private func openPersona() {
+        Haptics.selection()
+        query = ""
+        path.append(PanelPersonaRoute())
     }
 
     // MARK: Details
@@ -440,9 +481,22 @@ private struct PhoneBotPanelContent: View {
         }
     }
 
-    // MARK: More
+    // MARK: Persona editor
 
-    private var more: some View {
+    private var personaPage: some View {
+        ScrollView {
+            AnyView(personaList)
+                .padding(.top, 16)
+                .padding(.bottom, 48)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationTitle(Text("Edit persona"))
+        .navigationBarTitleDisplayMode(.inline)
+        .accessibilityIdentifier("panel-persona")
+    }
+
+    private var personaList: some View {
         let shown = sections.filter { $0.matches(query, label: $0.localizedTitle) }
         return VStack(spacing: 12) {
             HStack(spacing: 8) {
@@ -453,7 +507,7 @@ private struct PhoneBotPanelContent: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .accessibilityLabel(Text("Search settings"))
-                    .accessibilityIdentifier("panel-more-search")
+                    .accessibilityIdentifier("panel-persona-search")
             }
             .padding(.horizontal, 14)
             .frame(height: 40)
@@ -479,7 +533,7 @@ private struct PhoneBotPanelContent: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("panel-more")
+        .accessibilityIdentifier("panel-persona-list")
     }
 
     // MARK: Actions
@@ -644,6 +698,9 @@ private struct PanelRoutineRoute: Hashable {
 }
 
 private struct PanelComputerRoute: Hashable {}
+
+/// The persona editor's page (the sections list).
+private struct PanelPersonaRoute: Hashable {}
 
 // MARK: - Inline text
 

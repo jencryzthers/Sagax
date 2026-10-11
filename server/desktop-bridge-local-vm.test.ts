@@ -9,9 +9,10 @@ import { createDesktopBridgeRoutes } from "./desktop-bridge-routes.ts";
 
 function call(body: unknown) {
   const sent: DesktopBridgeOperation[] = [];
+  const picked: (string | undefined)[] = [];
   const routes = createDesktopBridgeRoutes({
     organization: () => true,
-    bridges: { request: async (_person: string, operation: DesktopBridgeOperation) => { sent.push(operation); return { content: [{ type: "text", text: "ok" }] }; } } as never,
+    bridges: { request: async (_person: string, operation: DesktopBridgeOperation, _active: unknown, _progress: unknown, desktopId?: string) => { sent.push(operation); picked.push(desktopId); return { content: [{ type: "text", text: "ok" }] }; } } as never,
     tunnels: {} as never,
     audit: { record() {}, recent: () => [] } as never,
     workplace: () => ({}),
@@ -26,7 +27,7 @@ function call(body: unknown) {
     json: (_res: unknown, status: number, value: Record<string, unknown>) => { answer = { status, body: value }; },
     readBody: async () => body,
   } as never);
-  return Promise.resolve(done).then(() => ({ answer: answer!, sent }));
+  return Promise.resolve(done).then(() => ({ answer: answer!, sent, picked }));
 }
 
 describe("the person's Local VM route", () => {
@@ -48,6 +49,17 @@ describe("the person's Local VM route", () => {
     expect(JSON.stringify(spec)).not.toContain("evil");
     const install = await call({ action: "install", choice: "orbstack-download", url: "https://evil.test" });
     expect(install.sent).toEqual([{ action: "vm_install", arguments: { choice: "orbstack-download" } }]);
+  });
+
+  it("passes the computer the person picked, and refuses a malformed one", async () => {
+    const id = "0f8e2a4c-6b1d-4e3f-9a7b-5c2d1e0f9a8b";
+    expect((await call({ action: "status" })).picked).toEqual([undefined]);
+    expect((await call({ action: "status", desktopId: id })).picked).toEqual([id]);
+    for (const desktopId of ["../x", "", 7, "0F8E2A4C"]) {
+      const { answer, sent } = await call({ action: "status", desktopId });
+      expect(answer.status).toBe(400);
+      expect(sent).toEqual([]);
+    }
   });
 
   it("refuses anything else", async () => {

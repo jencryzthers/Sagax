@@ -141,8 +141,12 @@ export function createDesktopBridgeRoutes(deps: {
         : action === "vm_install"
           ? { action, arguments: { choice: typeof body?.choice === "string" ? body.choice.slice(0, 40) : "" } }
           : { action };
+      // A person with several computers names the one they are looking at
+      // (its id from GET /api/me/desktop-bridge); without it, the current one.
+      const desktopId = typeof body?.desktopId === "string" && /^[0-9a-f-]{36}$/.test(body.desktopId) ? body.desktopId : undefined;
+      if (body?.desktopId !== undefined && desktopId === undefined) return json(res, 400, { error: "desktopId must be a desktop id from GET /api/me/desktop-bridge" });
       try {
-        return json(res, 200, { result: await deps.bridges.request(person, operation, () => true) });
+        return json(res, 200, { result: await deps.bridges.request(person, operation, () => true, undefined, desktopId) });
       } catch (error) {
         const status = (error as { status?: number }).status;
         return json(res, typeof status === "number" && status >= 400 && status < 600 ? status : 502, { error: (error as Error).message, code: (error as { code?: string }).code });

@@ -8032,7 +8032,17 @@
       "model.rail.unreadyOne": "766b6f4aaccd174d368cafa404fa2cbd458ded4db3c7b6445c8eccfbfd61acbd",
       "settings.unreadyProviders.show": "fdd3babe57baf8a750b7749a26383616d3ee6398a7b77fc9e3f0a29002503fa0",
       "settings.unreadyProviders.subtitle": "706c30bd07c4ce4a94112a60894a2ecde53aaca4aa877ad9a23c06c283d20d04",
-      "settings.unreadyProviders.title": "651fecb6bed96d54629a4ce93dfec87ee1fc2d44be2384367466a556dabec4c2"
+      "settings.unreadyProviders.title": "651fecb6bed96d54629a4ce93dfec87ee1fc2d44be2384367466a556dabec4c2",
+      "releaseNotes.notNow": "a0e63d7c7125d29af84d6919af5550529be77c327324940c98c4b2cb13a99c8c",
+      "releaseNotes.readyBody": "c11356566ab85613a6c5a4bcb51df9c02efda7fdbd177333ac2259905aef86c6",
+      "releaseNotes.readyTitle": "46570c771ff507b1d3799ee83f292df1f3ae900cedb05113ee23daaf99a922dd",
+      "releaseNotes.update": "c1c1009d3f37ec058070a62e22caf9ac9dae2169d452487c5c271a8bcf57a291",
+      "orgComputer.choice.label": "d98be2e81a09bd47817b2bfee12aa8a70137753aea62a9160d88cdf88ccd7379",
+      "orgComputer.choice.cloud": "b977b950c1ae31e5aeb9ef778cc20a66fc034eb81e738e0206104b677962c465",
+      "orgComputer.choice.worksHere": "5db2ae486b4bccb47100de4464c60e12737bf714fa438ec681599ab0f15eeeb5",
+      "computer.view.screen": "6e56137e21d3222a2e3135fc3458286fc3fb6b2e2c679e9ae28db268fe982af7",
+      "computer.view.browser": "d31de1a5c5c8ba2a210a167cf0d0dc2425c57ea7525f4b73a4b7ab934af79dfc",
+      "computer.browserOf": "52337f2bfcd545954b303a46a51f9fee0ba48f42bf53b6aad3ffdd85fbf2fde9"
     },
     "hi": {
       "approval.action.allowOnce": "168511d24d9ee03122b3200f929be11eaaedad45cb0ecb20a95f549b3e3f4d0f",

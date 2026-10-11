@@ -32,8 +32,10 @@ const render = (config: FeatureFlagConfig & { cloudHome?: boolean }, browser?: b
   return renderToStaticMarkup(createElement(ComputerPanel, { bot: { ...bot, browser } }));
 };
 
-// Sagax 0.1.0 (8a563e929) dropped the Browser view from the Computer panel:
-// the panel shows the computer only. The install and repair states live in
+// Sagax 0.1.0 (8a563e929) dropped the Browser view from the Computer panel;
+// it is back as browser mode: the screen picker's Browser chip, offered where
+// the built-in browser is on, shows BrowserPanel in the screen's frame. The
+// panel opens on the screen. The install and repair states live in
 // BrowserPanel, rendered on its own here.
 const renderBrowser = (config: FeatureFlagConfig & { cloudHome?: boolean }, browser?: boolean) => {
   fixture.config = config;
@@ -49,9 +51,17 @@ describe("Browser panel installation access", () => {
     expect(browserAvailable(config)).toBe(false);
   });
 
-  it("never opens a browser view inside the Computer panel", () => {
-    expect(render({ features: { browser: true }, browserEngine: missing })).not.toContain("Install the browser engine");
-    expect(render({ features: { browser: true }, browserEngine: { kind: "engine" } }, true)).not.toContain("Loading browser…");
+  it("offers browser mode in the screen picker and opens on the screen", () => {
+    const off = render({ features: { browser: false } });
+    expect(off).not.toContain('data-computer-choice="browser"');
+    const missingEngine = render({ features: { browser: true }, browserEngine: missing });
+    expect(missingEngine).toContain('data-computer-choice="browser"');
+    expect(missingEngine).toContain('aria-checked="true" data-computer-choice="screen"');
+    expect(missingEngine).not.toContain("Install the browser engine");
+    const ready = render({ features: { browser: true }, browserEngine: { kind: "engine" } }, true);
+    expect(ready).toContain(">Browser<");
+    expect(ready).not.toContain("Loading browser…");
+    expect(ready).not.toContain("data-browser-view");
   });
 
   it("keeps the per-bot opt-in gate", () => {

@@ -10,16 +10,22 @@
 //   (src/lib/desktop-local-vm.ts, electron/local-vm.mjs), set up, repaired or
 //   started from the screen itself.
 //
+// Above the screen, when there is more than one to look at, a segmented
+// control: Cloud, then each of the person's online computers by its name
+// (a person with two PCs sees two), a dot on the one the bot works on.
+// Picking one only changes the screen shown (and where its Local VM
+// actions go, `desktopId`), never where the bot works.
+//
 // Under it, only the usage of that computer (disk, CPU, memory, OS) behind
-// a small Details toggle. The bot's Works on is More > Computer
+// a small Details toggle. The bot's Works on is Edit persona > Access
 // (WorksOnSetting), not a control on this screen.
 //
 // Every action is the signed-in person's own (the server takes the person
 // from the session); nothing here names a bot or another person.
-import { useCallback, useEffect, useState } from "react";
-import { ChevronDown, Cpu, HardDrive, Info, Laptop, MemoryStick, Server } from "lucide-react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { ChevronDown, Cpu, Globe, HardDrive, Info, Laptop, MemoryStick, Server, type LucideIcon } from "lucide-react";
 
-import { currentDesktop, type DesktopBridgeStatus } from "@/lib/desktop-bridge";
+import { chosenComputer, computerChoices, currentDesktop, type DesktopBridgeStatus } from "@/lib/desktop-bridge";
 import {
   desktopLocalVm, installChoices, localVmProblemKey, localVmView, runtimeSummaryKey,
   type DesktopLocalVmStatus, type InstallChoice, type LocalVmAction, type ScreenState, type SetupStep,
@@ -56,32 +62,114 @@ export function activeComputer(bridge: DesktopBridgeStatus, place: EffectivePlac
   return { source: "server", reason: "none" };
 }
 
-export function OrgComputerTab({ bridge, place, computerOff, botName, initialLocal = null }: {
+export function OrgComputerTab({ bridge, place, computerOff, botName, initialLocal = null, browser = null }: {
   bridge: DesktopBridgeStatus;
   /** The bot's Works on (Auto when unset). */
   place: EffectivePlace;
   computerOff: boolean; botName: string;
   /** Tests: the desktop's Local VM status to start from. */
   initialLocal?: DesktopLocalVmStatus | null;
+  /** The bot's live browser, offered as the picker's last chip. */
+  browser?: ReactNode;
 }) {
   const active = activeComputer(bridge, place);
-  const desktop = currentDesktop(bridge);
+  const choices = computerChoices(bridge);
+  const [picked, setPicked] = useState<string | null>(null);
+  // a bot that works on its browser opens on it
+  const showingBrowser = browser !== null && (picked === "browser" || (picked === null && place === "browser"));
+  const chosen = chosenComputer(choices, active.source, bridge, showingBrowser ? null : picked);
+  // Works on a computer that is not connected: its screen says so.
+  const source = chosen?.source ?? active.source;
+  const desktop = chosen?.source === "local" ? bridge.desktops.find((entry) => entry.id === chosen.desktopId) ?? null : currentDesktop(bridge);
+  const worksOnKey = active.source === "server" ? "server" : chosenComputer(choices, "local", bridge, null)?.key ?? null;
   const [details, setDetails] = useState(false);
+  const caption = t("computer.screenOf", { name: botName });
   return (
-    <div className="flex flex-col gap-3" data-org-computer={active.source === "server" ? "user-sandbox" : "user-desktop"} data-works-on={place}>
-      {active.source === "server"
-        ? <ServerComputerScreen caption={t("computer.screenOf", { name: botName })} />
-        : <LocalComputerScreen bridge={bridge} caption={t("computer.screenOf", { name: botName })} initial={initialLocal} />}
-      {computerOff && <p role="note" className="-mt-1 text-center text-[12px] text-ink-secondary">{t("computer.phase.off")}</p>}
-      <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-3" data-org-computer={source === "server" ? "user-sandbox" : "user-desktop"} data-works-on={place}>
+      {(choices.length > 1 || browser !== null) && (
+        <ScreenPicker
+          items={[
+            ...choices.map((choice): ScreenPickerItem => ({
+              key: choice.key,
+              label: choice.source === "server" ? t("orgComputer.choice.cloud") : choice.name,
+              icon: choice.source === "server" ? Server : Laptop,
+              here: choice.key === worksOnKey,
+            })),
+            ...(browser !== null ? [{ key: "browser", label: t("computer.view.browser"), icon: Globe }] : []),
+          ]}
+          chosen={showingBrowser ? "browser" : chosen?.key ?? null}
+          onPick={setPicked}
+        />
+      )}
+      {showingBrowser
+        ? <BrowserScreen caption={t("computer.browserOf", { name: botName })}>{browser}</BrowserScreen>
+        : source === "server"
+        ? <ServerComputerScreen caption={caption} />
+        : (
+          <LocalComputerScreen
+            // a new computer starts over: its own status, frames and errors
+            key={chosen?.key ?? "current"}
+            bridge={bridge}
+            desktopId={chosen?.source === "local" ? chosen.desktopId : undefined}
+            caption={chosen?.source === "local" ? `${caption} · ${chosen.name}` : caption}
+            initial={initialLocal}
+          />
+        )}
+      {computerOff && !showingBrowser && <p role="note" className="-mt-1 text-center text-[12px] text-ink-secondary">{t("computer.phase.off")}</p>}
+      {!showingBrowser && <div className="flex flex-col gap-1.5">
         <button type="button" onClick={() => setDetails((open) => !open)} aria-expanded={details} data-usage-toggle
           className="flex items-center gap-1 self-start text-[12px] text-ink-secondary hover:text-ink">
           <Info size={12} aria-hidden="true" />
           {t("orgComputer.details")}
           <ChevronDown size={12} aria-hidden="true" className={details ? "rotate-180" : undefined} />
         </button>
-        {details && (active.source === "server" ? <UsagePanel /> : <DesktopUsage bridge={bridge} name={desktop?.name} />)}
-      </div>
+        {details && (source === "server" ? <UsagePanel /> : <DesktopUsage bridge={bridge} name={desktop?.name} />)}
+      </div>}
+    </div>
+  );
+}
+
+/** One chip of a screen picker. */
+export interface ScreenPickerItem {
+  key: string;
+  label: string;
+  icon: LucideIcon;
+  /** The bot works here: a dot, and the tooltip says so. */
+  here?: boolean;
+}
+
+/** The Computer tab's one segmented control: Cloud and each of the person's
+ * computers by name on an organization server, then the bot's Browser
+ * (Screen and Browser on a solo server). The dot marks where the bot works. */
+export function ScreenPicker({ items, chosen, onPick }: { items: ScreenPickerItem[]; chosen: string | null; onPick: (key: string) => void }) {
+  return (
+    <div role="radiogroup" aria-label={t("orgComputer.choice.label")} data-computer-picker=""
+      className="flex max-w-full gap-0.5 self-center overflow-x-auto rounded-full bg-control p-0.5 [scrollbar-width:none]">
+      {items.map((item) => {
+        const selected = item.key === chosen;
+        const Icon = item.icon;
+        return (
+          <button key={item.key} type="button" role="radio" aria-checked={selected} data-computer-choice={item.key}
+            title={item.here ? t("orgComputer.choice.worksHere", { name: item.label }) : item.label}
+            onClick={() => onPick(item.key)}
+            className={`flex min-w-0 shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
+              selected ? "bg-elevated text-ink shadow-sm" : "text-ink-secondary hover:text-ink"}`}>
+            <Icon size={12} aria-hidden="true" />
+            <span className="max-w-[132px] truncate">{item.label}</span>
+            {item.here && <span aria-hidden="true" data-works-here="" className="size-1.5 rounded-full bg-accent" />}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The bot's live browser in the screen's own frame, its name below. */
+export function BrowserScreen({ caption, children }: { caption: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1.5" data-browser-view="">
+      <div className="flex min-h-[360px] flex-col overflow-hidden rounded-md bg-card">{children}</div>
+      <p className="text-center text-[13px] text-ink-secondary">{caption}</p>
     </div>
   );
 }
@@ -169,20 +257,20 @@ export function ServerComputerScreen({ caption, initial = null }: { caption: str
 }
 
 /** The person's Local VM, through their desktop app. */
-export function useDesktopLocalVm(connected: boolean, initial: DesktopLocalVmStatus | null = null) {
+export function useDesktopLocalVm(connected: boolean, initial: DesktopLocalVmStatus | null = null, desktopId?: string) {
   const visible = usePageVisible();
   const [status, setStatus] = useState<DesktopLocalVmStatus | null>(initial);
   const [pending, setPending] = useState<LocalVmAction | null>(null);
   const [error, setError] = useState("");
   const refresh = useCallback(async () => {
     try {
-      const answer = await desktopLocalVm("status");
+      const answer = await desktopLocalVm("status", { desktopId });
       if (answer.status) setStatus(answer.status);
       else if (!answer.ok) setError(answer.text);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("orgComputer.actionFailed"));
     }
-  }, []);
+  }, [desktopId]);
   const settingUp = status?.setup?.state === "running";
   useEffect(() => {
     if (!connected || !visible) return;
@@ -194,7 +282,7 @@ export function useDesktopLocalVm(connected: boolean, initial: DesktopLocalVmSta
     setPending(action);
     setError("");
     try {
-      const answer = await desktopLocalVm(action, extra);
+      const answer = await desktopLocalVm(action, { ...extra, desktopId });
       if (!answer.ok) setError(answer.text);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("orgComputer.actionFailed"));
@@ -202,14 +290,18 @@ export function useDesktopLocalVm(connected: boolean, initial: DesktopLocalVmSta
       setPending(null);
       await refresh();
     }
-  }, [refresh]);
+  }, [refresh, desktopId]);
   return { status, pending, error, act, refresh, visible };
 }
 
-export function LocalComputerScreen({ bridge, caption, initial = null }: { bridge: DesktopBridgeStatus; caption: string; initial?: DesktopLocalVmStatus | null }) {
-  const desktop = currentDesktop(bridge);
+export function LocalComputerScreen({ bridge, caption, initial = null, desktopId }: {
+  bridge: DesktopBridgeStatus; caption: string; initial?: DesktopLocalVmStatus | null;
+  /** The computer the person picked by name; their current one without it. */
+  desktopId?: string;
+}) {
+  const desktop = desktopId ? bridge.desktops.find((entry) => entry.id === desktopId && entry.online) ?? null : currentDesktop(bridge);
   const connected = Boolean(desktop?.capabilities?.localVm);
-  const vm = useDesktopLocalVm(connected, initial);
+  const vm = useDesktopLocalVm(connected, initial, desktopId);
   const view = localVmView(vm.status, connected, vm.pending);
   const [frame, setFrame] = useState<string | null>(null);
   const running = view.state === "running";
@@ -218,14 +310,14 @@ export function LocalComputerScreen({ bridge, caption, initial = null }: { bridg
     let cancelled = false;
     const grab = async () => {
       try {
-        const answer = await desktopLocalVm("screenshot");
+        const answer = await desktopLocalVm("screenshot", { desktopId });
         if (!cancelled && answer.image) setFrame(answer.image);
       } catch { /* keep the last frame */ }
     };
     void grab();
     const timer = window.setInterval(() => void grab(), LOCAL_FRAME_MS);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [running, vm.visible]);
+  }, [running, vm.visible, desktopId]);
 
   const setUp = () => {
     if (view.playNeedsConsent && !window.confirm(t(view.repair ? "localVm.consent.repair" : "localVm.consent.create", { folder: vm.status?.workspace ?? "" }))) return;

@@ -59,10 +59,41 @@ public struct PersonDesktop: Decodable, Equatable, Sendable {
         public var localVm: Bool?
     }
 
+    /// The desktop's id, which the Local VM route takes as `desktopId`
+    /// (absent from an older server's answer).
+    public var id: String?
+    /// The computer's name: the host name the desktop app registered.
+    public var name: String?
     public var platform: String?
     public var online: Bool
     public var lastSeenAt: Double
     public var capabilities: Capabilities?
+}
+
+/// A screen the Computer tab can show (`computerChoices`): the person's
+/// server environment, or one of their own computers by name, each with its
+/// Local VM. Looking at one is never where the bot works.
+public enum ComputerChoice: Hashable, Sendable {
+    case cloud
+    case desktop(id: String, name: String, platform: String?)
+
+    /// Stable across polls: "server", or "desktop:<id>".
+    public var key: String {
+        switch self {
+        case .cloud: "server"
+        case let .desktop(id, _, _): "desktop:\(id)"
+        }
+    }
+
+    public var desktopId: String? {
+        if case let .desktop(id, _, _) = self { return id }
+        return nil
+    }
+
+    public var name: String? {
+        if case let .desktop(_, name, _) = self { return name }
+        return nil
+    }
 }
 
 public struct PersonDesktopBridge: Decodable, Equatable, Sendable {
@@ -70,11 +101,41 @@ public struct PersonDesktopBridge: Decodable, Equatable, Sendable {
     public var desktops: [PersonDesktop]
 
     /// The desktop the Computer tab asks (`currentDesktop`): the newest
-    /// online one. Connected only when that one can run the Local VM.
-    public func localVmDesktop() -> (connected: Bool, platform: String?) {
+    /// online one, or the one named by `id`. Connected only when that one
+    /// can run the Local VM.
+    public func localVmDesktop(id: String? = nil) -> (connected: Bool, platform: String?) {
         let online = desktops.filter(\.online).sorted { $0.lastSeenAt > $1.lastSeenAt }
-        guard let desktop = online.first else { return (false, nil) }
+        let desktop = id.map { wanted in online.first { $0.id == wanted } } ?? online.first
+        guard let desktop else { return (false, nil) }
         return (desktop.capabilities?.localVm == true, desktop.platform)
+    }
+
+    /// Cloud, then each online computer that can run a Local VM, the most
+    /// recently seen first (a person with two PCs sees both).
+    public func computerChoices() -> [ComputerChoice] {
+        let online = desktops
+            .filter { $0.online && $0.capabilities?.localVm == true }
+            .sorted { $0.lastSeenAt > $1.lastSeenAt }
+        return [.cloud] + online.compactMap { desktop in
+            guard let id = desktop.id, !id.isEmpty else { return nil }
+            let name = desktop.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return .desktop(id: id, name: name.isEmpty ? "Computer" : name, platform: desktop.platform)
+        }
+    }
+
+    /// The screen shown first: the one the bot works on (Cloud, or the
+    /// person's current computer), unless they picked another still listed.
+    public func chosen(worksOnLocal: Bool, picked: String?) -> ComputerChoice? {
+        let choices = computerChoices()
+        if let picked, let kept = choices.first(where: { $0.key == picked }) { return kept }
+        if !worksOnLocal { return .cloud }
+        let current = desktops.filter(\.online).max { $0.lastSeenAt < $1.lastSeenAt }
+        return choices.first { $0.desktopId != nil && $0.desktopId == current?.id }
+    }
+
+    /// The choice the bot works on, for the picker's dot.
+    public func worksOn(local: Bool) -> ComputerChoice? {
+        chosen(worksOnLocal: local, picked: nil)
     }
 }
 
@@ -309,9 +370,12 @@ public extension CompanionClient {
     /// `POST /api/me/desktop-bridge/local-vm`. Setup can take a while; the
     /// request waits up to the client's own ceiling. `use` is not an action
     /// here: the bot drives the screen, the phone only asks for a still.
-    func localVm(action: LocalVmAction, choice: String? = nil) async throws -> LocalVmAnswer {
+    /// `desktopId`: the computer the person picked by name; their current
+    /// one without it.
+    func localVm(action: LocalVmAction, choice: String? = nil, desktopId: String? = nil) async throws -> LocalVmAnswer {
         var fields: [String: Any] = ["action": action.rawValue]
         if let choice { fields["choice"] = choice }
+        if let desktopId { fields["desktopId"] = desktopId }
         var request = try makeRequest("POST", "/api/me/desktop-bridge/local-vm", body: fields)
         request.timeoutInterval = 150
         let (data, response) = try await perform(request)

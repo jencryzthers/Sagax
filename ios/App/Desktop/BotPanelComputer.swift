@@ -8,6 +8,9 @@
 // /api/bots/:id/computer/{screenshot,control}), the stream's frames first.
 // On an organization server, Local VM and This computer use
 // LocalVmComputerPanel instead: a still and power buttons, no Take control.
+// There `ComputerChooser` on top lists Cloud and each of the person's
+// computers by name and shows the one picked (the bot's own first); its
+// Browser chip (browser mode) shows the bot's live browser instead.
 import SwiftUI
 import UIKit
 import CompanionCore
@@ -18,6 +21,11 @@ struct BotPanelComputer: View {
     let bot: Bot
 
     @StateObject private var controller: ComputerController
+    @StateObject private var choices = ComputerChoicesModel()
+    /// The screen the person picked, or browser mode; nil is the one the
+    /// bot works on.
+    @State private var picked: String?
+    @State private var config: ConfigStatus?
     @State private var controlOpen = false
     @State private var fullView = false
 
@@ -39,17 +47,72 @@ struct BotPanelComputer: View {
         return true
     }
 
+    /// The screen shown once the person's desktops are known.
+    private var chosen: ComputerChoice? {
+        guard session.surfaceGate.organization else { return nil }
+        return choices.bridge?.chosen(worksOnLocal: showsLocalVm, picked: picked)
+    }
+
+    private var showsLocal: Bool {
+        if let chosen { return chosen != .cloud }
+        return showsLocalVm
+    }
+
+    private var browserOffered: Bool {
+        DesktopWorksOnRules.browserAvailable(config) && DesktopWorksOnRules.browserFeature(config) && current.browser != false
+    }
+
+    /// Browser mode: picked, or the bot works on its browser and nothing
+    /// else was picked.
+    private var showsBrowser: Bool {
+        guard browserOffered else { return false }
+        return picked == ComputerChooser.browserKey || (picked == nil && DesktopWorksOn.of(current) == .browser)
+    }
+
     var body: some View {
-        if showsLocalVm {
-            LocalVmComputerPanel(name: current.name, chrome: .pad(theme))
-                .padding(.top, 16)
-                .padding(.leading, 17)
-                .padding(.trailing, 16)
-                .padding(.bottom, 24)
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("desktop-panel-computer")
-        } else {
-            cloud
+        VStack(alignment: .leading, spacing: 0) {
+            AnyView(chooser)
+            if showsBrowser {
+                BrowserLiveView(bot: current, secondary: theme.inkSecondary, track: theme.control)
+                    .padding(.top, 16)
+                    .padding(.leading, 17)
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 24)
+                    .accessibilityIdentifier("desktop-panel-browser")
+            } else if showsLocal {
+                LocalVmComputerPanel(name: current.name, chrome: .pad(theme), desktopId: chosen?.desktopId, computerName: chosen?.name)
+                    .id(chosen?.key ?? "current")
+                    .padding(.top, 16)
+                    .padding(.leading, 17)
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 24)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("desktop-panel-computer")
+            } else {
+                cloud
+            }
+        }
+        .onAppear {
+            if session.surfaceGate.organization { choices.start { [weak session] in session?.computerClient } }
+        }
+        .onDisappear { choices.stop() }
+        .task { config = await session.configStatus() }
+    }
+
+    /// Cloud and each of the person's computers by name, when there is more
+    /// than one screen to look at.
+    @ViewBuilder
+    private var chooser: some View {
+        let items = ComputerChooser.items(bridge: choices.bridge, organization: session.surfaceGate.organization,
+                                          worksOnLocal: showsLocalVm, browser: browserOffered)
+        if items.count > 1 {
+            ComputerChooser(
+                items: items,
+                chosen: showsBrowser ? ComputerChooser.browserKey : (chosen?.key ?? "screen"),
+                colors: .init(ink: theme.ink, secondary: theme.inkSecondary, track: theme.control, selected: theme.elevated, dot: theme.focus)
+            ) { picked = $0 }
+            .padding(.top, 16)
+            .padding(.horizontal, 16)
         }
     }
 
