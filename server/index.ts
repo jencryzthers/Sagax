@@ -812,7 +812,8 @@ import { ADMIN_ACTIVITY_CATEGORIES } from "./admin-activity.ts";
 import { createOrgMemberRoutes, type MemberPerson, type MemberRequest } from "./org-member-routes.ts";
 import { createOrgLinkRoutes, DirectoryRefreshScheduler } from "./org-link-routes.ts";
 import { MemberLiveText } from "./member-live-text.ts";
-import { createOrgAdminRoutes, type AccessKind, type AdminApproval, type AdminEngine, type AdminBot, type AdminBotReach, type AdminPerson, type ApprovalAnswer, type ApprovalType, type OrgAdminViewer } from "./org-admin-routes.ts";
+import { computersRoutes, type ComputersDeps } from "./org-admin-computers.ts";
+import { createOrgAdminRoutes, wireAuditRow, type AccessKind, type AdminApproval, type AdminEngine, type AdminBot, type AdminBotReach, type AdminPerson, type ApprovalAnswer, type ApprovalType, type OrgAdminViewer } from "./org-admin-routes.ts";
 import { RevocationQueue } from "./idp-revocations.ts";
 import { IDP_REFRESH_WAIT_MS, IDP_SWEEP_INTERVAL_MS, IdpGrantVault, IdpSessionManager, refreshAfterMs, resolveIdpVaultKey, settledWithin } from "./idp-session.ts";
 import { acceptOpenInvitesForEmail, createPublicInviteRoutes, createSoloOrgRoutes, inviteMailMessage, PUBLIC_INVITE_PATH, type OrgState } from "./org-routes.ts";
@@ -5254,16 +5255,18 @@ if (userSandbox) {
     else userSandbox.personBack(person.id);
   });
 }
+/** A bot turn works in this person's server environment right now. */
+function userSandboxTurnRunning(principalId: string): boolean {
+  const person = principalId.trim().toLowerCase();
+  for (const workplace of turnWorkplaces.values()) {
+    if (workplace.decision.target === "user-sandbox" && workplace.decision.principal === person) return true;
+  }
+  return false;
+}
 ROUTES.push(createUserSandboxRoutes({
   manager: () => userSandbox,
   organization: IDENTITY.kind === "perspicax",
-  turnRunning: (principalId) => {
-    const person = principalId.trim().toLowerCase();
-    for (const workplace of turnWorkplaces.values()) {
-      if (workplace.decision.target === "user-sandbox" && workplace.decision.principal === person) return true;
-    }
-    return false;
-  },
+  turnRunning: userSandboxTurnRunning,
 }));
 // ── a person's own connections (organization mode) ─────────────────────
 // Their own MCP servers and GitHub account (server/person-connections.ts),
@@ -24923,6 +24926,37 @@ const orgRoutineRunsDeps: RoutineRunsDeps = {
   next: (schedule, after) => nextOccurrence(schedule, after),
 };
 
+/** The console's Computers (server/org-admin-computers.ts): every
+ * person's server environment, and every connected desktop, read only. */
+const orgComputersDeps: ComputersDeps = {
+  people: () => orgConsolePeople(),
+  person: adminPerson,
+  environments: userSandbox ? {
+    provisioner: () => userSandbox.provisioner(),
+    inventory: (principalIds, timeoutMs) => userSandbox.inventory(principalIds, timeoutMs),
+    power: (principalId, action) => userSandbox.power(principalId, action),
+    update: (principalId) => userSandbox.update(principalId),
+    reset: (principalId) => userSandbox.reset(principalId),
+    remove: (principalId) => userSandbox.removeNow(principalId),
+  } : null,
+  turnRunning: userSandboxTurnRunning,
+  desktops: () => IDENTITY.kind !== "perspicax" ? [] : desktopBridges.inventory().flatMap((desktop) => {
+    const person = principals.byId(desktop.person);
+    return person ? [{ principalId: person.id, desktopId: desktop.id, name: desktop.name, platform: desktop.platform, online: desktop.online, lastSeenAt: desktop.lastSeenAt, localVm: desktop.localVm, version: desktop.version }] : [];
+  }),
+  bots: () => store.bots.map((bot) => ({ id: bot.id, name: bot.name, ownerPrincipalId: effectiveBotOwner(bot), computer: bot.computer ?? null })),
+  activity: ({ computerId, principalId, kind, limit }) => {
+    // The console's own actions on it, and the bots' switches to and from
+    // it on behalf of its person (`computer.switch`, Auto's computer).
+    const surfaces = kind === "server-environment" ? ["cloud"] : ["this_computer", "local_vm"];
+    const own = readOrgAuditPage(DATA_DIR, { categories: ["computer"], target: computerId, limit }).rows;
+    const switches = readOrgAuditPage(DATA_DIR, { categories: ["computer"], limit: 500, from: Date.now() - 30 * 24 * 60 * 60_000 }).rows.filter((row) =>
+      row.action === "computer.switch" && row.actor.kind === "person" && row.actor.principalId === principalId
+      && (surfaces.includes(String(row.after?.computer)) || surfaces.includes(String(row.before?.computer))));
+    return [...own, ...switches].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, limit).map((row) => wireAuditRow(row, adminPerson));
+  },
+};
+
 /** A reachability check of an address an admin configured (an MCP server,
  * a marketplace): any HTTP answer below 500 means it is up. No credential
  * is sent; redirects are not followed. */
@@ -25327,6 +25361,7 @@ const orgAdmin = createOrgAdminRoutes({
     ...routineRunsRoutes(orgRoutineRunsDeps),
     ...routinesRoutes(orgRoutinesDeps),
     ...opsRoutes(orgOpsDeps),
+    ...computersRoutes(orgComputersDeps),
   ],
   // The console's file browser (Perspicax 2026-10-08, slice 1: read only).
   files: {

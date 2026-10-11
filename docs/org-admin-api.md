@@ -908,6 +908,123 @@ engine) is enforced everywhere since 2026-10-09:
   models. A provider the person already connected but no longer allowed
   shows once, disabled, as "Not allowed by your organization".
 
+## Computers
+
+| Method and path | Role | What |
+|---|---|---|
+| `GET computers?kind&state&owner&q&limit&cursor` | admin | every server environment and every connected desktop |
+| `GET computers/{id}` | admin | one computer and its recent activity |
+| `POST computers/{id}/start`, `stop`, `pause`, `resume`, `update` | admin | power and rebuild a server environment (`{}`, or `{"confirm": true}` while a bot works there) |
+| `POST computers/{id}/reset`, `delete` | admin | erase a server environment (`{"confirm": true}` required) |
+
+Code: `server/org-admin-computers.ts`. A server environment is the
+organization's machine for one person (sagax-sandboxd,
+`docs/user-sandbox.md`): an admin acts on it with the calls the person's
+own Computer tab makes. A desktop computer is the person's own (the Sagax
+app signed in to this server, the desktop bridge): it is listed read only,
+by its name, platform, presence and last contact, and never acted on; the
+console never reaches its files, its system facts or its Local VM.
+
+### `GET computers`
+
+```json
+{
+  "items": [
+    {
+      "id": "env:pr_7c1e...", "kind": "server-environment", "name": "Bob",
+      "owner": { "principalId": "pr_7c1e...", "sub": "01J9...", "name": "Bob" },
+      "state": "running", "lastUsedAt": 1791500000000,
+      "resources": { "cpus": 2, "memoryLimitBytes": 2147483648, "diskLimitBytes": 10737418240, "workspaceBytes": 512000000, "workspaceQuotaBytes": 10737418240, "overQuota": false, "cpuPercent": 12.5, "memoryBytes": 314572800 },
+      "image": "sagax-sandbox:0.4.20", "os": "Debian GNU/Linux 12 (bookworm)", "arch": "x86_64",
+      "platform": null, "busy": 0, "pendingDeletionAt": null, "localVm": false, "appVersion": null,
+      "bots": [{ "id": "5e38...", "name": "Atlas" }],
+      "actions": ["stop", "pause", "update", "reset", "delete"]
+    },
+    {
+      "id": "desktop:3f9a0c2e71b4d856", "kind": "desktop", "name": "Bob's MacBook",
+      "owner": { "principalId": "pr_7c1e...", "sub": "01J9...", "name": "Bob" },
+      "state": "online", "lastUsedAt": 1791500005000,
+      "resources": null, "image": null, "os": null, "arch": null,
+      "platform": "darwin", "busy": 0, "pendingDeletionAt": null, "localVm": true, "appVersion": "0.4.20",
+      "bots": [{ "id": "77ab...", "name": "Beacon" }],
+      "actions": []
+    }
+  ],
+  "next": null,
+  "environments": { "configured": true, "reachable": true, "maxRunning": 10, "idleMinutes": 10 }
+}
+```
+
+- `id`: `env:<principal id>` for a server environment, `desktop:<16 hex>`
+  for a desktop (a digest of its person and the app's own id, which never
+  reaches the wire). Stable while the desktop stays registered.
+- `kind`: `server-environment` or `desktop`. `name`: the owner's name for
+  an environment, the name the Sagax app registered (`os.hostname()`) for a
+  desktop.
+- `state`: a server environment is `running`, `paused`, `stopped` or
+  `unavailable` (the provisioner did not answer for it within 3 s); one that
+  was never created, or was deleted, is not listed. A desktop is `online`
+  (it polled within 40 s) or `offline`; one whose session ended is gone.
+- `lastUsedAt`: the environment's last use (the idle stop counts from it),
+  or the desktop's last contact.
+- `resources` (environments only): the limits (`cpus`, memory, disk), the
+  workspace size and quota, and, while it runs, `cpuPercent` (of its own CPU
+  quota) and `memoryBytes`. `image`, `os` and `arch` come from the same
+  sample (the provisioner's image name and tag; the OS once read inside).
+- `busy`: commands running in the environment now. `pendingDeletionAt`:
+  set while its person is signed out by Perspicax (it is stopped and deleted
+  at that time unless they come back).
+- `localVm` (desktops): the app can run a Local VM for its person. Its VM's
+  own state is not asked for: that is a call to the person's computer.
+- `bots`: the owner's bots whose Works on sends their tools there: Auto and
+  Cloud to the environment, This computer and Local VM to the desktop. A
+  bot shared with the person also works in the person's environment when
+  they talk to it; routines work in the bot owner's.
+- `actions`: what an admin may do now (a desktop: none). `start` when
+  stopped or paused (not while its person is signed out), `stop` when
+  running or paused, `pause` when running, `resume` when paused, `update`
+  and `reset` unless unavailable or signed out, `delete` unless unavailable.
+- `environments`: whether this server has the provisioner (`configured`),
+  whether it answers (`reachable`), its limit of running environments and
+  its idle stop in minutes. Without it the list holds the desktops only.
+- `kind`, `state` (any value above) and `owner` (principal id or Perspicax
+  user id) narrow the list; `q` searches the name, owner, image and
+  platform. Each listing asks the provisioner for every person of the
+  organization, eight at a time.
+
+### `GET computers/{id}`
+
+`{computer, activity}`: the item above, and the newest 20 admin activity
+rows about it (`audit` row shape): the console's actions on it and, from
+the last 30 days, the bots' `computer.switch` rows for its person to or
+from it (Auto choosing the cloud, This computer or the Local VM). Unknown,
+deleted or gone computers are `404 not_found`.
+
+### `POST computers/{id}/{action}`
+
+| Action | What it does | Body |
+|---|---|---|
+| `start` | create or start it; a paused one resumes | `{}` |
+| `stop` | stop it; `/workspace` stays | `{}`, `{"confirm": true}` while busy |
+| `pause` | freeze it; bots are refused until it resumes | `{}`, `{"confirm": true}` while busy |
+| `resume` | unfreeze it | `{}` |
+| `update` | rebuild it from the provisioner's current image; `/workspace` stays | `{}`, `{"confirm": true}` while busy |
+| `reset` | erase it and its `/workspace`, start a fresh one | `{"confirm": true}` |
+| `delete` | erase it and its `/workspace`; the next use creates a new one | `{"confirm": true}` |
+
+Answers `{computer}` (the item after the change), or `{deleted: id}`.
+Refusals: `400 confirm_required` (reset or delete without `confirm: true`),
+`409 confirm_running` (a bot turn or a command runs there: send `confirm:
+true` to go on), `409 not_offered` (not in `actions` now), `409
+personal_computer` (any action on a desktop), `409 person_out` (its person
+is signed out), `429 capacity` (the provisioner runs its limit), `502
+unavailable` (the provisioner did not do it), `404 not_found`. Each action
+writes one admin activity row: category `computer`, action
+`computer.start` ... `computer.delete`, target `{kind: "computer", id,
+name}` (the owner's name), `before.state`, `after.state` (`deleted` after a
+delete), `after.ownerPrincipalId` and `after.confirmed` when confirmed.
+The person is not told; their Computer tab shows the new state.
+
 ## Link routes (`/api/org/link/*`)
 
 Routes Perspicax calls on its own behalf, not for a person: their only
@@ -959,3 +1076,6 @@ linked from the console keeps the poll and the refresh at each sign-in.
 |---|---|
 | `people[].engines[].ok` in `GET connections` | no background check: null, test on demand |
 | `presence.idle` | Sagax knows online, away and offline only: always 0 |
+| actions on a desktop computer, its files, system facts or Local VM | a person's own computer is theirs: listed read only (`409 personal_computer`) |
+| the Local VM's own state in `GET computers` | it lives on the person's computer; asking is a call to it |
+| `look` accessories | Sagax stores none on a bot |
