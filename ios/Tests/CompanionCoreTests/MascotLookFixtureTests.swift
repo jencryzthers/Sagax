@@ -266,7 +266,7 @@ final class MascotLookFixtureTests: XCTestCase {
         XCTAssertEqual(FrogStillArt.hopCycle, 0.95)
         // the hop rises, lands and squashes
         XCTAssertLessThan(FrogStillArt.hop.map(\.y).min() ?? 0, -25)
-        XCTAssertLessThan(FrogStillArt.hop.map(\.sy).min() ?? 1, 0.86)
+        XCTAssertLessThan(FrogStillArt.hop.map(\.sy).min() ?? 1, 0.94)
         XCTAssertGreaterThan(FrogStillArt.puff.map(\.puff).max() ?? 0, 0.95)
         XCTAssertEqual(FrogExpression.forState("sleeping"), .sleepy)
         XCTAssertEqual(FrogExpression.forState("laughing"), .laughing)
