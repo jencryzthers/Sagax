@@ -57,8 +57,9 @@ steered with the Steer button, a retry). A call never closed expires after
 join its turn (no parallel or after chooser), unless Advanced >
 "Full-duplex conversation" is on: then a new utterance interrupts the
 in-flight turn, discards the steer queue, and starts only those words
-(issue #292). The flag is off by default. Typed chat still keeps its
-queue on Stop.
+(issue #292). The flag is on by default in internal, TestFlight and
+dev builds (kill-switch in Advanced). Public App Store builds stay
+off. Typed chat still keeps its queue on Stop.
 
 ## Full-duplex conversation (issue #292)
 
@@ -70,9 +71,10 @@ steer queue: talking while the bot was thinking did not interrupt
 the next answer.
 
 `CallSettings.fullDuplex` (device-local, `omb.voiceCall.v1`, default
-off) plus `voiceCall.duplex` on the send: confirmed speech while the
-bot is busy or speaking cancels that turn; the server never steers or
-queues those words. The thinking cue is 400 ms instead of 1200 ms so
+on for internal / TestFlight / dev) plus `voiceCall.duplex` on the send:
+confirmed speech while the bot is busy or speaking cancels that turn; the
+server never steers or queues those words. The thinking cue is 400 ms
+instead of 1200 ms so
 the line is not dead air. Approvals stay spoken yes or no and are not
 cancelled. Tools still run on the bot; the prompt already asks for a
 spoken "Je regarde ça..." before slow work. A duplex send that races

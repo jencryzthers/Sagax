@@ -612,8 +612,8 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
   });
 
   it("plays a soft tone when the answer has not started 1.2 s after the person stopped, unless turned off", async () => {
-    const t = await setup({ transcripts: ["hello bot"] });
-    const quiet = await setup({ transcripts: ["hello bot"], settings: { thinkingCue: false } });
+    const t = await setup({ transcripts: ["hello bot"], settings: { fullDuplex: false } });
+    const quiet = await setup({ transcripts: ["hello bot"], settings: { thinkingCue: false, fullDuplex: false } });
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
       await t.feed(0.95, 0.05, 40);
@@ -768,11 +768,11 @@ describe("the two Advanced switches", () => {
 });
 
 describe("full-duplex conversation", () => {
-  it("is off by default, also for settings saved before it existed, and keeps an explicit on", () => {
-    expect(DEFAULT_CALL_SETTINGS.fullDuplex).toBe(false);
-    expect(cleanCallSettings({ input: "auto", pause: "short" }).fullDuplex).toBe(false);
-    expect(cleanCallSettings({ fullDuplex: true }).fullDuplex).toBe(true);
-    expect(cleanCallSettings({ fullDuplex: false }).fullDuplex).toBe(false);
-    expect(cleanCallSettings({ fullDuplex: "yes" }).fullDuplex).toBe(false);
+  it("is on by default in internal builds; an explicit kill-switch with rev 2 stays off", () => {
+    expect(DEFAULT_CALL_SETTINGS.fullDuplex).toBe(true);
+    expect(cleanCallSettings({ input: "auto", pause: "short" }).fullDuplex).toBe(true);
+    expect(cleanCallSettings({ fullDuplex: true, fullDuplexRev: 2 }).fullDuplex).toBe(true);
+    expect(cleanCallSettings({ fullDuplex: false, fullDuplexRev: 2 }).fullDuplex).toBe(false);
+    expect(cleanCallSettings({ fullDuplex: false }).fullDuplex).toBe(true);
   });
 });

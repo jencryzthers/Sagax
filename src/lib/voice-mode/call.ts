@@ -28,7 +28,7 @@ import speakerModelUrl from "./models/campplus-sv-en-int8.onnx?url";
 import { streamVoiceModeSpeech } from "./api";
 import { type CallSettings } from "./call-settings";
 import { INITIAL_CALL, step, type CallEffect, type CallEvent, type CallState } from "./call-machine";
-import { thinkingCueMs } from "./duplex-policy";
+import { bargeInEffects, thinkingCueMs } from "./duplex-policy";
 import { EchoGuard } from "./echo";
 import { loadOrt } from "./onnx";
 import { PcmPlayer, type PlaybackCut, type Sentence } from "./player";
@@ -741,8 +741,9 @@ export class VoiceCall {
     if (event.type === "speech-start" && this.lastSent && (wrongCut || (!this.state.botAudible && !this.lastSent.botSpoke &&
       this.now() - this.lastSent.endedAt <= CONTINUATION_MS))) {
       this.continuing = true;
-      // over the bot's voice the barge-in itself stops its turn
-      if (this.state.botBusy && !this.state.botAudible) this.emit("interrupt-bot");
+      // over the bot's voice the barge-in itself stops its turn. Duplex
+      // speech-start already interrupt-bot via step(); flag off still needs this.
+      if (this.state.botBusy && !this.state.botAudible && bargeInEffects(this.state) !== "cancel-and-interrupt") this.emit("interrupt-bot");
     }
     if (event.type === "bot-audio-start" && this.lastSent) this.lastSent.botSpoke = true;
     const { state, effects } = step(this.state, event);

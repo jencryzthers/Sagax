@@ -6207,7 +6207,7 @@
   "voiceMode.call.fasterEndOfTurnHelp": "Your intonation, read on this computer, can end a turn sooner when your sentence sounds finished. Not used with Patient.",
   "voiceMode.call.forget": "Forget my voice",
   "voiceMode.call.fullDuplex": "Full-duplex conversation",
-  "voiceMode.call.fullDuplexHelp": "Talk over the bot at any time. It stops its current answer and never stacks the next ones. Off: words said while it works join that turn.",
+  "voiceMode.call.fullDuplexHelp": "Talk over the bot at any time. It stops its current answer and never stacks the next ones. On by default here. Turn off to have words said while it works join that turn.",
   "voiceMode.call.handsFree": "Hands-free",
   "voiceMode.call.input": "Microphone",
   "voiceMode.call.latency": "Last answer: first audio {total} ms after you stopped",
