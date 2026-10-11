@@ -84,6 +84,23 @@ describe("call state machine", () => {
     expect(said.types).toEqual(["finalize-stt", "send"]);
   });
 
+  it("duplex: talking while the bot works silently cancels it", () => {
+    const working = run([{ type: "bot-busy", busy: true }], { ...connected, duplex: true }).state;
+    expect(working.phase).toBe("thinking");
+    expect(working.duplex).toBe(true);
+    const out = run([{ type: "speech-candidate" }, { type: "speech-start" }], working);
+    expect(out.types).toEqual(["cancel-speech", "earcon", "interrupt-bot"]);
+    expect(out.state.phase).toBe("interrupted");
+    expect(out.state.botAudible).toBe(false);
+  });
+
+  it("duplex: barge-in while speaking still cancels the voice and the turn", () => {
+    const speaking = run([{ type: "bot-busy", busy: true }, { type: "bot-audio-start" }], { ...connected, duplex: true }).state;
+    const barged = run([{ type: "speech-candidate" }, { type: "speech-start" }], speaking);
+    expect(barged.types).toEqual(["duck", "cancel-speech", "earcon", "interrupt-bot"]);
+    expect(barged.state.phase).toBe("interrupted");
+  });
+
   it("another voice (Only my voice) is dropped with a soft earcon and the bot resumes", () => {
     const speaking = run([{ type: "bot-audio-start" }], connected).state;
     const out = run([{ type: "speech-candidate" }, { type: "utterance-rejected", reason: "other-voice" }], speaking);
