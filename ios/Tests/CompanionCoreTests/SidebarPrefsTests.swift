@@ -240,7 +240,7 @@ final class SidebarPrefsTests: XCTestCase {
         var state = try layoutState()
         state.bots[2].chiefOfStaff = true
         state.bots[2].pinned = true
-        var prefs = SidebarPrefs()
+        let prefs = SidebarPrefs()
         var layout = state.sidebarLayout(prefs: prefs, personal: nil, viewerId: "me")
         XCTAssertEqual(layout.pinnedBots.map(\.id), ["c"])
         XCTAssertNil(layout.unsectionedChief)
