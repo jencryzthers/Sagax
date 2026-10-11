@@ -25,6 +25,13 @@ So when one of your clients is connected (presence), the push waits 8
 seconds and is dropped if one of them marked that conversation read; when
 none is connected it goes at once (`server/push/decide.ts`).
 
+A phone whose live stream is open (`GET /api/events` with
+`x-sagax-push-token`) already has the line: the hub skips APNs to that
+device even if another of your phones or the desktop still gets the push.
+On the phone, `userNotificationCenter(_:willPresent:)` returns `[]` while
+the app is in front, so a push that still arrives (a race, a token that
+had not yet been named) shows no banner and plays no sound.
+
 Each push follows:
 
 - the phone's Settings > Notifications (notification sounds, nudge sound),
@@ -213,5 +220,8 @@ VM and a TestFlight build:
    A tap opens that thread.
 4. Keep the desktop app open on that conversation while a message arrives:
    no push.
-5. The server log shows no `InvalidProviderToken`. If it does, the `.p8` is
+5. Keep the phone app in front, on that bot's conversation (or any screen):
+   no banner and no sound. A second phone of yours that is locked still
+   gets the push.
+6. The server log shows no `InvalidProviderToken`. If it does, the `.p8` is
    the App Store Connect key, or the Key ID or Team ID is wrong.

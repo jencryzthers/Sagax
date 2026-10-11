@@ -18,6 +18,9 @@ export interface PushHubDeps {
   store: PushDeviceStore;
   /** A client of this person is connected right now (presence, or a live stream). */
   connected(person: string): boolean;
+  /** APNs tokens of this person's devices that have a live stream right now.
+   * Those devices already got the line: skip the push to them. */
+  activeTokens?(person: string): string[];
   /** The person's synced "Notification sounds" (true when unset). */
   personSound?(person: string): boolean;
   transport?: ApnsTransport;
@@ -142,7 +145,13 @@ export class PushHub {
     if (shouldPush({ kind: message.kind, connected: true, seen })) this.dispatch(message);
   }
 
+  private devicesToSend(person: string) {
+    const active = new Set((this.deps.activeTokens?.(person) ?? []).map((token) => token.trim().toLowerCase()));
+    return this.deps.store.list(person).filter((device) => !active.has(device.token));
+  }
+
   private dispatch(message: PushMessage): void {
+    if (!this.devicesToSend(message.personId).length) return;
     if (!this.limiter.tryTake(message.personId, this.now())) return;
     const run = this.deliver(message).catch((error) => {
       this.log.warn(`push: send failed (${error instanceof Error ? error.message : String(error)})`);
@@ -155,7 +164,7 @@ export class PushHub {
     const sender = this.sender;
     if (!sender) return;
     const personSound = this.deps.personSound?.(message.personId) ?? true;
-    for (const device of this.deps.store.list(message.personId)) {
+    for (const device of this.devicesToSend(message.personId)) {
       const request = buildApnsRequest({ message, bundleId: this.deps.config.configured ? this.deps.config.config.bundleId : "", settings: device.settings, personSound, nowMs: this.now() });
       const outcome = await sender.send(device, request);
       if (!outcome.ok && outcome.prune) {

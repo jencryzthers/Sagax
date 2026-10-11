@@ -795,7 +795,7 @@ import { createPersonLabelRoutes } from "./routes/person-labels.ts";
 import { createPresenceRoutes, presenceFrameAllowed, type PresenceViewer } from "./routes/presence.ts";
 import { PresenceTracker } from "./presence.ts";
 import { readApnsConfig } from "./push/config.ts";
-import { createPushDeviceStore } from "./push/devices.ts";
+import { createPushDeviceStore, PUSH_TOKEN_HEADER, pushTokenFromHeader, tokensOfConnectedDevices } from "./push/devices.ts";
 import { PushHub } from "./push/hub.ts";
 import { pushesForFrame } from "./push/frames.ts";
 import { createPushDeviceRoutes } from "./routes/push-devices.ts";
@@ -1024,6 +1024,12 @@ const pushHub = new PushHub({
   // a client of this person is here: presence on an organization server,
   // any live stream on a personal one (its only person is the operator)
   connected: (person) => IDENTITY.kind === "perspicax" ? presence.view(person).state !== "offline" : sseClients.size > 0,
+  // a phone whose live stream named its APNs token is already in the app
+  activeTokens: (person) => tokensOfConnectedDevices(
+    sseClients,
+    person,
+    IDENTITY.kind !== "perspicax" ? localPrincipalId() : undefined,
+  ),
   personSound: (person) => {
     if (IDENTITY.kind !== "perspicax") return true;
     try {
@@ -7700,6 +7706,8 @@ interface SseClient {
   /** A person of this organization's directory: receives presence.changed
    * (server/routes/presence.ts). Never a service account or the loopback. */
   presence?: boolean;
+  /** APNs token this phone sent on the stream (`x-sagax-push-token`). */
+  pushToken?: string;
 }
 const sseClients = new Set<SseClient>();
 
@@ -29530,6 +29538,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         admin: auth.scopes.includes("admin"),
         screens: url.searchParams.get("screens") !== "off",
         backpressured: false,
+        pushToken: pushTokenFromHeader(req.headers[PUSH_TOKEN_HEADER]),
         viewer,
         // What this person's hydration (GET /api/bots, narrowed the same way) showed them.
         seen: viewer.kind === "all" ? { bots: new Set(), groups: new Set() } : {

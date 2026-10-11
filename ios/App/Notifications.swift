@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import UserNotifications
 import CompanionCore
 
@@ -87,16 +88,24 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
         let userInfo = notification.request.content.userInfo
         let threadId = userInfo["threadId"] as? String
         if CallQuiet.shared.silences(threadId: threadId) { return completionHandler([]) }
-        // An APNs push while the app is in front: the live stream usually
-        // got there first. A nudge rings once; a conversation already on
-        // screen shows nothing.
-        if let push = PushPayload(userInfo: userInfo) {
-            Task { @MainActor in
-                completionHandler(AttentionCenter.shared.presentation(for: push))
+        // App in front: return [] (no banner, no sound). The live stream already
+        // showed the line; a nudge still rings in-app once.
+        Task { @MainActor in
+            let appActive = UIApplication.shared.applicationState == .active
+            if let push = PushPayload(userInfo: userInfo) {
+                completionHandler(AttentionCenter.shared.presentation(for: push, appActive: appActive))
+                return
             }
-            return
+            if !ForegroundNotification.showsSystemBanner(
+                appActive: appActive,
+                viewingThreadId: AttentionCenter.shared.viewingThreadId,
+                threadId: threadId
+            ) {
+                completionHandler([])
+                return
+            }
+            completionHandler(NotificationSounds.isEnabled ? [.banner, .list, .sound, .badge] : [.banner, .list, .badge])
         }
-        completionHandler(NotificationSounds.isEnabled ? [.banner, .list, .sound, .badge] : [.banner, .list, .badge])
     }
 
     func userNotificationCenter(

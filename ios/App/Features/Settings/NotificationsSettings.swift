@@ -46,7 +46,7 @@ final class AttentionCenter {
     }
 
     /// An APNs push that arrived while the app is in front.
-    func presentation(for push: PushPayload) -> UNNotificationPresentationOptions {
+    func presentation(for push: PushPayload, appActive: Bool) -> UNNotificationPresentationOptions {
         let sound: UNNotificationPresentationOptions = NotificationSounds.isEnabled ? [.sound] : []
         switch push.kind {
         case .nudge:
@@ -56,12 +56,15 @@ final class AttentionCenter {
             var rang = false
             if settings.nudgeSound { rang = playWizz() }
             if settings.nudgeHaptic { buzz() }
-            let looking = viewingThreadId != nil && viewingThreadId == push.threadId
-            if looking { return [] }
+            if !ForegroundNotification.showsSystemBanner(appActive: appActive, viewingThreadId: viewingThreadId, threadId: push.threadId) {
+                return []
+            }
             let shown: UNNotificationPresentationOptions = [.banner, .list]
             return rang ? shown : shown.union(sound)
         default:
-            if let thread = push.threadId, thread == viewingThreadId { return [] }
+            if !ForegroundNotification.showsSystemBanner(appActive: appActive, viewingThreadId: viewingThreadId, threadId: push.threadId) {
+                return []
+            }
             let shown: UNNotificationPresentationOptions = [.banner, .list, .badge]
             return shown.union(sound)
         }

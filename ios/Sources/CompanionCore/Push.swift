@@ -69,6 +69,10 @@ public struct PushRegistration: Codable, Equatable, Hashable, Sendable {
 }
 
 public enum PushToken {
+    /// On `GET /api/events`: this phone's APNs token, so the server skips
+    /// a push to a device that is already reading the live stream.
+    public static let header = "x-sagax-push-token"
+
     /// The device token as the server stores it: lowercase hex.
     public static func hex(_ data: Data) -> String {
         data.map { String(format: "%02x", $0) }.joined()

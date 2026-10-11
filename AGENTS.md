@@ -2490,6 +2490,14 @@ Notifications capability in the Apple Developer portal. Tests:
 `server/push/payload.test.ts`, `server/push/frames.test.ts`,
 `ios/Tests/CompanionCoreTests/PushTests.swift`.
 
+While the Sagax app is in front, APNs must not banner or sound: the live
+stream already showed the line. `userNotificationCenter(_:willPresent:)`
+returns `[]` when the app is active. The phone names its APNs token on
+`GET /api/events` (`x-sagax-push-token`); the hub skips that device and
+still pushes the person's other phones. Tests: `server/push/hub.test.ts`,
+`server/push/devices.test.ts`,
+`ios/Tests/CompanionCoreTests/PeoplePresenceTests.swift`.
+
 ## Upstream sync
 
 Last sync: 2026-10-08, upstream `milind-soni/OpenMausBot` main at

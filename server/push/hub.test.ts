@@ -46,7 +46,7 @@ describe("push hub", () => {
   const dirs: string[] = [];
   afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
-  function setup(options: { connected?: boolean; answer?: (token: string) => { status: number; reason?: string }; config?: ApnsConfigResult } = {}) {
+  function setup(options: { connected?: boolean; activeTokens?: string[]; answer?: (token: string) => { status: number; reason?: string }; config?: ApnsConfigResult } = {}) {
     const dir = mkdtempSync(join(tmpdir(), "sagax-push-"));
     dirs.push(dir);
     let now = 10_000;
@@ -62,6 +62,7 @@ describe("push hub", () => {
       config: options.config ?? CONFIG,
       store,
       connected: () => options.connected ?? true,
+      activeTokens: options.activeTokens ? () => options.activeTokens! : undefined,
       transport,
       now: () => now,
       log: { info: (line) => logs.push(line), warn: (line) => logs.push(line) },
@@ -110,6 +111,24 @@ describe("push hub", () => {
     await fire();
     expect(sent).toHaveLength(1);
     expect((sent[0]!.body as { aps: { alert: { body: string } } }).aps.alert.body).toBe("two");
+  });
+
+  it("skips APNs for a device whose live stream is open, and still pushes the others", async () => {
+    const { store, hub, sent, fire } = setup({ activeTokens: [TOKEN_A] });
+    store.register("pr_bob", { token: TOKEN_A, platform: "ios", environment: "production", appVersion: "", deviceName: "in app" });
+    store.register("pr_bob", { token: TOKEN_B, platform: "ios", environment: "production", appVersion: "", deviceName: "locked" });
+    hub.submit(message());
+    await fire();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.path).toBe(`/3/device/${TOKEN_B}`);
+  });
+
+  it("skips a nudge to the device that is in the app", async () => {
+    const { store, hub, sent } = setup({ connected: true, activeTokens: [TOKEN_A] });
+    store.register("pr_bob", { token: TOKEN_A, platform: "ios", environment: "production", appVersion: "", deviceName: "" });
+    hub.submit(message({ kind: "nudge" }));
+    await hub.drain();
+    expect(sent).toHaveLength(0);
   });
 
   it("pushes a nudge at once, even while a client is connected", async () => {

@@ -25,6 +25,9 @@ final class PushRegistrar {
     var activeClient: (() -> (client: CompanionClient, connectionID: String)?)?
     /// Set by Session: refresh the unread count after a push woke the app.
     var backgroundRefresh: (() async -> Bool)?
+    /// Set by Session: reopen the live stream so it names this token and
+    /// the server can skip APNs to this phone while the app is in front.
+    var onDeviceToken: (() -> Void)?
 
     /// Ask iOS for a token. Cheap and safe to repeat; the alert permission is
     /// asked separately (notification onboarding, Settings).
@@ -34,10 +37,12 @@ final class PushRegistrar {
 
     func didRegister(tokenData: Data) {
         let token = PushToken.hex(tokenData)
-        if token != deviceToken { registered.removeAll() }
+        let changed = token != deviceToken
+        if changed { registered.removeAll() }
         deviceToken = token
         log.info("APNs token received")
         Task { await sync() }
+        if changed { onDeviceToken?() }
     }
 
     func didFail(_ error: Error) {

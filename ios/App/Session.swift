@@ -221,6 +221,9 @@ final class Session: ObservableObject {
         PushRegistrar.shared.backgroundRefresh = { [weak self] in
             await self?.refreshAfterPush() ?? false
         }
+        PushRegistrar.shared.onDeviceToken = { [weak self] in
+            self?.restartStream()
+        }
 #if DEBUG
         // Parity harness: a fixture server, held in memory only (ParityLaunch.swift).
         if let parity = ParityLaunch.current {
@@ -967,7 +970,7 @@ final class Session: ObservableObject {
                 // breaking out here instead would fall through to the "the
                 // harness went away" path and flash a lost-connection banner
                 // on what is actually a deliberate reconnect.
-                for try await frame in try client.events(since: state.cursor, screens: screenWatchers > 0) {
+                for try await frame in try client.events(since: state.cursor, screens: screenWatchers > 0, pushToken: PushRegistrar.shared.deviceToken) {
                     if Task.isCancelled { return }
                     reconnectDelay = 0
 
