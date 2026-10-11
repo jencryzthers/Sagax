@@ -194,3 +194,25 @@ it("words said while a turn is being stopped wait for the next turn and get an a
     await t.fixture.close();
   }
 }, 120_000);
+
+it("duplex: words said while the bot works replace that turn and never queue", async () => {
+  const t = await callFixture({ FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_EXIT_DELAY_MS: "400" });
+  try {
+    await t.api("POST", `/api/bots/${t.bot.id}/voice/call`, { threadId: t.thread, callId: CALL_ID, state: "start" });
+    await t.send({ text: "[gate:never] tell me a long story", voiceCall: { callId: CALL_ID, duplex: true } });
+    await expect.poll(t.busy, { timeout: 15_000 }).toBe(true);
+    const sent = await t.send({ text: "what about the weather", voiceCall: { callId: CALL_ID, interrupted: true, duplex: true } });
+    expect(sent.queued).toBeUndefined();
+    expect(sent.steered).toBeUndefined();
+    expect(sent.message?.text).toBe("what about the weather");
+    const answered = async () => {
+      const all = await t.messages();
+      const asked = all.findIndex((m) => m.role === "user" && m.text === "what about the weather");
+      return asked >= 0 && all.slice(asked + 1).some((m) => m.role === "bot" && m.kind === "text" && String(m.text ?? "").trim());
+    };
+    await expect.poll(answered, { timeout: 25_000 }).toBe(true);
+    expect((await t.messages()).filter((m) => m.text === "what about the weather")).toHaveLength(1);
+  } finally {
+    await t.fixture.close();
+  }
+}, 120_000);

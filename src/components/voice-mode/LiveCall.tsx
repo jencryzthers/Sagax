@@ -229,6 +229,7 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
           // a barge-in says how much of the cut answer the person heard
           ...(interrupted ? { interrupted: true, ...(cut ? { heard: cut.heard, unheard: cut.unheard } : {}) } : {}),
           ...(language && language !== "auto" ? { language } : {}),
+          ...(readCallSettings().fullDuplex ? { duplex: true } : {}),
         },
       });
       send();

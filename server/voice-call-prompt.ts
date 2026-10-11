@@ -37,6 +37,7 @@ export function parseVoiceCallMeta(value: unknown): VoiceCallMeta | undefined | 
   if (typeof record.callId !== "string" || !CALL_ID.test(record.callId)) return { error: "voiceCall.callId must be a call id" };
   if (record.interrupted !== undefined && typeof record.interrupted !== "boolean") return { error: "voiceCall.interrupted must be a boolean" };
   if (record.continues !== undefined && typeof record.continues !== "boolean") return { error: "voiceCall.continues must be a boolean" };
+  if (record.duplex !== undefined && typeof record.duplex !== "boolean") return { error: "voiceCall.duplex must be a boolean" };
   if (record.language !== undefined && (!isVoiceModeLanguage(record.language) || record.language === "auto")) {
     return { error: "voiceCall.language must be a voice mode language" };
   }
@@ -57,6 +58,7 @@ export function parseVoiceCallMeta(value: unknown): VoiceCallMeta | undefined | 
     ...(interrupted && heard !== undefined ? { heard } : {}),
     ...(interrupted && unheard !== undefined ? { unheard } : {}),
     ...(record.continues === true ? { continues: true } : {}),
+    ...(record.duplex === true ? { duplex: true } : {}),
   };
 }
 

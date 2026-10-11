@@ -322,6 +322,7 @@ import {
   cancelSteeredMessage,
   drainSteeredMessages,
   cancelThreadQueue,
+  discardSteeredQueue,
   hasQueuedSteeredMessages,
   holdSteeredQueue,
   isSteeredMessageQueued,
@@ -625,6 +626,7 @@ import { createCaptureMailer, createMailer, type Mailer } from "./mailer.ts";
 import { createMailSettingsRoutes } from "./mail-routes.ts";
 import { createVoiceModeRoutes } from "./voice-mode.ts";
 import { parseVoiceCallMeta, voiceCallSection, voiceCallSteerPrompt, voiceCallTurnPrompt } from "./voice-call-prompt.ts";
+import { admitDuplexSend, DUPLEX_INTERRUPT_WAIT_MS } from "./voice-call-duplex.ts";
 import { VoiceCallSessions } from "./voice-call-session.ts";
 import { VoiceCallWarmup } from "./voice-call-warmup.ts";
 import { callTurnEffort } from "./voice-call-effort.ts";
@@ -12287,6 +12289,44 @@ function drainAsideLane() {
     isBlocked: (botId, threadId) => threadBusy(botId, threadId) || botAtThreadCapacity(botId) || Boolean(activeGroupTurnForBot(botId))
       || parksBehindCoordination(botId, threadId),
   }).catch((error) => console.warn("aside-queue: drain failed", error));
+}
+
+/** A duplex call send: interrupt the in-flight turn if any, drop the
+ * steer queue, start only this utterance. Never steers, never queues. */
+async function startDuplexCallTurn(
+  botId: string,
+  threadId: string,
+  text: string,
+  replyTo: Message | undefined,
+  sendId: string | undefined,
+  sender: ResolvedSender | undefined,
+  trigger: UsageTrigger,
+  speaker: TurnSpeaker,
+  voiceCall: Message["voiceCall"],
+) {
+  const current = store.projectBotForTask(botId, threadId);
+  if (!current) throw Object.assign(new Error("no such bot"), { status: 404 });
+  const admit = admitDuplexSend({
+    duplex: true,
+    botBusy: Boolean(current.busy) || threadBusy(botId, threadId),
+    stopping: stoppingThreads.has(threadId),
+    queued: hasQueuedSteeredMessages(current.id, threadId),
+  });
+  if (admit.action === "replace") {
+    if (admit.discardQueue) discardSteeredQueue(current.id, threadId);
+    if (admit.interrupt) {
+      await stopDirectThreadByPerson(current.id, threadId);
+      const deadline = Date.now() + DUPLEX_INTERRUPT_WAIT_MS;
+      while (threadBusy(botId, threadId) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      }
+    }
+    discardSteeredQueue(current.id, threadId);
+  }
+  const message = await startTurn(botId, text, {
+    threadId, replyTo, sendId, sender, trigger, speaker, ...(voiceCall ? { voiceCall } : {}),
+  });
+  return { ok: true as const, threadId, message };
 }
 
 /** Keep a person's words off the transcript until a direct-thread slot is
@@ -33212,6 +33252,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             }
             const message = await startTurn(bot.id, text, { threadId, replyTo, sendId, sender: messageSender(auth), trigger, speaker: speakerFor(auth), relayed: true });
             return { ok: true as const, threadId, message };
+          }
+
+          // Full-duplex call: one live turn. Talking while the bot works
+          // cancels that turn, drops the steer queue, and starts only this
+          // utterance (issue #292). Flag off keeps the steer path below.
+          if (voiceCall?.duplex) {
+            return startDuplexCallTurn(bot.id, threadId, text, replyTo, sendId, messageSender(auth), trigger, speakerFor(auth), voiceCall);
           }
 
           // A new request while this conversation works: its own task, which
