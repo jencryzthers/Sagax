@@ -2460,7 +2460,17 @@ organization server serves the same bundle. Three ways in, all through
 
 - "What's new" opens once after an update (`whatsNewDecision`), never on a
   fresh install or a dev build. Before an update the feed's release body is
-  shown by `UpdateBanner`.
+  shown by `UpdateBanner`, folded under "What's new in <version>" in the
+  small "Update ready" dialog (title, one sentence, the pills Not now and
+  Update). The dialog opens when an update has downloaded; after Not now,
+  the round cloud button at the right of the sidebar's account row
+  (`SidebarProfileMenu`, `showsUpdateButton`, a downloaded update only)
+  opens it again through `openUpdatePrompt` (`src/lib/update-prompt.ts`).
+  That button widens into a pill, its right edge pinned, on hover or focus
+  and for five seconds after the update lands, while the name folds away to
+  the avatar; the collapsed rail keeps its dot. Tests:
+  `src/components/UpdateBanner.test.ts`,
+  `src/components/SidebarProfileMenu.update-button.test.ts`.
 - Account menu > "Release notes" (`profileMenuItems`, key `release-notes`,
   above Check for updates) opens the same sheet in browse mode:
   a version picker (newest first, the running version marked current) and,

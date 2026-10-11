@@ -59,8 +59,18 @@ describe("UpdateBanner", () => {
 
   it("offers restart only after native preparation is complete", () => {
     const html = render({ status: "downloaded", version: "0.2.0" });
-    expect(html).toContain("0.2.0 is ready");
-    expect(html).toContain("Update and restart");
+    expect(html).toContain(">Update ready</h2>");
+    expect(html).toContain("Restart to finish installing Sagax 0.2.0. Your bots and work will be right where you left them.");
+    expect(html).toContain(">Not now</button>");
+    expect(html).toContain(">Update</button>");
+  });
+
+  it("keeps the release notes folded under What's new until asked", () => {
+    const html = render({ status: "downloaded", version: "0.2.0", notes: "## Fixes\n\n- One" });
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain("What&#x27;s new in 0.2.0");
+    expect(html).not.toContain(">Fixes<");
+    expect(html).toContain("max-w-[360px]");
   });
 
   it("keeps restart busy and displays the recovery instruction", () => {
@@ -87,9 +97,9 @@ describe("UpdateBanner", () => {
   it("preserves system package hand-off without promising restart", () => {
     const html = render({ status: "downloaded", version: "0.2.0", installMode: "handoff" });
     expect(html).toContain("Install in a terminal");
-    expect(html).toContain("Install");
-    expect(html).not.toContain("Update and restart");
-    expect(html).not.toContain("Restart to update");
+    expect(html).toContain(">Install</button>");
+    expect(html).not.toContain("Restart to finish installing");
+    expect(html).not.toContain(">Update</button>");
   });
 
   it("shows the failure cause as well as the required restart without offering a retry", () => {

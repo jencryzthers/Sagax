@@ -14,7 +14,11 @@
 // click. The collapsed rail keeps its own avatar button.
 //
 // The update entry is the one item that reports progress in place, so it
-// keeps the menu open and re-labels itself as it works. A failed automation
+// keeps the menu open and re-labels itself as it works. Once an update has
+// downloaded, a round cloud button sits at the right of the row; it widens
+// into a pill on hover or focus (and for a few seconds when the update
+// lands) while the name folds away to the avatar, and it opens the
+// "Update ready" dialog (UpdateBanner, openUpdatePrompt). A failed automation
 // adds a tiny accent dot to the routines count (never red) while the menu is closed, and keeps its dot
 // on the Automations item inside the menu.
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -23,6 +27,7 @@ import {
   CalendarClock,
   CalendarDays,
   Check,
+  CloudDownload,
   Info,
   Keyboard,
   Loader2,
@@ -42,6 +47,7 @@ import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
 import { ShortcutHint } from "./ShortcutHint";
 import { useStore } from "@/state/store";
 import { useUpdaterState, type UpdaterState } from "@/lib/updater";
+import { openUpdatePrompt } from "@/lib/update-prompt";
 import { brand } from "../lib/brand";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
@@ -204,6 +210,35 @@ export function useUpdateItem(): UpdateEntry | null {
   };
 }
 
+/** How long the update button stays wide after an update lands. */
+export const UPDATE_BUTTON_ANNOUNCE_MS = 5000;
+
+/** The footer's update button is shown for a downloaded update only; while
+ * one checks, downloads or fails, the row's small badge speaks instead. */
+export function showsUpdateButton(phase: UpdatePhase | undefined): boolean {
+  return phase === "downloaded";
+}
+
+/** Wide while hovered or focused, and for a moment after the update lands
+ * (once per version), then the round button. */
+function useUpdateButtonWide(version: string | null): [boolean, (on: boolean) => void] {
+  const [pointer, setPointer] = useState(false);
+  const [announcing, setAnnouncing] = useState(false);
+  const announced = useRef<string | null>(null);
+  useEffect(() => {
+    if (version === null) {
+      setAnnouncing(false);
+      return;
+    }
+    if (announced.current === version) return;
+    announced.current = version;
+    setAnnouncing(true);
+    const timer = setTimeout(() => setAnnouncing(false), UPDATE_BUTTON_ANNOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [version]);
+  return [pointer || announcing, setPointer];
+}
+
 /** The footer menu: account-level places (Archived bots) first, then a
  * hairline, then the profile items. Without them it is the profile menu
  * alone. */
@@ -353,7 +388,11 @@ export function SidebarProfileMenu({ avatarOnly = false, places = [] }: {
     },
   });
   const items = footerMenuItems(places, profileItems);
-  const noteworthy = update && updateNoteworthy(update.phase, update.pending) ? update : null;
+  const updateButton = !avatarOnly && update !== null && showsUpdateButton(update.phase);
+  const [wide, setWide] = useUpdateButtonWide(updateButton ? (update?.label ?? "") : null);
+  // the round button speaks for a downloaded update, so the row's badge
+  // stays for the other phases
+  const noteworthy = update && updateNoteworthy(update.phase, update.pending) && !updateButton ? update : null;
   // a place in the menu asking for attention while the menu is folded away
   // (a failed automation adds an accent dot to the routines count instead)
   const placeAttention = places.some((item) => item.attention);
@@ -408,7 +447,13 @@ export function SidebarProfileMenu({ avatarOnly = false, places = [] }: {
           className="flex w-full min-w-0 items-center gap-2.5 text-left"
         >
           {avatar(40)}
-          <span className="flex min-w-0 flex-1 flex-col justify-center">
+          <span
+            data-account-name=""
+            className={cn(
+              "flex min-w-0 flex-col justify-center overflow-hidden transition-[max-width,opacity] duration-200 ease-out",
+              updateButton && wide ? "max-w-0 flex-none opacity-0" : "max-w-[240px] flex-1 opacity-100",
+            )}
+          >
             <span title={name} className="min-w-0 truncate text-[14px] font-medium leading-[18px] text-sidebar-ink">{name}</span>
             {showLine && !avatarOnly && (
               <span data-member-line="" className="flex min-w-0 items-center gap-2 text-[13px] leading-[18px] text-sidebar-ink-secondary">
@@ -497,15 +542,42 @@ export function SidebarProfileMenu({ avatarOnly = false, places = [] }: {
     <div className="relative">
       {avatarOnly && approvalsBadge}
       {avatarOnly ? accountRow : (
-        <div
-          data-sidebar-account-row=""
-          className="rounded-lg px-2 py-1.5 transition-colors hover:bg-sidebar-hover has-[[aria-expanded=true]]:bg-sidebar-hover"
-        >
-          <div className="flex items-center gap-1">
-            <div className="min-w-0 flex-1">{accountRow}</div>
-            {approvalsBadge}
-            {routinesBadge}
+        <div className="flex items-center gap-2">
+          <div
+            data-sidebar-account-row=""
+            // flex-1 throughout, so the update button stays pinned to the
+            // right edge and widens leftward under the pointer; while it is
+            // wide the row keeps just what it cannot lose (the avatar and
+            // the badges), the name having folded away
+            className={cn(
+              "flex-1 rounded-lg px-2 py-1.5 transition-colors hover:bg-sidebar-hover has-[[aria-expanded=true]]:bg-sidebar-hover",
+              updateButton && wide ? "min-w-fit" : "min-w-0",
+            )}
+          >
+            <div className="flex items-center gap-1">
+              <div className="min-w-0 flex-1">{accountRow}</div>
+              {approvalsBadge}
+              {routinesBadge}
+            </div>
           </div>
+          {updateButton && update && (
+            <button
+              type="button"
+              data-sidebar-update=""
+              data-wide={wide ? "" : undefined}
+              title={update.label}
+              aria-label={update.label}
+              onClick={openUpdatePrompt}
+              onMouseEnter={() => setWide(true)}
+              onMouseLeave={() => setWide(false)}
+              onFocus={() => setWide(true)}
+              onBlur={() => setWide(false)}
+              style={{ flexBasis: wide ? "100%" : "2.75rem" }}
+              className="flex h-11 min-w-11 shrink grow-0 items-center justify-center rounded-full bg-ink text-app shadow-sm transition-[flex-basis,filter] duration-200 ease-out hover:brightness-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+            >
+              <CloudDownload size={20} strokeWidth={2} aria-hidden="true" />
+            </button>
+          )}
         </div>
       )}
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />

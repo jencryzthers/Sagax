@@ -4391,5 +4391,9 @@
   "settings.memory.state.refused": "Refusé",
   "settings.memory.state.returned": "Retourné",
   "settings.memory.state.expired": "Expiré",
-  "settings.memory.edit": "modification"
+  "settings.memory.edit": "modification",
+  "releaseNotes.notNow": "Pas maintenant",
+  "releaseNotes.readyBody": "Redémarrez pour terminer l’installation de {app} {version}. Vos bots et votre travail vous attendront là où vous les avez laissés.",
+  "releaseNotes.readyTitle": "Mise à jour prête",
+  "releaseNotes.update": "Mettre à jour"
 }

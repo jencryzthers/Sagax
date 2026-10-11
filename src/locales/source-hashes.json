@@ -8032,7 +8032,11 @@
       "model.rail.unreadyOne": "766b6f4aaccd174d368cafa404fa2cbd458ded4db3c7b6445c8eccfbfd61acbd",
       "settings.unreadyProviders.show": "fdd3babe57baf8a750b7749a26383616d3ee6398a7b77fc9e3f0a29002503fa0",
       "settings.unreadyProviders.subtitle": "706c30bd07c4ce4a94112a60894a2ecde53aaca4aa877ad9a23c06c283d20d04",
-      "settings.unreadyProviders.title": "651fecb6bed96d54629a4ce93dfec87ee1fc2d44be2384367466a556dabec4c2"
+      "settings.unreadyProviders.title": "651fecb6bed96d54629a4ce93dfec87ee1fc2d44be2384367466a556dabec4c2",
+      "releaseNotes.notNow": "a0e63d7c7125d29af84d6919af5550529be77c327324940c98c4b2cb13a99c8c",
+      "releaseNotes.readyBody": "c11356566ab85613a6c5a4bcb51df9c02efda7fdbd177333ac2259905aef86c6",
+      "releaseNotes.readyTitle": "46570c771ff507b1d3799ee83f292df1f3ae900cedb05113ee23daaf99a922dd",
+      "releaseNotes.update": "c1c1009d3f37ec058070a62e22caf9ac9dae2169d452487c5c271a8bcf57a291"
     },
     "hi": {
       "approval.action.allowOnce": "168511d24d9ee03122b3200f929be11eaaedad45cb0ecb20a95f549b3e3f4d0f",

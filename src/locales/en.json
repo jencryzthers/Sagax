@@ -6362,5 +6362,9 @@
   "settings.memory.state.refused": "Refused",
   "settings.memory.state.returned": "Returned to you",
   "settings.memory.state.expired": "Expired",
-  "settings.memory.edit": "edit"
+  "settings.memory.edit": "edit",
+  "releaseNotes.notNow": "Not now",
+  "releaseNotes.readyBody": "Restart to finish installing {app} {version}. Your bots and work will be right where you left them.",
+  "releaseNotes.readyTitle": "Update ready",
+  "releaseNotes.update": "Update"
 }
