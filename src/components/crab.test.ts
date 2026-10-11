@@ -1,5 +1,5 @@
-// Crab, the pixel-rect mascot: only axis-aligned rectangles, a coral fill
-// and two black square eyes, two stub arms and four legs. Free with the owl.
+// Crab, the pixel-rect mascot: only axis-aligned rectangles, a coral fill,
+// 2x2 eyes with a shine, pincer claws and four legs with feet. Free with the owl.
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -33,6 +33,7 @@ import {
   CRAB_OY,
   CRAB_PARTS,
   CRAB_PX,
+  crabEyeDraw,
   crabFill,
   crabViewBox,
 } from "./crab-art";
@@ -41,21 +42,36 @@ const draw = (props: Partial<Parameters<typeof CrabMascot>[0]> = {}) =>
   renderToStaticMarkup(createElement(CrabMascot, { color: "orange", ...props }));
 
 describe("Crab's art", () => {
-  it("sits on a 15-cell pixel grid mapped into the 0..100 box", () => {
+  it("sits on a 16-cell pixel grid mapped into the 0..100 box", () => {
     expect(CRAB_PX).toBe(6);
-    expect(CRAB_GRID).toBe(15);
-    expect(CRAB_OX).toBe(5);
-    expect(CRAB_OY).toBe(10);
-    expect(CRAB_PARTS.body).toEqual({ x: 17, y: 46, w: 66, h: 42 });
+    expect(CRAB_GRID).toBe(16);
+    expect(CRAB_OX).toBe(2);
+    expect(CRAB_OY).toBe(4);
+    expect(CRAB_PARTS.body).toEqual({ x: 20, y: 46, w: 60, h: 36 });
     expect(CRAB_PARTS.legs).toHaveLength(4);
-    expect(CRAB_PARTS.eyeL.w).toBe(CRAB_PX);
+    expect(CRAB_PARTS.feet).toHaveLength(4);
+    expect(CRAB_PARTS.eyeL.w).toBe(CRAB_PX * 2);
     expect(CRAB_PARTS.eyeR.h).toBe(CRAB_PX * 2);
+    expect(CRAB_PARTS.shineL.w).toBe(CRAB_PX);
   });
 
   it("crops to the bust under 48 px", () => {
-    expect(crabViewBox(32)).toBe("4 40 92 58");
-    expect(crabViewBox(CRAB_BUST_MAX)).toBe("4 40 92 58");
+    expect(crabViewBox(32)).toBe("2 36 96 58");
+    expect(crabViewBox(CRAB_BUST_MAX)).toBe("2 36 96 58");
     expect(crabViewBox(49)).toBe("0 0 100 100");
+  });
+
+  it("opens 2x2 eyes with a shine, and squints on happy like Clawd's clap", () => {
+    const open = crabEyeDraw("neutral");
+    expect(open.pupils[0]).toEqual(CRAB_PARTS.eyeL);
+    expect(open.shines?.[0]).toEqual(CRAB_PARTS.shineL);
+    const happy = crabEyeDraw("happy");
+    expect(happy.pupils[0].h).toBe(CRAB_PX);
+    expect(happy.shines).toBeNull();
+    const sleepy = crabEyeDraw("sleepy");
+    expect(sleepy.pupils[0].h).toBe(CRAB_PX);
+    expect(sleepy.pupils[0].y).not.toBe(happy.pupils[0].y);
+    expect(crabEyeDraw("excited").shines?.[0]).toEqual(CRAB_PARTS.shineL);
   });
 
   it("tints the coral with the bot colour on Plain, and stays a crab", () => {
@@ -130,6 +146,8 @@ describe("Crab's skins", () => {
     expect(crabSkinPaint("coral", "#377FE6").fill.toUpperCase()).toBe(CRAB_CORAL.toUpperCase());
     expect(crabSkinPaint("ink", "#377FE6").eyes.toUpperCase()).toBe("#F4EFE8");
     expect(crabSkinPaint("plain", "#377FE6").eyes.toUpperCase()).toBe(CRAB_INK.toUpperCase());
+    expect(crabSkinPaint("plain", "#377FE6").shine.toUpperCase()).toBe("#F8F4EE");
+    expect(crabSkinPaint("ink", "#377FE6").shine.toUpperCase()).toBe("#1A1816");
     expect(crabSkinPaint("plain", "#377FE6").fill).not.toBe(crabSkinPaint("plain", "#E78531").fill);
     expect(crabSkinPaint("sand", "#377FE6").fill).toBe(crabSkinPaint("sand", "#E78531").fill);
     expect(crabSkinId("unknown")).toBe("plain");
@@ -137,7 +155,7 @@ describe("Crab's skins", () => {
 });
 
 describe("Crab's drawing", () => {
-  it("renders every skin at every size as crisp rectangles, nine of them", () => {
+  it("renders every skin at every size as crisp rectangles, no paths", () => {
     for (const skin of CRAB_SKINS) {
       for (const size of [16, 24, 32, 44, 96, 256]) {
         const html = draw({ skin, size });
@@ -147,10 +165,10 @@ describe("Crab's drawing", () => {
         expect(html).toContain(`width:${size}px`);
         expect(html).toContain("crispEdges");
         expect(html).not.toMatch(/<path[\s>]/);
-        expect(html.match(/<rect /g)?.length, `${skin}@${size}`).toBe(9);
+        expect(html.match(/<rect /g)?.length, `${skin}@${size}`).toBe(20);
       }
     }
-    expect(draw({ size: 32 })).toContain('viewBox="4 40 92 58"');
+    expect(draw({ size: 32 })).toContain('viewBox="2 36 96 58"');
     expect(draw({ size: 96 })).toContain('viewBox="0 0 100 100"');
   });
 

@@ -32,8 +32,9 @@
 //   approved head and shoulders, `ogreParts` in ogre-art.ts) as draw
 //   operations, every face, the skins' fixed colors and palette samples.
 // - ios/Sources/CompanionCore/CrabArt.swift: Crab's pixel rects and skins,
-//   written by hand (the sprite is nine rectangles). The fixture carries
-//   each skin's fill and eyes (`crabPalettes`) which CrabArt.paint must match.
+//   written by hand (Clawd's 16-cell crab: carapace, pincers, feet, 2x2 eyes).
+//   The fixture carries each skin's fill and eyes (`crabPalettes`) which
+//   CrabArt.paint must match.
 //
 // They are all checked here; `UPDATE_IOS_MASCOT=1 pnpm vitest run
 // src/components/ios-mascot-export.test.ts` rewrites them after a desktop
