@@ -113,7 +113,14 @@ ended), and from the button. Tests: `electron/org-memory-cache.node-test.mjs`
 `src/components/OrgMemorySettings.test.ts`. Not done yet: the token minted
 automatically for the signed-in person (today pasted from the Perspicax
 console page `/console/memory/sync`), a file watcher (the sync runs from the
-button).
+button). Why the token cannot be minted by Sagax yet (checked 2026-10-11
+against Perspicax 1.8.22): `POST /api/v1/memory/sync/token` accepts only the
+person's console cookie or one of their `pxat1.` API tokens
+(`resolve_caller`), never a `pulsa-bot` sign-in or delegation token, an
+exchanged `/mcp` token or the link token (403 outside the link routes), and
+Sagax holds none of the first two. It needs a Perspicax route for it, for
+example the link token minting for a directory person as `/memory/work`
+does, or a token exchange whose resource is the memory sync.
 
 ## Organization memory signals (2026-10-11)
 
