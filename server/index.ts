@@ -626,7 +626,14 @@ import { createCaptureMailer, createMailer, type Mailer } from "./mailer.ts";
 import { createMailSettingsRoutes } from "./mail-routes.ts";
 import { createVoiceModeRoutes } from "./voice-mode.ts";
 import { parseVoiceCallMeta, voiceCallSection, voiceCallSteerPrompt, voiceCallTurnPrompt } from "./voice-call-prompt.ts";
-import { admitDuplexSend, DUPLEX_INTERRUPT_WAIT_MS } from "./voice-call-duplex.ts";
+import {
+  admitDuplexSend,
+  duplexEpoch,
+  DUPLEX_INTERRUPT_WAIT_MS,
+  isStaleAssistantOutput,
+  isThreadBusyError,
+  waitForThreadIdle,
+} from "./voice-call-duplex.ts";
 import { VoiceCallSessions } from "./voice-call-session.ts";
 import { VoiceCallWarmup } from "./voice-call-warmup.ts";
 import { callTurnEffort } from "./voice-call-effort.ts";
@@ -3764,6 +3771,19 @@ async function interruptDirectThread(botId: string, threadId: string, options?: 
   if (requestOwner) {
     requestOwner.stopped = true;
     if (requestOwner.messageId) store.patchMessage(threadId, requestOwner.messageId, { requestCancelled: true });
+  }
+  const liveTurnId = liveTurnByThread.get(threadId);
+  if (liveTurnId) {
+    let cancelled = cancelledVoiceTurns.get(threadId);
+    if (!cancelled) {
+      cancelled = new Set();
+      cancelledVoiceTurns.set(threadId, cancelled);
+    }
+    cancelled.add(liveTurnId);
+    if (cancelled.size > 8) {
+      const oldest = cancelled.values().next().value;
+      if (oldest) cancelled.delete(oldest);
+    }
   }
   // Stop belongs to the conversation it was pressed in. This bot's turn ends
   // and this conversation stops awaiting its teammates, so nothing resumes
@@ -9138,6 +9158,9 @@ const turnCheckpoints = new Map<string, { botId: string; cwd: string; hash: stri
 // a digest can only count activity it can attribute — so an unstamped tool
 // row is attributed to the thread's live turn instead of to nothing.
 const liveTurnByThread = new Map<string, string>();
+/** Turns cancelled by a person (barge-in / Stop). Their leftover assistant
+ * text must not stream as the next answer. */
+const cancelledVoiceTurns = new Map<string, Set<string>>();
 
 /** Forget a thread's pre-turn checkpoint and drop its pin, so the shadow
  * repo's next cleanup may reclaim that commit. */
@@ -10339,12 +10362,19 @@ bus.subscribe((event: RuntimeEvent) => {
     };
     broadcast({ kind: "runtime", event: publicAssistantEvent });
   }
-  if (event.type === "content.delta" && event.streamKind === "assistant_text") voiceLatency.mark(event.threadId, "firstToken");
-  else if (event.type === "turn.completed") voiceLatency.settled(event.threadId);
+  const staleAssistant = isStaleAssistantOutput({
+    eventTurnId: event.turnId,
+    cancelledTurnIds: cancelledVoiceTurns.get(event.threadId),
+    ownerStopped: directRequestOwners.get(event.threadId)?.stopped,
+    ownerTurnId: directRequestOwners.get(event.threadId)?.turnId,
+  });
+  if (event.type === "content.delta" && event.streamKind === "assistant_text") {
+    if (!staleAssistant) voiceLatency.mark(event.threadId, "firstToken");
+  } else if (event.type === "turn.completed") voiceLatency.settled(event.threadId);
   const privateImageEvent = event.type === "item.completed" && event.itemType === "assistant_image";
   // The durable message patch below is the public frame. Sending raw base64
   // through runtime SSE would multiply large bytes across every app window.
-  if (!privateImageEvent) {
+  if (!privateImageEvent && !(staleAssistant && event.type === "content.delta" && event.streamKind === "assistant_text")) {
     // Exact executable input is internal matching metadata, not inspector UI.
     // The event bus's persistence redactor does not scrub its live event.
     const publicEvent = event.type === "request.opened" ? { ...event, command: undefined } : event;
@@ -12291,6 +12321,16 @@ function drainAsideLane() {
   }).catch((error) => console.warn("aside-queue: drain failed", error));
 }
 
+const duplexEpochByThread = new Map<string, ReturnType<typeof duplexEpoch>>();
+function duplexEpochFor(threadId: string) {
+  let epoch = duplexEpochByThread.get(threadId);
+  if (!epoch) {
+    epoch = duplexEpoch();
+    duplexEpochByThread.set(threadId, epoch);
+  }
+  return epoch;
+}
+
 /** A duplex call send: interrupt the in-flight turn if any, drop the
  * steer queue, start only this utterance. Never steers, never queues. */
 async function startDuplexCallTurn(
@@ -12306,6 +12346,8 @@ async function startDuplexCallTurn(
 ) {
   const current = store.projectBotForTask(botId, threadId);
   if (!current) throw Object.assign(new Error("no such bot"), { status: 404 });
+  const epoch = duplexEpochFor(threadId);
+  const mine = epoch.claim();
   const admit = admitDuplexSend({
     duplex: true,
     botBusy: Boolean(current.busy) || threadBusy(botId, threadId),
@@ -12316,17 +12358,24 @@ async function startDuplexCallTurn(
     if (admit.discardQueue) discardSteeredQueue(current.id, threadId);
     if (admit.interrupt) {
       await stopDirectThreadByPerson(current.id, threadId);
-      const deadline = Date.now() + DUPLEX_INTERRUPT_WAIT_MS;
-      while (threadBusy(botId, threadId) && Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 40));
-      }
+      await waitForThreadIdle(() => threadBusy(botId, threadId), { capMs: DUPLEX_INTERRUPT_WAIT_MS });
     }
     discardSteeredQueue(current.id, threadId);
   }
-  const message = await startTurn(botId, text, {
-    threadId, replyTo, sendId, sender, trigger, speaker, ...(voiceCall ? { voiceCall } : {}),
-  });
-  return { ok: true as const, threadId, message };
+  if (!epoch.isLatest(mine)) return { ok: true as const, threadId, superseded: true as const };
+  const deadline = Date.now() + DUPLEX_INTERRUPT_WAIT_MS;
+  while (true) {
+    if (!epoch.isLatest(mine)) return { ok: true as const, threadId, superseded: true as const };
+    try {
+      const message = await startTurn(botId, text, {
+        threadId, replyTo, sendId, sender, trigger, speaker, ...(voiceCall ? { voiceCall } : {}),
+      });
+      return { ok: true as const, threadId, message };
+    } catch (err) {
+      if (!isThreadBusyError(err) || Date.now() >= deadline) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  }
 }
 
 /** Keep a person's words off the transcript until a direct-thread slot is

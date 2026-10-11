@@ -620,7 +620,7 @@ final class CallController: ObservableObject {
         if let live = conversation.stream(state.streaming[threadId]) {
             engine.replyProgress(live)
         }
-        let actions = conversation.settle(messages: messages, botName: name, thinking: engine.state.phase == .thinking, playerBusy: player.busy)
+        let actions = conversation.settle(messages: messages, botName: name, thinking: engine.state.phase == .thinking, playerBusy: player.busy, duplex: callSettings.fullDuplex)
         interrupted = conversation.interrupted
         unheard = conversation.unheard
         for action in actions {

@@ -236,6 +236,8 @@ export interface Message {
   sender?: import("../../shared/wire").WireMessage["sender"];
   /** Provider turn that produced this message. */
   turnId?: string;
+  /** Server-proven user message this bot reply answers. */
+  requestMessageId?: string;
   /** What the turn that wrote this reply ran on; no effort = engine default. */
   turnRun?: { instanceId: string; model: string; effort?: EffortLevel };
   /** Last assistant text item from a settled provider turn. */

@@ -19,6 +19,16 @@ import { NO, YES } from "@/lib/voice-mode/answers";
 import { voiceCallSession } from "@/lib/voice-mode/api";
 import { VoiceCall, type BargeInMetrics, type TurnMetrics } from "@/lib/voice-mode/call";
 import { readCallSettings } from "@/lib/voice-mode/call-settings";
+import {
+  cancelSpeech,
+  createSpeechFence,
+  interruptBot,
+  noteUtteranceSent,
+  settleReplies,
+  shouldNarrateToolChip,
+  streamText,
+  type SpeechFence,
+} from "@/lib/voice-mode/speech-fence";
 import { stageDurations } from "@/lib/voice-mode/latency";
 import type { CallState } from "@/lib/voice-mode/call-machine";
 import { readVoiceModeSettings } from "@/lib/voice-mode/settings";
@@ -93,10 +103,8 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
   }
   const askedApproval = useRef<{ requestId: string; skill: boolean; routine: boolean; submitted: boolean } | null>(null);
   const askedQuestion = useRef<{ requestId: string; messageId: string } | null>(null);
-  /** after a barge-in: the old turn's words are not spoken (until a new answer) */
-  const dropOldReply = useRef(false);
-  /** the streamed block that was cut: ignored until the stream starts over */
-  const dropStream = useRef<string | null>(null);
+  /** after a barge-in: the old turn's words are not spoken across the next send */
+  const fence = useRef<SpeechFence>(createSpeechFence());
 
   // ── the call itself (one per mount; StrictMode's probe gets its own) ──
   useEffect(() => {
@@ -138,15 +146,14 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
         setCaption("");
         if (cut.unheard) lastCut.current = { unheard: cut.unheard };
         // what was being said is cut: the rest of that answer is not spoken
-        dropOldReply.current = true;
-        dropStream.current = streamingRef.current ?? "";
+        fence.current = cancelSpeech(fence.current, streamingRef.current);
       }),
       live.on("interrupt-bot", () => {
         const current = botRef.current;
         // an approval being answered by voice keeps its turn
         if (askedApproval.current || !current.busy) return;
         // what the stopped turn still streams is never spoken
-        dropStream.current = streamingRef.current ?? "";
+        fence.current = interruptBot(fence.current, streamingRef.current);
         dispatch({ type: "interrupt", botId: current.id, threadId: current.threadId });
       }),
     ];
@@ -195,8 +202,8 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
         dispatch({ type: "answerCard", botId: current.id, threadId: current.threadId, messageId: openQuestion.messageId, answer: said });
         return;
       }
-      // a new turn: what the interrupted answer had left is never spoken
-      dropOldReply.current = false;
+      // a new turn: a cut answer that settles after this send stays silent
+      fence.current = noteUtteranceSent(fence.current);
       const language = readVoiceModeSettings().language;
       // one id per utterance: the server delivers it once, whatever retries,
       // and logs its stages under it (the call's timeline uses the same)
@@ -252,17 +259,10 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
   streamingRef.current = live;
   useEffect(() => {
     if (!call) return;
-    if (live === undefined || live === "") {
-      dropStream.current = null;
-      return;
-    }
-    // the cut block keeps streaming until the server stops it: not spoken
-    if (dropStream.current !== null) {
-      if (live.length >= dropStream.current.length && live.startsWith(dropStream.current.slice(0, 16))) return;
-      dropStream.current = null;
-    }
-    if (dropOldReply.current) return;
-    call.replyProgress(live);
+    const accepted = streamText(fence.current, live);
+    fence.current = accepted.fence;
+    if (accepted.text === null) return;
+    call.replyProgress(accepted.text);
   }, [call, live]);
 
   // ── settled messages: the rest of an answer, prompts, narration ───────
@@ -287,23 +287,21 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
     const fresh = messages.filter((m) => !spokenIds.current.has(m.id));
     if (!fresh.length) return;
     for (const m of fresh) spokenIds.current.add(m.id);
-    const lastUser = messages.map((m) => m.role).lastIndexOf("user");
-    const replies = fresh.filter((m) => m.role === "bot" && m.kind === "text" && m.text?.trim());
-    for (const reply of replies) {
-      // an answer from before the person's latest words (the turn they cut)
-      if (dropOldReply.current || messages.indexOf(reply) < lastUser) {
-        setInterrupted((previous) => new Set(previous).add(reply.id));
-        // the words of it the person never heard stay in the transcript, marked
-        const cut = lastCut.current;
-        lastCut.current = null;
-        if (cut?.unheard) setUnheard((previous) => new Map(previous).set(reply.id, cut.unheard));
-        continue;
-      }
-      void call.replyDone(reply.text!);
+    const settled = settleReplies(fence.current, messages, fresh.map((m) => m.id));
+    fence.current = settled.fence;
+    for (const id of settled.skip) {
+      setInterrupted((previous) => new Set(previous).add(id));
+      const cut = lastCut.current;
+      lastCut.current = null;
+      if (cut?.unheard) setUnheard((previous) => new Map(previous).set(id, cut.unheard));
     }
+    for (const reply of settled.speak) void call.replyDone(reply.text);
+    const replies = fresh.filter((m) => m.role === "bot" && m.kind === "text" && m.text?.trim());
     if (!replies.length && call.current.phase === "thinking") {
       const chip = [...fresh].reverse().find((m) => m.kind === "activity" && m.tool?.spoken);
-      if (chip?.tool?.spoken && !call.player.busy) void call.say(chip.tool.spoken);
+      if (chip?.tool?.spoken && shouldNarrateToolChip({ duplex: readCallSettings().fullDuplex, playerBusy: call.player.busy })) {
+        void call.say(chip.tool.spoken);
+      }
     }
   }, [call, messages, approval, question, bot.name]);
 

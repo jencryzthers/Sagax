@@ -75,12 +75,19 @@ bot is busy or speaking cancels that turn; the server never steers or
 queues those words. The thinking cue is 400 ms instead of 1200 ms so
 the line is not dead air. Approvals stay spoken yes or no and are not
 cancelled. Tools still run on the bot; the prompt already asks for a
-spoken "Je regarde ça..." before slow work.
+spoken "Je regarde ça..." before slow work. A duplex send that races
+another is latest-wins (the slower one is superseded, never queued).
+`startTurn` thread_busy is retried until the interrupt cap. Cancelled
+turns stop streaming (`content.delta` of that turnId is not broadcast).
+The client speech fence (`speech-fence.ts`, iOS `CallConversation`)
+keeps `dropOldReply` across the send, so a dying answer that lands
+after the new user line is marked interrupted and never spoken.
 
 xAI Speech-to-Speech (`wss://api.x.ai/v1/realtime`, grok-voice-latest)
 is still not the brain: it would drop Sagax tools, memory, approvals
 and MCP. Tests: `src/lib/voice-mode/duplex-policy.test.ts`,
-`call-logic.test.ts`, `server/voice-call-duplex.test.ts`,
+`speech-fence.test.ts`, `call-logic.test.ts`,
+`server/voice-call-duplex.test.ts`,
 `scripts/voice-duplex-harness.test.ts`,
 `server/voice-call-reliability.e2e.test.ts` (duplex case).
 

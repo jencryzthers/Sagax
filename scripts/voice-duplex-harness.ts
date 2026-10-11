@@ -4,6 +4,12 @@
 // B stack, which is today's typed-chat-on-a-call behaviour.
 import { INITIAL_CALL, step, type CallEffect, type CallEvent, type CallState } from "../src/lib/voice-mode/call-machine.ts";
 import { admitDuplexSend } from "../server/voice-call-duplex.ts";
+import {
+  cancelSpeech,
+  createSpeechFence,
+  noteUtteranceSent,
+  settleReplies,
+} from "../src/lib/voice-mode/speech-fence.ts";
 
 const ANSWERS: Record<string, string> = {
   "tell me a story": "Once upon a time.",
@@ -78,8 +84,15 @@ export function runVoiceDuplexHarness(opts: { duplex: boolean }): DuplexHarnessR
 
   if (admit.action === "replace") {
     queue = [];
-    const answer = ANSWERS[latest];
-    if (answer) spoken.push(answer);
+    let fence = cancelSpeech(createSpeechFence(), ANSWERS[sends[0] ?? ""] ?? "");
+    fence = noteUtteranceSent(fence);
+    const userA = { id: "uA", role: "user" as const, kind: "text", text: sends[0] ?? "" };
+    const userB = { id: "uB", role: "user" as const, kind: "text", text: latest };
+    const dying = { id: "bA", role: "bot" as const, kind: "text", text: ANSWERS[sends[0] ?? ""] ?? "" };
+    const reply = { id: "bB", role: "bot" as const, kind: "text", text: ANSWERS[latest] ?? "", requestMessageId: "uB" };
+    const late = settleReplies(fence, [userA, userB, dying], ["bA"]);
+    const next = settleReplies(late.fence, [userA, userB, dying, reply], ["bB"]);
+    spoken.push(...late.speak.map((item) => item.text), ...next.speak.map((item) => item.text));
   } else {
     if (latest) queue.push(latest);
     const firstAnswer = ANSWERS[sends[0] ?? ""];

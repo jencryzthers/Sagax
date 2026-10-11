@@ -575,6 +575,42 @@ final class CallConversationTests: XCTestCase {
         XCTAssertEqual(conversation.stream("New"), "New", "a new answer streams again")
     }
 
+    func testADyingTurnAfterTheNextSendIsNeverSpoken() {
+        var conversation = CallConversation(existing: [])
+        conversation.speechCancelled(currentStream: "Once upon a time")
+        XCTAssertEqual(conversation.utterance("what about the weather"), .send("what about the weather"))
+        XCTAssertNil(conversation.stream("Once upon a time, there was a llama"))
+        let dying = text("a", "Once upon a time.")
+        var answer = text("b", "It is sunny.")
+        answer.requestMessageId = "uB"
+        let late = conversation.settle(
+            messages: [text("uA", "tell me a story", role: .user), text("uB", "what about the weather", role: .user), dying],
+            botName: "Ara", thinking: true, playerBusy: false
+        )
+        XCTAssertEqual(late, [])
+        XCTAssertEqual(conversation.interrupted, ["a"])
+        let spoken = conversation.settle(
+            messages: [text("uA", "tell me a story", role: .user), text("uB", "what about the weather", role: .user), dying, answer],
+            botName: "Ara", thinking: true, playerBusy: false
+        )
+        XCTAssertEqual(spoken, [.replyDone("It is sunny.", speakerId: nil)])
+    }
+
+    func testDuplexNarratesAToolChipWhileTheCuePlays() {
+        var conversation = CallConversation(existing: [])
+        var chip = Message(id: "t", role: .bot, kind: .activity, at: 0)
+        chip.tool = ToolActivity(name: "Bash", spoken: "Checking your calendar")
+        XCTAssertEqual(
+            conversation.settle(messages: [chip], botName: "Ara", thinking: true, playerBusy: true, duplex: true),
+            [.narrate("Checking your calendar", speakerId: nil)]
+        )
+        var quiet = CallConversation(existing: [])
+        XCTAssertEqual(
+            quiet.settle(messages: [chip], botName: "Ara", thinking: true, playerBusy: true),
+            []
+        )
+    }
+
     func testAnApprovalIsAskedAndAnsweredYesOrNoOnly() {
         var conversation = CallConversation(existing: [])
         let card = approval("c", requestId: "r1")

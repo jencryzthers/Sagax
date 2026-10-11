@@ -103,16 +103,19 @@ public struct CallConversation: Sendable {
     /// The live text to feed the call's reply, or nil (cut, or nothing).
     public mutating func stream(_ live: String?) -> String? {
         guard !room else { return nil }
-        guard let live, !live.isEmpty else {
-            dropStream = nil
-            return nil
-        }
+        guard let live, !live.isEmpty else { return nil }
         // the cut block keeps streaming until the server stops it: not spoken
-        if let cut = dropStream {
-            if live.count >= cut.count && live.hasPrefix(String(cut.prefix(16))) { return nil }
+        if let cut = dropStream, !cut.isEmpty {
+            if live.count >= min(cut.count, 16) && live.hasPrefix(String(cut.prefix(16))) { return nil }
             dropStream = nil
+            dropOldReply = false
+            return live
         }
-        if dropOldReply { return nil }
+        if dropOldReply {
+            dropOldReply = false
+            dropStream = nil
+            return live
+        }
         return live
     }
 
@@ -126,7 +129,8 @@ public struct CallConversation: Sendable {
     /// The bot's running turn is being stopped: what it still streams is
     /// never spoken.
     public mutating func botInterrupted(currentStream: String?) {
-        dropStream = currentStream ?? ""
+        dropOldReply = true
+        dropStream = currentStream ?? dropStream ?? ""
     }
 
     // MARK: - What the person said
@@ -145,8 +149,8 @@ public struct CallConversation: Sendable {
             askedQuestion = nil
             return .answer(requestId: question.requestId, messageId: question.messageId, text: said)
         }
-        // a new turn: what the interrupted answer had left is never spoken
-        dropOldReply = false
+        // a new turn keeps the drop: a dying answer that lands after this
+        // send is still the cut turn, never spoken
         guard room else { return .send(said) }
         let routed = GroupCallRouting.route(said, memberNames: memberNames)
         if mentionsOnly && !routed.addressed { return .needsName }
@@ -165,7 +169,7 @@ public struct CallConversation: Sendable {
     /// What to say for messages that settled since the last call.
     /// `thinking`: the call rests in its thinking phase (narration allowed);
     /// `playerBusy`: something is already being said.
-    public mutating func settle(messages: [Message], botName: String, thinking: Bool, playerBusy: Bool) -> [SettleAction] {
+    public mutating func settle(messages: [Message], botName: String, thinking: Bool, playerBusy: Bool, duplex: Bool = false) -> [SettleAction] {
         let approval = Self.pendingApproval(messages)
         let question = Self.pendingQuestion(messages)
         if let asked = askedApproval, approval?.card?.requestId != asked.requestId { askedApproval = nil }
@@ -191,6 +195,7 @@ public struct CallConversation: Sendable {
         guard !fresh.isEmpty else { return [] }
         for message in fresh { spoken.insert(message.id) }
         let lastUser = messages.lastIndex { $0.role == .user } ?? -1
+        let lastUserId = lastUser >= 0 ? messages[lastUser].id : nil
         let replies = fresh.filter { $0.role == .bot && $0.kind == .text && !($0.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         var out: [SettleAction] = []
         for reply in replies {
@@ -200,7 +205,13 @@ public struct CallConversation: Sendable {
             }
             // an answer from before the person's latest words (the turn they cut)
             let index = messages.firstIndex { $0.id == reply.id } ?? 0
-            if dropOldReply || index < lastUser {
+            let belongsToLatest = reply.requestMessageId != nil && reply.requestMessageId == lastUserId
+            let belongsToOlder = reply.requestMessageId != nil && reply.requestMessageId != lastUserId
+            let cutContinuation: Bool = {
+                guard let cut = dropStream, !cut.isEmpty, let text = reply.text else { return false }
+                return text.hasPrefix(String(cut.prefix(16)))
+            }()
+            if belongsToOlder || index < lastUser || (dropOldReply && !belongsToLatest) || cutContinuation {
                 interrupted.insert(reply.id)
                 // the words of it the person never heard stay in the transcript, marked
                 if let words = lastCutUnheard {
@@ -209,11 +220,13 @@ public struct CallConversation: Sendable {
                 }
                 continue
             }
+            dropOldReply = false
+            dropStream = nil
             out.append(.replyDone(reply.text ?? "", speakerId: reply.from?.botId))
         }
         if replies.isEmpty && (thinking || room) {
             if let chip = fresh.last(where: { $0.kind == .activity && !($0.tool?.spoken ?? "").isEmpty }),
-               let line = chip.tool?.spoken, room || !playerBusy {
+               let line = chip.tool?.spoken, room || duplex || !playerBusy {
                 out.append(.narrate(line, speakerId: chip.from?.botId))
             }
         }

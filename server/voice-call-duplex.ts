@@ -26,3 +26,57 @@ export function admitDuplexSend(input: {
 /** How long a duplex send waits for the interrupted turn to settle before
  * starting the new one. Cap so a stuck interrupt cannot hang the 202. */
 export const DUPLEX_INTERRUPT_WAIT_MS = 2_500;
+
+/** One increasing token per thread: only the latest duplex replace starts. */
+export function duplexEpoch(): { claim: () => number; isLatest: (token: number) => boolean } {
+  let seq = 0;
+  return {
+    claim() {
+      seq += 1;
+      return seq;
+    },
+    isLatest(token: number) {
+      return token === seq;
+    },
+  };
+}
+
+export function isThreadBusyError(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as { code?: string }).code === "thread_busy";
+}
+
+export function isStaleAssistantOutput(input: {
+  eventTurnId?: string;
+  cancelledTurnIds?: Iterable<string>;
+  ownerStopped?: boolean;
+  ownerTurnId?: string | null;
+}): boolean {
+  if (input.eventTurnId && input.cancelledTurnIds) {
+    for (const id of input.cancelledTurnIds) {
+      if (id === input.eventTurnId) return true;
+    }
+  }
+  if (input.ownerStopped && (!input.eventTurnId || !input.ownerTurnId || input.eventTurnId !== input.ownerTurnId)) {
+    return true;
+  }
+  if (input.eventTurnId && input.ownerTurnId && input.eventTurnId !== input.ownerTurnId) return true;
+  return false;
+}
+
+export async function waitForThreadIdle(
+  isBusy: () => boolean,
+  opts?: {
+    capMs?: number;
+    stepMs?: number;
+    now?: () => number;
+    sleep?: (ms: number) => Promise<void>;
+  },
+): Promise<"idle" | "timeout"> {
+  const capMs = opts?.capMs ?? DUPLEX_INTERRUPT_WAIT_MS;
+  const stepMs = opts?.stepMs ?? 40;
+  const now = opts?.now ?? Date.now;
+  const sleep = opts?.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const deadline = now() + capMs;
+  while (isBusy() && now() < deadline) await sleep(stepMs);
+  return isBusy() ? "timeout" : "idle";
+}
