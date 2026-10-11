@@ -55,6 +55,54 @@ final class PushTests: XCTestCase {
         XCTAssertEqual(payload.kind, .message)
         XCTAssertEqual(payload.target, NotificationTarget(botId: "g_people_1", threadId: "t_people_1"))
         XCTAssertNil(payload.nudgeKey)
+        XCTAssertNil(payload.senderIdentity)
+    }
+
+    func testABotPushCarriesTheSenderTheExtensionShows() throws {
+        let userInfo: [AnyHashable: Any] = [
+            "aps": [
+                "alert": ["title": "Scout", "body": "Pushed the branch."],
+                "thread-id": "t_scout",
+                "mutable-content": 1,
+            ],
+            "kind": "message",
+            "threadId": "t_scout",
+            "botId": "scout",
+            "senderName": "Scout",
+            "senderId": "scout",
+            "avatarUrl": "/api/attachments/123e4567-e89b-12d3-a456-426614174000.webp",
+            "at": 1_000,
+        ]
+        let payload = try XCTUnwrap(PushPayload(userInfo: userInfo))
+        let sender = try XCTUnwrap(payload.senderIdentity)
+        XCTAssertEqual(sender.id, "scout")
+        XCTAssertEqual(sender.displayName, "Scout")
+        XCTAssertEqual(sender.conversationId, "t_scout")
+        XCTAssertEqual(sender.avatarUrl, "/api/attachments/123e4567-e89b-12d3-a456-426614174000.webp")
+        XCTAssertNotNil(AccountAvatar(sender.avatarUrl))
+    }
+
+    func testABotPushWithoutAnAvatarStillNamesTheBot() throws {
+        let userInfo: [AnyHashable: Any] = [
+            "aps": ["alert": ["title": "Scout", "body": "Done"], "mutable-content": 1],
+            "kind": "message", "threadId": "t_scout", "botId": "scout", "senderName": "Scout",
+        ]
+        let sender = try XCTUnwrap(PushPayload(userInfo: userInfo)?.senderIdentity)
+        XCTAssertEqual(sender.displayName, "Scout")
+        XCTAssertEqual(sender.id, "scout")
+        XCTAssertNil(sender.avatarUrl)
+        XCTAssertNil(AccountAvatar(sender.avatarUrl))
+    }
+
+    func testATrackingPixelIsNotAnAvatar() throws {
+        let userInfo: [AnyHashable: Any] = [
+            "aps": ["alert": ["title": "Scout"]],
+            "kind": "message", "botId": "scout", "senderName": "Scout",
+            "avatarUrl": "https://tracker.example.test/pixel.png",
+        ]
+        let sender = try XCTUnwrap(PushPayload(userInfo: userInfo)?.senderIdentity)
+        XCTAssertEqual(sender.displayName, "Scout")
+        XCTAssertNil(sender.avatarUrl)
     }
 
     func testANudgePushSharesItsKeyWithTheStreamFrame() throws {

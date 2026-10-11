@@ -2477,6 +2477,19 @@ it after an upstream merge instead of renaming by hand.
 - Legal and history: `LICENSE-APACHE`, the OpenMausBot lines of `NOTICE`, the README attribution,
   About's "Based on OpenMausBot", "Where work goes" and "Upstream sync" below.
 
+## iOS communication notifications (2026-10-11)
+
+A closed-app APNs push from a bot (or a person) is an iOS Communication
+Notification: the banner names the bot and shows its avatar, not the Sagax
+app icon (`docs/ios-push.md`). The server sets `aps.mutable-content` and
+`senderName` / `senderId` / `avatarUrl`; the Notification Service Extension
+(`ios/NotificationService`) downloads the avatar with the pairing bearer and
+donates `INSendMessageIntent`. The App ID `ca.pulsatrix.sagax` and the
+extension App ID `ca.pulsatrix.sagax.notification` need the Communication
+Notifications capability in the Apple Developer portal. Tests:
+`server/push/payload.test.ts`, `server/push/frames.test.ts`,
+`ios/Tests/CompanionCoreTests/PushTests.swift`.
+
 ## Upstream sync
 
 Last sync: 2026-10-08, upstream `milind-soni/OpenMausBot` main at

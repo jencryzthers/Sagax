@@ -44,11 +44,33 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
         ]
         if notification.isBlocking { content.interruptionLevel = .timeSensitive }
 
+        let posted = communicationContent(content, name: notification.botName, id: notification.botId, conversationId: notification.threadId)
         // One conversation, one banner: a replayed frame, the next line of
         // the same conversation and the APNs push for it (whose
         // apns-collapse-id is this same identifier) replace it.
         let identifier = PushCollapse.identifier(threadId: notification.threadId, kind: notification.kind)
-        center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
+        center.add(UNNotificationRequest(identifier: identifier, content: posted, trigger: nil))
+    }
+
+    /// Name the bot (or person) as the sender when we have a display name.
+    private func communicationContent(
+        _ content: UNMutableNotificationContent,
+        name: String,
+        id: String,
+        conversationId: String
+    ) -> UNNotificationContent {
+        let display = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !display.isEmpty else { return content }
+        content.title = display
+        let handle = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        let conversation = conversationId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sender = PushSenderIdentity(
+            id: handle.isEmpty ? display : handle,
+            displayName: display,
+            conversationId: conversation.isEmpty ? display : conversation,
+            avatarUrl: nil
+        )
+        return CommunicationNotification.applyingIntent(content, sender: sender, imageData: nil)
     }
 
     /// Settings > Notifications > Unread count on the app icon (#222).

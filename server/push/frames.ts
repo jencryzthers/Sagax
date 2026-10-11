@@ -4,7 +4,7 @@
 // finished, a bot waiting on an answer, an approval, a routine that
 // failed), a `nudge` frame and an `achievements` frame. This reads them and
 // returns the PushMessage of each person concerned; ./hub.ts decides when.
-import type { PushKind, PushMessage } from "./payload.ts";
+import { pushAvatarUrl, type PushKind, type PushMessage } from "./payload.ts";
 
 /** The `notify` kinds a phone hears about, as the push kind it carries. */
 export const NOTIFY_PUSH_KINDS: Readonly<Record<string, PushKind>> = Object.freeze({
@@ -18,11 +18,13 @@ export const NOTIFY_PUSH_KINDS: Readonly<Record<string, PushKind>> = Object.free
 export interface NotifyNote {
   kind: string;
   botId: string;
+  botName: string;
   threadId: string;
   groupId?: string;
   title: string;
   body: string;
   audience?: string[];
+  avatarUrl?: string;
 }
 
 export interface FramePushDeps {
@@ -45,17 +47,22 @@ export function pushesForFrame(payload: Record<string, unknown>, deps: FramePush
     const raw = payload.notification as Record<string, unknown>;
     const kind = NOTIFY_PUSH_KINDS[text(raw.kind)];
     if (!kind) return [];
+    const avatarUrl = pushAvatarUrl(raw.avatarUrl);
     const note: NotifyNote = {
       kind: text(raw.kind),
       botId: text(raw.botId),
+      botName: text(raw.botName),
       threadId: text(raw.threadId),
       ...(text(raw.groupId) ? { groupId: text(raw.groupId) } : {}),
       title: text(raw.title),
       body: text(raw.body),
       ...(Array.isArray(raw.audience) ? { audience: raw.audience.filter((id): id is string => typeof id === "string") } : {}),
+      ...(avatarUrl ? { avatarUrl } : {}),
     };
     const people = note.audience ?? deps.notificationPeople(note);
     const unique = [...new Set(people.map((id) => id.trim().toLowerCase()).filter(Boolean))];
+    const senderName = note.botName.trim();
+    const senderId = note.botId.trim();
     return unique.filter((person) => !deps.muted(note, person)).map((personId) => ({
       kind,
       personId,
@@ -64,6 +71,9 @@ export function pushesForFrame(payload: Record<string, unknown>, deps: FramePush
       ...(note.threadId ? { threadId: note.threadId } : {}),
       ...(note.botId ? { botId: note.botId } : {}),
       ...(note.groupId ? { groupId: note.groupId } : {}),
+      ...(senderName ? { senderName } : {}),
+      ...(senderId ? { senderId } : {}),
+      ...(note.avatarUrl ? { avatarUrl: note.avatarUrl } : {}),
       at,
     }));
   }
@@ -82,6 +92,8 @@ export function pushesForFrame(payload: Record<string, unknown>, deps: FramePush
       ...(text(open?.groupId) ? { groupId: text(open?.groupId) } : {}),
       ...(text(payload.fromId) ? { fromId: text(payload.fromId) } : {}),
       ...(text(payload.id) ? { id: text(payload.id) } : {}),
+      senderName: name,
+      ...(text(payload.fromId) ? { senderId: text(payload.fromId) } : {}),
       at: typeof payload.at === "number" && Number.isFinite(payload.at) ? payload.at : at,
     }];
   }
