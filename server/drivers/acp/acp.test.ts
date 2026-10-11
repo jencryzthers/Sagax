@@ -21,6 +21,7 @@ import { promptSplitFingerprints, writePromptSplitReceipt } from "../prompt-spli
 import { GROK_TOOL_REUSE_HINT as HINT } from "./grok.ts";
 import { createAcpDriver, DEFAULT_ACP_PROMPT_IDLE_MS, skipSubscriptionAuthForLocalInject, type AcpSupport } from "./core.ts";
 import { GrokAgentDriver, grokAcceptsUnadvertisedImages } from "./grok.ts";
+import { READ_ONLY_AGENT_TOOL_NAMES } from "../../agent-tool-policy.ts";
 import { GeminiAgentDriver } from "./gemini.ts";
 import { KimiAgentDriver } from "./kimi.ts";
 import { DroidAgentDriver } from "./droid.ts";
@@ -30,6 +31,10 @@ import { removeTempDir } from "../../testing/cleanup.ts";
 import { startFakeHttpMcp } from "../../testing/fake-http-mcp-server.ts";
 import * as procs from "../../procs.ts";
 import * as quietStatus from "./quiet-status.ts";
+
+/** Reviewed read-only agents tools Grok may run without its auto classifier. */
+const AGENTS_READ_ONLY_ALLOW = [...READ_ONLY_AGENT_TOOL_NAMES]
+  .map((name) => `MCPTool(agents__${name})`).sort().flatMap((rule) => ["--allow", rule]);
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "testing", "fake-acp-cli.ts");
 
@@ -1319,7 +1324,7 @@ describe("ACP turns (fake CLI)", () => {
         await recorder.until((e) => e.type === "turn.completed" && e.turnId === turnId);
         const seen = JSON.parse(readFileSync(dump, "utf8"));
         expect(seen.argv).toEqual([
-          "--permission-mode", "auto",
+          "--permission-mode", "auto", ...AGENTS_READ_ONLY_ALLOW,
           "agent", "-m", model, "--reasoning-effort", "high", "stdio",
         ]);
         const sessionMethod = resumeCursor ? "session/load" : "session/new";
@@ -1335,6 +1340,23 @@ describe("ACP turns (fake CLI)", () => {
       }
     },
   );
+
+  it.each(["ask", "edits"] as const)("adds no read-only allow rules outside Auto (%s keeps every card)", async (approvalMode) => {
+    await create(GrokAgentDriver);
+    const dump = join(scratch, `grok-no-allow-${approvalMode}.json`);
+    process.env.FAKE_ACP_DUMP = dump;
+    const { turnId } = await instance.adapter.sendTurn({
+      threadId: `t-grok-no-allow-${approvalMode}`,
+      text: "read the roster",
+      model: "grok-4.5",
+      approvalMode,
+      integrations: { agents: { command: "node", args: ["/fixture/agents-proxy.mjs"], env: {} } },
+    });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === turnId);
+    const seen = JSON.parse(readFileSync(dump, "utf8")) as { argv: string[] };
+    expect(seen.argv).not.toContain("--allow");
+    expect(seen.argv.join(" ")).not.toContain("MCPTool(");
+  });
 
   it("withholds Grok host tools on an organization turn and isolates each person's GROK_HOME", async () => {
     await create(GrokAgentDriver);
@@ -1358,7 +1380,7 @@ describe("ACP turns (fake CLI)", () => {
     expect(seen.argv).toEqual([
       "--no-subagents", "--disable-web-search",
       "--deny", "Bash", "--deny", "Read", "--deny", "Edit", "--deny", "Write", "--deny", "Grep", "--deny", "WebFetch", "--deny", "WebSearch",
-      "--permission-mode", "auto",
+      "--permission-mode", "auto", ...AGENTS_READ_ONLY_ALLOW,
       "agent", "--no-leader", "-m", "grok-4.7", "--reasoning-effort", "high", "stdio",
     ]);
     expect(seen.argv).not.toContain("--sandbox");
