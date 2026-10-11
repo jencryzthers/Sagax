@@ -385,7 +385,15 @@ routines (JC). `server/routine-scope.ts` (rules), `shared/routine-scope.ts`
   and stay read-only. The problems and paused pills count within the scope;
   the sidebar count stays the person's (the store keeps `mine`). The choice
   is `sagax.routineScope.v1`, a user preference keyed by principal.
-- iOS: not yet (parity row AU20).
+- iOS (parity row AU20, 2026-10-11): the Automations page and Threads &
+  Routines of an organization server draw the same segmented Mine / My
+  teams / Everyone (a scope not allowed cannot be picked and a line names
+  the missing permission), Team, Owner and Status in the menu, the bots of
+  the scope in its bot filter, "Owned by" on someone else's routine, and no
+  Run now, Edit, Pause, Delete or reschedule where `canRun`/`canEdit` say
+  no (`ios/Sources/CompanionCore/RoutineScope.swift`,
+  `ios/App/TasksRoutinesView.swift`, `RoutineScopeTests`). The choice is
+  not kept between launches yet. Not built in Xcode when it landed.
 
 ## Full access (organization mode, 2026-10-01)
 
