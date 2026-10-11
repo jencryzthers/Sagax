@@ -1081,6 +1081,8 @@ export type AppSettingsSection =
 
 export type BotSettingsSection =
   | "overview"
+  /** The persona editor's Appearance: the mascot gallery and the picture sources. */
+  | "appearance"
   /** Deep link to the Details tab. */
   | "details"
   | "slack"

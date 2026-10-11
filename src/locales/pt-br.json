@@ -376,7 +376,6 @@
   "botPanel.access.webhooksHelp": "Gatilhos de entrada ligados a este bot.",
   "botPanel.activity.title": "Atividade",
   "botPanel.avatar.badImage": "A imagem enviada não pôde ser usada como avatar",
-  "botPanel.avatar.bot": "Bot",
   "botPanel.avatar.chooseImage": "Escolha uma imagem PNG, JPEG, GIF ou WebP.",
   "botPanel.avatar.direction": "Direção da geração do avatar",
   "botPanel.avatar.directionPlaceholder": "Direção opcional, p. ex. “um navegador calmo inspirado em {name}”",

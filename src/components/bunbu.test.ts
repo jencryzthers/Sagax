@@ -162,7 +162,7 @@ describe("Bunbu on the desktop and in the popover", () => {
     expect(bunbuActionFor("idle")).toBeNull();
   });
 
-  it("offers its colors, skins by rarity and moves in the avatar popover", () => {
+  it("offers its colors, skins by rarity and moves in the Appearance gallery", () => {
     const render = (look: unknown) => renderToStaticMarkup(createElement(MascotLookEditor, { bot: { color: "mint", mascotSkin: "none", mascotLook: botMascotLook(look) }, onPatch: () => undefined }));
     const html = render({ character: "bunbu" });
     expect(html).toContain('data-character-option="bunbu"');

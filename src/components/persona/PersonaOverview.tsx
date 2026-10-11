@@ -1,4 +1,4 @@
-// The persona editor's Overview header: the mascot (its editor on click),
+// The persona editor's Overview header: the mascot (Appearance on click),
 // name, label and short description edited in place, a summary of the
 // engine, model, owner and sharing, and the quick actions (Rename, Put on
 // the desktop, Make primary bot, Export as zip, Archive). Every write goes

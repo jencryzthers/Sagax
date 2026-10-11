@@ -25,7 +25,7 @@ export function AvatarImageGenerator({
   const busy = disabled || generating;
 
   return (
-    <div className="mt-5 border-t border-hairline/40 pt-4">
+    <div className="max-w-[460px]">
       <div className="flex items-center gap-2 text-[13px] font-medium text-ink">
         <Sparkles size={14} className="text-accent" /> {t("botPanel.avatar.generateWithAi")}
       </div>

@@ -136,7 +136,7 @@ open or its bot waits for an approval, never under reduced motion). When
 idle it grooms, flicks its tail, slow blinks, kneads, loafs and hops onto a
 ledge. Events: a head bonk at a nudge, kneading for an achievement, a pounce
 on a new message, curled up before a snooze, a hiss at a refused approval,
-ears flat on an error. The avatar popover and the mascot's Moves menu offer
+ears flat on an error. The Appearance gallery and the mascot's Moves menu offer
 stretch, groom, knead, pounce, ledge, hiss, bonk, slow blink, tail flick,
 yawn, curl and wave.
 

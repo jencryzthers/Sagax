@@ -1,0 +1,130 @@
+// The persona editor's Appearance category: how the bot looks everywhere it
+// appears. A segmented control picks the source (Mascot, Generate, Upload)
+// and Reset puts the green owl back. Mascot is the character gallery
+// (floating-bots/MascotLookEditor.tsx, loaded lazily with this pane),
+// Generate and Upload the picture sources (AvatarSources.tsx). Clicking the
+// bot's avatar opens the persona editor here (BotProfileAvatarCard); the New
+// bot dialog shows the same pane under its draft's avatar. The pane is a
+// size container: the gallery and its detail sit side by side when the pane
+// is wide enough, stacked otherwise, whatever the window's width.
+import { lazy, Suspense, useState } from "react";
+
+import { useStore, type Bot } from "@/state/store";
+import { cn } from "@/lib/cn";
+import { t } from "@/lib/i18n";
+import type { LocaleKey } from "@/locales";
+import { AvatarImageGenerator } from "../AvatarImageGenerator";
+import { nextTab } from "../floating-bots/editor-tabs";
+import { AvatarUploadPanel, useAvatarSources, type AvatarPatch } from "./AvatarSources";
+
+// The character registry, its thumbnails and the skin cards: fetched only when the pane shows them.
+const MascotLookEditor = lazy(() => import("../floating-bots/MascotLookEditor"));
+
+export const APPEARANCE_MODES = ["mascot", "generate", "upload"] as const;
+export type AppearanceMode = (typeof APPEARANCE_MODES)[number];
+
+const MODE_LABEL = {
+  mascot: "appearance.mode.mascot",
+  generate: "botPanel.avatar.generate",
+  upload: "botPanel.avatar.upload",
+} satisfies Record<AppearanceMode, LocaleKey>;
+
+/** The source a pane opens on: a custom picture opens on Upload, where its zoom and framing live. */
+export function initialAppearanceMode(bot: Pick<Bot, "avatarCrop" | "avatarUrl">): AppearanceMode {
+  return (bot.avatarCrop ?? "mascot") !== "mascot" && bot.avatarUrl ? "upload" : "mascot";
+}
+
+export function AppearancePane({ bot, onPatch }: { bot: Bot; onPatch: (patch: AvatarPatch) => void }) {
+  const { dispatch } = useStore();
+  const [mode, setMode] = useState<AppearanceMode>(() => initialAppearanceMode(bot));
+  const sources = useAvatarSources(bot, onPatch);
+  const crop = bot.avatarCrop ?? "mascot";
+
+  const resetMascot = () =>
+    onPatch({ avatarCrop: "mascot", color: "green", mascotExpression: null, mascotBody: "cursor", mascotSkin: "none", mascotLook: { character: "owl" } });
+
+  return (
+    <div className="@container" data-appearance-pane="">
+      <div className="mb-3 flex items-center gap-2">
+        <div role="tablist" aria-label={t("appearance.modes")} className="inline-flex gap-0.5 rounded-lg bg-inset p-0.5" data-appearance-modes="">
+          {APPEARANCE_MODES.map((id) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              id={`appearance-mode-${id}`}
+              aria-selected={mode === id}
+              aria-controls="appearance-mode-panel"
+              tabIndex={mode === id ? 0 : -1}
+              data-appearance-mode={id}
+              onClick={() => setMode(id)}
+              onKeyDown={(event) => {
+                const next = nextTab(APPEARANCE_MODES, mode, event.key);
+                if (next == null) return;
+                event.preventDefault();
+                setMode(next);
+                event.currentTarget.parentElement?.querySelector<HTMLElement>(`[data-appearance-mode="${next}"]`)?.focus();
+              }}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-[12px] leading-4 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-accent",
+                mode === id ? "bg-control text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
+              )}
+            >
+              {t(MODE_LABEL[id])}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={resetMascot}
+          data-appearance-reset=""
+          className="ml-auto rounded-md px-2 py-1 text-[12px] text-ink-secondary hover:bg-control hover:text-ink"
+        >
+          {t("botPanel.avatar.reset")}
+        </button>
+      </div>
+
+      <div id="appearance-mode-panel" role="tabpanel" aria-labelledby={`appearance-mode-${mode}`}>
+        {mode === "mascot" && crop === "mascot" && (
+          <Suspense fallback={<div className="h-[440px]" />}>
+            <MascotLookEditor
+              bot={bot}
+              disabled={sources.busy}
+              onPatch={onPatch}
+              // a wing move also plays on the bot's avatars across the app
+              onOwlMove={(kind) => dispatch({ type: "playMascotMotion", botId: bot.id, kind })}
+            />
+          </Suspense>
+        )}
+        {mode === "mascot" && crop !== "mascot" && (
+          <div className="flex flex-wrap items-center gap-3 rounded-lg bg-raised/60 px-3 py-2 text-[12.5px] text-ink-secondary" data-appearance-picture="">
+            <span className="min-w-0 flex-1">{t("appearance.pictureInUse")}</span>
+            <button type="button" onClick={() => onPatch({ avatarCrop: "mascot" })} className="rounded-lg bg-control px-3 py-1.5 text-ink hover:bg-raised-hover">
+              {t("botPanel.avatar.useMascot")}
+            </button>
+          </div>
+        )}
+        {mode === "generate" && (
+          <AvatarImageGenerator
+            botLabel={bot.title || bot.name}
+            disabled={sources.uploading}
+            generating={sources.generating}
+            onGenerate={sources.generate}
+          />
+        )}
+        {mode === "upload" && (
+          <AvatarUploadPanel
+            bot={bot}
+            busy={sources.busy}
+            uploading={sources.uploading}
+            onUpload={sources.upload}
+            onRemove={sources.removeImage}
+            onPatch={onPatch}
+          />
+        )}
+      </div>
+
+      {sources.error && <div role="alert" className="mt-3 text-[12px] text-danger">{sources.error}</div>}
+    </div>
+  );
+}

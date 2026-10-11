@@ -1,6 +1,6 @@
-// The avatar popover's tabs, as pure functions (MascotLookEditor.tsx): skins
+// The Appearance gallery's tabs, as pure functions (MascotLookEditor.tsx): skins
 // grouped by rarity (Common, Rare, Epic, Legendary) and colors grouped by
-// palette (Vivid, Pastel, Deep, Neon, Neutral). The popover opens on the tab
+// palette (Vivid, Pastel, Deep, Neon, Neutral). The gallery opens on the tab
 // of the current choice and follows it when it changes elsewhere (Reset).
 import { MASCOT_COLOR_GROUPS, mascotColorGroup, paletteSwatches, type MascotColorGroup, type MascotColorName } from "../../../shared/mascot-colors";
 import type { SkinTier } from "../../../shared/mascot-look";

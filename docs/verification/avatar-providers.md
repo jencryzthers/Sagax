@@ -1,6 +1,6 @@
 # Avatar image providers
 
-Run the real profile avatar card and server against a disposable home and a
+Run the real Appearance pane (the persona editor's avatar sources) and server against a disposable home and a
 loopback-only fake Images API. Do not enter real provider keys or select
 **Generate avatar** with a configured cloud provider during this check.
 
