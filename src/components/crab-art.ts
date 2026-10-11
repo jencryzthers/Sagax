@@ -1,31 +1,40 @@
-// Crab, the pixel-rect mascot (CrabMascot.tsx): only axis-aligned rectangles,
-// one coral fill and two black square eyes, two stub arms and four legs. The
-// idle sprite is a 15-cell grid mapped into the 0..100 drawing box. Motion
+// Crab, the pixel-rect mascot (CrabMascot.tsx): only axis-aligned rectangles.
+// Idle sprite is Clawd's 16-cell crab (https://github.com/giefeefee/clawd) mapped
+// into the 0..100 box, with the later clap frames' square eyes, pincer claws
+// and foot pads so the idle is not two tall black slots on four sticks. Motion
 // lives on groups (crab-moves.ts) and in CSS (crab-mascot.css); no paths,
 // no curves, no GSAP.
 import { mixColor } from "./shiba-art";
 
 export const CRAB_CORAL = "#DD775B";
 export const CRAB_INK = "#111111";
+export const CRAB_SHINE = "#F8F4EE";
+export const CRAB_SPARK = "#FBF236";
 export const CRAB_PX = 6;
-export const CRAB_GRID = 15;
+export const CRAB_GRID = 16;
 export const CRAB_OX = (100 - CRAB_GRID * CRAB_PX) / 2;
 export const CRAB_OY = 100 - CRAB_GRID * CRAB_PX;
 
 export type CrabRect = { x: number; y: number; w: number; h: number };
 
-function cell(x: number, y: number, w: number, h: number): CrabRect {
+export function cell(x: number, y: number, w: number, h: number): CrabRect {
   return { x: CRAB_OX + x * CRAB_PX, y: CRAB_OY + y * CRAB_PX, w: w * CRAB_PX, h: h * CRAB_PX };
 }
 
-/** Idle sprite in grid cells (body, arms, four legs, two eyes). */
+/** Idle sprite in grid cells (carapace, pincers, four legs with feet, 2x2 eyes). */
 export const CRAB_PARTS = {
-  body: cell(2, 6, 11, 7),
-  armL: cell(0, 9, 2, 2),
+  body: cell(3, 7, 10, 6),
+  armL: cell(1, 9, 2, 2),
   armR: cell(13, 9, 2, 2),
-  legs: [cell(3, 13, 1, 2), cell(5, 13, 1, 2), cell(9, 13, 1, 2), cell(11, 13, 1, 2)] as const,
-  eyeL: cell(4, 8, 1, 2),
-  eyeR: cell(10, 8, 1, 2),
+  pincerL: cell(1, 8, 2, 1),
+  pincerR: cell(13, 8, 2, 1),
+  legs: [cell(4, 13, 1, 2), cell(6, 13, 1, 2), cell(9, 13, 1, 2), cell(11, 13, 1, 2)] as const,
+  feet: [cell(3, 15, 2, 1), cell(5, 15, 2, 1), cell(9, 15, 2, 1), cell(11, 15, 2, 1)] as const,
+  eyeL: cell(5, 8, 2, 2),
+  eyeR: cell(9, 8, 2, 2),
+  shineL: cell(5, 8, 1, 1),
+  shineR: cell(9, 8, 1, 1),
+  sparkles: [cell(4, 4, 1, 1), cell(8, 3, 1, 1), cell(11, 4, 1, 1)] as const,
 } as const;
 
 export const CRAB_PIVOTS = {
@@ -39,8 +48,8 @@ export const CRAB_PIVOTS = {
   eyeR: [CRAB_PARTS.eyeR.x + CRAB_PARTS.eyeR.w / 2, CRAB_PARTS.eyeR.y + CRAB_PARTS.eyeR.h / 2] as const,
 } as const;
 
-/** Bust crop under 48 px: the body and the eyes, the legs off-frame. */
-export const CRAB_BUST = { x: 4, y: CRAB_PARTS.body.y - 6, w: 92, h: CRAB_PARTS.body.h + 16 } as const;
+/** Bust crop under 48 px: the carapace, claws and eyes, the legs off-frame. */
+export const CRAB_BUST = { x: 2, y: CRAB_PARTS.body.y - 10, w: 96, h: CRAB_PARTS.body.h + 22 } as const;
 export const CRAB_BUST_MAX = 48;
 
 export function crabViewBox(size: number): string {
@@ -54,4 +63,25 @@ export function crabFill(hex: string, amount = 0.45): string {
 
 export function crabOrigin(point: readonly [number, number]): string {
   return `${point[0]}px ${point[1]}px`;
+}
+
+export interface CrabEyeDraw {
+  pupils: readonly [CrabRect, CrabRect];
+  shines: readonly [CrabRect, CrabRect] | null;
+}
+
+/** Clawd clap later frames: happy is a 2x1 lower squint. Sleep is a higher lid.
+ *  Open faces (idle, excited, talking) are 2x2 with a shine. */
+export function crabEyeDraw(face: string | null | undefined): CrabEyeDraw {
+  switch (face) {
+    case "happy":
+    case "laughing":
+    case "proud":
+      return { pupils: [cell(5, 9, 2, 1), cell(9, 9, 2, 1)], shines: null };
+    case "sleepy":
+    case "bored":
+      return { pupils: [cell(5, 8, 2, 1), cell(9, 8, 2, 1)], shines: null };
+    default:
+      return { pupils: [CRAB_PARTS.eyeL, CRAB_PARTS.eyeR], shines: [CRAB_PARTS.shineL, CRAB_PARTS.shineR] };
+  }
 }
