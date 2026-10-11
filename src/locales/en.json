@@ -1205,7 +1205,7 @@
   "botSettings.perspicax.notHeld": "Not held by you",
   "botSettings.perspicax.readOnly": "You can use this bot, not change its profiles.",
   "botSettings.perspicax.remove": "Remove",
-  "botSettings.perspicax.routines": "Routines use the tools of the person they run as, once that person allows routines to act in their name.",
+  "botSettings.perspicax.routines": "Routines use the tools of the person they run as. That person needs a recent sign-in to Sagax; a run while they have none goes without these tools until they sign in again.",
   "botSettings.perspicax.save": "Save",
   "botSettings.perspicax.saved": "Saved.",
   "botSettings.perspicax.title": "Perspicax Profiles",

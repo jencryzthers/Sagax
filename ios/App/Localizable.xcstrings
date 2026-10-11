@@ -39483,24 +39483,24 @@
         }
       }
     },
-    "Routines use the tools of the person they run as, once that person allows routines to act in their name.": {
+    "Routines use the tools of the person they run as. That person needs a recent sign-in to Sagax; a run while they have none goes without these tools until they sign in again.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Routines use the tools of the person they run as, once that person allows routines to act in their name."
+            "value": "Routines use the tools of the person they run as. That person needs a recent sign-in to Sagax; a run while they have none goes without these tools until they sign in again."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les routines utilisent les outils de la personne au nom de qui elles s'exécutent, une fois qu'elle les a autorisées à agir en son nom."
+            "value": "Les routines utilisent les outils de la personne au nom de qui elles s'exécutent. Cette personne doit s'être connectée récemment à Sagax ; sinon, l'exécution se fait sans ces outils jusqu'à sa prochaine connexion."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "As rotinas usam as ferramentas da pessoa em nome de quem rodam, depois que ela permite que as rotinas ajam em seu nome."
+            "value": "As rotinas usam as ferramentas da pessoa em nome de quem rodam. Essa pessoa precisa ter entrado no Sagax recentemente; sem isso, a execução segue sem essas ferramentas até ela entrar de novo."
           }
         }
       }

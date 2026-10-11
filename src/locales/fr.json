@@ -995,7 +995,7 @@
   "botSettings.perspicax.notHeld": "Vous ne détenez pas ce profil",
   "botSettings.perspicax.readOnly": "Vous pouvez utiliser ce bot, mais pas changer ses profils.",
   "botSettings.perspicax.remove": "Retirer",
-  "botSettings.perspicax.routines": "Les routines utilisent les outils de la personne au nom de qui elles s'exécutent, une fois qu'elle les a autorisées à agir en son nom.",
+  "botSettings.perspicax.routines": "Les routines utilisent les outils de la personne au nom de qui elles s'exécutent. Cette personne doit s'être connectée récemment à Sagax ; sinon, l'exécution se fait sans ces outils jusqu'à sa prochaine connexion.",
   "botSettings.perspicax.save": "Enregistrer",
   "botSettings.perspicax.saved": "Enregistré.",
   "botSettings.perspicax.title": "Profils Perspicax",
