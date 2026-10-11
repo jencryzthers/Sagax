@@ -1044,7 +1044,16 @@ const playReply = (prompt: JsonValue, mcpNote: string) => {
     // a gap a test can steer into; the closing reply carries anything that
     // was folded in, the way the real CLI includes a mid-turn message in
     // the same turn's next model call
+    let heldToolId: string | undefined;
+    if (process.env.FAKE_CLAUDE_HOLD_AFTER_TOOL) {
+      // emit tool_use and wait: interrupt must abort this in-flight call
+      heldToolId = `tu-${process.pid}-${++toolUseCount}`;
+      out({ type: "assistant", message: { content: [{ type: "tool_use", id: heldToolId, name: "Bash", input: { command: "sleep 30" } }] } });
+    }
     const finishSlowTurn = () => {
+      if (heldToolId) {
+        out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: heldToolId, is_error: false, content: [{ type: "text", text: "late-tool" }] }] } });
+      }
       if (process.env.FAKE_CLAUDE_SLOW_TAIL_TOOL) {
         // one more tool call before the reply: a fold seam the harness sees
         // AFTER a steer that this turn's stdin drain had already passed by

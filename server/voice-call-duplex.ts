@@ -45,6 +45,19 @@ export function isThreadBusyError(err: unknown): boolean {
   return typeof err === "object" && err !== null && (err as { code?: string }).code === "thread_busy";
 }
 
+/** A cancelled voice turn must not land LLM tokens, the completed answer,
+ * or in-flight tool start/result. turn.completed still settles busy. */
+export function dropCancelledVoiceEvent(
+  stale: boolean,
+  event: { type: string; streamKind?: string; itemType?: string },
+): boolean {
+  if (!stale) return false;
+  if (event.type === "content.delta" && event.streamKind === "assistant_text") return true;
+  if (event.type === "item.completed" && (event.itemType === "assistant_text" || event.itemType === "tool")) return true;
+  if (event.type === "item.started" && event.itemType === "tool") return true;
+  return false;
+}
+
 export function isStaleAssistantOutput(input: {
   eventTurnId?: string;
   cancelledTurnIds?: Iterable<string>;

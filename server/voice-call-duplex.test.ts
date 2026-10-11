@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   admitDuplexSend,
+  dropCancelledVoiceEvent,
   duplexEpoch,
   isStaleAssistantOutput,
   isThreadBusyError,
@@ -52,6 +53,16 @@ describe("duplex replace slot", () => {
     expect(isStaleAssistantOutput({ eventTurnId: "turn-b", cancelledTurnIds: ["turn-a"], ownerTurnId: "turn-b" })).toBe(false);
     expect(isStaleAssistantOutput({ ownerStopped: true, eventTurnId: "turn-a" })).toBe(true);
     expect(isStaleAssistantOutput({ eventTurnId: "turn-a", ownerTurnId: "turn-b" })).toBe(true);
+  });
+
+  it("a cancelled turn drops the LLM stream, completed text, and in-flight tool events", () => {
+    expect(dropCancelledVoiceEvent(true, { type: "content.delta", streamKind: "assistant_text" })).toBe(true);
+    expect(dropCancelledVoiceEvent(true, { type: "item.completed", itemType: "assistant_text" })).toBe(true);
+    expect(dropCancelledVoiceEvent(true, { type: "item.started", itemType: "tool" })).toBe(true);
+    expect(dropCancelledVoiceEvent(true, { type: "item.completed", itemType: "tool" })).toBe(true);
+    expect(dropCancelledVoiceEvent(true, { type: "turn.completed" })).toBe(false);
+    expect(dropCancelledVoiceEvent(false, { type: "item.completed", itemType: "assistant_text" })).toBe(false);
+    expect(dropCancelledVoiceEvent(false, { type: "item.completed", itemType: "tool" })).toBe(false);
   });
 
   it("thread_busy is retried until idle, then a timeout is reported", async () => {

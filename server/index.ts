@@ -628,6 +628,7 @@ import { createVoiceModeRoutes } from "./voice-mode.ts";
 import { parseVoiceCallMeta, voiceCallSection, voiceCallSteerPrompt, voiceCallTurnPrompt } from "./voice-call-prompt.ts";
 import {
   admitDuplexSend,
+  dropCancelledVoiceEvent,
   duplexEpoch,
   DUPLEX_INTERRUPT_WAIT_MS,
   isStaleAssistantOutput,
@@ -10374,7 +10375,7 @@ bus.subscribe((event: RuntimeEvent) => {
   const privateImageEvent = event.type === "item.completed" && event.itemType === "assistant_image";
   // The durable message patch below is the public frame. Sending raw base64
   // through runtime SSE would multiply large bytes across every app window.
-  if (!privateImageEvent && !(staleAssistant && event.type === "content.delta" && event.streamKind === "assistant_text")) {
+  if (!privateImageEvent && !dropCancelledVoiceEvent(staleAssistant, event)) {
     // Exact executable input is internal matching metadata, not inspector UI.
     // The event bus's persistence redactor does not scrub its live event.
     const publicEvent = event.type === "request.opened" ? { ...event, command: undefined } : event;
@@ -10423,6 +10424,7 @@ bus.subscribe((event: RuntimeEvent) => {
       if (typeof event.model === "string" && event.model) sessionModelByThread.set(event.threadId, event.model);
       break;
     case "item.completed":
+      if (dropCancelledVoiceEvent(staleAssistant, event)) break;
       if (event.itemType === "assistant_text") {
         const text = event.text;
         const ran = bot ? turnRunByThread.get(event.threadId) : undefined;
@@ -10479,6 +10481,7 @@ bus.subscribe((event: RuntimeEvent) => {
       }
       break;
     case "item.started":
+      if (dropCancelledVoiceEvent(staleAssistant, event)) break;
       if (event.itemType === "tool") {
         // ask_bot's raw tool chip is redundant — the internal endpoint
         // appends a richer "Messaged @X" chip linking to the channel
