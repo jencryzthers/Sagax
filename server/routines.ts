@@ -1848,9 +1848,11 @@ export class RoutineManager {
             continue;
           }
           const triggerSource = run.triggerSource ?? (run.manual ? "manual" : "schedule");
-          const memoryNote = await this.memoryNote(run, prompt);
+          // Without the hook (a solo server) nothing is awaited here, so the
+          // turn starts in the same tick as before.
+          const memoryNote = this.options.memoryHint ? await this.memoryNote(run, prompt) : "";
           // The run may have been cancelled while the memory answered.
-          if (run.status !== "running") continue;
+          if (this.options.memoryHint && run.status !== "running") continue;
           if (run.target === "room-goal") {
             if (!run.groupId || !this.options.startGoal) {
               this.failThread(task.threadId, "Room goal routines are unavailable");
