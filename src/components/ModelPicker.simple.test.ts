@@ -9,6 +9,10 @@ const fixture = vi.hoisted(() => {
   return { instances: [] as InstanceInfo[], bots: [] as Bot[], dispatch: vi.fn() as (...args: unknown[]) => void };
 });
 vi.mock("@/lib/interface-mode", () => ({ useAdvancedMode: () => false, setAdvancedMode: () => {} }));
+vi.mock("@/lib/unready-providers-preference", () => ({
+  useShowUnreadyProviders: () => false,
+  setShowUnreadyProviders: () => {},
+}));
 vi.mock("./MenuMotion", () => ({ useMenuMotion: () => ({ shown: true, closing: false, className: "", exitProps: {} }) }));
 // The model dropdown drawn open, so its rows show in static markup.
 vi.mock("./ModelDropdown", async (importOriginal) => {

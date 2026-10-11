@@ -103,6 +103,11 @@ describe("Ogre's art", () => {
     expect(OGRE_ART.vestR).toBe(mirrorPath(OGRE_ART.vestL));
   });
 
+  it("shows two upper incisors on the idle smile", () => {
+    const teeth = mouthOps("smile", 2).filter((op) => op.fill === "teeth");
+    expect(teeth).toHaveLength(2);
+  });
+
   it("draws the head and shoulders at rest, the whole ogre standing, and the ogre on its log", () => {
     const rest = ogreParts({ expression: "neutral", size: 120 });
     expect(rest.legL).toEqual([]);

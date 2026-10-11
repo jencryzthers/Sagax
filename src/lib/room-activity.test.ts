@@ -57,4 +57,25 @@ describe("roomActivityVisible", () => {
   it("is not for text or cards", () => {
     expect(roomActivityVisible(chip({ kind: "text", text: "hi", tool: undefined }), true)).toBe(false);
   });
+
+  it("hides every tool receipt on iOS, including Error badges, and keeps the rest", () => {
+    const ios = true;
+    expect(roomActivityVisible(chip({ tool: { name: "Read", ok: true } }), true, ios)).toBe(false);
+    expect(roomActivityVisible(chip({ tool: { name: "Bash" } }), true, ios)).toBe(false);
+    expect(roomActivityVisible(chip({ tool: { name: "Write", ok: false } }), true, ios)).toBe(false);
+    expect(roomActivityVisible(chip({ tool: { name: "notice: waiting", ok: true } }), true, ios)).toBe(true);
+    expect(roomActivityVisible(chip({ tool: { name: "error: boom", ok: false } }), true, ios)).toBe(true);
+    expect(roomActivityVisible(chip({
+      tool: { name: "Parallel task" },
+      parallelTask: { threadId: "p", title: "T", requestMessageId: "r", role: "card" },
+    }), true, ios)).toBe(true);
+    expect(roomActivityVisible(chip({
+      tool: { name: "Messaged @Ada" },
+      comm: { groupId: "g", withBotId: "ada", withName: "Ada", withColor: "teal" },
+    }), false, ios)).toBe(true);
+    expect(roomActivityVisible(chip({
+      tool: { name: "Opened thread" },
+      threadRef: { botId: "b", threadId: "t", title: "Opened" },
+    }), false, ios)).toBe(true);
+  });
 });

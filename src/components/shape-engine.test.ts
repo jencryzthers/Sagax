@@ -51,7 +51,7 @@ describe("geometry", () => {
     }
   });
 
-  it("has eight different shapes: a circle of radius 1, a wide capsule, a triangle and a drop pointing up", () => {
+  it("has eight different shapes: a circle of radius 1, a heart, a wide capsule, a triangle and a teardrop pointing up", () => {
     expect(MASCOT_SHAPES).toHaveLength(8);
     expect(new Set(MASCOT_SHAPES.map((shape) => SHAPE_RADII[shape].join())).size).toBe(8);
     expect(SHAPE_RADII.circle.every((r) => r === 1)).toBe(true);
@@ -59,7 +59,12 @@ describe("geometry", () => {
     expect(at("pill", 1, 0)).toBeGreaterThan(at("pill", 0, -1) * 1.5);
     expect(at("pick", 0, -1)).toBeGreaterThan(at("pick", 0, 1));
     expect(at("drop", 0, -1)).toBeGreaterThan(1);
+    expect(at("drop", 0, -1)).toBeGreaterThan(at("drop", 0, 1));
     expect(at("hexagon", 1, 0)).toBeGreaterThan(at("hexagon", 0, -1));
+    // bean is a heart: a cleft on top, lobes to the sides, a point at the bottom
+    expect(at("bean", 0, 1)).toBeGreaterThan(at("bean", 0, -1));
+    expect(at("bean", 0, -1)).toBeLessThan(at("bean", 0.7, -0.7));
+    expect(at("bean", 0, -1)).toBeLessThan(at("bean", -0.7, -0.7));
   });
 });
 

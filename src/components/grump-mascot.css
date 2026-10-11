@@ -20,42 +20,42 @@
 .grump-live:not(.grump-rig) .grump-eye-r { transform-origin: 63px 47.5px; }
 .grump-live:not(.grump-rig) .grump-mouth { transform-origin: 50px 64px; }
 
-.grump-live:not(.grump-rig) .grump-whole { animation: grump-breathe 3.8s ease-in-out infinite; }
-.grump-live:not(.grump-rig) .grump-eye { animation: grump-blink 6.2s ease-in-out infinite; }
-.grump-live:not(.grump-rig) .grump-tail { animation: grump-flick 5.4s ease-in-out infinite; }
-.grump-live:not(.grump-rig) .grump-ear-l { animation: grump-twitch 8.6s ease-in-out infinite; }
-.grump-live:not(.grump-rig).grump-mood-happy .grump-eye { animation-duration: 3.2s; }
-.grump-live:not(.grump-rig).grump-mood-speaking .grump-mouth { animation: grump-talk 0.42s ease-in-out infinite alternate; }
+.grump-live:not(.grump-rig) .grump-whole { animation: grump-breathe 4.6s ease-in-out infinite; }
+.grump-live:not(.grump-rig) .grump-eye { animation: grump-blink 7.4s ease-in-out infinite; }
+.grump-live:not(.grump-rig) .grump-tail { animation: grump-flick 6.8s ease-in-out infinite; }
+.grump-live:not(.grump-rig) .grump-ear-l { animation: grump-twitch 10.4s ease-in-out infinite; }
+.grump-live:not(.grump-rig).grump-mood-happy .grump-eye { animation-duration: 4.2s; }
+.grump-live:not(.grump-rig).grump-mood-speaking .grump-mouth { animation: grump-talk 0.52s ease-in-out infinite alternate; }
 .grump-live:not(.grump-rig).grump-mood-listening .grump-head { transform: rotate(6deg); transition: transform 0.4s ease-out; }
 .grump-live:not(.grump-rig).grump-mood-sleeping .grump-eye { animation: none; }
 .grump-live:not(.grump-rig).grump-mood-sleeping .grump-whole { animation-duration: 5s; }
 .grump-live:not(.grump-rig).grump-mood-sleeping .grump-tail { animation: none; }
 
 @keyframes grump-breathe {
-  0%, 100% { transform: scale(1, 1); }
-  50% { transform: scale(1.012, 0.988); }
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1.1%); }
 }
-/* the slow blink: lids down over a third of a second, a beat shut, up again */
+/* the slow blink: lids down, a beat shut, up again */
 @keyframes grump-blink {
-  0%, 90%, 100% { transform: scaleY(1); }
-  93%, 95% { transform: scaleY(0.12); }
+  0%, 84%, 100% { transform: scaleY(1); }
+  87% { transform: scaleY(0.32); }
+  89%, 92% { transform: scaleY(0.14); }
+  95% { transform: scaleY(1); }
 }
 @keyframes grump-flick {
-  0%, 70%, 100% { transform: rotate(0deg); }
-  74% { transform: rotate(-6deg); }
-  78% { transform: rotate(2deg); }
-  82% { transform: rotate(-3deg); }
-  86% { transform: rotate(0deg); }
+  0%, 72%, 100% { transform: rotate(0deg); }
+  78% { transform: rotate(-4deg); }
+  84% { transform: rotate(1deg); }
+  90% { transform: rotate(0deg); }
 }
 @keyframes grump-twitch {
   0%, 86%, 100% { transform: rotate(0deg); }
-  88% { transform: rotate(-14deg); }
-  90% { transform: rotate(3deg); }
-  92% { transform: rotate(-6deg); }
+  90% { transform: rotate(-6deg); }
+  94% { transform: rotate(0deg); }
 }
 @keyframes grump-talk {
-  from { transform: scaleY(0.75); }
-  to { transform: scaleY(1.1); }
+  from { transform: scaleY(0.94); }
+  to { transform: scaleY(1.04); }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -67,14 +67,26 @@ describe("member card", () => {
   it("centres the name beside the avatar when the card has no title and no points", () => {
     const bare = renderToStaticMarkup(createElement(MemberCard, { name: "Ada Lovelace", initials: "AL", title: null, pointsText: null, rows: [] }));
     expect(bare).toContain("member-card-head");
+    expect(bare).toContain("data-member-highlight");
     expect(bare).not.toContain("Level");
     expect(bare).not.toContain("lucide-trophy");
     // the name is the only line next to the avatar: no empty second line
-    const head = bare.slice(bare.indexOf("member-card-head"), bare.indexOf("member-card-list"));
-    expect(head).toContain('<div class="min-w-0 flex-1"><div class="truncate text-[14px] font-medium leading-5 text-ink">Ada Lovelace</div></div></div>');
+    const head = bare.slice(bare.indexOf("member-card-head"), bare.indexOf("</div></div></div>"));
+    expect(head).toContain("member-card-identity");
+    expect(head).toContain("Ada Lovelace");
+    expect(head).not.toContain("data-member-title");
+    expect(head).not.toContain("data-member-points");
+    expect(bare).toContain("width:64px");
     const titled = renderToStaticMarkup(createElement(MemberCard, { name: "Ada Lovelace", initials: "AL", title: "Rookie", pointsText: null, rows: [] }));
+    expect(titled).toContain("data-member-title");
     expect(titled).toContain(">Rookie<");
     expect(titled).not.toContain("lucide-trophy");
+    const panel = renderToStaticMarkup(createElement(MemberCard, { name: "Ada Lovelace", initials: "AL", title: "Rookie", pointsText: "1,240", rows: [], variant: "panel" }));
+    expect(panel).toContain("data-member-variant=\"panel\"");
+    expect(panel).toContain("member-card-head");
+    expect(panel).toContain("width:72px");
+    expect(panel).toContain("data-member-title");
+    expect(panel).toContain("data-member-points");
   });
 
   it("lists an unlocked achievement and hides a locked secret", () => {
@@ -91,10 +103,14 @@ describe("member card", () => {
       onOpenPage: () => {},
     }));
     expect(html).toContain("data-member-card");
+    expect(html).toContain("data-member-highlight");
     expect(html).toContain("Ada Lovelace");
+    expect(html).toContain("data-member-title");
     expect(html).toContain("Rookie");
+    expect(html).toContain("data-member-points");
     expect(html).toContain("1,240");
     expect(html).toContain("Level 7");
+    expect(html.indexOf("data-member-highlight")).toBeLessThan(html.indexOf("member-card-list"));
     expect(html).toMatch(/It(?:'|&#x27;)s Alive!/);
     expect(html).toContain('data-achievement="hello-bot"');
     expect(html).toContain("data-unlocked");

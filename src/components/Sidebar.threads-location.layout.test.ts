@@ -44,15 +44,16 @@ describe("threads location: one place at a time", () => {
     expect(header()).toContain('aria-label="All threads"');
   });
 
-  it("In the sidebar: threads, folders and New thread / New folder sit under the bot and the header button is gone", () => {
+  it("In the sidebar: threads and folders sit under the bot; New thread / New folder are not inline", () => {
     prefs.location = "sidebar";
     const rail = sidebar();
     expect(rail).toContain('aria-label="Atlas threads"');
     expect(rail).toContain('data-sidebar-thread-row="older"');
     expect(rail).toContain('data-sidebar-project="p1"');
-    expect(rail).toContain("data-sidebar-thread-list-actions");
     expect(rail).toContain("Collapse Atlas threads");
-    // New thread and New folder stay inside the list, never on the bot row
+    expect(rail).not.toContain("data-sidebar-thread-list-actions");
+    expect(rail).not.toContain(">New thread<");
+    expect(rail).not.toContain(">New folder<");
     const row = rail.match(/<div[^>]*data-sidebar-bot-row="atlas"[\s\S]*?<\/div><\/div>/)?.[0] ?? "";
     expect(row).not.toContain('aria-label="New thread"');
     expect(header()).toBe("");

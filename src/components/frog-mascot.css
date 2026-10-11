@@ -17,11 +17,11 @@
 .frog-live:not(.frog-rig) .frog-mouth { transform-origin: 50px 65.2px; }
 .frog-live:not(.frog-rig) .frog-throat { transform-origin: 50px 67.5px; }
 
-.frog-live:not(.frog-rig) .frog-whole { animation: frog-breathe 3.4s ease-in-out infinite; }
-.frog-live:not(.frog-rig) .frog-throat { animation: frog-throat 3.4s ease-in-out infinite; }
-.frog-live:not(.frog-rig) .frog-eye-l { animation: frog-blink 5.2s ease-in-out infinite; }
-.frog-live:not(.frog-rig) .frog-eye-r { animation: frog-blink 5.2s ease-in-out 0.22s infinite; }
-.frog-live:not(.frog-rig).frog-mood-speaking .frog-mouth { animation: frog-talk 0.4s ease-in-out infinite alternate; }
+.frog-live:not(.frog-rig) .frog-whole { animation: frog-breathe 4.2s ease-in-out infinite; }
+.frog-live:not(.frog-rig) .frog-throat { animation: frog-throat 4.2s ease-in-out infinite; }
+.frog-live:not(.frog-rig) .frog-eye-l { animation: frog-blink 6.8s ease-in-out infinite; }
+.frog-live:not(.frog-rig) .frog-eye-r { animation: frog-blink 6.8s ease-in-out 0.18s infinite; }
+.frog-live:not(.frog-rig).frog-mood-speaking .frog-mouth { animation: frog-talk 0.52s ease-in-out infinite alternate; }
 .frog-live:not(.frog-rig).frog-mood-listening .frog-head { transform: rotate(-6deg); transition: transform 0.4s ease-out; }
 .frog-live:not(.frog-rig).frog-mood-thinking .frog-throat { animation: frog-puff 2.6s ease-in-out infinite; }
 .frog-live:not(.frog-rig).frog-mood-sleeping .frog-eye { animation: none; }
@@ -29,26 +29,28 @@
 .frog-live:not(.frog-rig).frog-mood-sleeping .frog-throat { animation-duration: 4.6s; }
 
 @keyframes frog-breathe {
-  0%, 100% { transform: scale(1, 1); }
-  50% { transform: scale(1.012, 0.988); }
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1.2%); }
 }
 @keyframes frog-throat {
   0%, 100% { transform: scale(0); }
-  50% { transform: scale(0.16); }
+  50% { transform: scale(0.12); }
 }
 @keyframes frog-puff {
   0%, 100% { transform: scale(0); }
-  28%, 52% { transform: scale(1); }
-  40% { transform: scale(0.86); }
-  82% { transform: scale(0.12); }
+  28%, 52% { transform: scale(0.92); }
+  40% { transform: scale(0.78); }
+  82% { transform: scale(0.1); }
 }
 @keyframes frog-blink {
-  0%, 92%, 100% { transform: scaleY(1); }
-  95% { transform: scaleY(0.08); }
+  0%, 86%, 100% { transform: scaleY(1); }
+  89% { transform: scaleY(0.28); }
+  91%, 93% { transform: scaleY(0.14); }
+  96% { transform: scaleY(1); }
 }
 @keyframes frog-talk {
-  from { transform: scaleY(0.82); }
-  to { transform: scaleY(1.1); }
+  from { transform: scaleY(0.94); }
+  to { transform: scaleY(1.04); }
 }
 
 @media (prefers-reduced-motion: reduce) {

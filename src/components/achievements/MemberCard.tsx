@@ -1,8 +1,10 @@
-// The member card: a quiet profile blade (avatar, name, chosen title, points,
-// then the achievement list), and its panel variant under a person's name in
-// the person panel. A colleague's card comes from the public card, which only
-// has unlocked ids. The list scrolls inside the card. The sidebar never shows
-// titles or points (AGENTS.md, Achievements).
+// The member card: one Xbox-like block (large avatar, name, chosen title,
+// gamerscore, then the achievement list in the same card). The blade is the
+// popover; the panel variant is the Achievements tab of a person's sheet.
+// Title and points never sit on the name line on their own. A colleague's
+// card comes from the public card, which only has unlocked ids. The list
+// scrolls inside the card. The sidebar never shows titles or points
+// (AGENTS.md, Achievements).
 import { Trophy } from "lucide-react";
 import { ACHIEVEMENTS, achievementById } from "../../../shared/achievements-catalog";
 import type { AchievementItemState, AchievementSnapshot } from "../../../shared/achievements";
@@ -110,6 +112,7 @@ export function MemberCard({
   level,
   rows,
   onOpenPage,
+  emptyText,
   variant = "blade",
 }: {
   name: string;
@@ -121,43 +124,33 @@ export function MemberCard({
   rows: readonly MemberCardRow[];
   /** Your card only: the existing achievements page. */
   onOpenPage?: () => void;
-  /** blade: the popover. panel: title, points and the list under a person's name. */
+  /** When the public card carried no unlocked ids. */
+  emptyText?: string;
+  /** blade: the popover. panel: the same block on a person's Achievements tab. */
   variant?: "blade" | "panel";
 }) {
+  const avatarSize = variant === "panel" ? 72 : 64;
   return (
     <div className={variant === "panel" ? "member-card member-card-panel" : "member-card"} data-member-card="" data-member-variant={variant}>
-      {variant === "blade" ? (
-        // align-items: center (achievements.css): with no title and no
-        // points, the name sits centred beside the avatar.
-        <div className="member-card-head">
-          <PersonAvatar avatarUrl={avatarUrl} initials={initials} size={40} />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-[14px] font-medium leading-5 text-ink">{name}</div>
-            {title ? <div className="truncate text-[12px] leading-4 text-ink-secondary">{title}</div> : null}
-            {pointsText ? (
-              <div className="mt-0.5 flex items-center gap-1.5 text-[12px] leading-4 text-ink-secondary">
-                <Trophy size={12} strokeWidth={2.4} className="shrink-0 text-[#e0a82e]" aria-hidden="true" />
-                <span className="tabular-nums text-ink">{pointsText}</span>
-                <span>{t("achievements.pointsUnit")}</span>
-                {level !== undefined && <span className="text-ink-tertiary">{t("achievements.level", { level })}</span>}
-              </div>
-            ) : null}
-          </div>
+      {/* align-items: center (achievements.css): with no title and no
+          points, the name sits centred beside the avatar. Title, score and
+          the list stay one block: the highlighted head is not a separate row. */}
+      <div className="member-card-head" data-member-highlight="">
+        <PersonAvatar avatarUrl={avatarUrl} initials={initials} size={avatarSize} />
+        <div className="member-card-identity">
+          <div className="truncate text-[14px] font-medium leading-5 text-ink">{name}</div>
+          {title ? <div data-member-title="" className="truncate text-[12px] leading-4 text-ink-secondary">{title}</div> : null}
+          {pointsText ? (
+            <div data-member-points="" className="member-card-score">
+              <Trophy size={14} strokeWidth={2.4} aria-hidden="true" />
+              <span className="tabular-nums text-ink">{pointsText}</span>
+              <span>{t("achievements.pointsUnit")}</span>
+              {level !== undefined && <span className="text-ink-tertiary">{t("achievements.level", { level })}</span>}
+            </div>
+          ) : null}
         </div>
-      ) : (
-        (title || pointsText) ? (
-          <div className="mb-1 flex min-w-0 items-center gap-1">
-            {title ? <span className="min-w-0 truncate text-[12px] leading-4 text-ink-secondary">{title}</span> : null}
-            {pointsText ? (
-              <span className="achievement-gamertag pointer-events-none">
-                <Trophy size={11} strokeWidth={2.4} aria-hidden="true" />
-                <span>{pointsText}</span>
-              </span>
-            ) : null}
-          </div>
-        ) : null
-      )}
-      <MemberCardList rows={rows} />
+      </div>
+      {rows.length > 0 ? <MemberCardList rows={rows} /> : emptyText ? <p className="member-card-empty">{emptyText}</p> : null}
       {onOpenPage && (
         <button type="button" data-achievements-open="" className="member-card-open" onClick={onOpenPage}>
           {t("achievements.card.view")}

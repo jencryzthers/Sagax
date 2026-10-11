@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Archive, ArchiveRestore, BellOff, Clock, Clock3, FolderInput, Link2, Loader2, MoreHorizontal, Pencil, Pin, PinOff, RefreshCw, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, BellOff, Clock, Clock3, FolderInput, FolderPlus, Link2, Loader2, MoreHorizontal, Pencil, Pin, PinOff, Plus, RefreshCw, Trash2 } from "lucide-react";
 import type { BotProject, Task } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { useHeldMenuMotion } from "./MenuMotion";
@@ -259,6 +259,8 @@ type ThreadRowProps = {
   onSnooze?: (task: ThreadRowTask, snoozedUntil: number | null) => void;
   /** Copy this bot's current approval level and saved approvals onto this thread. */
   onRefreshPermissions?: (task: ThreadRowTask) => void;
+  onCreateThread?: () => void;
+  onCreateFolder?: () => void;
 };
 
 /** Same fields, each the same value: lists build each row's task afresh
@@ -276,7 +278,7 @@ const sameThreadRow = ({ task: previousTask, ...previous }: ThreadRowProps, { ta
 
 /** One quiet row for bot and group histories. Surface denotes selection;
  * working/waiting/unread remain independent signals, never different cards. */
-export const SidebarThreadRow = memo(function SidebarThreadRow({ task, ownerId, current, compact, folders, onSelect, onRename, onRegenerateTitle, onDelete, onMove, onArchive, onPin, onSnooze, onRefreshPermissions, activityLabel, now }: ThreadRowProps) {
+export const SidebarThreadRow = memo(function SidebarThreadRow({ task, ownerId, current, compact, folders, onSelect, onRename, onRegenerateTitle, onDelete, onMove, onArchive, onPin, onSnooze, onRefreshPermissions, onCreateThread, onCreateFolder, activityLabel, now }: ThreadRowProps) {
   const [menu, setMenu] = useState<{ left: number; top: number } | null>(null);
   const menuMotion = useHeldMenuMotion(menu);
   const [renaming, setRenaming] = useState(false);
@@ -350,7 +352,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow({ task, ownerId, 
         type="button" data-sidebar-thread-row={task.threadId} aria-current={current ? "page" : undefined}
         title={[task.title, updatedStamp, status, closed ? t("task.closed") : null, archived ? t("task.archived") : null, snoozed ? t("task.snoozed") : null, task.unread ? t("task.unread") : null].filter(Boolean).join(" · ")}
         onClick={() => onSelect(task)} onDoubleClick={startRename}
-        onContextMenu={(event) => { event.preventDefault(); openMenu(event.clientX, event.clientY); }}
+        onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); openMenu(event.clientX, event.clientY); }}
         onKeyDown={(event) => { if (event.key === "ContextMenu" || event.shiftKey && event.key === "F10") { event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect(); openMenu(rect.left, rect.bottom); } }}
         className={cn("flex min-w-0 flex-1 items-center gap-2 rounded-md pl-6 pr-1 text-left text-[13px] font-medium outline-none focus-visible:ring-1 focus-visible:ring-accent/60", compact ? "min-h-7 py-1" : "min-h-8 py-1.5", current ? "font-semibold text-sidebar-ink" : "text-sidebar-ink-secondary hover:text-sidebar-ink")}>
         <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
@@ -377,6 +379,9 @@ export const SidebarThreadRow = memo(function SidebarThreadRow({ task, ownerId, 
     {menuMotion.shown && menuMotion.value && createPortal(<div ref={menuRef} data-thread-overlay role="group" aria-label={t("task.actions", { title: task.title })} style={menuMotion.value}
       className={cn("fixed z-50 max-h-[calc(100vh-16px)] w-[220px] overflow-y-auto rounded-lg border border-hairline/50 popover-surface bg-card p-1 shadow-xl", menuMotion.className)} {...menuMotion.exitProps}
       onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setMenu(null); actionRef.current?.focus(); } }}>
+      {onCreateThread && <button type="button" onClick={() => { setMenu(null); onCreateThread(); }} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-[12px] text-ink hover:bg-raised"><Plus size={12} />{t("task.newShort")}</button>}
+      {onCreateFolder && <button type="button" onClick={() => { setMenu(null); onCreateFolder(); }} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-[12px] text-ink hover:bg-raised"><FolderPlus size={12} />{t("folder.new")}</button>}
+      {(onCreateThread || onCreateFolder) && <div className="mx-2 my-1 h-px bg-hairline/50" />}
       <button type="button" onClick={copyLink} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-[12px] text-ink hover:bg-raised"><Link2 size={12} />{t("task.copyLink")}</button>
       <button type="button" onClick={startRename} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-[12px] text-ink hover:bg-raised"><Pencil size={12} />{t("task.renameAria")}</button>
       {onRegenerateTitle && <button type="button" disabled={regenerating} aria-busy={regenerating} onClick={regenerateTitle} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-[12px] text-ink hover:bg-raised disabled:opacity-40">{regenerating ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}{regenerating ? t("task.regeneratingTitle") : t("task.regenerateTitle")}</button>}

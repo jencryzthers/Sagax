@@ -222,7 +222,7 @@ export function shibaMoveAt(move: ShibaMove, at: number): ShibaPosePart {
     }
     case "bounce": {
       const air = bump((u - 0.12) / 0.56);
-      return { y: -9 * air, sy: 1 - 0.08 * bump(u / 0.14) - 0.06 * bump((u - 0.66) / 0.14) + 0.04 * air, earL: 12 * air, earR: 12 * air, tail: -10 * air };
+      return { y: -9 * air, sy: 1 - 0.05 * bump(u / 0.14) - 0.04 * bump((u - 0.66) / 0.14) + 0.03 * air, earL: 12 * air, earR: 12 * air, tail: -10 * air };
     }
     case "wave": {
       const up = hold(u, d, 0.25, 0.3);
@@ -244,7 +244,7 @@ export function shibaMoveAt(move: ShibaMove, at: number): ShibaPosePart {
       return { expression: "surprised", earL: -14, earR: -14, y: -2.5 * k, brow: -1.2, sy: 1 + 0.03 * k };
     }
     case "talk":
-      return { mouth: "open", mouthOpen: 0.7 + 0.4 * (0.5 + 0.5 * Math.sin((TAU * u) / d)), headY: 0.4 * Math.sin((TAU * u) / d) };
+      return { mouth: "open", mouthOpen: 0.92 + 0.1 * (0.5 + 0.5 * Math.sin((TAU * u) / d)), headY: 0.28 * Math.sin((TAU * u) / d) };
     case "listen":
       return { headRot: 10 + Math.sin((TAU * u) / d), earL: -8, earR: -8, tail: 6 * Math.sin((TAU * u) / d), expression: "attentive" };
     case "work":
@@ -402,11 +402,11 @@ export function shibaMoveWeight(move: ShibaMove, u: number): number {
 /** The idle life under everything at `t` s: a breath, the seeded blinks, a lazy tail. */
 export function idlePose(t: number, blinks: readonly number[]): ShibaPose {
   const pose = restPose();
-  const breath = Math.sin((TAU * t) / 3.4);
-  pose.sx = 1 + 0.008 * breath;
-  pose.sy = 1 - 0.008 * breath;
-  pose.headY = 0.35 * Math.sin((TAU * t) / 3.4 - 0.5);
-  pose.tail = 5 * Math.sin((TAU * t) / 2.8);
+  const breath = Math.sin((TAU * t) / 4.2);
+  const lift = 0.5 + 0.5 * breath;
+  pose.y = -0.4 * lift;
+  pose.headY = 0.22 * Math.sin((TAU * t) / 4.2 - 0.5);
+  pose.tail = 3.2 * Math.sin((TAU * t) / 4.2);
   pose.blink = 1 - blinkOpen(t, blinks);
   return pose;
 }

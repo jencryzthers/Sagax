@@ -3,7 +3,8 @@
 // same family as Shiba (shiba-art.ts). Two flat tones and one shade tone in
 // a crescent per part, one uniform outline, geometric shapes: a bald
 // inverted-pear head, trumpet ears, a heavy brow, a three-lobed nose, a wide
-// mouth, a massive neck, a cream tunic under an open vest. The skin takes a
+// mouth with two upper incisors on the idle smile, a massive neck, a cream
+// tunic under an open vest. The skin takes a
 // quarter of the bot color (`ogreSkin`), the vest wears the color itself.
 //
 // Everything here is data and pure functions: the parts as path strings and
@@ -93,20 +94,20 @@ export function twoBone(root: Point, target: Point, a: number, b: number, bend: 
 
 /* ----------------------------------------------------------- geometry */
 
-const EAR_L = "M23 37.5C20 37.5 17 36.5 14.5 35L9.5 29Q7.2 26.7 6.2 30.1L5.4 42.3Q5.6 45.9 8.6 44.9L14.5 42.5C17.5 43.7 20.5 45.5 23.5 47Z";
-const EAR_IN_L = "M7.8 31.5Q10.2 32.1 10.4 37.5Q10.2 42.9 7.8 42.7Q6.6 37.1 7.8 31.5Z";
+const EAR_L = "M22.6 37.8C19 36.6 15.2 34.4 11.6 31.2L7.4 26.2Q5.6 23.8 5.2 28.4L5.1 43.8Q5.6 47.4 9.6 45.8L15 43C18.2 44.6 20.8 46.2 23.4 47.4Z";
+const EAR_IN_L = "M7 30.6Q9.8 32 10.2 38.2Q9.6 44.4 6.8 43.8Q5.6 37.2 7 30.6Z";
 const VEST_L = "M5 80L41 80C39.6 86 39.4 93 40.4 101L5 101Z";
 
 /** The approved parts (scratchpad others-c.mjs, `OGRE`), plus the whole body for the moves. */
 export const OGRE_ART = {
-  head: "M50 16.5C61 16.5 69.5 22 71.5 31.5C76.5 37 80.5 45.5 80.5 54.5C80.5 67.5 68 75.5 50 75.5C32 75.5 19.5 67.5 19.5 54.5C19.5 45.5 23.5 37 28.5 31.5C30.5 22 39 16.5 50 16.5Z",
+  head: "M50 15.2C62.2 15.2 71 21.2 73 31.4C79.2 37.6 83.2 46.8 83.2 56.2C83.2 70.2 69.6 78.4 50 78.4C30.4 78.4 16.8 70.2 16.8 56.2C16.8 46.8 20.8 37.6 27 31.4C29 21.2 37.8 15.2 50 15.2Z",
   /** The trumpet ears: a stem, then the bell, its dark opening. */
   earL: EAR_L,
   earR: mirrorPath(EAR_L),
   earInL: EAR_IN_L,
   earInR: mirrorPath(EAR_IN_L),
   /** The massive neck, drawn before the tunic so the tunic covers its lower edge. */
-  neck: "M33 64C33 72 32.5 78.5 31 85L69 85C67.5 78.5 67 72 67 64Z",
+  neck: "M31.5 66C31.5 74 31 80 29.4 86L70.6 86C69 80 68.5 74 68.5 66Z",
   /** The shoulders: the cream tunic, the two halves of the open vest (clipped to it), the V collar in skin. */
   body: "M9 99C9 91 14.5 86 25 84C32 82.8 40 82.4 50 82.4C60 82.4 68 82.8 75 84C85.5 86 91 91 91 99Z",
   vestL: VEST_L,
@@ -114,10 +115,10 @@ export const OGRE_ART = {
   collar: "M41.5 81L50 91.5L58.5 81Z",
   /** The vest's two front edges. */
   seams: "M41 82.4C39.6 87 39.4 93 40.2 99M59 82.4C60.4 87 60.6 93 59.8 99",
-  nose: "M50 46.5C53.5 46.5 55 49.5 55.5 52C58.5 52 60.8 54.2 60.8 56.8C60.8 59.6 58.2 61.2 55.6 60.6C54 61.9 52 62.4 50 62.4C48 62.4 46 61.9 44.4 60.6C41.8 61.2 39.2 59.6 39.2 56.8C39.2 54.2 41.5 52 44.5 52C45 49.5 46.5 46.5 50 46.5Z",
+  nose: "M50 43.4C54 43.4 55.8 47 56.4 50C60 49.8 62.8 52.4 62.8 55.8C62.8 59 59.8 61 56.6 60.4C54.6 62 52.4 62.6 50 62.6C47.6 62.6 45.4 62 43.4 60.4C40.2 61 37.2 59 37.2 55.8C37.2 52.4 40 49.8 43.6 50C44.2 47 46 43.4 50 43.4Z",
   nostrils: [
-    [46, 59.4],
-    [54, 59.4],
+    [45.2, 59],
+    [54.8, 59],
   ] as const,
   /** The whole ogre (stand): the neck, the barrel body in the vest, the cream tunic front, the belt and its buckle. */
   standNeck: "M43 34C43 39 42.6 42.6 42 46L58 46C57.4 42.6 57 39 57 34Z",
@@ -133,8 +134,8 @@ export const OGRE_ART = {
   logRing: ellipsePath(84.6, 90, 1.5, 3.4),
   bark: "M17 87L28 87M21 93.4L31 93.4M70 86.4L77 86.4M66 93L76 93",
   /** The face's anchors. */
-  eye: { y: 44.5, dx: 10.5, w: 5, h: 4.1 },
-  brow: { y: 38.2, dx: 10.5, rx: 6.2, ry: 2.9 },
+  eye: { y: 45.4, dx: 9.4, w: 4.35, h: 3.55 },
+  brow: { y: 39.6, dx: 9.6, rx: 7.6, ry: 3.5 },
 } as const;
 
 /** Where each moving part turns (box units, in the rest drawing). */
@@ -369,7 +370,7 @@ const open = (look: Point, pupil: number, lid: number, lidTilt = 0, scale = 1): 
 const pair = (eye: EyeSpec, right: EyeSpec = eye) => [eye, right] as const;
 
 export const OGRE_FACES: Readonly<Record<OgreExpression, OgreFace>> = {
-  // approved idle: a heavy-lidded side look, the wide smile with its dimples
+  // approved idle: a heavy-lidded side look, the open smile with two incisors
   neutral: { eyes: pair(open([0.6, 0.4], 2.1, 0.3, -0.5)), brows: { l: [0, -6], r: [0, 6] }, mouth: "smile" },
   attentive: { eyes: pair(open([0, 0.2], 2.2, 0.08)), brows: { l: [-1.8, -3], r: [-1.8, 3] }, mouth: "small" },
   // approved alert
@@ -446,7 +447,7 @@ export function browOps(face: OgreFace): OgreOp[] {
 /** The big three-lobed nose, which every face shares, and its two nostrils. */
 export function noseOps(ow: number): OgreOp[] {
   const { nose, nostrils } = OGRE_ART;
-  return [...shaded(nose, "skin", "skinShade", -1.6, -1.8), outline(nose, ow), ...nostrils.map(([x, y]) => ({ d: ellipsePath(x, y, 1.4, 1), fill: "nostril" as const }))];
+  return [...shaded(nose, "skin", "skinShade", -1.6, -1.8), outline(nose, ow), ...nostrils.map(([x, y]) => ({ d: ellipsePath(x, y, 1.85, 1.25), fill: "nostril" as const }))];
 }
 
 /** The mouth (the approved art draws it 1.5 units up: baked in here). */
@@ -457,8 +458,20 @@ export function mouthOps(kind: OgreMouth, ow: number): OgreOp[] {
   const edge = (d: string): OgreOp => ({ d: up(d), stroke: "ink", width: ow });
   const inside = (d: string, fill: OgreRole, clip: string): OgreOp => ({ d: up(d), fill, clip: up(clip) });
   switch (kind) {
-    case "smile":
-      return [line("M37 66Q50 73.5 63 66"), line("M35.6 64.6Q36.2 66.6 38.2 67"), line("M64.4 64.6Q63.8 66.6 61.8 67")];
+    case "smile": {
+      // a shallow open smile: two chunky incisors hang from the upper lip
+      const d = "M37.6 65.6Q50 66.8 62.4 65.6Q60.2 73.8 50 74Q39.8 73.8 37.6 65.6Z";
+      const toothL = "M43.2 65.8L49.5 65.8L49.5 72.2Q46.35 74.6 43.2 72.2Z";
+      const toothR = "M50.5 65.8L56.8 65.8L56.8 72.2Q53.65 74.6 50.5 72.2Z";
+      return [
+        hole(d),
+        inside(toothL, "teeth", d),
+        inside(toothR, "teeth", d),
+        edge(d),
+        line("M36 64.2Q36.8 66.2 39 66.8"),
+        line("M64 64.2Q63.2 66.2 61 66.8"),
+      ];
+    }
     case "grin": {
       const d = "M35.5 65Q50 68.5 64.5 65Q62.5 77 50 77Q37.5 77 35.5 65Z";
       return [hole(d), inside("M30 60L70 60L70 69.6Q50 72.2 30 69.6Z", "teeth", d), inside(ellipsePath(50, 77, 7, 4), "tongue", d), edge(d)];

@@ -1449,6 +1449,9 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
   const draggingFolder = useRef<string | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
+  const [listMenu, setListMenu] = useState<{ left: number; top: number } | null>(null);
+  const listMenuRef = useRef<HTMLDivElement>(null);
+  const listMenuMotion = useHeldMenuMotion(listMenu);
   const currentProjectId = tasks.find((task) => task.threadId === openThreadId)?.projectId;
   useEffect(() => {
     if (selected && currentProjectId) setCollapsed((previous) => {
@@ -1474,7 +1477,7 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
   const locale = activeLocale();
   const renderThread = (task: ThreadTreeTask) => {
     return <SidebarThreadRow key={task.threadId} task={{ ...task, ...rowState?.(task) }} ownerId={ownerId} current={selected && task.threadId === openThreadId} compact={density === "compact"} folders={projects} activityLabel={task.threadId === openThreadId ? activeActivityLabel : undefined}
-      now={stampClock(threadRecency(task), now)} locale={locale} {...actions} />;
+      now={stampClock(threadRecency(task), now)} locale={locale} {...actions} onCreateThread={() => onNew()} onCreateFolder={() => setCreatingProject(true)} />;
   };
   const ungrouped = visibleTasks.filter((task) => !projects.some((project) => project.id === task.projectId));
   const projectToEdit = projects.find((project) => project.id === editingProject);
@@ -1499,15 +1502,34 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
       setReadStatus("");
     } finally { setMarkingRead(false); }
   };
+  useEffect(() => {
+    if (!listMenu) return;
+    listMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    const outside = (event: MouseEvent) => {
+      if (event.target instanceof Node && !listMenuRef.current?.contains(event.target)) setListMenu(null);
+    };
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setListMenu(null); };
+    window.addEventListener("mousedown", outside);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", outside);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [listMenu]);
+  const listMenuPosition = listMenuMotion.value && {
+    left: Math.max(8, Math.min(listMenuMotion.value.left, window.innerWidth - 228)),
+    top: Math.max(8, Math.min(listMenuMotion.value.top, window.innerHeight - 120)),
+  };
   return (
     <div hidden={hidden} className="mb-2 space-y-0.5" role="group" aria-label={t("task.namedList", { name: ownerName })}
+      onContextMenu={(event) => {
+        if (event.defaultPrevented) return;
+        event.preventDefault();
+        setListMenu({ left: event.clientX, top: event.clientY });
+      }}
       onDragOver={(event) => { if (event.dataTransfer.types.includes(FOLDER_DRAG_TYPE)) event.stopPropagation(); }}
       onDrop={(event) => { if (event.dataTransfer.types.includes(FOLDER_DRAG_TYPE)) { event.preventDefault(); event.stopPropagation(); resetFolderDrag(); } }}>
       {!hidden && <>
-      <div data-sidebar-thread-list-actions className="flex items-center gap-1 px-1 pb-0.5 pt-0.5">
-        <button type="button" onClick={() => onNew()} className="flex min-h-7 items-center gap-1 rounded-md px-2 text-[12px] text-sidebar-ink-secondary hover:bg-sidebar-hover hover:text-sidebar-ink focus-visible:ring-1 focus-visible:ring-accent/60"><Plus size={12} aria-hidden="true" />{t("task.newShort")}</button>
-        <button type="button" onClick={() => setCreatingProject(true)} className="flex min-h-7 items-center gap-1 rounded-md px-2 text-[12px] text-sidebar-ink-secondary hover:bg-sidebar-hover hover:text-sidebar-ink focus-visible:ring-1 focus-visible:ring-accent/60"><FolderPlus size={12} aria-hidden="true" />{t("folder.new")}</button>
-      </div>
       {mine && <div data-sidebar-my-threads className="px-2 pt-1 text-[11px] font-medium text-sidebar-ink-secondary">{t("sidebar.threads.mine")}</div>}
       {orderedProjects.map((project) => {
         const index = projects.indexOf(project);
@@ -1568,7 +1590,8 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
             <FolderActions project={project} canMoveUp={index > 0} canMoveDown={index < projects.length - 1} canMarkRead={canMarkRead(project.id)} saving={reordering || markingRead}
               menu={folderMenu?.projectId === project.id ? folderMenu : null} onMenuChange={(menu) => setFolderMenu(menu ? { ...menu, projectId: project.id } : null)}
               onEdit={() => setEditingProject(project.id)} onMove={(direction, onSaved) => saveOrder(moveFolder(projectIds, project.id, direction), onSaved)}
-              onMarkRead={(onSaved) => { void readFolder(project.id, onSaved); }} />
+              onMarkRead={(onSaved) => { void readFolder(project.id, onSaved); }}
+              onNewThread={() => onNew(project.id)} />
           </div>
           {open && <div role="group" aria-label={t("task.namedList", { name: project.name })}>
             {visible.map(renderThread)}
@@ -1584,6 +1607,13 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
       {ungrouped.map(renderThread)}
       {!query && !showAll && tasks.length > visibleTasks.length && <button type="button" onClick={() => setShowAll(true)} className="pl-6 pr-3 py-1.5 text-[11px] text-sidebar-ink-secondary hover:text-sidebar-ink">{t("task.showAll", { count: tasks.length })}</button>}
       {children}
+      {listMenuMotion.shown && listMenuPosition && createPortal(<div ref={listMenuRef} data-sidebar-thread-list-actions role="menu" aria-label={t("task.namedList", { name: ownerName })}
+        style={listMenuPosition} className={cn("fixed z-50 w-[220px] rounded-lg border border-hairline/50 popover-surface bg-card p-1 shadow-xl", listMenuMotion.className)} {...listMenuMotion.exitProps}
+        onMouseDown={(event) => event.stopPropagation()}
+        onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setListMenu(null); } else navigateThreadMenu(event); }}>
+        <button type="button" role="menuitem" onClick={() => { setListMenu(null); onNew(); }} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-[12px] text-ink hover:bg-raised"><Plus size={12} />{t("task.newShort")}</button>
+        <button type="button" role="menuitem" onClick={() => { setListMenu(null); setCreatingProject(true); }} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-[12px] text-ink hover:bg-raised"><FolderPlus size={12} />{t("folder.new")}</button>
+      </div>, document.body)}
       {creatingProject && <BotProjectDialog bot={folderOwner} owner={owner} onClose={() => setCreatingProject(false)} />}
       {projectToEdit && <BotProjectDialog bot={folderOwner} owner={owner} project={projectToEdit} onClose={() => setEditingProject(null)} />}
       </>}

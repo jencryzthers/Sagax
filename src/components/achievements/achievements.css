@@ -154,7 +154,7 @@
 .achievement-gamertag svg { color: #e0a82e; }
 .achievement-gamertag[data-bump] svg { animation: achievement-badge-pop 620ms cubic-bezier(0.3, 1.6, 0.4, 1); }
 
-/* the profile blade anchored to a sidebar row */
+/* the profile blade: one Xbox-like block (highlighted head + list) */
 .member-card {
   display: flex;
   flex-direction: column;
@@ -170,24 +170,47 @@
 .member-card-panel {
   width: 100%;
   max-height: none;
-  border: none;
-  background: transparent;
   box-shadow: none;
 }
 .member-card-panel .member-card-list {
   max-height: none;
-  padding: 0;
 }
 .member-card-head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 12px 8px;
+  gap: 14px;
+  padding: 14px 14px 12px;
+  background: color-mix(in srgb, var(--color-ink) 5%, transparent);
+  border-bottom: 0.5px solid var(--color-border);
+}
+.member-card-identity {
+  min-width: 0;
+  flex: 1;
+}
+.member-card-score {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--color-ink-secondary);
+}
+.member-card-score svg {
+  flex-shrink: 0;
+  color: #e0a82e;
+}
+.member-card-empty {
+  margin: 0;
+  padding: 10px 14px 14px;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--color-ink-secondary);
 }
 .member-card-list {
   max-height: 280px;
   margin: 0;
-  padding: 4px;
+  padding: 6px 8px 8px;
   overflow-y: auto;
   list-style: none;
 }

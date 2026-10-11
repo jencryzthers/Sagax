@@ -373,8 +373,11 @@ public func transcriptRows(_ messages: [Message], detail: ActivityDetail) -> [Tr
         }
         // Which credentials paid for a turn (organization servers) shows even
         // when tool chips are hidden, as the desktop's TurnAccessChip does.
+        // Tool chips already left via isToolActivityRow. Hidden only drops
+        // the digest and compaction summaries of those calls, never a
+        // notice, a failed turn, a parallel card, or a comm/thread chip.
         let paidBy = message.kind == .digest && message.digest?.access != nil
-        if detail == .hidden && isActivityReceipt(message) && !isStatusNotice(message) && !paidBy { continue }
+        if detail == .hidden && (message.kind == .digest || message.kind == .compaction) && !paidBy { continue }
         // A turn that touched nothing leaves a digest with nothing to show;
         // an empty row would still cost the transcript a gap.
         if message.kind == .digest && !paidBy && DigestSummary(text: message.text ?? "").isEmpty { continue }

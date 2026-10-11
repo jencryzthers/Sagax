@@ -3,12 +3,14 @@
 // you share, their bots shared with you, and what you can do (write to
 // them, hide or show them in your sidebar, and for an admin, their page in
 // the Perspicax console). Nothing from a private thread shows here.
-// A public achievement card puts the chosen title and the score under the
-// name, each only when the person left it on ("Show my title", "Show my
-// points"); with neither, nothing sits under the name. The Achievements tab lists only what that card carried. A private
-// card stays a private note: nobody reads another person's record.
+// Profile is the default tab (email, teams, groups). The Achievements tab
+// is one Xbox-like member card: large avatar, chosen title, gamerscore and
+// the unlocked list in the same block, each only when the public card
+// carried it ("Show my title", "Show my points"). Title and points never
+// sit on the name line. A private card stays a private note: nobody reads
+// another person's record, and the tab says they keep achievements private.
 import { useState } from "react";
-import { ExternalLink, EyeOff, Mail, MessageSquare, PanelRight, Trophy, Users } from "lucide-react";
+import { ExternalLink, EyeOff, Mail, MessageSquare, PanelRight, Users } from "lucide-react";
 
 import { useStore } from "@/state/store";
 import { t } from "@/lib/i18n";
@@ -108,17 +110,6 @@ export function PersonPanel({ personId, directory: given }: { personId: string; 
         <div className="flex shrink-0 flex-col items-center px-4 pb-3">
           <PersonAvatar avatarUrl={avatarUrl} initials={personInitials(name)} size={88} presenceId={personId} presenceRing="border-panel" />
           <h2 id="person-panel-title" className="mt-3 max-w-full truncate text-[17px] font-medium leading-6 text-ink">{name}</h2>
-          {(titleName || pointsText) && (
-            <div className="mt-1 flex max-w-full items-center justify-center gap-2" data-member-line="">
-              {titleName ? <span data-member-title="" className="min-w-0 truncate text-[13px] leading-5 text-ink">{titleName}</span> : null}
-              {pointsText ? (
-                <span data-member-points="" className="inline-flex shrink-0 items-center gap-1 text-[13px] leading-5 tabular-nums text-ink">
-                  <Trophy size={13} strokeWidth={2.4} className="shrink-0 text-[#e0a82e]" aria-hidden="true" />
-                  {pointsText}
-                </span>
-              ) : null}
-            </div>
-          )}
           {/* The label, as under a bot's name in its panel: editable by the
               person, an admin and their team manager; plain text otherwise. */}
           <InlineEditableText
@@ -279,18 +270,17 @@ export function PersonPanel({ personId, directory: given }: { personId: string; 
           className="px-4 pb-6 pt-2"
         >
           {publicCard ? (
-            achievementRows.length > 0 ? (
-              <MemberCard
-                variant="panel"
-                name={name}
-                initials={personInitials(name)}
-                avatarUrl={avatarUrl}
-                title={null}
-                pointsText={null}
-                level={publicCard.level}
-                rows={achievementRows}
-              />
-            ) : <p className="text-[12.5px] text-ink-secondary">{t("personPanel.achievements.empty")}</p>
+            <MemberCard
+              variant="panel"
+              name={name}
+              initials={personInitials(name)}
+              avatarUrl={avatarUrl}
+              title={titleName}
+              pointsText={pointsText}
+              level={publicCard.level}
+              rows={achievementRows}
+              emptyText={achievementRows.length === 0 ? t("personPanel.achievements.empty") : undefined}
+            />
           ) : <p className="text-[12.5px] text-ink-secondary">{t("personPanel.achievements.private")}</p>}
         </div>
       </div>

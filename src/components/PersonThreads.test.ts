@@ -81,14 +81,14 @@ describe("threads location for a conversation with a person: one place at a time
     expect(row()).not.toContain("data-sidebar-thread-list-actions");
   });
 
-  it("In the sidebar: threads, folders and New thread / New folder under the row, no header button", () => {
+  it("In the sidebar: threads and folders under the row, no header button, no inline New thread / New folder", () => {
     fixture.location = "sidebar";
     expect(header()).toBe("");
     const rail = row();
     expect(rail).toContain('data-sidebar-thread-row="budget"');
     expect(rail).toContain('data-sidebar-project="f1"');
-    expect(rail).toContain("data-sidebar-thread-list-actions");
-    expect(rail).toContain("New folder");
+    expect(rail).not.toContain("data-sidebar-thread-list-actions");
+    expect(rail).not.toContain(">New folder<");
   });
 
   it("Threads off: neither place, and a room or a bot chat never gets the person picker", () => {
@@ -146,15 +146,25 @@ describe("the header picker on a person", () => {
 });
 
 describe("the sidebar tree on a person", () => {
-  it("creates a thread in a folder and a folder, through the person conversation", async () => {
+  it("creates a thread in a folder and a folder from the list and folder context menus", async () => {
     fixture.location = "sidebar";
     await render(createElement(PersonThreadList, { group: person, name: "Bob", selected: true }));
-    expect(host.querySelector('[aria-label="Bob threads"]')).not.toBeNull();
-    await click(button("New thread"));
+    const list = host.querySelector('[aria-label="Bob threads"]');
+    expect(list).not.toBeNull();
+    await act(async () => {
+      list!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }));
+    });
+    const listMenu = document.body.querySelector("[data-sidebar-thread-list-actions]");
+    expect(listMenu).not.toBeNull();
+    await click([...listMenu!.querySelectorAll("button")].find((candidate) => candidate.textContent?.trim() === "New thread"));
     expect(fixture.dispatch).toHaveBeenCalledWith({ type: "newGroupTask", groupId: "dm" });
     await click(button("New thread in Finance"));
     expect(fixture.dispatch).toHaveBeenCalledWith({ type: "newGroupTask", groupId: "dm", projectId: "f1" });
-    await click(button("New folder"));
+    await act(async () => {
+      list!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 40 }));
+    });
+    const again = document.body.querySelector("[data-sidebar-thread-list-actions]");
+    await click([...again!.querySelectorAll("button")].find((candidate) => candidate.textContent?.trim() === "New folder"));
     expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
   });
 });

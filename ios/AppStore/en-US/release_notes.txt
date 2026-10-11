@@ -1,9 +1,7 @@
-Welcome to OpenMausMobile 1.0.
+Sagax 0.4.18
 
-• Pair securely with your OpenMausBot computer
-• Fill a requested API key from Apple Passwords or another AutoFill provider and send it encrypted over Secure phone access or Tailscale
-• Default QR pairing now stays on hosted HTTPS; Tailscale and local routes remain explicit choices
-• Chat with bots and rooms
-• Answer approvals and questions
-• Search, manage tasks, edit versions, react, and share transcripts
-• Follow live work and reconnect without losing events
+• New thread and New folder live in the context menu
+• A bot-to-bot Messaged chip opens in the column
+• Tool-call chips leave the iPhone and iPad transcript
+• Member card: title, score and achievements on their own tab
+• Mastery Ogre: cleaner silhouette and two incisors in the smile

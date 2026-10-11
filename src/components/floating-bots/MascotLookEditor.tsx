@@ -77,7 +77,7 @@ export const CHARACTER_LABEL = {
 
 export const SHAPE_LABEL = {
   circle: "mascot.shape.circle",
-  bean: "mascot.shape.pebble",
+  bean: "mascot.shape.bean",
   squircle: "mascot.shape.squircle",
   pill: "mascot.shape.capsule",
   pick: "mascot.shape.triangle",

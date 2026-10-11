@@ -1289,10 +1289,10 @@ Electron restart (no HMR); launch-test them before committing.
   our own code: no code, data table, path or asset of that site was copied
   (it has no licence; do not open or paste from it). Facts matched: one SVG
   body from 64 radii smoothed into a closed outline, radius unit R; eight
-  shapes (Circle, Pebble, Squircle, Capsule, Triangle, Hexagon, Cloud,
-  Droplet), each derived from our own figure (`shape-art.ts`: superellipse,
+  shapes (Circle, Heart, Squircle, Capsule, Triangle, Hexagon, Cloud,
+  Teardrop), each derived from our own figure (`shape-art.ts`: superellipse,
   stadium, grown triangle and hexagon, five-circle union, two-circle hull,
-  two-wave pebble) and sliding into one another over 0.45 s; the clay finish
+  parametric heart) and sliding into one another over 0.45 s; the clay finish
   (the Clay skin, id `plain`: a light upper left to a darker rim in four
   steps, 62% white, 20% white, the color, 40% near black); eyes as rounded
   bars cut through the body (fill-rule evenodd, the page shows through),
@@ -1308,8 +1308,8 @@ Electron restart (no HMR); launch-test them before committing.
   Orbit, Swirl, Burst, Comet) with our own 3D ring and ribbon generators.
   Reduced motion draws the still pose and plays no move; avatars under 44 px
   draw the still pose. The stored shape ids stay the ones the server and the
-  phone know (`bean` is the pebble, `pill` the capsule, `pick` the triangle,
-  `drop` the droplet); the five retired shapes map to the nearest one
+  phone know (`bean` is the heart, `pill` the capsule, `pick` the triangle,
+  `drop` the teardrop); the five retired shapes map to the nearest one
   (`LEGACY_SHAPES`). The Clay colors are new color names: the server needs
   this build to save them, and the phone shows them only once ported
   (`src/lib/mascot.test.ts` exempts them until then). Tests:
@@ -2338,10 +2338,14 @@ rules, each covered by `shared/achievements-catalog.test.ts`,
   points" (`showPoints`) and "Show my title" (`showTitle`, a missing flag
   means on). Each is the person's own choice for everyone who looks:
   `publicPoints` leaves `points` and `level`, or `title`, off their card,
-  and the person panel draws only what the card carries. With neither, no
-  line sits under the name; the member card centres the name beside the
-  avatar. Settings > Achievements itself and the unlock toasts are
-  unchanged by these switches. Tests: `server/achievements.test.ts`,
+  and the person panel draws only what the card carries. Profile stays the
+  default tab. Title, gamerscore and the unlocked list sit together on the
+  Achievements tab as one member card (large avatar, highlighted head, list);
+  they never sit on the name line. A person who turned sharing off (no
+  public card) sees "This person keeps their achievements private." and no
+  private records. With neither title nor points, the member card centres
+  the name beside the avatar. Settings > Achievements itself and the unlock
+  toasts are unchanged by these switches. Tests: `server/achievements.test.ts`,
   `src/lib/public-achievements.test.ts`, `PersonPanel.test.ts`,
   `achievements-ui.test.ts`, `SidebarProfileMenu.footer.test.ts`.
 - People rows in the sidebar sit at the bot rows' inset (`pl-2`) with thread

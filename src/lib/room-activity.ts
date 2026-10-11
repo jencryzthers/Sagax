@@ -1,5 +1,6 @@
 import type { Message } from "@/state/store";
 import { isStatusActivity, isTurnStoppedNotice } from "@/lib/activity-runs";
+import { isAppleMobileWebClient, isToolActivityRow } from "@/lib/tool-activity-rows";
 import { failedTurnCause } from "../../shared/failed-turn";
 
 /** Whether a room shows this activity chip with tool calls hidden (the
@@ -8,11 +9,18 @@ import { failedTurnCause } from "../../shared/failed-turn";
  * was consulted — the 1:1 chat has kept that exemption all along, and a
  * room that dropped it made a silent-by-default exchange an invisible one.
  * An opened-thread chip is the same kind of trace: the only sign, here,
- * that a bot started a thread the person may want to look at. */
-export function roomActivityVisible(message: Message, showToolCalls: boolean): boolean {
+ * that a bot started a thread the person may want to look at.
+ * iPhone / iPad web matches the native companion: error receipts are tool
+ * rows, not failures to always show. */
+export function roomActivityVisible(
+  message: Message,
+  showToolCalls: boolean,
+  hideToolReceipts: boolean = isAppleMobileWebClient(),
+): boolean {
   const tool = message.tool;
   if (message.kind !== "activity" || !tool) return false;
   if (isTurnStoppedNotice(message)) return false;
+  if (hideToolReceipts) return !isToolActivityRow(message);
   if (message.comm || message.threadRef || isStatusActivity(message)) return true;
   return tool.ok === false || failedTurnCause(tool.name) !== null || showToolCalls;
 }

@@ -9,6 +9,7 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AppState, Bot, InstanceInfo, Message } from "@/state/store";
+import { formatTime } from "@/state/store";
 
 const renders = vi.hoisted(() => ({ botText: 0, userText: 0, toolChip: 0, speak: 0 }));
 vi.mock("./ChatMarkdown", async (importOriginal) => ({
@@ -135,6 +136,44 @@ describe("chat transcript rows", () => {
     expect(document.body.textContent).toContain("Today");
     expect(document.body.textContent).toContain("Answer 1");
     expect(document.body.textContent).toContain("Read file 2");
+    const stamp = document.querySelector("[data-testid=transcript-date]");
+    expect(stamp?.textContent).toBe(`Today ${formatTime(messages[0]!.at)}`);
+    expect(document.querySelectorAll("[data-testid=transcript-date]")).toHaveLength(1);
+    expect(document.querySelectorAll("[data-message-time]").length).toBeGreaterThan(0);
+  });
+
+  it("stamps a second date after a 30 minute gap on the same day", async () => {
+    const last = messages.at(-1)!;
+    const extra = message("late", last.id, {
+      role: "user",
+      text: "later the same day",
+      at: last.at + 31 * 60_000,
+    });
+    await rowRendersAfter((current) => {
+      const pepper = current.bots.find((bot) => bot.id === "pepper")!;
+      return {
+        ...current,
+        bots: current.bots.map((bot) =>
+          bot.id === "pepper" ? { ...pepper, messages: [...messages, extra], activeLeafId: extra.id } : bot,
+        ),
+      };
+    });
+    const stamps = [...document.querySelectorAll("[data-testid=transcript-date]")].map((node) => node.textContent);
+    expect(stamps).toEqual([
+      `Today ${formatTime(messages[0]!.at)}`,
+      `Today ${formatTime(extra.at)}`,
+    ]);
+    expect(document.body.textContent).toContain("later the same day");
+    await rowRendersAfter((current) => {
+      const pepper = current.bots.find((bot) => bot.id === "pepper")!;
+      return {
+        ...current,
+        bots: current.bots.map((bot) =>
+          bot.id === "pepper" ? { ...pepper, messages, activeLeafId: running.id } : bot,
+        ),
+      };
+    });
+    expect(document.querySelectorAll("[data-testid=transcript-date]")).toHaveLength(1);
   });
 
   it("renders no row when another bot changes", async () => {
@@ -164,6 +203,9 @@ describe("chat transcript rows", () => {
     await rowRendersAfter((current) => reducer(current, { type: "botPatched", bot: { ...scout, unread: true } }));
     expect(document.body.textContent).toContain("Yesterday");
     expect(document.body.textContent).not.toContain("Today");
+    expect(document.querySelector("[data-testid=transcript-date]")?.textContent).toBe(
+      `Yesterday ${formatTime(messages[0]!.at)}`,
+    );
   });
 
   it("offers Regenerate on the last answer only, and not during a turn", async () => {

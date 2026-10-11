@@ -7,7 +7,7 @@
 // Reasoning effort rides along (EffortRow): model and effort are one choice to
 // the person making it, so the chat header and the settings dialog render the
 // same row and write through the same action.
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, KeyRound, Loader2, Plus, RefreshCw, X } from "lucide-react";
 import { useStore, type Bot, type InstanceInfo, type ModelSelection } from "@/state/store";
@@ -15,6 +15,7 @@ import type { ModelVariantOption } from "../../shared/runtime-events";
 import { isDesktopModelId, localModelRows, localRowUnavailable, refreshLocalModelsOnOpen, runsLoopbackModels } from "@/lib/local-models";
 import { engineAllowed } from "../../shared/org-allowed-engines";
 import { configuredModelInstances, isClaudeAccount, SIGN_IN_FAMILY_LABEL, signInFamily, splitEngineRail, type SignInFamily } from "@/lib/engine-rail";
+import { useShowUnreadyProviders } from "@/lib/unready-providers-preference";
 import { InstanceProviderMark } from "./ProviderIcons";
 import { EngineSetup, EngineUpdateNotice, hasSavedApiKey, needsCli, needsSignIn } from "./EngineSetup";
 import { EngineGroupLabel } from "./EngineGroupLabel";
@@ -74,6 +75,12 @@ export function engineStatus(instance: InstanceInfo): string {
   if (needsCli(instance)) return t("model.setupRequired");
   if (needsSignIn(instance)) return t("model.signInRequired");
   return instance.snapshot.version ?? t("model.ready");
+}
+
+/** Sign-in required, no access yet, or not installed: folded in the rail unless the person asked to see them. */
+export function providerRailUnready(instance: InstanceInfo, status?: { attention: boolean }): boolean {
+  if (status) return status.attention;
+  return needsCli(instance) || needsSignIn(instance);
 }
 
 /** A desktop bridge inject id (desk host, then ::, then the model). Organization mode shows only these in Custom. */
@@ -307,7 +314,7 @@ function apiKeysLabel(instances: InstanceInfo[]): string {
   return t(instances.some(hasSavedApiKey) ? "model.addOrChangeApiKeys" : "model.addApiKeys");
 }
 
-export function ModelEngineRail({ instances, selectedInstance, claudeInstance, openaiInstance, onSelect, onAddApiKeys, wide = false, statusOf, notAllowed }: {
+export function ModelEngineRail({ instances, selectedInstance, claudeInstance, openaiInstance, onSelect, onAddApiKeys, wide = false, statusOf, notAllowed, showUnready: showUnreadyProp }: {
   instances: InstanceInfo[];
   selectedInstance?: InstanceInfo;
   /** The account a folded button opens on (the last one browsed). */
@@ -325,7 +332,11 @@ export function ModelEngineRail({ instances, selectedInstance, claudeInstance, o
   /** Organization server: a provider the organization does not allow,
    * listed once (the person connected it before) and never selectable. */
   notAllowed?: (instance: InstanceInfo) => boolean;
+  /** Appearance setting: expand sign-in required / no access in every group.
+   * Off by default; the picker passes the saved preference. */
+  showUnready?: boolean;
 }) {
+  const showUnready = showUnreadyProp === true;
   const firstOf: Record<SignInFamily, InstanceInfo | undefined> = {
     claude: instances.find((instance) => isClaudeAccount(instance) && instance.claudeAccount?.isDefault)
       ?? instances.find(isClaudeAccount),
@@ -402,33 +413,67 @@ export function ModelEngineRail({ instances, selectedInstance, claudeInstance, o
       </button>
     );
   };
+  const selectedFamily = signInFamily(selectedInstance);
+  const isSelectedProvider = (instance: InstanceInfo) => {
+    const family = signInFamily(instance);
+    return family ? selectedFamily === family : instance.instanceId === selectedInstance?.instanceId;
+  };
+  const isUnready = (instance: InstanceInfo) => {
+    const family = signInFamily(instance);
+    const target = family ? opensOn[family] ?? instance : instance;
+    return providerRailUnready(target, statusOf?.(target));
+  };
+  const renderGroup = (label: string, rows: InstanceInfo[], extra?: ReactNode, headingClass?: string) => {
+    if (rows.length === 0 && !extra) return null;
+    const folded = showUnready ? [] : rows.filter((instance) => isUnready(instance) && !isSelectedProvider(instance));
+    const visible = rows.filter((instance) => !folded.includes(instance));
+    if (visible.length === 0 && folded.length === 0 && !extra) return null;
+    const heading = headingClass
+      ? <EngineGroupLabel className={headingClass}>{label}</EngineGroupLabel>
+      : <EngineGroupLabel className="hidden px-2.5 pb-0.5 pt-2 text-[10px] first:pt-0.5 sm:block">{label}</EngineGroupLabel>;
+    const unreadyLabel = folded.length === 1 ? t("model.rail.unreadyOne") : t("model.rail.unready", { count: folded.length });
+    return (
+      <Fragment key={`rail-${label}`}>
+        {heading}
+        {visible.map(railButton)}
+        {folded.length > 0 && (
+          <details data-rail-unready data-rail-unready-count={folded.length} className={cn("group/unready min-w-0", wide ? "sm:w-full" : "flex flex-col items-center")}>
+            <summary
+              aria-label={wide ? undefined : unreadyLabel}
+              className={cn(
+                "flex cursor-pointer list-none items-center gap-1 text-ink-secondary outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-accent [&::-webkit-details-marker]:hidden marker:content-none",
+                wide ? "rounded-lg px-2.5 py-1.5 text-[11px]" : "justify-center px-0.5 py-1 text-[10px] tabular-nums",
+              )}
+            >
+              <ChevronDown size={wide ? 12 : 10} aria-hidden="true" className="shrink-0 transition-transform group-open/unready:rotate-180 motion-reduce:transition-none" />
+              <span className={wide ? "min-w-0 truncate" : undefined}>{wide ? unreadyLabel : folded.length}</span>
+            </summary>
+            <div className={cn("flex", wide ? "flex-col" : "flex-col items-center gap-1")}>{folded.map(railButton)}</div>
+          </details>
+        )}
+        {extra}
+      </Fragment>
+    );
+  };
   if (wide) {
-    const group = (label: string) => <EngineGroupLabel className="hidden px-2.5 pb-0.5 pt-2 text-[10px] first:pt-0.5 sm:block">{label}</EngineGroupLabel>;
     return (
       <nav aria-label={t("model.providers")} data-model-provider-column
         className="flex shrink-0 gap-1 overflow-x-auto border-b border-hairline/40 bg-panel p-2 mr-12 sm:mr-0 sm:w-56 sm:flex-col sm:overflow-y-auto sm:overflow-x-visible sm:border-b-0 sm:border-r sm:p-3">
-        {subscription.length > 0 && group(t("model.rail.cloud"))}
-        {subscription.map(railButton)}
-        {(api.length > 0 || onAddApiKeys) && group(t("model.rail.apiKeys"))}
-        {api.map(railButton)}
-        {onAddApiKeys && (
+        {renderGroup(t("model.rail.cloud"), subscription)}
+        {renderGroup(t("model.rail.apiKeys"), api, onAddApiKeys && (
           <button type="button" data-rail-add-api-key onClick={onAddApiKeys}
             className="flex shrink-0 items-center gap-2 rounded-lg border border-dashed border-hairline px-2.5 py-2 text-[12px] text-ink-secondary hover:bg-hover hover:text-ink">
             <Plus size={14} aria-hidden="true" /> {t("model.addApiKeys")}
           </button>
-        )}
-        {local.length > 0 && group(t("model.rail.local"))}
-        {local.map(railButton)}
+        ))}
+        {renderGroup(t("model.rail.local"), local)}
       </nav>
     );
   }
   return (
     <div className="flex w-14 shrink-0 flex-col gap-1 overflow-y-auto border-r border-hairline/40 bg-panel p-2">
-      {subscription.length > 0 && <EngineGroupLabel className="px-0 pb-0.5 pt-0.5 text-center text-[9px]">{t("model.rail.cloud")}</EngineGroupLabel>}
-      {subscription.map(railButton)}
-      {(api.length > 0 || onAddApiKeys) && <EngineGroupLabel className={cn("px-0 pb-0.5 text-center text-[9px] leading-tight", subscription.length > 0 ? "pt-2" : "pt-0.5")}>{t("model.rail.apiKeys")}</EngineGroupLabel>}
-      {api.map(railButton)}
-      {onAddApiKeys && (
+      {renderGroup(t("model.rail.cloud"), subscription, undefined, "px-0 pb-0.5 pt-0.5 text-center text-[9px]")}
+      {renderGroup(t("model.rail.apiKeys"), api, onAddApiKeys && (
         <button
           type="button"
           data-rail-add-api-key
@@ -439,9 +484,8 @@ export function ModelEngineRail({ instances, selectedInstance, claudeInstance, o
         >
           <Plus size={16} aria-hidden="true" />
         </button>
-      )}
-      {local.length > 0 && <EngineGroupLabel className="px-0 pb-0.5 pt-2 text-center text-[9px]">{t("model.rail.local")}</EngineGroupLabel>}
-      {local.map(railButton)}
+      ), cn("px-0 pb-0.5 text-center text-[9px] leading-tight", subscription.length > 0 ? "pt-2" : "pt-0.5"))}
+      {renderGroup(t("model.rail.local"), local, undefined, "px-0 pb-0.5 pt-2 text-center text-[9px]")}
     </div>
   );
 }
@@ -516,6 +560,7 @@ export function ModelPicker({
   const org = usePerspicaxOrg();
   const advanced = useAdvancedMode();
   const myEngines = useMyEngines();
+  const showUnready = useShowUnreadyProviders();
   const orgMode = org !== null;
   // Every opener uses the composer modal. An in-flow menu is clipped by
   // the profile sidebar (overflow-y-auto, a narrow column).
@@ -1111,6 +1156,7 @@ export function ModelPicker({
     onAddApiKeys: advanced && window.ogb?.remoteClient?.active !== true ? openApiKeys : undefined,
     ...(orgMode && myEngines ? { statusOf: orgStatusOf } : {}),
     ...(orgMode ? { notAllowed } : {}),
+    showUnready,
   };
 
   const modalPanel = (

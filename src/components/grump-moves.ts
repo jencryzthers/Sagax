@@ -318,7 +318,7 @@ export function grumpMoveAt(move: GrumpMove, at: number): GrumpPosePart {
     }
     case "bounce": {
       const air = bump((u - 0.12) / 0.56);
-      return { y: -8 * air, sy: 1 - 0.08 * bump(u / 0.14) - 0.06 * bump((u - 0.66) / 0.14) + 0.04 * air, earL: -8 * air, earR: -8 * air, tail: [12 * air, 8 * air, 4 * air, 0] };
+      return { y: -8 * air, sy: 1 - 0.05 * bump(u / 0.14) - 0.04 * bump((u - 0.66) / 0.14) + 0.03 * air, earL: -8 * air, earR: -8 * air, tail: [12 * air, 8 * air, 4 * air, 0] };
     }
     case "wave": {
       // a reluctant wave: one paw up, a few bats, the face unimpressed
@@ -343,7 +343,7 @@ export function grumpMoveAt(move: GrumpMove, at: number): GrumpPosePart {
       return { expression: "surprised", earL: -14, earR: -14, y: -2.5 * k, brow: -1.2, sy: 1 + 0.03 * k, tail: [6, 4, 0, -6] };
     }
     case "talk":
-      return { mouth: "open", mouthOpen: 0.7 + 0.4 * (0.5 + 0.5 * Math.sin((TAU * u) / d)), headY: 0.4 * Math.sin((TAU * u) / d), expression: "bored" };
+      return { mouth: "open", mouthOpen: 0.92 + 0.1 * (0.5 + 0.5 * Math.sin((TAU * u) / d)), headY: 0.28 * Math.sin((TAU * u) / d), expression: "bored" };
     case "listen":
       return { headRot: 8 + Math.sin((TAU * u) / d), earL: -10, earR: -6, tail: tailWave(u, 4, 1 / d), expression: "attentive" };
     case "work":
@@ -598,11 +598,11 @@ const SLOW = 2.4;
 /** The idle life under everything at `t` s: a breath, the seeded slow blinks, a lazy tail tip. */
 export function grumpIdlePose(t: number, blinks: readonly number[]): GrumpPose {
   const pose = grumpRestPose();
-  const breath = Math.sin((TAU * t) / 3.8);
-  pose.sx = 1 + 0.007 * breath;
-  pose.sy = 1 - 0.007 * breath;
-  pose.headY = 0.3 * Math.sin((TAU * t) / 3.8 - 0.5);
-  pose.tail = tailWave(t, 2.4, 0.22, 1.2);
+  const breath = Math.sin((TAU * t) / 4.6);
+  const lift = 0.5 + 0.5 * breath;
+  pose.y = -0.35 * lift;
+  pose.headY = 0.2 * Math.sin((TAU * t) / 4.6 - 0.5);
+  pose.tail = tailWave(t, 1.8, 0.16, 1.2);
   pose.blink = 1 - blinkOpen(t / SLOW, blinks);
   return pose;
 }

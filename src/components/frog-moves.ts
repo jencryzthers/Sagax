@@ -197,13 +197,13 @@ export const FLY_AT: Point = [91, 30];
 /** A real jump arc: crouch, push with the legs out, rise slowing to the apex, fall speeding up, touch down on reaching feet, squash, overshoot, settle. */
 const HOP_KEYS: readonly FrogKey[] = [
   { at: 0 },
-  { at: 0.14, ease: "inOut", sy: 0.82, sx: 1.13, headY: 1.6, blinkL: 0.25, blinkR: 0.25 },
-  { at: 0.24, ease: "out", y: -7, sy: 1.12, sx: 0.9, legs: 0.45, headY: -0.6, rot: -3 },
+  { at: 0.14, ease: "inOut", sy: 0.91, sx: 1.06, headY: 1.2, blinkL: 0.18, blinkR: 0.18 },
+  { at: 0.24, ease: "out", y: -7, sy: 1.06, sx: 0.95, legs: 0.45, headY: -0.6, rot: -3 },
   { at: 0.38, ease: "out", y: -24, sy: 1.08, sx: 0.94, legs: 1, rot: -4 },
   { at: 0.5, ease: "out", y: -29, legs: 0.55, rot: -1 },
   { at: 0.62, ease: "in", y: -23, sy: 1.03, sx: 0.98, legs: 0.35, rot: 2 },
   { at: 0.74, ease: "in", y: -1, sy: 1.06, sx: 0.96, legs: 0.15, rot: 2 },
-  { at: 0.8, ease: "out", sy: 0.8, sx: 1.16, headY: 2, blinkL: 0.35, blinkR: 0.35 },
+  { at: 0.8, ease: "out", sy: 0.91, sx: 1.07, headY: 1.4, blinkL: 0.22, blinkR: 0.22 },
   { at: 0.9, ease: "inOut", sy: 1.04, sx: 0.98, headY: -0.4 },
   { at: 1, ease: "inOut" },
 ];
@@ -221,7 +221,7 @@ const PUFF_KEYS: readonly FrogKey[] = [
 export const FROG_TRACKS: Readonly<Record<FrogMove, FrogTrack>> = {
   /* ---- the fourteen every character plays ---- */
   // the throat fluttering with the breath
-  idle: { duration: 3.4, loop: true, reduced: "none", keys: [{ at: 0 }, { at: 0.5, puff: 0.22 }, { at: 1 }] },
+  idle: { duration: 4.2, loop: true, reduced: "none", keys: [{ at: 0 }, { at: 0.5, puff: 0.18 }, { at: 1 }] },
   blink: { duration: 0.22, loop: false, reduced: "none", keys: [{ at: 0 }, { at: 0.45, blinkL: 1, blinkR: 1 }, { at: 1 }] },
   look: {
     duration: 1.8,
@@ -243,11 +243,11 @@ export const FROG_TRACKS: Readonly<Record<FrogMove, FrogTrack>> = {
     reduced: "none",
     keys: [
       { at: 0 },
-      { at: 0.14, ease: "inOut", sy: 0.88, sx: 1.08, headY: 1 },
-      { at: 0.3, ease: "out", y: -8, sy: 1.06, sx: 0.95, legs: 0.4 },
+      { at: 0.14, ease: "inOut", sy: 0.94, sx: 1.04, headY: 0.8 },
+      { at: 0.3, ease: "out", y: -8, sy: 1.04, sx: 0.97, legs: 0.4 },
       { at: 0.46, ease: "out", y: -10, legs: 0.3 },
-      { at: 0.66, ease: "in", y: 0, sy: 1.03, legs: 0.1 },
-      { at: 0.78, ease: "out", sy: 0.9, sx: 1.07, headY: 1 },
+      { at: 0.66, ease: "in", y: 0, sy: 1.02, legs: 0.1 },
+      { at: 0.78, ease: "out", sy: 0.94, sx: 1.04, headY: 0.8 },
       { at: 1, ease: "inOut" },
     ],
   },
@@ -274,13 +274,13 @@ export const FROG_TRACKS: Readonly<Record<FrogMove, FrogTrack>> = {
     reduced: "face",
     keys: [
       { at: 0, face: "excited" },
-      { at: 0.08, ease: "inOut", sy: 0.86, sx: 1.08 },
-      { at: 0.24, ease: "out", y: -14, sy: 1.08, sx: 0.94, legs: 0.7, handLX: 20, handRX: 20, handLY: -36, handRY: -36, handLRot: 20, handRRot: 20 },
+      { at: 0.08, ease: "inOut", sy: 0.93, sx: 1.04 },
+      { at: 0.24, ease: "out", y: -14, sy: 1.05, sx: 0.97, legs: 0.7, handLX: 20, handRX: 20, handLY: -36, handRY: -36, handLRot: 20, handRRot: 20 },
       { at: 0.4, ease: "in", y: 0, sy: 1.02, legs: 0.1, handLX: 16, handRX: 16, handLY: -28, handRY: -28, handLRot: 10, handRRot: 10 },
-      { at: 0.46, ease: "out", sy: 0.86, sx: 1.08, handLX: 12, handRX: 12, handLY: -20, handRY: -20 },
-      { at: 0.64, ease: "out", y: -14, sy: 1.08, sx: 0.94, legs: 0.7, handLX: 20, handRX: 20, handLY: -36, handRY: -36, handLRot: 20, handRRot: 20, face: "laughing" },
+      { at: 0.46, ease: "out", sy: 0.93, sx: 1.04, handLX: 12, handRX: 12, handLY: -20, handRY: -20 },
+      { at: 0.64, ease: "out", y: -14, sy: 1.05, sx: 0.97, legs: 0.7, handLX: 20, handRX: 20, handLY: -36, handRY: -36, handLRot: 20, handRRot: 20, face: "laughing" },
       { at: 0.8, ease: "in", y: 0, sy: 1.02, legs: 0.1, handLX: 12, handRX: 12, handLY: -22, handRY: -22 },
-      { at: 0.86, ease: "out", sy: 0.88, sx: 1.07 },
+      { at: 0.86, ease: "out", sy: 0.94, sx: 1.04 },
       { at: 1, ease: "inOut", face: "happy" },
     ],
   },
@@ -306,7 +306,7 @@ export const FROG_TRACKS: Readonly<Record<FrogMove, FrogTrack>> = {
     duration: 0.42,
     loop: true,
     reduced: "face",
-    keys: [{ at: 0, mouth: "open", mouthOpen: 0.75 }, { at: 0.5, mouthOpen: 1.15, puff: 0.12, headY: -0.3 }, { at: 1, mouthOpen: 0.75 }],
+    keys: [{ at: 0, mouth: "open", mouthOpen: 0.92 }, { at: 0.5, mouthOpen: 1.06, puff: 0.1, headY: -0.2 }, { at: 1, mouthOpen: 0.92 }],
   },
   listen: {
     duration: 2.4,
@@ -332,11 +332,11 @@ export const FROG_TRACKS: Readonly<Record<FrogMove, FrogTrack>> = {
     loop: true,
     reduced: "none",
     keys: [
-      { at: 0, sy: 0.9, sx: 1.06 },
-      { at: 0.16, ease: "out", y: -4, sy: 1.08, sx: 0.94, legs: 0.5, rot: -3 },
+      { at: 0, sy: 0.96, sx: 1.03 },
+      { at: 0.16, ease: "out", y: -4, sy: 1.04, sx: 0.97, legs: 0.5, rot: -3 },
       { at: 0.45, ease: "out", y: -11, legs: 0.6, rot: -2 },
-      { at: 0.78, ease: "in", y: 0, sy: 1.03, legs: 0.15, rot: 1 },
-      { at: 1, ease: "out", sy: 0.9, sx: 1.06 },
+      { at: 0.78, ease: "in", y: 0, sy: 1.02, legs: 0.15, rot: 1 },
+      { at: 1, ease: "out", sy: 0.96, sx: 1.03 },
     ],
   },
   hop: { duration: 0.95, loop: false, reduced: "none", keys: HOP_KEYS },
@@ -348,13 +348,13 @@ export const FROG_TRACKS: Readonly<Record<FrogMove, FrogTrack>> = {
     reduced: "face",
     keys: [
       { at: 0 },
-      { at: 0.12, ease: "inOut", sy: 0.76, sx: 1.18, headY: 2, rot: 4, face: "attentive" },
-      { at: 0.2, ease: "out", y: -9, sy: 1.16, sx: 0.88, legs: 0.55, rot: -10, headY: -1 },
+      { at: 0.12, ease: "inOut", sy: 0.9, sx: 1.08, headY: 1.4, rot: 4, face: "attentive" },
+      { at: 0.2, ease: "out", y: -9, sy: 1.08, sx: 0.94, legs: 0.55, rot: -10, headY: -1 },
       { at: 0.36, ease: "out", y: -30, sy: 1.12, sx: 0.92, legs: 1.1, rot: -12 },
       { at: 0.5, ease: "out", y: -36, sy: 1.06, sx: 0.96, legs: 1, rot: -4, face: "excited" },
       { at: 0.64, ease: "in", y: -29, sy: 1.04, sx: 0.98, legs: 0.6, rot: 6 },
       { at: 0.78, ease: "in", y: -1, sy: 1.08, sx: 0.94, legs: 0.2, rot: 6 },
-      { at: 0.84, ease: "out", sy: 0.76, sx: 1.2, headY: 2.4, face: "proud" },
+      { at: 0.84, ease: "out", sy: 0.9, sx: 1.08, headY: 1.6, face: "proud" },
       { at: 0.93, ease: "inOut", sy: 1.05, sx: 0.97, headY: -0.4 },
       { at: 1, ease: "inOut" },
     ],
@@ -585,17 +585,17 @@ export function frogMoveWeight(move: FrogMove, u: number): number {
 }
 
 /** The breath's period, s, and the idle blink's lag of the right eye behind the left, s. */
-export const FROG_BREATH_S = 3.4;
+export const FROG_BREATH_S = 4.2;
 export const FROG_BLINK_LAG = 0.12;
 
 /** The idle life under everything at `t` s: a breath with the throat, the seeded blinks, the right eye a beat after the left. */
 export function frogIdlePose(t: number, blinks: readonly number[]): FrogPose {
   const pose = frogRestPose();
   const breath = Math.sin((Math.PI * 2 * t) / FROG_BREATH_S);
-  pose.sx = 1 + 0.008 * breath;
-  pose.sy = 1 - 0.008 * breath;
-  pose.puff = 0.14 * (0.5 + 0.5 * breath);
-  pose.headY = 0.3 * Math.sin((Math.PI * 2 * t) / FROG_BREATH_S - 0.5);
+  const lift = 0.5 + 0.5 * breath;
+  pose.y = -0.4 * lift;
+  pose.puff = 0.12 * lift;
+  pose.headY = 0.22 * Math.sin((Math.PI * 2 * t) / FROG_BREATH_S - 0.5);
   pose.blinkL = 1 - blinkOpen(t, blinks);
   pose.blinkR = 1 - blinkOpen(t - FROG_BLINK_LAG, blinks);
   return pose;

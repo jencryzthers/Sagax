@@ -5805,8 +5805,8 @@
       "mascot.shape.circle": "b93d3bcecff5d7493a58a41ea44f7196a46295f6512ebc06940510676a666384",
       "mascot.shape.cloud": "b977b950c1ae31e5aeb9ef778cc20a66fc034eb81e738e0206104b677962c465",
       "mascot.shape.clover": "a740edd9c1a1745f1ba5bb712b8b4c9e4061cb11697cf4e298e091f459ce7e4a",
-      "mascot.shape.drop": "c8af9ae37a48273f981bc82af63517e3a2195c4076360e73546c306a044dd38b",
-      "mascot.shape.droplet": "deee083fb6a37f3f1503fa62a72f9011a5d69e622699bb07dd13db50f44bfeee",
+      "mascot.shape.drop": "50a80fc29b8f2ae62e5d9eb92f1c5e415352bc4c6daaf0ae2d0dfde5b44f72d0",
+      "mascot.shape.droplet": "50a80fc29b8f2ae62e5d9eb92f1c5e415352bc4c6daaf0ae2d0dfde5b44f72d0",
       "mascot.shape.flower": "77dc2a655f8ea639869e6d7bf1b33900484efc9e186db21167302588f630a05a",
       "mascot.shape.hexagon": "ddcc1ac4a5385c95eb573c3513fb2082a9968e838950881f692649be6ca8b04a",
       "mascot.shape.house": "2526c620c18174be05e572dd652ae608cd492325cce3db8976fdc03f5fbd539b",
@@ -8027,7 +8027,12 @@
       "worksOn.section": "76ed42d22129dc354362704eb4b54208041b68736f976932aada43bc0035f7c0",
       "worksOn.sectionTip": "4def718facaa055fed46fcd9e1979c12014f71fc089bad00efcb785d83267276",
       "worksOn.short.cloud": "b977b950c1ae31e5aeb9ef778cc20a66fc034eb81e738e0206104b677962c465",
-      "worksOn.tip.autoOrg": "2feae34d29065e9e0a795d80bb2497a629a3ad4f82ce1b50df395650bbe1d8a8"
+      "worksOn.tip.autoOrg": "2feae34d29065e9e0a795d80bb2497a629a3ad4f82ce1b50df395650bbe1d8a8",
+      "model.rail.unready": "a5446d02361b35d04bcbcc8654580c6d8cea4e9bf73fbed39fa48f5f026073b6",
+      "model.rail.unreadyOne": "766b6f4aaccd174d368cafa404fa2cbd458ded4db3c7b6445c8eccfbfd61acbd",
+      "settings.unreadyProviders.show": "fdd3babe57baf8a750b7749a26383616d3ee6398a7b77fc9e3f0a29002503fa0",
+      "settings.unreadyProviders.subtitle": "706c30bd07c4ce4a94112a60894a2ecde53aaca4aa877ad9a23c06c283d20d04",
+      "settings.unreadyProviders.title": "651fecb6bed96d54629a4ce93dfec87ee1fc2d44be2384367466a556dabec4c2"
     },
     "hi": {
       "approval.action.allowOnce": "168511d24d9ee03122b3200f929be11eaaedad45cb0ecb20a95f549b3e3f4d0f",
@@ -13113,7 +13118,7 @@
       "mascot.frogSkin.retro98": "e7c85d94b92607564480d3e5110f5c8c6cf8f5cb8e98327c8b5f5ae2603b1557",
       "mascot.frogSkin.tree": "be9db87fc4b35fda47a0a27aebcb011964f8ba5d61c1e01295dbbfe00cb945a8",
       "mascot.shape.capsule": "51ee757a7bfb6307a6509aa21aedb4686816d2bd38229a710872adb6c1b2ac75",
-      "mascot.shape.droplet": "deee083fb6a37f3f1503fa62a72f9011a5d69e622699bb07dd13db50f44bfeee",
+      "mascot.shape.droplet": "50a80fc29b8f2ae62e5d9eb92f1c5e415352bc4c6daaf0ae2d0dfde5b44f72d0",
       "mascot.shape.pebble": "b901d921d255c25afcf53d303abc2fe611ff9fb07fea4fe0ffc855531defbd9c",
       "mascot.shape.triangle": "a0252691b5dc54b1d67f9d35a120e8c49187f20f0735574a61713c6317df6f72",
       "mascot.shapeMove.alert": "44a57b22e03d9a661c22ffc5ffea51b3e1e33de24a53609e70f690dea8f70872",
@@ -14288,7 +14293,12 @@
       "voiceMode.call.fasterEndOfTurn": "49803058d4f6522b3600c47e762aff5288f8b85703523915b45fa3baea6b69e2",
       "voiceMode.call.fasterEndOfTurnHelp": "d9320866da60ee4a0b9a40549e40d433364ce6be1ad0f56f1b1bb73954470529",
       "voiceMode.call.streamingVoice": "2f13c2551cb53b46ece6634228cda8143a32167d9038423f42b9cd06e3ba45c4",
-      "voiceMode.call.streamingVoiceHelp": "38dc3cb3ae644512ce95cd00064ecca1e2057ade41f2b84c1b9d1b2217d426f9"
+      "voiceMode.call.streamingVoiceHelp": "38dc3cb3ae644512ce95cd00064ecca1e2057ade41f2b84c1b9d1b2217d426f9",
+      "model.rail.unready": "a5446d02361b35d04bcbcc8654580c6d8cea4e9bf73fbed39fa48f5f026073b6",
+      "model.rail.unreadyOne": "766b6f4aaccd174d368cafa404fa2cbd458ded4db3c7b6445c8eccfbfd61acbd",
+      "settings.unreadyProviders.show": "fdd3babe57baf8a750b7749a26383616d3ee6398a7b77fc9e3f0a29002503fa0",
+      "settings.unreadyProviders.subtitle": "706c30bd07c4ce4a94112a60894a2ecde53aaca4aa877ad9a23c06c283d20d04",
+      "settings.unreadyProviders.title": "651fecb6bed96d54629a4ce93dfec87ee1fc2d44be2384367466a556dabec4c2"
     },
     "uk": {
       "approval.action.allowOnce": "168511d24d9ee03122b3200f929be11eaaedad45cb0ecb20a95f549b3e3f4d0f",

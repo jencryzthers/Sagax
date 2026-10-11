@@ -37,9 +37,9 @@ export type MascotCharacter = (typeof MASCOT_CHARACTERS)[number];
 
 /**
  * The eight shapes, in the picker's order (clean-room set of 2026-10-08):
- * Circle, Pebble, Squircle, Capsule, Triangle, Hexagon, Cloud, Droplet. The
+ * Circle, Heart, Squircle, Capsule, Triangle, Hexagon, Cloud, Teardrop. The
  * stored ids are the ones older builds and the server already know (bean is
- * the pebble, pill the capsule, pick the triangle, drop the droplet).
+ * the heart, pill the capsule, pick the triangle, drop the teardrop).
  */
 export const MASCOT_SHAPES = ["circle", "bean", "squircle", "pill", "pick", "hexagon", "cloud", "drop"] as const;
 export type MascotShape = (typeof MASCOT_SHAPES)[number];
