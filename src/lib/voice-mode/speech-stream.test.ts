@@ -275,4 +275,12 @@ describe("clauses without the 36 character wait (streaming voice)", () => {
     expect(stream.feed("Sure. It is sunny. ")).toEqual(["Sure."]);
     expect(stream.finish("Sure. It is sunny. Yes.")).toEqual(["It is sunny. Yes."]);
   });
+
+  it("the first clause goes at a space after four words, even without a comma", () => {
+    const stream = new SentenceStream(STREAMING_CLAUSES);
+    expect(stream.feed("It is sunny today in Montreal")).toEqual(["It is sunny today"]);
+    expect(stream.feed("It is sunny today in Montreal this afternoon")).toEqual([]);
+    // the POST path still waits for punctuation or the six-word comma cut
+    expect(new SentenceStream().feed("It is sunny today in Montreal")).toEqual([]);
+  });
 });

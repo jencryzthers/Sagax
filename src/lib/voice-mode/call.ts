@@ -40,6 +40,7 @@ import { judge, readVoiceprint, saveVoiceprint, SpeakerEmbedder, voiceprintOf, t
 import { LiveTranscriber } from "./stt-stream";
 import { completeClause, CONTOUR_CONTINUATION_MS, FRAME_MS, incompleteClause, TurnDetector } from "./turns";
 import { formatTimeline, materiallyDifferent, normalizedWords, type TurnMetrics } from "./latency";
+import { discardSpeculation, maySpeculate } from "./speculative";
 import { LevelVad, SileroVad, VAD_FRAME, type VoiceProbability } from "./vad";
 import type { VoiceModeSettings } from "../../../shared/voice-mode";
 
@@ -226,6 +227,8 @@ export class VoiceCall {
   /** the words recognized so far in the turn being heard, and when */
   private turnPartial = "";
   private partialAt = 0;
+  /** duplex: the partial already sent to the LLM, until the person stops or it is discarded */
+  private speculated: string | null = null;
   /** the soft tone of a slow answer, armed when a turn is sent */
   private cueTimer: ReturnType<typeof setTimeout> | null = null;
   private enrolling: { frames: Float32Array[]; levels: number[]; done: (frames: Float32Array[] | null) => void; until: number } | null = null;
@@ -266,6 +269,7 @@ export class VoiceCall {
         this.partialAt = this.now();
       }
       this.emit("partial", text);
+      this.considerSpeculation(text);
     });
     if (this.voiceprint?.level) this.turns.nearLevel = this.voiceprint.level;
   }
@@ -687,6 +691,14 @@ export class VoiceCall {
 
   private beginTurnMetrics(stoppedAt: number, earlyEnd = false, contourEnd = false): void {
     this.disarmCue();
+    // only the in-flight speculation for THIS utterance keeps its sentAt
+    if (this.speculated && this.turn?.earlyStart && this.turn.firstAudioAt === undefined) {
+      this.turn.stoppedAt = stoppedAt;
+      this.turn.endedAt = this.now();
+      if (earlyEnd) this.turn.earlyEnd = true;
+      if (contourEnd) this.turn.contourEnd = true;
+      return;
+    }
     this.turn = { stoppedAt, endedAt: this.now(), ...(earlyEnd ? { earlyEnd: true } : {}), ...(contourEnd ? { contourEnd: true } : {}) };
   }
 
@@ -811,6 +823,8 @@ export class VoiceCall {
         this.cutBot = false;
         this.lastCut = null;
         // a new answer starts: what it plays is measured from here
+        this.reply = null;
+        this.replyText = "";
         this.player.resetLedger();
         return;
       }
@@ -818,6 +832,7 @@ export class VoiceCall {
         void this.finishTurn();
         return;
       case "cancel-stt":
+        this.dropSpeculation();
         this.transcriber.discard();
         this.turns.reset();
         this.pushing = false;
@@ -845,6 +860,28 @@ export class VoiceCall {
     // after the final's round trip; the final is checked when it comes.
     const partial = this.turnPartial.trim();
     const turn = this.turn;
+    if (this.speculated && turn) {
+      const verdict = await this.verify(audio);
+      if (this.closed) return;
+      if (!verdict) {
+        this.dropSpeculation();
+        turn.transcribedAt = this.now();
+        this.emit("rejected", "other-voice");
+        this.dispatch({ type: "utterance-rejected", reason: "other-voice" });
+        void final;
+        return;
+      }
+      turn.transcribedAt = turn.transcribedAt ?? this.now();
+      turn.earlyStart = true;
+      this.learnLevel(speechLevel);
+      const heard = await final;
+      if (this.closed) return;
+      turn.finalAt = this.now();
+      const text = heard.text.trim() || partial;
+      if (text && !isNoiseFragment(text, heard.confidence) && discardSpeculation(this.speculated, text)) this.reissue(turn, text);
+      this.speculated = null;
+      return;
+    }
     if (this.o.earlyStart !== false && turn && stablePartial(partial, this.partialAt, turn.stoppedAt) && !isNoiseFragment(partial)) {
       const verdict = await this.verify(audio);
       if (this.closed) return;
@@ -918,6 +955,40 @@ export class VoiceCall {
     turn.ttsFirstByteAt = undefined;
     this.lastSent = { text, endedAt: turn.endedAt, botSpoke: false };
     this.emit("utterance", text, turn, { interrupted: false, continues: true, utteranceId });
+  }
+
+  /** Duplex: start the LLM on a stable partial while the person is still
+   * talking. Stay in hearing so speech-end still finalizes STT. */
+  private considerSpeculation(text: string): void {
+    if (!this.o.settings().fullDuplex || !this.turns.active || this.closed) return;
+    const trimmed = text.trim();
+    if (this.speculated) {
+      if (!discardSpeculation(this.speculated, trimmed)) return;
+      this.dropSpeculation();
+    }
+    if (!maySpeculate(trimmed) || isNoiseFragment(trimmed)) return;
+    this.sendSpeculative(trimmed);
+  }
+
+  private dropSpeculation(): void {
+    if (!this.speculated) return;
+    this.emit("interrupt-bot");
+    this.speculated = null;
+  }
+
+  private sendSpeculative(text: string): void {
+    const utteranceId = this.newId();
+    const now = this.now();
+    this.turn = { stoppedAt: now, endedAt: now, earlyStart: true, sentAt: now, transcribedAt: now, utteranceId };
+    this.speculated = text;
+    this.lastSent = { text, endedAt: this.turn.endedAt, botSpoke: false };
+    this.reply = null;
+    this.replyText = "";
+    this.player.resetLedger();
+    this.armCue(this.turn);
+    this.emit("utterance", text, this.turn, { interrupted: this.cutBot, utteranceId });
+    this.emit("metrics", this.turn, this.bargeIn);
+    this.cutBot = false;
   }
 
   private newId(): string {

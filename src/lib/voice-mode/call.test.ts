@@ -523,7 +523,7 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
   });
 
   it("ends a finished sentence on a short confident silence, and sends it on its stable words before the final", async () => {
-    const t = await setup({ transcripts: ["What time is it in Tokyo?"], finalDelayMs: 120, options: { newId: () => "utt-00000001" } });
+    const t = await setup({ transcripts: ["What time is it in Tokyo?"], settings: { fullDuplex: false }, finalDelayMs: 120, options: { newId: () => "utt-00000001" } });
     await speak(t, "What time is it in Tokyo?");
     await t.feed(0.02, 0.001, 12); // with the two above, 450 ms of confident silence
     await t.settle();
@@ -544,13 +544,13 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
   });
 
   it("never ends early on a sentence that is not finished, nor on a silence the VAD is unsure of", async () => {
-    const unfinished = await setup({ transcripts: ["give me a good prompt to"] });
+    const unfinished = await setup({ transcripts: ["give me a good prompt to"], settings: { fullDuplex: false } });
     await speak(unfinished, "give me a good prompt to");
     await unfinished.feed(0.02, 0.001, 14);
     await unfinished.settle();
     expect(unfinished.utterances).toHaveLength(0);
 
-    const unsure = await setup({ transcripts: ["What time is it in Tokyo?"] });
+    const unsure = await setup({ transcripts: ["What time is it in Tokyo?"], settings: { fullDuplex: false } });
     await speak(unsure, "What time is it in Tokyo?");
     // under the voice threshold, but not confidently silent (a breath)
     await unsure.feed(0.25, 0.001, 14);
@@ -591,6 +591,83 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     await new Promise((r) => setTimeout(r, 100));
     expect(t.utterances.map((u) => u.text)).toEqual(["call Max about the invoice."]);
     expect(t.utterances[0]!.metrics.earlyStart).toBeUndefined();
+  });
+
+  it("duplex starts the LLM on a four-word partial before the person stops talking", async () => {
+    const t = await setup({
+      transcripts: ["What is the weather in Montreal today?"],
+      settings: { fullDuplex: true },
+      finalDelayMs: 200,
+    });
+    await t.feed(0.95, 0.05, 24);
+    t.socket().partial("What is the weather");
+    await t.settle();
+    expect(t.utterances.map((u) => u.text)).toEqual(["What is the weather"]);
+    expect(t.utterances[0]!.metrics.earlyStart).toBe(true);
+    expect(t.call.current.phase).toBe("hearing");
+  });
+
+  it("duplex cancels the speculative send when the next partial changes the question", async () => {
+    const t = await setup({
+      transcripts: ["What is the weather in Toronto today?"],
+      settings: { fullDuplex: true },
+      finalDelayMs: 80,
+    });
+    await t.feed(0.95, 0.05, 24);
+    t.socket().partial("What is the weather");
+    await t.settle();
+    t.socket().partial("What is the weather in Toronto");
+    await t.settle();
+    expect(t.interrupts).toHaveLength(1);
+    await t.feed(0.02, 0.001, 25);
+    await t.settle();
+    await new Promise((r) => setTimeout(r, 120));
+    expect(t.utterances.at(-1)?.text).toMatch(/Toronto/);
+  });
+
+  it("duplex sequential turns each get their own first-audio mark", async () => {
+    let n = 0;
+    const t = await setup({
+      transcripts: ["What time is it?", "How is the weather?"],
+      settings: { fullDuplex: true },
+      options: { newId: () => `utt-${++n}` },
+    });
+    const speak = async (partial: string) => {
+      await t.feed(0.95, 0.05, 24);
+      t.socket().partial(partial);
+      await t.settle();
+      await t.feed(0.02, 0.001, 25);
+      await t.settle();
+      await new Promise((r) => setTimeout(r, 40));
+    };
+    await speak("What time is it?");
+    t.call.replyProgress("Sure. It is noon.");
+    await t.settle();
+    t.player.drain();
+    t.call.setBotBusy(false);
+    await t.settle();
+    const first = t.metrics.filter((row) => row.turn?.firstAudioAt !== undefined).at(-1)?.turn;
+    expect(first?.utteranceId).toBeDefined();
+    expect(first?.firstAudioAt).toBeDefined();
+
+    await speak("How is the weather?");
+    t.call.replyProgress("Sure. It is sunny.");
+    await t.settle();
+    const second = t.metrics.filter((row) => row.turn?.firstAudioAt !== undefined).at(-1)?.turn;
+    expect(second?.utteranceId).not.toBe(first?.utteranceId);
+    expect(second?.firstAudioAt).toBeGreaterThan(first!.firstAudioAt!);
+  });
+
+  it("does not start the LLM on a partial when duplex is off", async () => {
+    const t = await setup({
+      transcripts: ["What is the weather in Montreal today?"],
+      settings: { fullDuplex: false },
+      finalDelayMs: 80,
+    });
+    await t.feed(0.95, 0.05, 24);
+    t.socket().partial("What is the weather");
+    await t.settle();
+    expect(t.utterances).toHaveLength(0);
   });
 
   it("times every stage of a turn under its utterance id, and logs it without the words", async () => {

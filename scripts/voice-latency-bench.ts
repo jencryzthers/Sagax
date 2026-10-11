@@ -9,6 +9,9 @@
 // older checkout of the call engine).
 //
 //   SAGAX_VOICE_BENCH=1 pnpm exec vitest run scripts/voice-latency-bench.test.ts
+//   SAGAX_VOICE_BENCH_REAL=1 uses live xAI STT/LLM/TTS (never prints the key).
+//   A filler cue does not count: thinkingCue is off. Product gate: warm p50
+//   end-of-speech -> first spoken clause under 800 ms.
 //
 // Knobs (env), with the defaults measured or assumed for a real setup:
 //   BENCH_ENGINES (claude,grok), BENCH_TURNS (12), BENCH_COLD_MS (2600: CLI
@@ -34,9 +37,9 @@
 // question can still overlap an unfinished cold start. The Grok case also
 // counts each turn's ACP session establishments (session/load, /resume,
 // /new): a warm call turn has none, only its session/prompt.
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -63,7 +66,78 @@ const QUESTIONS = [
   "Can you summarize the last ticket for me?",
 ];
 
-export type BenchEngine = "claude" | "grok";
+export type BenchEngine = "claude" | "grok" | "xai";
+
+export function realVoiceBench(): boolean {
+  return process.env.SAGAX_VOICE_BENCH_REAL === "1";
+}
+
+/** Load the xAI voice key without logging it. Env wins, then the develop
+ * config, then the packaged-app config's leftover plaintext field. */
+export function loadVoiceBenchKey(): string | undefined {
+  const fromEnv = process.env.SAGAX_XAI_VOICE_KEY?.trim() || process.env.XAI_API_KEY?.trim();
+  if (fromEnv) return fromEnv;
+  const homes = new Set<string>();
+  try { homes.add(userInfo().homedir); } catch { /* no passwd entry */ }
+  homes.add(homedir());
+  for (const home of homes) {
+  for (const folder of [".openmausbot-dev", ".sagax"]) {
+    const file = join(home, folder, "config.json");
+    if (!existsSync(file)) continue;
+    try {
+      const cfg = JSON.parse(readFileSync(file, "utf8")) as { tts?: { xaiKey?: string }; xai?: { key?: string } };
+      const key = cfg.tts?.xaiKey?.trim() || cfg.xai?.key?.trim();
+      if (key) return key;
+    } catch {
+      /* unreadable: try the next home */
+    }
+  }
+  }
+  return undefined;
+}
+
+function readWavPcm16(path: string): Float32Array {
+  const buf = readFileSync(path);
+  let i = 12;
+  while (i + 8 <= buf.length) {
+    const id = buf.toString("ascii", i, i + 4);
+    const size = buf.readUInt32LE(i + 4);
+    if (id === "data") {
+      const pcm = buf.subarray(i + 8, i + 8 + size);
+      const out = new Float32Array(Math.floor(pcm.length / 2));
+      for (let s = 0; s < out.length; s++) out[s] = pcm.readInt16LE(s * 2) / 32768;
+      return out;
+    }
+    i += 8 + size + (size % 2);
+  }
+  throw new Error("wav has no data chunk");
+}
+
+/** Local spoken audio of `text` at 16 kHz, for real STT (macOS `say`). */
+export function spokenPcm(text: string): Float32Array {
+  const dir = mkdtempSync(join(tmpdir(), "voice-bench-say-"));
+  const aiff = join(dir, "q.aiff");
+  const wav = join(dir, "q.wav");
+  const said = spawnSync("say", ["-o", aiff, text], { stdio: "ignore" });
+  if (said.status !== 0) throw new Error("say failed to record the question");
+  const converted = spawnSync("afconvert", ["-f", "WAVE", "-d", "LEI16@16000", aiff, wav], { stdio: "ignore" });
+  if (converted.status !== 0 || !existsSync(wav)) throw new Error("afconvert failed");
+  return readWavPcm16(wav);
+}
+
+function pcmFrames(pcm: Float32Array): Float32Array[] {
+  const frames: Float32Array[] = [];
+  for (let i = 0; i + VAD_FRAME <= pcm.length; i += VAD_FRAME) {
+    const slice = pcm.subarray(i, i + VAD_FRAME);
+    const out = new Float32Array(slice);
+    let energy = 0;
+    for (let s = 0; s < out.length; s++) energy += out[s]! * out[s]!;
+    const voiced = Math.sqrt(energy / out.length) > 0.01;
+    out[0] = (voiced ? 0.92 : 0.03) / 1000;
+    frames.push(out);
+  }
+  return frames;
+}
 
 export interface BenchTurn {
   turn: number;
@@ -84,6 +158,8 @@ export interface BenchTurn {
   streamed?: boolean;
   earlyStart?: boolean;
   reissued?: boolean;
+  /** first audio arrived this many ms before end-of-speech */
+  beatEosMs?: number;
 }
 
 const knob = (name: string, fallback: number) => {
@@ -177,24 +253,42 @@ function voicedFrame(remainingMs: number): Float32Array {
   return out;
 }
 
-async function startServer(engine: BenchEngine, env: Record<string, string>) {
+async function startServer(engine: BenchEngine, env: Record<string, string>, real = false) {
   const port = await freePortBlock([0, 1]);
   const dataDir = mkdtempSync(join(tmpdir(), "omb-voice-bench-"));
   mkdirSync(join(dataDir, "tmp"), { recursive: true });
-  const wrapper = join(dataDir, `bench-${engine}.mjs`);
-  const fake = engine === "grok" ? "fake-acp-cli.ts" : "fake-claude-cli.ts";
-  writeFileSync(wrapper, [
-    "#!/usr/bin/env node",
-    ...Object.entries(env).map(([key, value]) => `process.env[${JSON.stringify(key)}] = ${JSON.stringify(value)};`),
-    ...(engine === "claude" ? ['process.stdin.on("end", () => process.exit(0));'] : []),
-    `await import(${JSON.stringify(pathToFileURL(join(ROOT, "server", "testing", fake)).href)});`,
-  ].join("\n"), { mode: 0o700 });
-  writeFileSync(join(dataDir, "config.json"), JSON.stringify({ instances: engine === "grok"
-    ? { grok: { driver: "grokAgent", displayName: "Bench", config: { cli: wrapper, fullAuto: false } } }
-    : { claude: { driver: "claudeAgent", displayName: "Bench", config: { cli: wrapper } } } }));
+  if (real) {
+    writeFileSync(join(dataDir, "config.json"), JSON.stringify({
+      tts: { provider: "xai" },
+      instances: {
+        grok: {
+          driver: "grok",
+          displayName: "Bench",
+          config: { tools: false, url: "https://api.x.ai/v1", apiKeyEnv: "XAI_API_KEY" },
+        },
+      },
+    }));
+  } else {
+    const wrapper = join(dataDir, `bench-${engine}.mjs`);
+    const fake = engine === "grok" ? "fake-acp-cli.ts" : "fake-claude-cli.ts";
+    writeFileSync(wrapper, [
+      "#!/usr/bin/env node",
+      ...Object.entries(env).map(([key, value]) => `process.env[${JSON.stringify(key)}] = ${JSON.stringify(value)};`),
+      ...(engine === "claude" ? ['process.stdin.on("end", () => process.exit(0));'] : []),
+      `await import(${JSON.stringify(pathToFileURL(join(ROOT, "server", "testing", fake)).href)});`,
+    ].join("\n"), { mode: 0o700 });
+    writeFileSync(join(dataDir, "config.json"), JSON.stringify({ instances: engine === "grok"
+      ? { grok: { driver: "grokAgent", displayName: "Bench", config: { cli: wrapper, fullAuto: false } } }
+      : { claude: { driver: "claudeAgent", displayName: "Bench", config: { cli: wrapper } } } }));
+  }
   // The server's own xAI voice key (server/config.ts): XAI_API_KEY is not
   // read there, and a bench given only that one gets no speech at all.
-  const childEnv = { ...verificationServerEnvironment(process.env, dataDir, port), SAGAX_XAI_TTS_API: env.SAGAX_XAI_TTS_API!, SAGAX_XAI_VOICE_KEY: FAKE_KEY };
+  const childEnv = {
+    ...verificationServerEnvironment(process.env, dataDir, port),
+    ...(real ? {} : { SAGAX_XAI_TTS_API: env.SAGAX_XAI_TTS_API! }),
+    SAGAX_XAI_VOICE_KEY: real ? env.SAGAX_XAI_VOICE_KEY! : FAKE_KEY,
+    ...(real ? { XAI_API_KEY: env.XAI_API_KEY! } : {}),
+  };
   let log = "";
   const child: ChildProcess = spawn(process.execPath, ["--experimental-strip-types", join(ROOT, "server", "index.ts")], { cwd: ROOT, env: childEnv, stdio: ["ignore", "pipe", "pipe"] });
   child.stdout!.on("data", (chunk) => (log += chunk));
@@ -216,14 +310,25 @@ function acpMethods(file: string): string[] {
 }
 const ESTABLISH = new Set(["session/load", "session/resume", "session/new"]);
 
-export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Promise<{ engine: BenchEngine; turns: BenchTurn[]; serverLog: string; acp?: string[] }> {
-  const turns = knob("BENCH_TURNS", 12);
+const REAL_QUESTIONS = [
+  "What time is it?",
+  "How is the weather?",
+  "What is two plus two?",
+  "Say hello in French.",
+];
+
+export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Promise<{ engine: BenchEngine; turns: BenchTurn[]; serverLog: string; diag?: unknown; acp?: string[]; real?: boolean }> {
+  const real = realVoiceBench() || engine === "xai";
+  const turns = knob("BENCH_TURNS", real ? 4 : 12);
   const useSocket = (process.env.BENCH_SPEECH ?? "socket") !== "post";
   const fasterEnd = knob("BENCH_FASTER_END", 1) !== 0;
   const unpunctuated = knob("BENCH_UNPUNCTUATED", 0) === 1;
-  const transcripts = Array.from({ length: turns }, (_, i) => QUESTIONS[i % QUESTIONS.length]!).map((q) => (unpunctuated ? q.replace(/[?.!]+$/, "") : q));
+  const questionBank = real ? REAL_QUESTIONS : QUESTIONS;
+  const transcripts = Array.from({ length: turns }, (_, i) => questionBank[i % questionBank.length]!).map((q) => (unpunctuated ? q.replace(/[?.!]+$/, "") : q));
   const reply = process.env.BENCH_REPLY ? { FAKE_CLAUDE_VOICE_REPLY: process.env.BENCH_REPLY, FAKE_ACP_VOICE_REPLY: process.env.BENCH_REPLY } : {};
-  const xai = await startFakeXaiVoice({
+  const key = real ? loadVoiceBenchKey() : undefined;
+  if (real && !key) throw new Error("SAGAX_VOICE_BENCH_REAL needs SAGAX_XAI_VOICE_KEY (or tts.xaiKey in the develop config)");
+  const xai = real ? null : await startFakeXaiVoice({
     transcripts,
     sttFinalizeMs: knob("BENCH_STT_FINAL_MS", 250),
     ttsFirstChunkMs: knob("BENCH_TTS_FIRST_MS", 300),
@@ -233,34 +338,60 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
     sttPartials: { msPerWord: WORD_MS - 30, latencyMs: 250 },
   });
   const acpLog = join(mkdtempSync(join(tmpdir(), "omb-voice-bench-acp-")), "rpc.jsonl");
-  const server = await startServer(engine, engine === "grok" ? {
+  const fakeApi = xai ? `${xai.url}/v1` : "";
+  const server = await startServer(real ? "xai" : engine, real ? {
+    SAGAX_XAI_VOICE_KEY: key!,
+    XAI_API_KEY: key!,
+  } : engine === "grok" ? {
     FAKE_ACP_MODE: "voice",
     FAKE_ACP_COLD_MS: String(knob("BENCH_COLD_MS", 2600)),
     FAKE_ACP_LOAD_MS: String(knob("BENCH_LOAD_MS", 900)),
     FAKE_ACP_FIRST_TOKEN_MS: String(knob("BENCH_FIRST_TOKEN_MS", 600)),
     FAKE_ACP_TOKEN_MS: "25",
     FAKE_ACP_RPC_APPEND_FILE: acpLog,
-    SAGAX_XAI_TTS_API: `${xai.url}/v1`,
+    SAGAX_XAI_TTS_API: fakeApi,
     ...reply,
   } : {
     FAKE_CLAUDE_MODE: "voice",
     FAKE_CLAUDE_COLD_MS: String(knob("BENCH_COLD_MS", 2600)),
     FAKE_CLAUDE_FIRST_TOKEN_MS: String(knob("BENCH_FIRST_TOKEN_MS", 600)),
     FAKE_CLAUDE_TOKEN_MS: "25",
-    SAGAX_XAI_TTS_API: `${xai.url}/v1`,
+    SAGAX_XAI_TTS_API: fakeApi,
     ...reply,
-  });
+  }, real);
   const origin = server.url;
   const headers = { "content-type": "application/json", origin };
   const api = async (method: string, path: string, body?: unknown) => {
     const response = await fetch(`${origin}${path}`, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-    return response.json() as Promise<any>;
+    const parsed = await response.json().catch(() => ({})) as any;
+    return { ok: response.ok, status: response.status, ...parsed };
   };
   const results: BenchTurn[] = [];
   let call: VoiceCall | null = null;
   const events = new AbortController();
+  const diag: {
+    bot?: { id?: string; model?: unknown };
+    streaming?: boolean;
+    startMs?: number;
+    partials: string[];
+    utterances: string[];
+    rejects: string[];
+    errors: string[];
+    sends: Array<{ status: number; ok: boolean; superseded?: boolean }>;
+    sse: number;
+    uploadError?: string;
+  } = { partials: [], utterances: [], rejects: [], errors: [], sends: [], sse: 0 };
   try {
-    const bot = (await api("GET", "/api/bots")).bots[0];
+    let bot = real ? null : (await api("GET", "/api/bots")).bots?.[0];
+    if (!bot) {
+      const created = await api("POST", "/api/bots", {
+        name: "Bench",
+        modelSelection: { instanceId: "grok", model: "grok-4-fast-non-reasoning" },
+      });
+      bot = created.bot;
+      if (!bot) throw new Error(`bench server has no bot (${created.status}: ${created.error ?? "unknown"})`);
+    }
+    diag.bot = { id: bot.id, model: bot.modelSelection };
     const threadId = bot.threadId as string;
     const callId = `bench-${Date.now().toString(36)}`;
     await api("POST", `/api/bots/${bot.id}/voice/call`, { threadId, callId, state: "start", language: "en" });
@@ -272,6 +403,17 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
       language: () => "en",
       threadId: () => threadId,
       socket: (url) => new WebSocket(url.replace(/^ws:\/\/localhost/, origin.replace(/^http/, "ws")), { headers: { origin } }) as unknown as globalThis.WebSocket,
+      transcribe: async (_botId, audio, language, thread) => {
+        const query = new URLSearchParams({ language, ...(thread ? { threadId: thread } : {}) });
+        const response = await fetch(`${origin}/api/bots/${bot.id}/voice/transcribe?${query}`, {
+          method: "POST",
+          headers: { origin, "content-type": audio.type || "audio/wav" },
+          body: audio,
+        });
+        if (!response.ok) throw new Error(`transcribe ${response.status}`);
+        const body = await response.json() as { text?: string };
+        return typeof body.text === "string" ? body.text : "";
+      },
     });
     const speech = async (_botId: string, text: string, voice: { voice?: string; speed?: number; language?: string }, thread?: string, signal?: AbortSignal) => {
       const response = await fetch(`${origin}/api/bots/${bot.id}/voice/stream`, {
@@ -300,7 +442,7 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
       botId: bot.id,
       threadId: () => threadId,
       voice: voiceSettings,
-      settings: () => ({ ...DEFAULT_CALL_SETTINGS, onlyMyVoice: false, earcons: false, thinkingCue: false, pause: "normal", streamingVoice: useSocket, fasterEndOfTurn: fasterEnd, fullDuplex: process.env.BENCH_DUPLEX === "1" }) as never,
+      settings: () => ({ ...DEFAULT_CALL_SETTINGS, onlyMyVoice: false, earcons: false, thinkingCue: false, pause: "normal", streamingVoice: useSocket, fasterEndOfTurn: fasterEnd, fullDuplex: process.env.BENCH_DUPLEX !== "0" }) as never,
       player: new ClockPlayer() as unknown as PcmPlayer,
       transcriber,
       models: async () => ({ vad: scriptedVad, embedder: null }),
@@ -317,13 +459,18 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
     const live = call;
     let metrics: Record<string, number | boolean | undefined> = {};
     live.on("metrics", (turn) => { if (turn) metrics = { ...turn } as never; });
-    live.on("utterance", (text, _m, turn) => {
+    live.on("partial", (text) => { if (diag.partials.at(-1) !== text) diag.partials.push(text); });
+    live.on("rejected", (reason) => diag.rejects.push(reason));
+    live.on("error", (reason) => diag.errors.push(reason));
+    live.on("utterance", (text, turnMetrics, turn) => {
+      metrics = { ...metrics, ...turnMetrics } as never;
       current.sentAt = performance.now();
+      diag.utterances.push(text);
       const utteranceId = (turn as { utteranceId?: string }).utteranceId ?? `bench-${Math.random().toString(36).slice(2, 12)}`;
       void api("POST", `/api/bots/${bot.id}/messages`, {
         threadId, text, sendId: utteranceId,
-        voiceCall: { callId, utteranceId, language: "en", ...(turn.continues ? { continues: true } : {}) },
-      });
+        voiceCall: { callId, utteranceId, language: "en", duplex: true, ...(turn.interrupted ? { interrupted: true } : {}), ...(turn.continues ? { continues: true } : {}) },
+      }).then((sent) => diag.sends.push({ status: sent.status, ok: sent.ok, superseded: sent.superseded }));
     });
     live.on("interrupt-bot", () => void api("POST", `/api/bots/${bot.id}/interrupt`, { threadId }));
 
@@ -347,6 +494,7 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
           try { frame = JSON.parse(data); } catch { continue; }
           const event = frame?.kind === "runtime" ? frame.event : null;
           if (!event || event.threadId !== threadId) continue;
+          diag.sse += 1;
           if (event.type === "content.delta" && event.streamKind === "assistant_text") {
             if (current.sentAt !== undefined && current.firstToken === undefined) current.firstToken = performance.now();
             current.text += event.delta;
@@ -363,34 +511,47 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
       }
     })().catch(() => {});
 
+    const started = performance.now();
     await live.start();
+    diag.startMs = Math.round(performance.now() - started);
+    diag.streaming = transcriber.streaming;
     await sleep(300);
     // the microphone: real-time 32 ms frames, speech then silence
     let speaking = false;
     let speakUntil = 0;
     let stopMic = false;
+    let pendingFrames: Float32Array[] = [];
     const mic = (async () => {
       const t0 = performance.now();
       for (let i = 0; !stopMic; i++) {
         await sleep(t0 + i * 32 - performance.now());
-        live.frame(speaking ? voicedFrame(speakUntil - performance.now()) : frame(0.03, 0.001));
+        if (pendingFrames.length) live.frame(pendingFrames.shift()!);
+        else live.frame(speaking ? voicedFrame(speakUntil - performance.now()) : frame(0.03, 0.001));
       }
     })();
+    const spoken = real ? transcripts.map((text) => pcmFrames(spokenPcm(text))) : [];
     for (let turn = 1; turn <= turns; turn++) {
       current = { text: "" };
       metrics = {};
       const establishedBefore = acpMethods(acpLog).filter((method) => ESTABLISH.has(method)).length;
-      const speakMs = transcripts[turn - 1]!.split(/\s+/).length * WORD_MS;
-      speakUntil = performance.now() + speakMs;
-      speaking = true;
-      await sleep(speakMs);
-      speaking = false;
-      const deadline = performance.now() + 20_000;
+      if (real) {
+        pendingFrames = [...spoken[turn - 1]!];
+        while (pendingFrames.length) await sleep(32);
+        await sleep(800);
+      } else {
+        const speakMs = transcripts[turn - 1]!.split(/\s+/).length * WORD_MS;
+        speakUntil = performance.now() + speakMs;
+        speaking = true;
+        await sleep(speakMs);
+        speaking = false;
+      }
+      const deadline = performance.now() + (real ? 45_000 : 20_000);
       while (metrics.firstAudioAt === undefined && performance.now() < deadline) await sleep(20);
       const m = metrics as Record<string, number | undefined> & { earlyEnd?: boolean; contourEnd?: boolean; streamed?: boolean; earlyStart?: boolean; reissued?: boolean };
       // over the socket, the call's own first-bytes mark (the POST wrapper above sees nothing)
       current.ttsFirstByte ??= m.ttsFirstByteAt;
       const d = (a?: number, b?: number) => (a === undefined || b === undefined ? undefined : Math.round(b - a));
+      const rawTotal = d(m.stoppedAt, m.firstAudioAt);
       results.push({
         turn,
         endpoint: d(m.stoppedAt, m.endedAt),
@@ -400,27 +561,31 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
         firstSentence: d(current.firstToken, m.firstSentenceAt),
         tts: d(m.firstSentenceAt, current.ttsFirstByte),
         playback: d(current.ttsFirstByte, m.firstAudioAt),
-        total: d(m.stoppedAt, m.firstAudioAt),
+        // speculative audio before end-of-speech is a beat, not negative latency
+        total: rawTotal === undefined ? undefined : Math.max(0, rawTotal),
+        ...(rawTotal !== undefined && rawTotal < 0 ? { beatEosMs: -rawTotal } : {}),
+        ...(rawTotal === undefined ? { incomplete: Object.keys(m) } : {}),
         ...(m.earlyEnd ? { earlyEnd: true } : {}),
         ...(m.contourEnd ? { contourEnd: true } : {}),
         ...(m.streamed ? { streamed: true } : {}),
         ...(m.earlyStart ? { earlyStart: true } : {}),
         ...(m.reissued ? { reissued: true } : {}),
-        ...(engine === "grok" ? { establish: acpMethods(acpLog).filter((method) => ESTABLISH.has(method)).length - establishedBefore } : {}),
+        ...(engine === "grok" && !real ? { establish: acpMethods(acpLog).filter((method) => ESTABLISH.has(method)).length - establishedBefore } : {}),
       });
       // the answer plays out, then the person thinks a moment
       while (live.player.busy || live.current.botBusy) await sleep(50);
-      await sleep(1_000);
+      await sleep(1_600);
     }
     stopMic = true;
     await mic;
+    if (transcriber.uploadError instanceof Error) diag.uploadError = transcriber.uploadError.message;
   } finally {
     events.abort();
     call?.end();
     server.child.kill("SIGTERM");
-    await xai.close();
+    await xai?.close();
   }
-  return { engine, turns: results, serverLog: server.log(), ...(engine === "grok" ? { acp: acpMethods(acpLog) } : {}) };
+  return { engine: real ? "xai" : engine, turns: results, serverLog: server.log(), diag, ...(real ? { real: true } : {}), ...(engine === "grok" && !real ? { acp: acpMethods(acpLog) } : {}) };
 }
 
 /** p50 and p90 of each stage (nearest rank). */
