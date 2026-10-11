@@ -50461,6 +50461,72 @@
         }
       }
     },
+    "Sidebar logo": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar logo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logo de la barre latérale"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logo da barra lateral"
+          }
+        }
+      }
+    },
+    "Show the Sagax logo and name at the top of the sidebar.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the Sagax logo and name at the top of the sidebar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher le logo et le nom Sagax en haut de la barre latérale."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar o logo e o nome Sagax no topo da barra lateral."
+          }
+        }
+      }
+    },
+    "Show the sidebar logo": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the sidebar logo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher le logo de la barre latérale"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar o logo da barra lateral"
+          }
+        }
+      }
+    },
     "Read-only": {
       "localizations": {
         "en": {

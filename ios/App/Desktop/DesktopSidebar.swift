@@ -101,18 +101,26 @@ struct DesktopSidebar: View {
 /// and the sidebar's edge collapses it (drag, double tap, ⌘\).
 struct DesktopSidebarHead: View {
     @Environment(\.desktopTheme) private var theme
+    @AppStorage(SidebarLogoPreference.key) private var showSidebarLogo = SidebarLogoPreference.defaultEnabled
 
     var body: some View {
         HStack(spacing: 0) {
-            Image(theme.sidebarIsDark ? "PulsatrixMark-dark" : "PulsatrixMark-light")
-                .resizable()
-                .renderingMode(.original)
-                .scaledToFit()
-                .frame(width: 22, height: 17)
-                .padding(.leading, 16)
-                .accessibilityHidden(true)
-            DesktopLineText(text: "Sagax", size: 16, weight: .semibold, color: theme.sidebarInk, lineHeight: 20, tracking: -0.16)
-                .padding(.leading, 8)
+            if SidebarLogoRuntime.isBrandVisible(showSidebarLogo) {
+                HStack(spacing: 0) {
+                    Image(theme.sidebarIsDark ? "PulsatrixMark-dark" : "PulsatrixMark-light")
+                        .resizable()
+                        .renderingMode(.original)
+                        .scaledToFit()
+                        .frame(width: 22, height: 17)
+                        .padding(.leading, 16)
+                        .accessibilityHidden(true)
+                    DesktopLineText(text: "Sagax", size: 16, weight: .semibold, color: theme.sidebarInk, lineHeight: 20, tracking: -0.16)
+                        .padding(.leading, 8)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(Text("Sagax"))
+                .accessibilityIdentifier("desktop-sidebar-brand")
+            }
             Spacer(minLength: 8)
             DesktopSearchButton()
             DesktopNewButton()
