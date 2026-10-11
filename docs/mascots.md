@@ -150,7 +150,8 @@ headless Chrome screenshot.
 
 The big green ogre, direction C ("aplat net"), approved on 2026-10-09: a
 bald inverted-pear head, trumpet ears, a heavy brow, a three-lobed nose, a
-wide mouth, a massive neck, a cream tunic under an open vest. Two flat tones
+wide mouth with two upper incisors on the idle smile, a massive neck, a cream
+tunic under an open vest. Two flat tones
 and one shade crescent per part, one uniform outline (1.9 units, never under
 1.6 screen px), geometric shapes, the same family as Shiba.
 

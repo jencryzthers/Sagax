@@ -17,7 +17,7 @@ vi.mock("@/state/store", async (importOriginal) => {
 });
 vi.mock("./DesktopCapabilities", async (importOriginal) => ({
   ...await importOriginal<typeof import("./DesktopCapabilities")>(),
-  useDesktopCapabilities: () => ({ capabilities: { dictation: { available: false } }, ready: true }),
+  useDesktopCapabilities: () => ({ capabilities: { dictation: { available: false }, host: { packaged: true, platform: "other" }, localComputer: { available: false, reasonCode: "x", message: "" } }, ready: true }),
 }));
 vi.mock("@/lib/analytics", () => ({ track: vi.fn() }));
 
@@ -42,8 +42,8 @@ const group = (patch: Partial<Group> = {}): Group => ({
   ...patch,
 });
 
-const render = (members: Bot[], g: Group) => {
-  fixture.state = { bots: members };
+const render = (members: Bot[], g: Group, extra: Partial<AppState> = {}) => {
+  fixture.state = { bots: members, ...extra };
   return renderToStaticMarkup(createElement(GroupView, { group: g }));
 };
 
@@ -88,5 +88,41 @@ describe("GroupView: computer/browser session visibility", () => {
   it("shows no place badge at all for an idle member", () => {
     const markup = render([bot({ computer: "browser" })], group({ busyBotId: null }));
     expect(markup).not.toMatch(/width="9"[^>]*height="9"/);
+  });
+
+  it("hides tool-call chips on iOS even when the server flag is on", () => {
+    const previous = globalThis.navigator;
+    vi.stubGlobal("navigator", {
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+      maxTouchPoints: 5,
+    });
+    const from = { botId: "aleta", name: "Aleta", color: "green" as const };
+    try {
+      const markup = render(
+        [bot()],
+        group({
+          messages: [
+            { id: "ok", role: "bot", kind: "activity", at: 1, tool: { name: "Read", ok: true }, from },
+            { id: "run", role: "bot", kind: "activity", at: 2, tool: { name: "Bash" }, from },
+            { id: "bad", role: "bot", kind: "activity", at: 3, tool: { name: "Write", ok: false }, from },
+            { id: "notice", role: "bot", kind: "activity", at: 4, tool: { name: "notice: waiting on the model", ok: true }, from },
+            { id: "err", role: "bot", kind: "activity", at: 5, tool: { name: "error: boom", ok: false }, from },
+            { id: "comm", role: "bot", kind: "activity", at: 6, tool: { name: "Messaged @Ada" }, comm: { groupId: "g", withBotId: "ada", withName: "Ada", withColor: "teal" }, from },
+            { id: "txt", role: "bot", kind: "text", at: 7, text: "hello there", from },
+          ] as Message[],
+        }),
+        { config: { features: { showToolCalls: true } } as AppState["config"] },
+      );
+      expect(markup).not.toContain('data-testid="tool-activity"');
+      expect(markup).not.toContain('data-mid="ok"');
+      expect(markup).not.toContain('data-mid="run"');
+      expect(markup).not.toContain('data-mid="bad"');
+      expect(markup).toContain("waiting on the model");
+      expect(markup).toContain("boom");
+      expect(markup).toContain("Messaged @Ada");
+      expect(markup).toContain("hello there");
+    } finally {
+      vi.stubGlobal("navigator", previous ?? { userAgent: "", maxTouchPoints: 0 });
+    }
   });
 });

@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { OrgDirectoryPerson } from "@/lib/perspicax-org";
 import type { Bot, ConfigStatus, Group, Message } from "@/state/store";
+import { formatTime } from "@/state/store";
 
 const fixture = vi.hoisted(() => ({ config: null as ConfigStatus | null }));
 vi.mock("@/state/store", async (original) => ({
@@ -133,5 +134,36 @@ describe("group chat bubbles", () => {
   it("an older server with no viewer keeps every person line on your side", () => {
     const markup = render(conversation.slice(0, 3), null);
     expect(rows(markup).map((row) => row.author)).toEqual(["self", "self", "self"]);
+  });
+
+  it("stamps the first cluster with the date and time, and again after 30 minutes", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 1, 12, 0));
+    try {
+      const later = t0 + 40 * min;
+      const markup = render([
+        person("a", { name: "JC", id: JC }, "Test", t0),
+        person("b", { name: "JC", id: JC }, "still going", t0 + min),
+        person("c", { name: "JC", id: JC }, "after the pause", later),
+      ], memberConfig);
+      const stamps = [...markup.matchAll(/data-testid="transcript-date"[^>]*>([^<]+)</g)].map((match) => match[1]);
+      expect(stamps).toEqual([`Today ${formatTime(t0)}`, `Today ${formatTime(later)}`]);
+      expect(markup).toContain("self-end pb-1 text-[11px] tabular-nums");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("collapses a pair channel into one Go to conversation chip", () => {
+    const ping = bot("a", "maya", "ping", t0);
+    const pong = bot("b", "theo", "pong", t0 + min);
+    const markup = renderToStaticMarkup(createElement(Transcript, {
+      group: { id: "dm", threadId: "thread", dm: true, messages: [ping, pong], memberIds: ["maya", "theo"] } as unknown as Group,
+      members, locale: "en", messages: [ping, pong], transcript: [ping, pong], onReply: () => undefined, people,
+    }));
+    expect(markup).toContain("Go to conversation");
+    expect(markup).toContain('data-testid="bot-exchange-chip"');
+    expect(markup).not.toContain(">ping<");
+    expect(markup).not.toContain(">pong<");
   });
 });

@@ -218,6 +218,65 @@ describe("thread control placement", () => {
     }
   });
 
+  it("hides tool-call chips on iOS even when the server flag is on", () => {
+    fixture.showToolCalls = true;
+    const previous = globalThis.navigator;
+    vi.stubGlobal("navigator", {
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+      maxTouchPoints: 5,
+    });
+    const messages: Bot["messages"] = [
+      { id: "ok", role: "bot", kind: "activity", at: 1, tool: { name: "Read", ok: true } },
+      { id: "run", role: "bot", kind: "activity", at: 2, tool: { name: "Bash" } },
+      { id: "bad", role: "bot", kind: "activity", at: 3, tool: { name: "Write", ok: false } },
+      { id: "notice", role: "bot", kind: "activity", at: 4, tool: { name: "notice: waiting on the model", ok: true } },
+      { id: "err", role: "bot", kind: "activity", at: 5, tool: { name: "error: boom", ok: false } },
+      { id: "comm", role: "bot", kind: "activity", at: 6, tool: { name: "Messaged @Ada" }, comm: { groupId: "g", withBotId: "ada", withName: "Ada", withColor: "teal" } },
+      { id: "ask", role: "bot", kind: "options", at: 7, card: { title: "Approval needed", subtitle: "ls", options: ["Allow", "Deny"], requestId: "r-ask", tool: "Bash" } },
+      { id: "file", role: "user", kind: "text", at: 8, text: "please\n<attached-file path=\"/store/123e4567-e89b-42d3-a456-426614174000.json\" name=\"a.json\" />" },
+      { id: "reply", role: "bot", kind: "text", at: 9, text: "done" },
+    ];
+    try {
+      const markup = renderToStaticMarkup(createElement(ChatView, { bot: { ...bot, busy: false, messages } }));
+      expect(markup).not.toContain('data-testid="tool-activity"');
+      expect(markup).not.toContain('data-mid="ok"');
+      expect(markup).not.toContain('data-mid="run"');
+      expect(markup).not.toContain('data-mid="bad"');
+      expect(markup).toContain('data-mid="notice"');
+      expect(markup).toContain("waiting on the model");
+      expect(markup).toContain("boom");
+      expect(markup).toContain("Messaged @Ada");
+      expect(markup).toContain("Allow once");
+      expect(markup).toContain("run a command");
+      expect(markup).toContain("a.json");
+      expect(markup).toContain("done");
+    } finally {
+      fixture.showToolCalls = false;
+      vi.stubGlobal("navigator", previous ?? { userAgent: "", maxTouchPoints: 0 });
+    }
+  });
+
+  it("still shows tool-call chips in Electron when the flag is on", () => {
+    fixture.showToolCalls = true;
+    window.ogb = { platform: "darwin" } as unknown as NonNullable<Window["ogb"]>;
+    const previous = globalThis.navigator;
+    vi.stubGlobal("navigator", {
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)",
+      maxTouchPoints: 5,
+    });
+    try {
+      const markup = renderToStaticMarkup(createElement(ChatView, {
+        bot: { ...bot, busy: false, messages: [{ id: "ok", role: "bot", kind: "activity", at: 1, tool: { name: "Read", ok: true } }] },
+      }));
+      expect(markup).toContain('data-testid="tool-activity"');
+      expect(markup).toContain("Read");
+    } finally {
+      fixture.showToolCalls = false;
+      delete window.ogb;
+      vi.stubGlobal("navigator", previous ?? { userAgent: "", maxTouchPoints: 0 });
+    }
+  });
+
   it("offers the matching macOS Settings and relaunch actions only for a named CUA permission failure", () => {
     fixture.platform = "darwin";
     fixture.localMessage = "Screen Recording required";

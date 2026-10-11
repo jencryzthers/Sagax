@@ -10,7 +10,6 @@ import {
   useStore,
   formatTime,
   openNotificationTarget,
-  openThread,
   type Bot,
   type Group,
   type GroupDefaultResponder,
@@ -26,6 +25,7 @@ import { ToolActivity } from "./ToolActivity";
 import { ThreadRefText } from "./ThreadRefs";
 import { TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
+import { showToolCallRows } from "@/lib/tool-activity-rows";
 import { CompactionChip, DigestChip } from "./DigestChip";
 import { roomActivityVisible } from "@/lib/room-activity";
 import { viewerActorId, viewerCan } from "@/lib/viewer";
@@ -85,7 +85,7 @@ import { GroupAvatarStack, GroupPanel } from "./GroupPanel";
 import { CIRCLE_BUTTON } from "@/lib/circle-button";
 import { NudgeLine } from "./NudgeLine";
 import { groupActivityRuns, isStatusActivity, type ActivityTranscriptItem } from "@/lib/activity-runs";
-import { collapseBotExchanges, startsNewStretch, visibleEdge, type ExchangeRun } from "@/lib/bot-exchange";
+import { collapseBotExchanges, commIsBotDm, startsNewStretch, visibleEdge, type ExchangeRun } from "@/lib/bot-exchange";
 import { foldCollapsedEntry, voiceCallPlan, voiceCallVisibleSpan } from "@/lib/voice-call-transcript";
 import { VoiceCallCard } from "./VoiceCallCard";
 import { BotExchangeChip, ExchangeColumnProvider, TranscriptDate, useExchangeColumn } from "./BotExchangeChip";
@@ -135,6 +135,22 @@ export function RoomToolChip({ message, roomId }: { message: Message; roomId?: s
   const comm = message.comm;
   if (comm && comm.groupId !== roomId) {
     const withBot = state.bots.find((b) => b.id === comm.withBotId);
+    const body = (
+      <>
+        <BotAvatar bot={withBot ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} animated={false} />
+        <span className="max-w-[480px] truncate">{tool.name}</span>
+      </>
+    );
+    // A bot-to-bot DM is read in this column. Selecting it would leave the room.
+    if (commIsBotDm(comm, state.groups ?? [])) {
+      return (
+        <div className="flex justify-start">
+          <div className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary">
+            {body}
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex justify-start">
         <button
@@ -149,8 +165,7 @@ export function RoomToolChip({ message, roomId }: { message: Message; roomId?: s
           title={t("room.openBot", { name: comm.withName })}
           className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
         >
-          <BotAvatar bot={withBot ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} animated={false} />
-          <span className="max-w-[480px] truncate">{tool.name}</span>
+          {body}
           <ChevronRight size={13} />
         </button>
       </div>
@@ -464,7 +479,7 @@ export const Transcript = memo(function Transcript({
   const { state, dispatch } = useStore();
   const reactionSelfKey = reactionSelfIds(state.config, reader).join("\n");
   const reactionSelf = useMemo(() => reactionSelfKey.split("\n").filter(Boolean), [reactionSelfKey]);
-  const showToolCalls = showToolCallsEnabled(state.config);
+  const showToolCalls = showToolCallRows(state.config);
   const owners = useMemo(() => ({ bots: state.bots, groups: state.groups }), [state.bots, state.groups]);
   const memberOf = (id?: string) => members.find((b) => b.id === id);
   const pairChannel = Boolean(group.dm) && !group.peopleDm;
@@ -572,7 +587,14 @@ export const Transcript = memo(function Transcript({
       {items.map((item, i) => {
         const edgeOf = (entry: RoomItem) =>
           entry.kind === "voiceCall" ? voiceCallVisibleSpan(entry.messages, windowIds) : visibleEdge(entry);
-        const prev = i > 0 ? edgeOf(items[i - 1]!).last : undefined;
+        const hiddenRun = (entry: RoomItem) => entry.kind === "run" && !showToolCalls;
+        let prev: Message | undefined;
+        for (let j = i - 1; j >= 0; j--) {
+          const candidate = items[j]!;
+          if (hiddenRun(candidate)) continue;
+          prev = edgeOf(candidate).last;
+          break;
+        }
         const first = edgeOf(item).first;
         const newDay = startsNewStretch(prev?.at, first.at);
         if (item.kind === "exchange") {
@@ -584,12 +606,7 @@ export const Transcript = memo(function Transcript({
                 bots={members}
                 showToolCalls={showToolCalls}
                 forceOpen={item.run.messages.some((message) => message.id === focusedId)}
-                onGo={() => {
-                  const target = state.bots.find((candidate) => candidate.id === item.run.party.id);
-                  if (!target) return false;
-                  openThread(dispatch, { botId: target.id, threadId: target.threadId }, state);
-                  return true;
-                }}
+                onGo={() => false}
               />
             </div>
           );
@@ -616,15 +633,17 @@ export const Transcript = memo(function Transcript({
         if (item.kind === "voiceCall") {
           const hit = item.messages.find((message) => message.id === focusedId);
           return (
-            <div key={`voice:${item.callId}`} className="contents" data-mid={hit?.id ?? item.messages[0]?.id}>
+            <div key={`voice:${item.callId}`} className="contents">
               {newDay && <TranscriptDate at={first.at} />}
-              <VoiceCallCard
-                threadId={group.threadId}
-                botName={group.name}
-                callId={item.callId}
-                messages={item.messages}
-                forceOpen={Boolean(hit)}
-              />
+              <div className="contents" data-mid={hit?.id ?? item.messages[0]?.id}>
+                <VoiceCallCard
+                  threadId={group.threadId}
+                  botName={group.name}
+                  callId={item.callId}
+                  messages={item.messages}
+                  forceOpen={Boolean(hit)}
+                />
+              </div>
             </div>
           );
         }
@@ -713,7 +732,7 @@ export const Transcript = memo(function Transcript({
           ) : m.kind === "compaction" ? (
             m.compaction?.by === "harness" ? null : <CompactionChip message={m} />
           ) : m.kind === "digest" ? (
-            showToolCalls ? <DigestChip message={m} /> : null
+            showToolCallsEnabled(state.config) ? <DigestChip message={m} /> : null
           ) : m.kind === "nudge" && m.nudge ? (
             <NudgeLine note={m.nudge} />
           ) : m.kind === "text" && (m.text || m.attachments?.length) ? (
@@ -733,14 +752,16 @@ export const Transcript = memo(function Transcript({
           ) : null;
         if (!row) return null;
         return (
-          <div key={m.id} className="contents" data-mid={m.id}>
+          <div key={m.id} className="contents">
             {newDay && <TranscriptDate at={m.at} />}
-            {!user && m.from && newCluster && !(m.kind === "activity" && m.comm) && (
-              <ClusterLabel bot={memberOf(m.from.botId)} name={m.from.name} color={m.from.color} />
-            )}
-            {person && newCluster && <RoomPersonLabel name={person.name} initials={person.initials} avatarUrl={person.avatarUrl} personId={person.personId} onOpen={(personId) => dispatch({ type: "openPersonPanel", personId })} />}
-            {row}
-            {seen.has(m.id) && <SeenByRow faces={seen.get(m.id)!} end={mine} time={formatTime} />}
+            <div className="contents" data-mid={m.id}>
+              {!user && m.from && newCluster && !(m.kind === "activity" && m.comm) && (
+                <ClusterLabel bot={memberOf(m.from.botId)} name={m.from.name} color={m.from.color} />
+              )}
+              {person && newCluster && <RoomPersonLabel name={person.name} initials={person.initials} avatarUrl={person.avatarUrl} personId={person.personId} onOpen={(personId) => dispatch({ type: "openPersonPanel", personId })} />}
+              {row}
+              {seen.has(m.id) && <SeenByRow faces={seen.get(m.id)!} end={mine} time={formatTime} />}
+            </div>
           </div>
         );
       })}

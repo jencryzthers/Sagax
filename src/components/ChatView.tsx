@@ -62,6 +62,7 @@ import { isProviderSafetyBlock, PROVIDER_SAFETY_GUIDANCE, PROVIDER_SAFETY_HELP_U
 import { BotAvatar } from "./Avatar";
 import { TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled, skillAuthoringEnabled } from "@/lib/feature-flags";
+import { showToolCallRows } from "@/lib/tool-activity-rows";
 import { normalizeState, stateForBot } from "@/lib/mascot";
 import { mascotRowAnimated } from "@/lib/mascot-animate";
 import { peerLine, type PeerLine } from "@/lib/peer-message";
@@ -113,7 +114,7 @@ import { showPrivateConversationHint } from "@/lib/private-threads";
 import { viewerActorId } from "@/lib/viewer";
 import { isViewersPrimaryBot } from "@/lib/primary-bot";
 import { groupTranscript, isStatusActivity, isTurnStoppedNotice, type TranscriptItem } from "@/lib/activity-runs";
-import { collapseBotExchanges, startsNewStretch, visibleEdge, type ExchangeRun } from "@/lib/bot-exchange";
+import { collapseBotExchanges, exchangeJumpStays, startsNewStretch, visibleEdge, type ExchangeRun } from "@/lib/bot-exchange";
 import { foldCollapsedEntry, voiceCallPlan, voiceCallVisibleSpan } from "@/lib/voice-call-transcript";
 import { VoiceCallCard } from "./VoiceCallCard";
 import { BotExchangeChip, ExchangeColumnProvider, TranscriptDate, useExchangeColumn } from "./BotExchangeChip";
@@ -178,6 +179,8 @@ interface ChatRows {
   onBranch: (messageId: string) => boolean;
   /** Who "I" am on a reaction chip (src/lib/reactions.ts). */
   reactionSelf: readonly string[];
+  /** Bot-to-bot channel ids. A Messaged chip targeting one stays here. */
+  botDmIds: ReadonlySet<string>;
 }
 
 const ChatRowsContext = createContext<ChatRows | null>(null);
@@ -787,23 +790,43 @@ function PeerLabel({ peer, autoModel }: { peer: PeerLine; autoModel?: Message["a
 
 /** A tool run: spinner while live, check/cross once settled. */
 const ActivityChip = memo(function ActivityChip({ message, place = "auto" }: { message: Message; place?: EffectivePlace }) {
-  const { bots, dispatch } = useChatRows();
+  const { bots, dispatch, botDmIds } = useChatRows();
   const tool = message.tool;
   if (!tool) return null;
   if (message.threadRef) return <ThreadChip message={message} />;
-  // bot⇄bot comm chip: opens the channel where the exchange lives
+  // bot⇄bot comm chip: a DM is read in this column (the exchange sheet), not
+  // by selecting that channel. A Posted-in-room receipt still opens the room.
   const comm = message.comm;
   if (comm) {
     const withBot = bots.find((b) => b.id === comm.withBotId);
+    const stay = botDmIds.has(comm.groupId);
+    const body = (
+      <>
+        <BotAvatar bot={withBot ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} animated={false} />
+        <span className="max-w-[480px] truncate">{tool.name}</span>
+      </>
+    );
+    if (stay) {
+      return (
+        <div className="flex justify-start">
+          <div
+            data-testid="bot-comm-chip"
+            className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary"
+          >
+            {body}
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex justify-start">
         <button
+          data-testid="bot-comm-chip"
           onClick={() => dispatch({ type: "select", id: comm.groupId })}
           title={t("chat.openConversationWith", { name: comm.withName })}
           className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
         >
-          <BotAvatar bot={withBot ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} animated={false} />
-          <span className="max-w-[480px] truncate">{tool.name}</span>
+          {body}
           <ChevronRight size={13} />
         </button>
       </div>
@@ -962,7 +985,14 @@ const MessagesList = memo(function MessagesList({
       {items.map((item, i) => {
         const edgeOf = (entry: ListedItem) =>
           entry.kind === "voiceCall" ? voiceCallVisibleSpan(entry.messages, windowIds) : visibleEdge(entry);
-        const prev = i > 0 ? edgeOf(items[i - 1]!).last : undefined;
+        const hiddenRun = (entry: ListedItem) => entry.kind === "run" && !showToolCalls;
+        let prev: Message | undefined;
+        for (let j = i - 1; j >= 0; j--) {
+          const candidate = items[j]!;
+          if (hiddenRun(candidate)) continue;
+          prev = edgeOf(candidate).last;
+          break;
+        }
         const first = edgeOf(item).first;
         const newDay = startsNewStretch(prev?.at, first.at);
         if (item.kind === "exchange") {
@@ -975,10 +1005,11 @@ const MessagesList = memo(function MessagesList({
                 showToolCalls={showToolCalls}
                 forceOpen={item.run.messages.some((message) => message.id === focusedId)}
                 onGo={() => {
+                  // Another bot would leave this 1:1. False keeps the sheet.
+                  if (!exchangeJumpStays(item.run.party.id, botId)) return false;
                   const target = bots.find((candidate) => candidate.id === item.run.party.id);
                   if (!target) return false;
-                  openThread(dispatch, { botId: target.id, threadId: target.threadId }, state);
-                  return true;
+                  return openThread(dispatch, { botId: target.id, threadId: target.threadId }, state);
                 }}
               />
             </div>
@@ -987,15 +1018,17 @@ const MessagesList = memo(function MessagesList({
         if (item.kind === "voiceCall") {
           const hit = item.messages.find((message) => message.id === focusedId);
           return (
-            <div key={`voice:${item.callId}`} className="contents" data-mid={hit?.id ?? item.messages[0]?.id}>
+            <div key={`voice:${item.callId}`} className="contents">
               {newDay && <TranscriptDate at={first.at} />}
-              <VoiceCallCard
-                threadId={threadId}
-                botName={botName}
-                callId={item.callId}
-                messages={item.messages}
-                forceOpen={Boolean(hit)}
-              />
+              <div className="contents" data-mid={hit?.id ?? item.messages[0]?.id}>
+                <VoiceCallCard
+                  threadId={threadId}
+                  botName={botName}
+                  callId={item.callId}
+                  messages={item.messages}
+                  forceOpen={Boolean(hit)}
+                />
+              </div>
             </div>
           );
         }
@@ -1103,8 +1136,9 @@ const MessagesList = memo(function MessagesList({
               return <ActivityChip message={m} place={place} />;
             }
             case "digest":
-              // the summary of the turn's tool chips: shown under the same setting
-              return showToolCalls ? <DigestChip message={m} /> : null;
+              // the summary of the turn's tool chips: shown under the same
+              // server setting. iPhone/iPad hide the chips, not this receipt.
+              return showToolCallsEnabled(state.config) ? <DigestChip message={m} /> : null;
             case "compaction":
               // Sagax's own folds are invisible (older threads still hold
               // them as rows); only a fold the person asked for shows.
@@ -1137,10 +1171,12 @@ const MessagesList = memo(function MessagesList({
         })();
         if (!row) return null;
         return (
-          <div key={m.id} className="contents" data-mid={m.id}>
+          <div key={m.id} className="contents">
             {newDay && <TranscriptDate at={m.at} />}
-            {row}
-            {seen?.messageId === m.id && <SeenByRow faces={seen.faces} end time={formatTime} />}
+            <div className="contents" data-mid={m.id}>
+              {row}
+              {seen?.messageId === m.id && <SeenByRow faces={seen.faces} end time={formatTime} />}
+            </div>
           </div>
         );
       })}
@@ -1331,7 +1367,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const bots = useDrawnBots(state.bots);
   const mentionPeers = useMemo(() => bots.filter((peer) => peer.id !== bot.id), [bots, bot.id]);
   const focus = state.focusMessage?.threadId === bot.threadId ? state.focusMessage : null;
-  const showToolCalls = showToolCallsEnabled(state.config);
+  const showToolCalls = showToolCallRows(state.config);
   const tts = state.config?.tts;
   const localVoice = localSystemVoiceActive();
   const locale = activeLocale();
@@ -1343,9 +1379,13 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const onBranch = useCallback((messageId: string) => branch.current.some((m) => m.id === messageId), []);
   const reactionSelfKey = reactionSelfIds(state.config, threadReads.self).join("\n");
   const reactionSelf = useMemo(() => reactionSelfKey.split("\n").filter(Boolean), [reactionSelfKey]);
+  const botDmIds = useMemo(
+    () => new Set(state.groups.filter((group) => group.dm && !group.peopleDm).map((group) => group.id)),
+    [state.groups],
+  );
   const rows = useMemo<ChatRows>(
-    () => ({ botId: bot.id, threadId: bot.threadId, botName: bot.name, viewerName, voiceId: bot.voice, tts, localVoice, busy, bots, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch, reactionSelf }),
-    [bot.id, bot.threadId, bot.name, viewerName, bot.voice, tts, localVoice, busy, bots, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch, reactionSelf],
+    () => ({ botId: bot.id, threadId: bot.threadId, botName: bot.name, viewerName, voiceId: bot.voice, tts, localVoice, busy, bots, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch, reactionSelf, botDmIds }),
+    [bot.id, bot.threadId, bot.name, viewerName, bot.voice, tts, localVoice, busy, bots, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch, reactionSelf, botDmIds],
   );
   // Where this conversation works, for the place icon on screen and page tools.
   const place = effectivePlace(bot, bot.tasks?.find((task) => task.threadId === bot.threadId));

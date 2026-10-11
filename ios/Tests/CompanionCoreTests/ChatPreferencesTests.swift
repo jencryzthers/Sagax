@@ -162,6 +162,60 @@ final class ChatPreferencesTests: XCTestCase {
         XCTAssertTrue(transcriptRows(messages, detail: .reduced).isEmpty)
     }
 
+    /// Phone and iPad: every tool receipt leaves, including a running chip
+    /// and an Error badge. A notice, a failed turn, a parallel card, a
+    /// comm/thread chip, text, an attachment and a pending approval stay.
+    /// Hidden used to drop comm/thread with the digest receipts.
+    func testIosHidesEveryToolReceiptAndKeepsNoticesCardsAndChips() throws {
+        func decode(_ json: String) throws -> Message {
+            try JSONDecoder().decode(Message.self, from: Data(json.utf8))
+        }
+        var user = Message(id: "user", role: .user, kind: .text, at: 1)
+        user.text = "go"
+        user.attachments = [MessageImageAttachment(kind: "file", path: "a.json", mime: "application/json", name: "a.json", durationMs: nil)]
+        let running = try decode(#"{"id":"run","role":"bot","kind":"activity","at":2,"tool":{"name":"Bash"}}"#)
+        let ok = try decode(#"{"id":"ok","role":"bot","kind":"activity","at":3,"tool":{"name":"Read","ok":true}}"#)
+        let receipt = try decode(#"{"id":"bad","role":"bot","kind":"activity","at":4,"tool":{"name":"Write","ok":false}}"#)
+        let notice = try decode(#"{"id":"n","role":"bot","kind":"activity","at":5,"tool":{"name":"notice: waiting","ok":true}}"#)
+        let failed = try decode(#"{"id":"err","role":"bot","kind":"activity","at":6,"tool":{"name":"error: boom","ok":false}}"#)
+        let parallel = try decode(#"""
+        {"id":"par","role":"bot","kind":"activity","at":7,"tool":{"name":"Parallel task"},
+         "parallelTask":{"threadId":"p","title":"T","requestMessageId":"r","role":"card","state":"running"}}
+        """#)
+        let comm = try decode(#"""
+        {"id":"comm","role":"bot","kind":"activity","at":8,"tool":{"name":"Messaged @Ada"},
+         "comm":{"groupId":"g","withBotId":"ada","withName":"Ada","withColor":"teal"}}
+        """#)
+        let thread = try decode(#"""
+        {"id":"th","role":"bot","kind":"activity","at":9,"tool":{"name":"Opened thread"},
+         "threadRef":{"botId":"b","threadId":"t","title":"Opened"}}
+        """#)
+        let ask = try decode(#"""
+        {"id":"ask","role":"bot","kind":"options","at":10,
+         "card":{"title":"Approval needed","subtitle":"ls","options":["Allow","Deny"],"requestId":"r-ask","tool":"Bash"}}
+        """#)
+        let settled = try decode(#"""
+        {"id":"done","role":"bot","kind":"options","at":11,
+         "card":{"title":"Approval needed","subtitle":"ls","options":["Allow","Deny"],"requestId":"r-done","tool":"Bash","answered":"allow"}}
+        """#)
+        var reply = Message(id: "txt", role: .bot, kind: .text, at: 12)
+        reply.text = "done"
+        let messages = [user, running, ok, receipt, notice, failed, parallel, comm, thread, ask, settled, reply]
+        XCTAssertEqual(messages.map(\.id), ["user", "run", "ok", "bad", "n", "err", "par", "comm", "th", "ask", "done", "txt"])
+        XCTAssertTrue(isToolActivityRow(running) && isToolActivityRow(ok) && isToolActivityRow(receipt))
+        XCTAssertFalse(isToolActivityRow(notice) || isToolActivityRow(failed) || isToolActivityRow(parallel))
+        XCTAssertFalse(isToolActivityRow(comm) || isToolActivityRow(thread))
+        for detail in ActivityDetail.allCases {
+            let ids = transcriptRows(messages, detail: detail).map(\.id)
+            XCTAssertFalse(ids.contains("run") || ids.contains("ok") || ids.contains("bad") || ids.contains("done"), "\(detail)")
+            XCTAssertTrue(ids.contains("user") && ids.contains("n") && ids.contains("err") && ids.contains("par") && ids.contains("ask") && ids.contains("txt"), "\(detail)")
+            XCTAssertTrue(ids.contains("comm") || ids.contains("run.comm"), "\(detail)")
+            XCTAssertTrue(ids.contains("th") || ids.contains("run.comm"), "\(detail)")
+            guard case let .message(kept) = transcriptRows(messages, detail: detail)[0] else { return XCTFail("the text stays") }
+            XCTAssertEqual(kept.attachments?.first?.name, "a.json")
+        }
+    }
+
     func testRowCarriesTheTimeAndSenderOfItsFirstMessage() {
         // The transcript's date separators and bubble tails read these off
         // the row rather than the message, so a run must answer for itself.

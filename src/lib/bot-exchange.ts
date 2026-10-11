@@ -4,6 +4,7 @@
 import type { Message } from "@/state/store";
 import { isStatusActivity } from "@/lib/activity-runs";
 import { peerLine } from "@/lib/peer-message";
+import { localDay } from "@/lib/transcript-derivations";
 
 /** Same gap the phone uses before a quiet date stamp starts a new cluster. */
 export const STRETCH_GAP_MS = 30 * 60 * 1000;
@@ -206,11 +207,12 @@ export function collapseBotExchanges(messages: readonly Message[], options: Coll
 /** First line of a visible cluster: no previous line, a new day, or a long pause. */
 export function startsNewStretch(prevAt: number | undefined, at: number): boolean {
   if (prevAt === undefined) return true;
-  if (new Date(prevAt).toDateString() !== new Date(at).toDateString()) return true;
+  if (localDay(prevAt) !== localDay(at)) return true;
   return at - prevAt > STRETCH_GAP_MS;
 }
 
-/** "Today 5:17 AM", "Yesterday 7:18 PM", or "Sat, Oct 3 7:45 AM". `time` is already formatted. */
+/** "Today 5:17 AM", "Yesterday 7:18 PM", or "Sat, Oct 3 7:45 AM". `time` is already formatted.
+ * Day names come from i18n (`chat.day.today` / `chat.day.yesterday`); the rest is the app locale. */
 export function transcriptDateLabel(
   at: number,
   now: number,
@@ -218,12 +220,31 @@ export function transcriptDateLabel(
   locale: string,
   time: string,
 ): string {
-  const day = new Date(at);
-  const today = new Date(now);
-  const start = (value: Date) => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
-  const diffDays = Math.round((start(today) - start(day)) / 86_400_000);
-  const label = diffDays === 0 ? labels.today : diffDays === 1 ? labels.yesterday : day.toLocaleDateString(locale, { weekday: "short", month: "short", day: "numeric" });
+  const diffDays = localDay(now) - localDay(at);
+  const label = diffDays === 0
+    ? labels.today
+    : diffDays === 1
+      ? labels.yesterday
+      : new Date(at).toLocaleDateString(locale, { weekday: "short", month: "short", day: "numeric" });
   return `${label} ${time}`;
+}
+
+/** True when openThread on that party stays in this 1:1 (same bot). Any other
+ * party would select that bot and leave; onGo must then return false so the
+ * in-column sheet stays (Close Chat returns here). */
+export function exchangeJumpStays(partyId: string | undefined, currentBotId: string | undefined): boolean {
+  return Boolean(partyId && currentBotId && partyId === currentBotId);
+}
+
+/** A Messaged chip whose group is a bot-to-bot DM. Clicking it must not
+ * select that channel: the exchange is read in this column. */
+export function commIsBotDm(
+  comm: { groupId: string } | undefined,
+  groups: readonly { id: string; dm?: boolean; peopleDm?: boolean }[],
+): boolean {
+  if (!comm) return false;
+  const group = groups.find((candidate) => candidate.id === comm.groupId);
+  return Boolean(group?.dm && !group.peopleDm);
 }
 
 export function visibleEdge(item:

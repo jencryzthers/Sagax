@@ -123,6 +123,19 @@ function toSegment(px: number, py: number, ax: number, ay: number, bx: number, b
   return Math.hypot(px - (ax + vx * t), py - (ay + vy * t));
 }
 
+/** Whether a point lies inside a closed polygon (even-odd, any winding). */
+function inPolygon(points: Point[], x: number, y: number): boolean {
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i, i += 1) {
+    const [xi, yi] = points[i];
+    const [xj, yj] = points[j];
+    if ((yi > y) === (yj > y)) continue;
+    const at = ((xj - xi) * (y - yi)) / (yj - yi || 1) + xi;
+    if (x < at) inside = !inside;
+  }
+  return inside;
+}
+
 /** Whether a point lies inside a convex polygon (any winding). */
 function inConvex(points: Point[], x: number, y: number): boolean {
   let sign = 0;
@@ -179,14 +192,29 @@ function circleHull(a: { x: number; y: number; r: number }, b: { x: number; y: n
 
 const circle = (r: number): number[] => Array.from({ length: RADII_COUNT }, () => r);
 
-/** A soft river stone: a circle pushed out of round by two slow waves, leaning a little. */
-function pebble(): number[] {
-  const raw = Array.from({ length: RADII_COUNT }, (_, i) => {
-    const a = angleOf(i);
-    return 1 + 0.07 * Math.cos(2 * a - 1.85) + 0.032 * Math.cos(3 * a + 0.7) - 0.012 * Math.cos(a + 0.4);
+/** A heart: the usual cubic parametric curve, grown so the lobes and the
+ *  point stay round. Stored id `bean` (older builds called it a pebble). */
+function heart(): number[] {
+  const n = 64;
+  const scale = 0.05;
+  const shiftY = 0.18;
+  const grow = 0.09;
+  const points: Point[] = Array.from({ length: n }, (_, i) => {
+    const t = (i / n) * Math.PI * 2;
+    const s = Math.sin(t);
+    const x = 16 * s * s * s;
+    const y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+    return [x * scale, -y * scale + shiftY] as Point;
   });
-  const mean = raw.reduce((sum, r) => sum + r, 0) / raw.length;
-  return raw.map((r) => Math.round((r / mean) * 1.01 * 10000) / 10000);
+  return radiiOf((x, y) => {
+    if (inPolygon(points, x, y)) return true;
+    for (let i = 0; i < points.length; i += 1) {
+      const [ax, ay] = points[i];
+      const [bx, by] = points[(i + 1) % points.length];
+      if (toSegment(x, y, ax, ay, bx, by) <= grow) return true;
+    }
+    return false;
+  });
 }
 
 /** A rounded square: the superellipse |x|^4 + |y|^4 = s^4. */
@@ -211,8 +239,8 @@ const CLOUD_PUFFS = [
 ];
 const cloud = () => radiiOf((x, y) => CLOUD_PUFFS.some((puff) => Math.hypot(x - puff.x, y - puff.y) <= puff.r));
 
-/** A drop: a round belly low, a small rounded tip on top. */
-const droplet = () => radiiOf(circleHull({ x: 0, y: 0.24, r: 0.72 }, { x: 0, y: -1.04, r: 0.06 }));
+/** A teardrop: a round belly low, a small rounded tip on top. Stored id `drop`. */
+const droplet = () => radiiOf(circleHull({ x: 0, y: 0.28, r: 0.7 }, { x: 0, y: -1.08, r: 0.04 }));
 
 /** An egg: an ellipse, narrower at the top. */
 const egg = () => radiiOf((x, y) => (x / (0.8 * (1 + 0.13 * y))) ** 2 + ((y - 0.02) / 1.04) ** 2 <= 1);
@@ -220,10 +248,10 @@ const egg = () => radiiOf((x, y) => (x / (0.8 * (1 + 0.13 * y))) ** 2 + ((y - 0.
 /** An exclamation mark's stroke: a tall capsule standing on the middle. */
 const bar = () => radiiOf((x, y) => toSegment(x, y, 0, -0.82, 0, 0.18) <= 0.15);
 
-/** The eight bodies, in R units. */
+/** The eight bodies, in R units. Stored ids bean/pick/drop are heart, triangle, teardrop. */
 export const SHAPE_RADII: Readonly<Record<MascotShape, Radii>> = {
   circle: circle(1),
-  bean: pebble(),
+  bean: heart(),
   squircle: squircle(),
   pill: capsule(),
   pick: triangle(),

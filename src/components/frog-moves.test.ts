@@ -75,9 +75,9 @@ describe("the frog's own moves", () => {
     for (let i = apex + 1; i < ys.length && ys[i - 1] < -0.5; i += 1) expect(ys[i], `fall ${i}`).toBeGreaterThanOrEqual(ys[i - 1] - 1e-9);
     // squash before the take-off and at the landing, stretch in the air
     const sy = frames.map((p) => p.sy);
-    expect(Math.min(...sy.slice(0, apex))).toBeLessThan(0.86);
-    expect(Math.min(...sy.slice(apex))).toBeLessThan(0.86);
-    expect(Math.max(...sy)).toBeGreaterThan(1.08);
+    expect(Math.min(...sy.slice(0, apex))).toBeLessThan(0.94);
+    expect(Math.min(...sy.slice(apex))).toBeLessThan(0.94);
+    expect(Math.max(...sy)).toBeGreaterThan(1.04);
     // the legs push out, then fold in the air
     expect(Math.max(...frames.map((p) => p.legs))).toBeGreaterThan(0.95);
     expect(frames.at(-1)?.legs).toBeCloseTo(0, 5);

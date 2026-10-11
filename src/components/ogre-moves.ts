@@ -76,9 +76,9 @@ export function breathe(frame: OgreFrame, t: number, period = 3.6, depth = 1): O
   const late = Math.sin((t / period) * TAU - 0.9);
   return {
     ...frame,
-    bodyY: frame.bodyY - 0.35 * depth * b,
-    belly: { ...frame.belly, sx: frame.belly.sx * (1 + 0.012 * depth * late), sy: frame.belly.sy * (1 + 0.02 * depth * late) },
-    head: { ...frame.head, y: frame.head.y - 0.25 * depth * late },
+    bodyY: frame.bodyY - 0.32 * depth * b,
+    belly: { ...frame.belly, sx: frame.belly.sx * (1 + 0.008 * depth * late), sy: frame.belly.sy * (1 + 0.014 * depth * late) },
+    head: { ...frame.head, y: frame.head.y - 0.18 * depth * late },
   };
 }
 
@@ -688,8 +688,8 @@ function bounceFrame(t: number): OgreFrame {
   return {
     ...base,
     y: -8 * air,
-    sy: 1 - 0.08 * crouch - 0.1 * land + 0.05 * air,
-    sx: 1 + 0.05 * crouch + 0.07 * land - 0.02 * air,
+    sy: 1 - 0.05 * crouch - 0.06 * land + 0.04 * air,
+    sx: 1 + 0.03 * crouch + 0.04 * land - 0.02 * air,
     bodyY: 1.6 * crouch + 2 * land,
     belly: { sx: 1, sy: 1 - 0.04 * land + 0.03 * air, y: 1.2 * land - 0.6 * air },
     head: { x: 0, y: 1.4 * land - 0.6 * air, rot: 0, scale: 1 },
@@ -714,8 +714,8 @@ function celebrateFrame(t: number): OgreFrame {
     ...base,
     mouth: "laugh",
     y: -7 * air,
-    sy: 1 + 0.04 * air - 0.08 * land,
-    sx: 1 - 0.02 * air + 0.06 * land,
+    sy: 1 + 0.03 * air - 0.05 * land,
+    sx: 1 - 0.02 * air + 0.04 * land,
     bodyY: 1.6 * land,
     belly: { sx: 1, sy: 1 - 0.04 * land, y: 1 * land },
     ears: { l: 10 * air - 6 * land, r: 10 * air - 6 * land, back: 0 },
@@ -751,7 +751,7 @@ function talkFrame(t: number): OgreFrame {
   const k = 0.5 + 0.5 * Math.sin((TAU * t) / d);
   const g = Math.sin((TAU * t) / (d * 4));
   const base = restFrame("stand", "attentive");
-  return { ...base, mouth: "open", mouthOpen: 0.55 + 0.55 * k, head: { x: 0, y: 0.4 * k, rot: g * 1.5, scale: 1 }, hands: { ...base.hands, openR: true, r: [70 + g * 3, 58 - Math.abs(g) * 3] } };
+  return { ...base, mouth: "open", mouthOpen: 0.92 + 0.12 * k, head: { x: 0, y: 0.28 * k, rot: g * 1.5, scale: 1 }, hands: { ...base.hands, openR: true, r: [70 + g * 3, 58 - Math.abs(g) * 3] } };
 }
 
 /** Listening: a hand cupped behind the right trumpet, the head tilted to it, the trumpet up. */

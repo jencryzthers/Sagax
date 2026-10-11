@@ -92,10 +92,20 @@ describe("BotExchangeChip", () => {
     expect(markup).toContain("unRAID → Cryptic, pour info");
     expect(markup).toContain("Close Chat");
     expect(markup).toContain("Today");
+    expect(markup).toContain('data-testid="transcript-date"');
+    expect(markup).toContain("self-end pb-1 text-[11px] tabular-nums");
     expect(markup).toContain(">unRAID<");
     expect(markup).toContain(">Cryptic<");
     expect(markup).toContain("absolute inset-0");
     expect(markup).not.toContain("fixed");
     expect(markup).not.toContain("document.body");
+  });
+
+  it("stamps Aujourd'hui when the app language is French", () => {
+    setLocale("fr");
+    const markup = renderToStaticMarkup(createElement(BotExchangeChip, { run: run(), forceOpen: true }));
+    expect(markup).toMatch(/Aujourd(&#x27;|')hui/);
+    expect(markup).toContain("Fermer la conversation");
+    setLocale("en");
   });
 });

@@ -75,7 +75,7 @@ describe("PersonPanel", () => {
     expect(render()).toContain("Rex");
   });
 
-  it("lists the public title and score under the name, and the achievements on their tab", () => {
+  it("lists the public title, score and achievements as one member card, not under the name", () => {
     resetPublicAchievementsForTests({
       pr_ada: {
         points: 220,
@@ -85,25 +85,35 @@ describe("PersonPanel", () => {
       },
     });
     const html = render();
-    const nameAt = html.indexOf("Ada Example");
-    const lineAt = html.indexOf("data-member-line");
+    const nameAt = html.indexOf("person-panel-title");
+    const cardAt = html.indexOf("data-member-card");
     expect(nameAt).toBeGreaterThan(-1);
-    expect(lineAt).toBeGreaterThan(nameAt);
-    expect(html.slice(lineAt, html.indexOf("</div>", lineAt))).toContain("Rookie");
-    expect(html.slice(lineAt, html.indexOf("</div>", lineAt))).toContain(">220<");
+    expect(cardAt).toBeGreaterThan(nameAt);
+    expect(html).not.toContain("data-member-line");
+    const card = html.slice(cardAt);
+    expect(card).toContain("data-member-highlight");
+    expect(card).toContain("data-member-title");
+    expect(card).toContain("Rookie");
+    expect(card).toContain("data-member-points");
+    expect(card).toContain(">220<");
+    expect(card).toContain('data-achievement="hello-bot"');
+    expect(card.indexOf("data-member-highlight")).toBeLessThan(card.indexOf('data-achievement="hello-bot"'));
     expect(html).toContain('data-person-tab="achievements"');
     expect(html).toContain('data-person-tabpanel="achievements"');
-    expect(html).toContain('data-achievement="hello-bot"');
+    expect(html).toMatch(/data-person-tab="profile"[^>]*aria-selected="true"/);
     expect(html).not.toContain("data-member-variant=\"blade\"");
   });
 
-  it("orders the header: name, title and points, label, then the buttons, with no Member line", () => {
+  it("orders the header: name, label, then the buttons, with no Member line", () => {
     resetPublicAchievementsForTests({ pr_ada: { title: "rookie", points: 220, unlocked: [{ id: "hello-bot", points: 10, unlockedAt: 1 }] } });
     resetPersonLabelsForTests({ pr_ada: "CTO" });
     const html = render();
-    const order = ["Ada Example", "data-member-line", ">CTO<", 'data-person-action="message"'].map((marker) => html.indexOf(marker, html.indexOf("person-panel-title")));
+    const headerStart = html.indexOf("person-panel-title");
+    const order = ["Ada Example", ">CTO<", 'data-person-action="message"'].map((marker) => html.indexOf(marker, headerStart));
     expect(order.every((at) => at >= 0)).toBe(true);
     expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect(html.indexOf("data-member-card", headerStart)).toBeGreaterThan(html.indexOf('data-person-action="message"', headerStart));
+    expect(html).not.toContain("data-member-line");
     expect(html).not.toContain(">Member<");
     expect(html).not.toContain("Administrator");
   });
@@ -122,10 +132,10 @@ describe("PersonPanel", () => {
       pr_ada: { points: 220, level: 3, unlocked: [{ id: "hello-bot", points: 10, unlockedAt: 1 }] },
     });
     const noTitle = render();
-    const lineAt = noTitle.indexOf("data-member-line");
-    expect(lineAt).toBeGreaterThan(-1);
     expect(noTitle).not.toContain("data-member-title");
-    expect(noTitle.slice(lineAt, noTitle.indexOf("</div>", lineAt))).toContain(">220<");
+    expect(noTitle).toContain("data-member-points");
+    expect(noTitle).toContain(">220<");
+    expect(noTitle).toContain('data-achievement="hello-bot"');
     resetPublicAchievementsForTests({
       pr_ada: { title: "rookie", unlocked: [{ id: "hello-bot", points: 10, unlockedAt: 1 }] },
     });
@@ -133,23 +143,36 @@ describe("PersonPanel", () => {
     expect(noPoints).toContain("data-member-title");
     expect(noPoints).toContain("Rookie");
     expect(noPoints).not.toContain("data-member-points");
-    // both hidden: no line under the name at all, the list stays on its tab
+    // both hidden: no score on the card, the list stays on its tab
     resetPublicAchievementsForTests({
       pr_ada: { unlocked: [{ id: "hello-bot", points: 10, unlockedAt: 1 }] },
     });
     const bare = render();
     expect(bare).not.toContain("data-member-line");
+    expect(bare).not.toContain("data-member-title");
     expect(bare).not.toContain("data-member-points");
     expect(bare).not.toContain("Rookie");
     expect(bare).toContain('data-achievement="hello-bot"');
     expect(bare).not.toContain("This person keeps their achievements private.");
   });
 
-  it("keeps a private card off the name line and says so on the achievements tab", () => {
+  it("keeps a private card off the sheet and says so on the achievements tab", () => {
     const html = render();
     expect(html).not.toContain("data-member-line");
+    expect(html).not.toContain("data-member-card");
+    expect(html).not.toContain("data-achievement=");
     expect(html).toContain('data-person-tab="achievements"');
     expect(html).toContain("This person keeps their achievements private.");
+  });
+
+  it("shows the member card with an empty list when they shared a card but have no achievements", () => {
+    resetPublicAchievementsForTests({ pr_ada: { points: 0, level: 1, unlocked: [] } });
+    const html = render();
+    expect(html).toContain("data-member-card");
+    expect(html).toContain("data-member-points");
+    expect(html).toContain("No achievements yet.");
+    expect(html).not.toContain("data-achievement=");
+    expect(html).not.toContain("This person keeps their achievements private.");
   });
 
   describe("label", () => {

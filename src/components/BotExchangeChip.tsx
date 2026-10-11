@@ -49,7 +49,7 @@ function avatarBot(party: ExchangeParty, bots?: readonly Bot[]): { name: string;
 /** Centered quiet date, the first line of a visible cluster. */
 export function TranscriptDate({ at }: { at: number }) {
   return (
-    <div className="py-3 text-center text-[13px] text-ink-secondary">
+    <div data-testid="transcript-date" className="py-3 text-center text-[13px] text-ink-secondary">
       {transcriptDateLabel(
         at,
         Date.now(),
@@ -122,10 +122,15 @@ function ExchangeSheet({ run, bots, showToolCalls, onClose }: { run: ExchangeRun
           return (
             <div key={message.id} className="contents">
               {stamp}
-              <div data-mid={message.id} className="relative ps-4">
+              <div data-mid={message.id} className="group relative ps-4">
                 <div className="mb-1 text-[12px] font-medium" style={{ color: mausInk(bot.color) }}>{speaker.name}</div>
-                <div className="whitespace-pre-wrap rounded-[18px] bg-card px-3 py-2 text-[13px] leading-5 text-ink">
-                  {exchangeBody(message)}
+                <div className="flex items-end gap-1.5">
+                  <div className="whitespace-pre-wrap rounded-[18px] bg-card px-3 py-2 text-[13px] leading-5 text-ink">
+                    {exchangeBody(message)}
+                  </div>
+                  <span className="self-end pb-1 text-[11px] tabular-nums text-ink-tertiary opacity-0 transition-opacity group-hover:opacity-100">
+                    {formatTime(message.at)}
+                  </span>
                 </div>
                 <div className="absolute bottom-0 start-0">
                   <BotAvatar bot={bot} state="happy" size={18} animated={false} />

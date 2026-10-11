@@ -242,8 +242,8 @@ describe("the avatar popover's Bot tab", () => {
     for (const move of SHAPE_MOVES) expect(html).toContain(`aria-label="Play the ${(en as Record<string, string>)[`mascot.shapeMove.${move}`]} move"`);
     // eight shapes, each named
     expect([...html.matchAll(/data-character-shape="([a-z]+)"/g)].map((m) => m[1])).toEqual([...MASCOT_SHAPES]);
-    expect(html).toContain('aria-label="Pebble"');
-    expect(html).toContain('aria-label="Droplet"');
+    expect(html).toContain('aria-label="Heart"');
+    expect(html).toContain('aria-label="Teardrop"');
     // Clay is the first skin and the Clay palette is offered
     expect(html).toContain('data-shape-skin-option="plain"');
     expect(html).toContain('data-tab="clay"');

@@ -154,7 +154,7 @@ describe("Shiba's rig", () => {
   it("breathes and blinks on its own, walks while held, plays a one-shot over it, then rests", () => {
     const rig = new ShibaRig(0, 7);
     expect(rig.busy(0)).toBe(false);
-    const breaths = [0, 0.85, 1.7, 2.55].map((t) => rig.pose(t).sy);
+    const breaths = [0, 0.85, 1.7, 2.55].map((t) => rig.pose(t).y);
     expect(new Set(breaths.map((v) => v.toFixed(4))).size).toBeGreaterThan(1);
     rig.hold("walk", 3);
     expect(rig.pose(3.5).stance).toBe("stand");
@@ -172,7 +172,7 @@ describe("Shiba's rig", () => {
     const rig = new ShibaRig(0, 1);
     rig.pose(0);
     rig.hold("walk", 1);
-    rig.pose(1);
+    rig.pose(1.13);
     const landing = rig.pose(1.24);
     expect(landing.stance).toBe("stand");
     expect(landing.sy).toBeLessThan(1);

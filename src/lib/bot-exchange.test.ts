@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   chipParty,
   collapseBotExchanges,
+  commIsBotDm,
   exchangeBody,
+  exchangeJumpStays,
   exchangeSheetRow,
   startsNewStretch,
   transcriptDateLabel,
@@ -207,5 +209,35 @@ describe("transcript dates", () => {
     expect(startsNewStretch(morning, morning + 30 * 60_000)).toBe(false);
     expect(startsNewStretch(morning, morning + 31 * 60_000)).toBe(true);
     expect(startsNewStretch(morning, new Date(2026, 9, 4, 0, 1).getTime())).toBe(true);
+  });
+
+  it("uses Quebec French day names when those labels are passed", () => {
+    const labels = { today: "Aujourd'hui", yesterday: "Hier" };
+    expect(transcriptDateLabel(new Date(2026, 9, 5, 5, 17).getTime(), now, labels, "fr-CA", "5 h 17")).toBe("Aujourd'hui 5 h 17");
+    expect(transcriptDateLabel(new Date(2026, 9, 4, 19, 18).getTime(), now, labels, "fr-CA", "19 h 18")).toBe("Hier 19 h 18");
+  });
+});
+
+describe("exchangeJumpStays", () => {
+  it("is false for another bot, so onGo keeps the sheet", () => {
+    expect(exchangeJumpStays("cry", "un")).toBe(false);
+    expect(exchangeJumpStays("cry", undefined)).toBe(false);
+    expect(exchangeJumpStays(undefined, "un")).toBe(false);
+    expect(exchangeJumpStays("un", "un")).toBe(true);
+  });
+});
+
+describe("commIsBotDm", () => {
+  const groups = [
+    { id: "dm", dm: true },
+    { id: "people", dm: true, peopleDm: true },
+    { id: "standup" },
+  ];
+  it("is only a bot-to-bot DM, not a room or a people DM", () => {
+    expect(commIsBotDm({ groupId: "dm" }, groups)).toBe(true);
+    expect(commIsBotDm({ groupId: "people" }, groups)).toBe(false);
+    expect(commIsBotDm({ groupId: "standup" }, groups)).toBe(false);
+    expect(commIsBotDm({ groupId: "missing" }, groups)).toBe(false);
+    expect(commIsBotDm(undefined, groups)).toBe(false);
   });
 });

@@ -19,38 +19,39 @@
 .shiba-live:not(.shiba-rig) .shiba-eye-r { transform-origin: 61.5px 46.5px; }
 .shiba-live:not(.shiba-rig) .shiba-mouth { transform-origin: 50px 62px; }
 
-.shiba-live:not(.shiba-rig) .shiba-whole { animation: shiba-breathe 3.4s ease-in-out infinite; }
-.shiba-live:not(.shiba-rig) .shiba-eye { animation: shiba-blink 4.6s ease-in-out infinite; }
-.shiba-live:not(.shiba-rig) .shiba-tail { animation: shiba-wag 2.8s ease-in-out infinite; }
-.shiba-live:not(.shiba-rig) .shiba-ear-r { animation: shiba-twitch 7.4s ease-in-out infinite; }
-.shiba-live:not(.shiba-rig).shiba-mood-happy .shiba-tail { animation-duration: 0.7s; }
-.shiba-live:not(.shiba-rig).shiba-mood-speaking .shiba-mouth { animation: shiba-talk 0.4s ease-in-out infinite alternate; }
+.shiba-live:not(.shiba-rig) .shiba-whole { animation: shiba-breathe 4.2s ease-in-out infinite; }
+.shiba-live:not(.shiba-rig) .shiba-eye { animation: shiba-blink 6.4s ease-in-out infinite; }
+.shiba-live:not(.shiba-rig) .shiba-tail { animation: shiba-wag 4.2s ease-in-out infinite; }
+.shiba-live:not(.shiba-rig) .shiba-ear-r { animation: shiba-twitch 9.2s ease-in-out infinite; }
+.shiba-live:not(.shiba-rig).shiba-mood-happy .shiba-tail { animation-duration: 1.1s; }
+.shiba-live:not(.shiba-rig).shiba-mood-speaking .shiba-mouth { animation: shiba-talk 0.52s ease-in-out infinite alternate; }
 .shiba-live:not(.shiba-rig).shiba-mood-listening .shiba-head { transform: rotate(-8deg); transition: transform 0.4s ease-out; }
 .shiba-live:not(.shiba-rig).shiba-mood-sleeping .shiba-eye { animation: none; }
 .shiba-live:not(.shiba-rig).shiba-mood-sleeping .shiba-whole { animation-duration: 4.6s; }
 .shiba-live:not(.shiba-rig).shiba-mood-sleeping .shiba-tail { animation: none; }
 
 @keyframes shiba-breathe {
-  0%, 100% { transform: scale(1, 1); }
-  50% { transform: scale(1.015, 0.985); }
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1.2%); }
 }
 @keyframes shiba-blink {
-  0%, 93%, 100% { transform: scaleY(1); }
-  96% { transform: scaleY(0.1); }
+  0%, 86%, 100% { transform: scaleY(1); }
+  89% { transform: scaleY(0.28); }
+  91%, 93% { transform: scaleY(0.14); }
+  96% { transform: scaleY(1); }
 }
 @keyframes shiba-wag {
-  0%, 100% { transform: rotate(-5deg); }
-  50% { transform: rotate(7deg); }
+  0%, 100% { transform: rotate(-3deg); }
+  50% { transform: rotate(4deg); }
 }
 @keyframes shiba-twitch {
   0%, 88%, 100% { transform: rotate(0deg); }
-  90% { transform: rotate(12deg); }
-  92% { transform: rotate(-3deg); }
-  94% { transform: rotate(6deg); }
+  92% { transform: rotate(6deg); }
+  96% { transform: rotate(0deg); }
 }
 @keyframes shiba-talk {
-  from { transform: scaleY(0.7); }
-  to { transform: scaleY(1.12); }
+  from { transform: scaleY(0.94); }
+  to { transform: scaleY(1.04); }
 }
 
 @media (prefers-reduced-motion: reduce) {
