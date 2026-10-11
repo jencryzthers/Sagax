@@ -935,14 +935,14 @@ const workspaceMaintenance = new WorkspaceBackupMaintenance();
 // Remote clients (server/request-auth.ts, server/sessions.ts): a stable identity
 // for this server, the paired sessions, and the cookie the served UI uses.
 const ENVIRONMENT_ID = loadEnvironmentId(DATA_DIR);
+// 2026-10-11: the server log tail of the console's Logs page survives a
+// restart, after ensureDirs (server/server-log-ring.ts): a bounded window on disk.
+serverLog.persistTo(join(DATA_DIR, "server-log"));
+process.once("exit", () => serverLog.flush());
 // Who signs people in here (SAGAX_IDENTITY): a solo server keeps its email
 // sign-in list, invitations and mailer; an organization server signs people
 // in with Pulsatrix only (Perspicax owns accounts), so the list is empty
 // there and a legacy email session ends at its next request.
-// 2026-10-11: the server log tail of the console's Logs page survives a
-// restart (server/server-log-ring.ts): a bounded window on disk.
-serverLog.persistTo(join(DATA_DIR, "server-log"));
-process.once("exit", () => serverLog.flush());
 const IDENTITY = identityConfigFromEnv();
 /** A model on an engine the organization's admin does not allow (allowedEngines). */
 const ORG_ENGINE_NOT_ALLOWED = "Your organization does not allow this model provider.";
