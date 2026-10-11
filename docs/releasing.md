@@ -6,7 +6,7 @@
 > release (`/releases/latest`); a GitHub pre-release is offered only to people
 > who switched on Settings > General > Pre-release versions. Publish a
 > version everyone should get (starting with 0.4.0) as a full release, not a
-> pre-release; the fork release workflow's `prerelease` input defaults to off.
+> pre-release (`gh release create` without `--prerelease`, step 5 below).
 
 For a normal release, run **Actions → Prepare next release → Run workflow** and
 choose a patch, minor, or custom version. It opens a tiny version-bump PR;
@@ -62,8 +62,8 @@ Sagax releases are built on a Mac, not by the workflows above:
    after the update. `node scripts/check-release-notes.mjs` fails with a
    clear message when the file is missing, has no French section, or has
    no `## English` line. `pnpm package:fork:mac` and `pnpm package:fork:win`
-   run the same check before packaging, and the fork release workflow runs
-   it before creating the tag. A version that fails the check cannot be tagged.
+   run the same check before packaging, and step 5 runs it again before
+   the tag is created. A version that fails the check is not tagged.
 2. macOS: `SAGAX_MAC_IDENTITY="<Developer ID name or SHA-1 hash>" pnpm package:fork:mac`
    (a hash is required when the keychain holds two identities with the same
    name), then notarize and staple each `.zip`/`.dmg`, re-zip and regenerate
