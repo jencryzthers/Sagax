@@ -365,6 +365,14 @@ export function ComputerPanel({
   // Computer (the screen, ours) or Data (DuckDB analytics, src/components/data).
   // The screen's polls pause while Data shows.
   const [dataView, setDataView] = useState(false);
+  // Another conversation is a new target: the panel goes back to Computer
+  // once. A model change in the same conversation keeps the view.
+  const dataTarget = `${bot.id}\n${bot.threadId}`;
+  const [dataViewTarget, setDataViewTarget] = useState(dataTarget);
+  if (dataViewTarget !== dataTarget) {
+    setDataViewTarget(dataTarget);
+    setDataView(false);
+  }
   const panelView: "computer" | "data" = dataView ? "data" : "computer";
   const requestedDataResult = state.dataResultFocus?.botId === bot.id ? state.dataResultFocus : undefined;
   const [dataRequest, setDataRequest] = useState<{ id: string; requestId: number }>();

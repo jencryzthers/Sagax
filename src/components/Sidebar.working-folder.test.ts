@@ -22,11 +22,13 @@ vi.mock("@/lib/cloud-guest", () => ({ useCanWriteIn: () => true }));
 
 const { Sidebar } = await import("./Sidebar");
 const { BotEditorStore, initialState } = await import("@/state/store");
-const { setLocale } = await import("@/lib/i18n");
+const { setLocale, t } = await import("@/lib/i18n");
+const { setThreadsLocation } = await import("@/lib/thread-preferences");
 const bot: Bot = {
   id: "pepper", name: "Pepper", threadId: "current", title: "", description: "", color: "green", unread: false,
   notifications: true, messages: [], modelSelection: { instanceId: "test", model: "test" }, cwd: "/projects/default",
-  tasks: [{ threadId: "current", title: "Current thread", createdAt: 1 }],
+  // a second thread, so the list (and its menu) is drawn under the bot
+  tasks: [{ threadId: "current", title: "Current thread", createdAt: 1 }, { threadId: "older", title: "Older thread", createdAt: 0 }],
 };
 const dispatch = vi.fn();
 let host: HTMLDivElement;
@@ -36,7 +38,14 @@ const render = () => flushSync(() => root.render(createElement(BotEditorStore, {
     flushBotPatches: async () => null, refreshInstances: async () => {}, refreshModels: async () => {} },
   children: createElement(Sidebar, { open: true, onClose: () => {} }),
 })));
-const openMenu = () => flushSync(() => document.querySelector<HTMLButtonElement>('button[aria-label="Actions for Pepper"]')!.click());
+// Sagax keeps new-thread items out of the bot row menu: they live in the
+// thread list's own menu (right click on the list).
+const openMenu = () => {
+  const expand = document.querySelector<HTMLButtonElement>(`button[aria-label="${t("task.expandNamed", { name: "Pepper" })}"]`);
+  if (expand) flushSync(() => expand.click());
+  const list = [...document.querySelectorAll<HTMLElement>('[role="group"]')].find((group) => group.getAttribute("aria-label") === t("task.namedList", { name: "Pepper" }));
+  flushSync(() => list?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })));
+};
 const menuItem = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === label);
 
 beforeEach(() => {
@@ -45,6 +54,8 @@ beforeEach(() => {
   dispatch.mockReset();
   vi.stubGlobal("fetch", () => new Promise(() => {}));
   setLocale("en");
+  // the thread list sits under the bot only in Sidebar mode (Header is the default)
+  setThreadsLocation("sidebar");
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -56,7 +67,7 @@ afterEach(() => {
 });
 
 describe("working folder through the rendered sidebar", () => {
-  it("opens the dialog from the bot action menu and submits a new thread with its chosen path", () => {
+  it("opens the dialog from the thread list menu and submits a new thread with its chosen path", () => {
     render();
     openMenu();
     expect(menuItem("New thread")).toBeDefined();
@@ -89,7 +100,6 @@ describe("working folder through the rendered sidebar", () => {
     access.advanced = false;
     render();
     openMenu();
-    expect(menuItem("New thread")).toBeUndefined();
     expect(menuItem("New thread in a working folder…")).toBeUndefined();
   });
 });

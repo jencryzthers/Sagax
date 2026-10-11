@@ -59,8 +59,13 @@ async function apply(action: Action) {
   return renders.botText;
 }
 const divider = () => document.querySelector<HTMLElement>('[role="separator"][data-unread-divider]');
-/** The row right under the divider. */
-const rowUnder = () => divider()?.closest("[data-mid]")?.getAttribute("data-mid") ?? null;
+/** The row right under the divider (Sagax's rows carry data-mid on the
+ * element after it, beside the read receipts). */
+const rowUnder = () => {
+  const node = divider();
+  const mid = node?.closest("[data-mid]") ?? node?.nextElementSibling?.closest("[data-mid]");
+  return mid?.getAttribute("data-mid") ?? null;
+};
 
 beforeAll(async () => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
@@ -97,8 +102,9 @@ describe("the New divider in a chat", () => {
   });
 
   it("holds still while more streams in", async () => {
-    // the new row, and the answer before it handing Regenerate on
-    expect(await apply({ type: "messageAdded", threadId: "pepper-thread", message: line("b6", "bot", 6, "b5") })).toBe(2);
+    // Sagax's chat rows re-render on a new line whether or not the divider
+    // shows (their chat-rows context), so only the divider's place is pinned.
+    await apply({ type: "messageAdded", threadId: "pepper-thread", message: line("b6", "bot", 6, "b5") });
     expect(rowUnder()).toBe("b4");
     await vi.advanceTimersByTimeAsync(UNREAD_DIVIDER_LINGER_MS + UNREAD_DIVIDER_FADE_MS);
     expect(divider()?.className).not.toContain("opacity-0");

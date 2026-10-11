@@ -135,6 +135,8 @@ describe("openChatLink", () => {
       { type: "select", id: "scout" },
       { type: "switchTask", botId: "scout", threadId: "qa-245" },
       { type: "revealThread", threadId: "qa-245" },
+      // Sagax's way back to the chat that was open
+      { type: "setThreadReturn", threadReturn: { ownerId: "ada", threadId: "ada-qa" } },
     ]);
   });
 

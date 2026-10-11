@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const css = readFileSync(join(here, "../styles.css"), "utf8");
-const body = css.match(/body\s*\{([^}]*)\}/)?.[1] ?? "";
+const body = css.match(/(?:^|\n)body\s*\{([^}]*)\}/)?.[1] ?? "";
 
 describe("crisp rendering", () => {
   it("does not force greyscale font smoothing", () => {

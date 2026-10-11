@@ -2460,8 +2460,8 @@ it after an upstream merge instead of renaming by hand.
 
 ## Upstream sync
 
-Last sync: 2026-10-08, upstream `milind-soni/OpenMausBot` main at
-`ac9dc481` (0.1.101) merged into Sagax; `baseVersion` follows it. Upstream
+Last sync: 2026-10-11, upstream `milind-soni/OpenMausBot` main at
+`1bddea6d` (0.1.107) merged into Sagax; `baseVersion` follows it. Upstream
 removed `ios/` and `android/` in 0.1.97 (#2382); Sagax keeps its own native
 apps, so those paths stay ours on every later merge. To repeat:
 

@@ -478,7 +478,8 @@ export function AttachmentGallery({ images = [], files = [], message, eager = fa
   if (beneath) {
     const thumbs = shown.filter((item) => item.kind === "image");
     const videos = shown.filter((item) => item.kind === "video");
-    const rest = shown.filter((item) => item.kind === "file" || item.kind === "audio");
+    // a PDF under a reply is a compact pill like any other file
+    const rest = shown.filter((item) => item.kind === "file" || item.kind === "audio" || item.kind === "pdf");
     return (
       <section aria-label={label} className={cn("mt-2.5 flex max-w-full flex-col items-start gap-2 text-start whitespace-normal", className)}>
         {thumbs.length > 0 && (
@@ -501,7 +502,7 @@ export function AttachmentGallery({ images = [], files = [], message, eager = fa
           <div className="flex max-w-full flex-wrap items-start gap-1.5">
             {rest.map((item) => item.kind === "audio" && message
               ? <AudioAttachment key={`${message.threadId}:${message.messageId}:${item.key}`} file={item.file} message={message} />
-              : item.kind === "file" && <AttachedFileChip key={item.key} file={item.file} linked={item.file.linked} message={message} compact />)}
+              : (item.kind === "file" || item.kind === "pdf") && <AttachedFileChip key={item.key} file={item.file} linked={item.file.linked} message={message} compact />)}
             {items.length > limit && (
               <button type="button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded} className="inline-flex h-7 items-center rounded-full px-2.5 text-[13px] leading-none text-ink-secondary transition-colors hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
                 {expanded ? t("attach.showLess") : t("attach.moreCount", { count: items.length - limit })}

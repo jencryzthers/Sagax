@@ -75,8 +75,9 @@ const open = async (bot: Bot) => {
   flushSync(() => root!.render(createElement(BotEditorStore, { value: value(), children: createElement(ComputerPanel, { bot }) })));
   await settle();
 };
-const tab = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('[data-testid="computer-tabs"] button')].find((candidate) => candidate.textContent?.trim() === label)!;
-const pressed = () => [...document.querySelectorAll<HTMLButtonElement>('[data-testid="computer-tabs"] button')].find((candidate) => candidate.getAttribute("aria-pressed") === "true")?.textContent?.trim();
+// Sagax's Computer | Data control (a radio group above the computer view).
+const tab = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('[data-computer-view] button')].find((candidate) => candidate.textContent?.trim() === label)!;
+const pressed = () => [...document.querySelectorAll<HTMLButtonElement>('[data-computer-view] button')].find((candidate) => candidate.getAttribute("aria-checked") === "true")?.textContent?.trim();
 
 beforeAll(() => {
   vi.stubGlobal("ogb", undefined);
