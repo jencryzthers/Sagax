@@ -48,7 +48,7 @@ afterAll(() => vi.unstubAllGlobals());
 
 const at = new Date(2026, 9, 5, 5, 17).getTime();
 const NOTE = "[Message from @Cryptic, another bot in this Sagax workspace. Reply to them.]\n\nWhich database?";
-const message = (id: string, text: string, extra: Partial<Message> = {}): Message =>
+const message = (id: string, text: string, extra: Record<string, unknown> = {}): Message =>
   ({ id, role: "user", kind: "text", text, at, ...extra }) as Message;
 
 const bot = (messages: Message[]): Bot => ({
