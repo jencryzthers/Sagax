@@ -12,9 +12,10 @@
 //
 // On an organization server, Works on Local VM or This computer does not
 // use that viewer. `LocalVmComputerPanel` below shows a still and the
-// power buttons, and it never takes control. There, `ComputerChooser` above
-// the screen lists Cloud and each of the person's computers by name, and
-// shows the one picked (the bot's own first).
+// power buttons, and it never takes control. Cloud uses `SandboxDesktopScreen`
+// (GET /api/desktop-viewer/sandbox/me), because POST computer/screenshot
+// answers 409 org_user_sandbox. `ComputerChooser` above the screen lists
+// Cloud, Other VMs and Browser; the host name sits under Other VMs.
 import SwiftUI
 import CompanionCore
 import UIKit
@@ -112,6 +113,8 @@ struct ComputerView: View {
             browserScreen
         } else if showsLocal {
             localVmScreen
+        } else if session.surfaceGate.organization {
+            sandboxScreen
         } else if let embeddedWidth {
             VStack(spacing: 12) {
                 AnyView(chooser(dark: false))
@@ -175,6 +178,55 @@ struct ComputerView: View {
             .id(chosen?.key ?? "current")
     }
 
+    /// Organization Cloud: the server-environment desktop (SandboxDesktopView).
+    /// The bot screenshot path is not mounted; it 409s with org_user_sandbox.
+    @ViewBuilder
+    private var sandboxScreen: some View {
+        if let embeddedWidth {
+            VStack(spacing: 12) {
+                AnyView(chooser(dark: false))
+                SandboxDesktopScreen(
+                    botName: current.name,
+                    ink: Theme.textPrimary,
+                    secondary: Theme.textSecondary,
+                    card: Theme.card
+                )
+                .frame(width: embeddedWidth)
+                .accessibilityIdentifier("panel-computer")
+            }
+        } else {
+            VStack(spacing: 0) {
+                HStack {
+                    GlassCircleButton(
+                        systemImage: "chevron.left", fill: Theme.Computer.glassFill, accessibilityLabel: "Back",
+                        glyphSize: 18, glyphOffset: CGSize(width: 0.85, height: -0.25), glyphColor: Theme.Computer.ink
+                    ) { dismiss() }
+                        .accessibilityIdentifier("computer-back")
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, Theme.Metric.screenEdge)
+                .padding(.top, 6)
+                AnyView(chooser(dark: true))
+                    .padding(.horizontal, Theme.Metric.screenEdge)
+                    .padding(.bottom, 12)
+                SandboxDesktopScreen(
+                    botName: current.name,
+                    ink: Theme.Computer.ink,
+                    secondary: Theme.Computer.inkSecondary,
+                    card: Theme.Computer.frameEmpty
+                )
+                .padding(.horizontal, Theme.Metric.screenEdge)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Theme.bgComputer.ignoresSafeArea())
+            .toolbar(.hidden, for: .navigationBar)
+            .navigationBarBackButtonHidden(true)
+            .background(SwipeBackBridge())
+            .preferredColorScheme(.dark)
+        }
+    }
+
     /// Cloud and each of the person's computers (an organization server),
     /// then Browser, when there is more than one choice. `dark`: on the
     /// black full screen view rather than the panel's page.
@@ -183,15 +235,22 @@ struct ComputerView: View {
         let items = ComputerChooser.items(bridge: choices.bridge, organization: session.surfaceGate.organization,
                                           worksOnLocal: showsLocalVm, browser: browserOffered)
         if items.count > 1 {
-            ComputerChooser(
-                items: items,
-                chosen: showsBrowser ? ComputerChooser.browserKey : (chosen?.key ?? "screen"),
-                colors: dark
-                    ? .init(ink: Theme.Computer.ink, secondary: Theme.Computer.ink.opacity(0.6), track: Theme.Computer.glassFill,
-                            selected: Theme.Computer.ink.opacity(0.18), dot: Theme.accent)
-                    : .init(ink: Theme.textPrimary, secondary: Theme.textSecondary, track: Theme.card,
-                            selected: Theme.cardRaised, dot: Theme.accent)
-            ) { picked = $0 }
+            VStack(spacing: 6) {
+                ComputerChooser(
+                    items: items,
+                    chosen: ComputerChooser.selectedKey(showsBrowser: showsBrowser, chosen: chosen),
+                    colors: dark
+                        ? .init(ink: Theme.Computer.ink, secondary: Theme.Computer.ink.opacity(0.6), track: Theme.Computer.glassFill,
+                                selected: Theme.Computer.ink.opacity(0.18), dot: Theme.accent)
+                        : .init(ink: Theme.textPrimary, secondary: Theme.textSecondary, track: Theme.card,
+                                selected: Theme.cardRaised, dot: Theme.accent)
+                ) { picked = ComputerChooser.resolvePick($0, bridge: choices.bridge, current: chosen) }
+                ComputerChooser.provenance(
+                    bridge: choices.bridge, chosen: showsBrowser ? nil : chosen,
+                    pick: { picked = $0 },
+                    secondary: dark ? Theme.Computer.ink.opacity(0.6) : Theme.textSecondary
+                )
+            }
         }
     }
 

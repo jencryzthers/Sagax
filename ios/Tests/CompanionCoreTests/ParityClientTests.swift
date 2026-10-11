@@ -336,6 +336,37 @@ final class ParityClientTests: XCTestCase {
         XCTAssertEqual(status.state, "starting")
     }
 
+    func testPowerServerEnvironmentPostsTheAction() async throws {
+        respond(#"{"configured":true,"state":"running"}"#)
+        let status = try await client.powerServerEnvironment(.start)
+        XCTAssertEqual(captured.httpMethod, "POST")
+        XCTAssertEqual(captured.url?.path, "/api/me/server-environment/power")
+        XCTAssertEqual(try capturedJSON()["action"] as? String, "start")
+        XCTAssertEqual(status?.state, "running")
+    }
+
+    func testPowerServerEnvironmentTreats409AsConfirmRunning() async throws {
+        respond(#"{"error":"confirm_running"}"#, status: 409)
+        let status = try await client.powerServerEnvironment(.shutdown)
+        XCTAssertNil(status)
+        XCTAssertEqual(captured.url?.path, "/api/me/server-environment/power")
+    }
+
+    func testSandboxViewerAsksForControlAndBuildsAWebSocket() async throws {
+        respond(#"{"password":"secret","viewOnly":true}"#)
+        let config = try await client.sandboxViewer(control: true)
+        XCTAssertEqual(captured.httpMethod, "GET")
+        XCTAssertEqual(captured.url?.path, "/api/desktop-viewer/sandbox/me")
+        XCTAssertEqual(captured.url?.query, "control=1")
+        XCTAssertEqual(config.password, "secret")
+        XCTAssertEqual(config.viewOnly, true)
+        let socket = try client.sandboxViewerSocketRequest(control: true)
+        XCTAssertEqual(socket.url?.scheme, "ws")
+        XCTAssertEqual(socket.url?.path, "/api/desktop-viewer/sandbox/me/websockify")
+        XCTAssertEqual(socket.url?.query, "control=1")
+        XCTAssertEqual(socket.value(forHTTPHeaderField: "Authorization"), "Bearer paired-token")
+    }
+
     func testMcpServersDecodesLocalAndRemote() async throws {
         respond(#"""
         {"servers":[

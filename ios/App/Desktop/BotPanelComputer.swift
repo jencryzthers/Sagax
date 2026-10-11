@@ -8,9 +8,9 @@
 // /api/bots/:id/computer/{screenshot,control}), the stream's frames first.
 // On an organization server, Local VM and This computer use
 // LocalVmComputerPanel instead: a still and power buttons, no Take control.
-// There `ComputerChooser` on top lists Cloud and each of the person's
-// computers by name and shows the one picked (the bot's own first); its
-// Browser chip (browser mode) shows the bot's live browser instead.
+// Cloud uses SandboxDesktopScreen (the desktop's SandboxDesktopView). There
+// `ComputerChooser` on top lists Cloud, Other VMs and Browser; the host
+// name sits under Other VMs. Browser mode shows the bot's live browser.
 import SwiftUI
 import UIKit
 import CompanionCore
@@ -88,6 +88,8 @@ struct BotPanelComputer: View {
                     .padding(.bottom, 24)
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("desktop-panel-computer")
+            } else if session.surfaceGate.organization {
+                sandbox
             } else {
                 cloud
             }
@@ -106,14 +108,36 @@ struct BotPanelComputer: View {
         let items = ComputerChooser.items(bridge: choices.bridge, organization: session.surfaceGate.organization,
                                           worksOnLocal: showsLocalVm, browser: browserOffered)
         if items.count > 1 {
-            ComputerChooser(
-                items: items,
-                chosen: showsBrowser ? ComputerChooser.browserKey : (chosen?.key ?? "screen"),
-                colors: .init(ink: theme.ink, secondary: theme.inkSecondary, track: theme.control, selected: theme.elevated, dot: theme.focus)
-            ) { picked = $0 }
+            VStack(spacing: 6) {
+                ComputerChooser(
+                    items: items,
+                    chosen: ComputerChooser.selectedKey(showsBrowser: showsBrowser, chosen: chosen),
+                    colors: .init(ink: theme.ink, secondary: theme.inkSecondary, track: theme.control, selected: theme.elevated, dot: theme.focus)
+                ) { picked = ComputerChooser.resolvePick($0, bridge: choices.bridge, current: chosen) }
+                ComputerChooser.provenance(
+                    bridge: choices.bridge, chosen: showsBrowser ? nil : chosen,
+                    pick: { picked = $0 },
+                    secondary: theme.inkSecondary
+                )
+            }
             .padding(.top, 16)
             .padding(.horizontal, 16)
         }
+    }
+
+    private var sandbox: some View {
+        SandboxDesktopScreen(
+            botName: current.name,
+            ink: theme.ink,
+            secondary: theme.inkSecondary,
+            card: theme.card
+        )
+        .padding(.top, 16)
+        .padding(.leading, 17)
+        .padding(.trailing, 16)
+        .padding(.bottom, 24)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("desktop-panel-computer")
     }
 
     private var cloud: some View {

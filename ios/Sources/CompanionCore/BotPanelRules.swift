@@ -179,8 +179,8 @@ public struct MascotUnlocks: Hashable, Sendable {
 
     public static let nothingLocked = MascotUnlocks(enforced: false)
 
-    /// The character every person has (`DEFAULT_CHARACTERS`): the owl.
-    public static let defaultCharacters: Set<MascotCharacter> = [.owl]
+    /// The character every person has (`DEFAULT_CHARACTERS`): the owl and the crab.
+    public static let defaultCharacters: Set<MascotCharacter> = [.owl, .crab]
 
     public func characterUnlocked(_ character: MascotCharacter) -> Bool {
         !enforced || Self.defaultCharacters.contains(character) || keys.contains("character:\(character.rawValue)")
@@ -263,6 +263,9 @@ public struct MascotUnlocks: Hashable, Sendable {
             case "holo", "molten": return .legendary
             default: return .rare
             }
+        case .crab:
+            // `CRAB_SKIN_TIER`: every crab skin is common (shared/mascot-look.ts)
+            return .common
         }
     }
 }

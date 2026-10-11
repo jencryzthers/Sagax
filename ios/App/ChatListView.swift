@@ -34,8 +34,8 @@ struct ChatListView: View {
     @State private var showingTemplates = false
     /// What the account menu opens besides Settings.
     @State private var accountSheet: HomeAccountSheet?
-    /// Settings > Experimental's switches, for the places.
-    @State private var features: ServerFeatures?
+    /// Settings > Experimental's switches, for the places (same object as iPad).
+    @ObservedObject private var flags = DesktopSidebarFlags.shared
     /// The bot row menu's prompts (rename, archive, delete, Primary Bot).
     @StateObject private var botActions = BotRowActions()
     @ObservedObject private var people = PeopleDirectory.shared
@@ -784,7 +784,7 @@ struct ChatListView: View {
 
     /// The places at the foot of the list.
     private var places: [HomePlace] {
-        NavigationMenus.places(gate: session.surfaceGate, connected: session.connection != nil, features: features)
+        NavigationMenus.places(gate: session.surfaceGate, connected: session.connection != nil, features: flags.features)
     }
 
     private func openPlace(_ place: HomePlace) {
@@ -1263,7 +1263,7 @@ extension ChatListView {
             await sidebarPrefs.load(session)
             await people.load(session)
             await AccountRowModel.shared.refresh(session)
-            features = await session.configStatus()?.features
+            await flags.reload(session)
             await botActions.load(session)
         }
 #if DEBUG
@@ -1544,8 +1544,14 @@ extension ChatListView {
     private var homeOverlays: some View {
         ZStack {
             if showingSettings {
-                CardSheetContainer(onDismiss: { showingSettings = false }) {
-                    SettingsView(close: { showingSettings = false })
+                CardSheetContainer(onDismiss: {
+                    showingSettings = false
+                    Task { await flags.reload(session) }
+                }) {
+                    SettingsView(close: {
+                        showingSettings = false
+                        Task { await flags.reload(session) }
+                    })
                 }
                 .transition(.move(edge: .bottom))
                 .zIndex(1)
