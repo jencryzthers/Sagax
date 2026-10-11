@@ -217,6 +217,8 @@ organization categories are read as before.
 | `POST people/{principal}/disable` | admin | turn a person off or on in this Sagax |
 | `POST people/{principal}/reset-access` | admin | delete their engine sign-ins, end their sessions |
 | `POST people/{principal}/connections/revoke` | admin | remove their own connections |
+| `POST people/{principal}/routines/pause` | admin | pause every routine that runs as them |
+| `POST people/{principal}/routines/resume` | admin | resume every routine that runs as them |
 
 ### `GET people`
 
@@ -309,6 +311,22 @@ The body of the session route: `{"all": true}`, `{"kind": "mcp", "name"}`,
 `{"kind": "github"}` or `{"kind": "plugin", "botId", "key"}`. Answers
 `{removed, connections}` (the listing after the change). Audited
 `connections.revoke` when something was removed.
+
+### `POST people/{principal}/routines/pause`, `resume`
+
+`{}` (or no body). Pauses, or resumes, every routine that runs as the
+person: its chosen run-as person, else its bot's owner (the routines `GET
+people/{principal}` lists in `routinesAsRunner`). A routine already in that
+state is left alone. Answers `{person, changed, routines: [{id, name,
+botId, enabled}]}` (`changed` the number moved). One admin activity row for
+the whole action, `person.routines_pause` or `person.routines_resume`
+(category `people`, target the person, `after.routines` the ids moved), and
+none when nothing moved. Pausing does not change whom a routine runs as, and
+a resume brings back routines an admin or their owner had paused one by one
+too. The procedure when someone leaves: pause their routines, transfer
+their bots or change whom the routines run as, then disable them (a
+disabled person's routines stop anyway). Listed in `GET capabilities` as
+`POST people/{principal}/routines/pause` and `.../resume`.
 
 ## Bots
 

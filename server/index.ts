@@ -24406,7 +24406,15 @@ const orgPeopleDeps: PeopleDeps = {
   },
   person: adminPerson,
   bots: () => orgAdminBots(),
-  routines: () => (routines?.listRoutines() ?? []).map((routine) => ({ id: routine.id, name: routine.name, botId: routine.botId, runAs: effectiveRunAs(routine) ?? null })),
+  routines: () => (routines?.listRoutines() ?? []).map((routine) => ({ id: routine.id, name: routine.name, botId: routine.botId, runAs: effectiveRunAs(routine) ?? null, enabled: routine.enabled })),
+  // 2026-10-11: pause or resume every routine that runs as a person
+  setRoutineEnabled: (routineId, enabled) => {
+    try {
+      return Boolean(routines?.update(routineId, { enabled }));
+    } catch {
+      return false;
+    }
+  },
   usageRows: (range) => readUsage(DATA_DIR, range),
   shared: (principalId) => {
     const teams = new Set((principals.byId(principalId)?.teams ?? []).map((team) => team.id));
