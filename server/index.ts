@@ -9,6 +9,7 @@ import { ENVIRONMENT_PATHS, HEALTH_IDENTITY } from "../electron/legacy-names.mjs
 import "./network-guard.ts";
 // The console's server log tail captures from here on (server-log-ring.ts).
 import { serverLog } from "./server-log-capture.ts";
+import { settledChipLabel } from "./waiting-chip.ts";
 import { groupOwnerId, groupPatchOwnerRefusal, mayDeleteGroup, ownsGroup, type GroupActor } from "./group-ownership.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
@@ -10666,7 +10667,7 @@ bus.subscribe((event: RuntimeEvent) => {
     }
     case "request.resolved": {
       if (event.requestId) pendingCommandRules.delete(`${event.threadId}:${event.requestId}`);
-      if (event.requestId) settleWaitingOnPersonChips(event.threadId, event.requestId);
+      if (event.requestId) settleWaitingOnPersonChips(event.threadId, event.requestId, { behavior: event.behavior, source: event.source });
       // answered (by whoever): the turn is working again, unless it settled
       const waiting = bot ?? (speaker ? store.bot(speaker.botId) : undefined);
       if (bot && store.taskByThread(bot.id, event.threadId)?.activity === "waiting-on-you") {
@@ -11118,14 +11119,18 @@ function showWaitingOnPersonChip(threadId: string, requestId: string, asker: Bot
 
 /** Settle the chip for one answered card, or every chip for this thread once
  * its turn ends (a card nobody answered can no longer be answered). */
-function settleWaitingOnPersonChips(threadId: string, requestId?: string) {
+function settleWaitingOnPersonChips(threadId: string, requestId?: string, resolution?: Parameters<typeof settledChipLabel>[2]) {
   for (const [key, chip] of waitingOnPersonChips) {
     if (requestId ? key !== `${threadId}:${requestId}` : !key.startsWith(`${threadId}:`)) continue;
     waitingOnPersonChips.delete(key);
     const existing = store.messagesFor(chip.threadId).find((message) => message.id === chip.messageId);
     if (!existing?.tool) continue;
     store.patchMessage(chip.threadId, chip.messageId, {
-      tool: { ...existing.tool, name: requestId ? `@${chip.name} got your ${chip.kind}` : `@${chip.name} is no longer waiting on your ${chip.kind}`, ok: true },
+      tool: {
+        ...existing.tool,
+        name: requestId ? settledChipLabel(chip.name, chip.kind as "approval" | "answer", resolution) : `@${chip.name} is no longer waiting on your ${chip.kind}`,
+        ok: true,
+      },
     });
   }
 }
@@ -14701,6 +14706,7 @@ async function startTurn(
         system: prompt.text,
         systemStable: prompt.stable,
         systemVolatile: prompt.volatile,
+        systemVolatileSections: prompt.volatileSections,
         // the mentions half describes this turn: identical consecutive tags
         // must still deliver their note (SendTurnInput.mentionTurn)
         // and so does an interrupted call turn's marker
@@ -17535,6 +17541,7 @@ async function runGroupMemberTurn(
         system: roomSystem.text,
         systemStable: roomSystem.stable,
         systemVolatile: roomSystem.volatile,
+        systemVolatileSections: roomSystem.volatileSections,
         cwd,
         integrations,
         ...(withholdHostToolsFor(instance) ? { withholdHostTools: true } : {}),

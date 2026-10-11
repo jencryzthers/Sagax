@@ -434,6 +434,9 @@ export interface AcpSupport {
   describeAccountError?(code: AccountErrorCode, model?: string): string;
   /** Compose the session/prompt text. Default prepends the persona. */
   buildPromptText?(turn: SendTurnInput): string;
+  /** A standing line appended to the stable system half (and the full
+   * system prompt), delivered with it once per native session. */
+  stableSystemHint?: string;
   /** Rewrite a picker id (`omlx::model`) into the CLI-native id before spawn
    * and session/select. Local inject writers live here so the child sees a
    * model it already knows. */
@@ -2276,7 +2279,12 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             // prefix its provider cached. Receipts are durable because the
             // native session outlives this process; an un-split turn (a direct
             // adapter call) keeps the legacy full-prompt shape.
-            const halves = promptHalves(turn);
+            // A support's own standing line (support.stableSystemHint) joins
+            // the stable half, so it rides once per session like the rest.
+            const hint = support.stableSystemHint ?? "";
+            const split = promptHalves(turn);
+            const halves = hint && split.stable !== null ? { ...split, stable: split.stable + hint } : split;
+            if (hint && promptTurn.system) promptTurn = { ...promptTurn, system: promptTurn.system + hint };
             let promptInput = promptTurn;
             if (halves.stable !== null) {
               const receiptKey = JSON.stringify([threadId, sessionId]);
@@ -2292,6 +2300,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                 promptTurn.text,
                 Boolean(turn.mentionTurn),
                 ACP_PROMPT_RE_ANCHOR_TURNS,
+                turn.systemVolatileSections,
               );
               promptInput = { ...promptTurn, system: "", text: composed.text };
               pendingSplitReceipt = { key: receiptKey, receipt: composed.receipt, previous: previousReceipt };
