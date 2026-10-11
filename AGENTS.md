@@ -2490,6 +2490,13 @@ apps, so those paths stay ours on every later merge. To repeat:
   upstream.
 - `git fetch upstream`, branch from `origin/main`, then `git merge
   upstream/main` (a real merge, never a rebase) so history stays traceable.
+- Run `node scripts/upstream-drop.mjs`: it `git rm`s every path of
+  `scripts/upstream-dropped.txt` (the upstream files Sagax deleted on
+  purpose: Cloud, Pro, lending, `enterprise/` and the like) that the merge
+  brought back, which settles their modify/delete conflicts; `--check` only
+  lists them. To restore one of those files on purpose, remove its line
+  first (`scripts/upstream-drop.test.mjs` fails while a listed path is
+  tracked).
 - On conflict our behavior wins and upstream improvements are layered in.
   Merge `src/locales/*.json` and `source-hashes.json` as a union of keys and
   run `pnpm i18n:check`.
