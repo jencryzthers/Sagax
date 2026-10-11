@@ -467,20 +467,19 @@ describe("unready providers in the rail", () => {
     expect(providerRailUnready({ ...grok, snapshot: { ...grok.snapshot, update: { title: "Update", message: "A newer CLI", command: "npm i" } } })).toBe(false);
   });
 
-  it("folds sign-in required providers in each group and keeps the selected one visible", () => {
+  it("hides sign-in required providers in each group and keeps the selected one visible", () => {
     const html = renderToStaticMarkup(createElement(ModelEngineRail, {
       instances: [grok, kimi, qwen], selectedInstance: grok, wide: true, onSelect: () => {},
     }));
     expect(html).toContain('data-rail-provider="grok"');
-    expect(html).toContain("data-rail-unready");
-    expect(html).toContain("1 needs sign-in or has no access");
-    const cloud = html.slice(html.indexOf(">Cloud<"), html.indexOf(">Local<"));
-    expect(cloud.indexOf('data-rail-provider="grok"')).toBeLessThan(cloud.indexOf("data-rail-unready"));
-    expect(cloud.indexOf("data-rail-unready")).toBeLessThan(cloud.indexOf('data-rail-provider="kimi"'));
-    expect(html.slice(html.indexOf(">Local<"))).toContain("data-rail-unready");
+    expect(html).not.toContain('data-rail-provider="kimi"');
+    expect(html).not.toContain('data-rail-provider="qwen"');
+    expect(html).not.toContain("data-rail-unready");
+    expect(html).not.toContain("need sign-in");
+    expect(html).not.toContain(">Local<");
   });
 
-  it("counts several unready Cloud providers in one fold", () => {
+  it("hides several unready Cloud providers without a fold group", () => {
     const gemini: InstanceInfo = {
       ...engine(), instanceId: "gemini", driverKind: "geminiAgent", displayName: "Gemini",
       snapshot: { state: "available", authenticated: false },
@@ -488,11 +487,14 @@ describe("unready providers in the rail", () => {
     const html = renderToStaticMarkup(createElement(ModelEngineRail, {
       instances: [grok, kimi, gemini], selectedInstance: grok, wide: true, onSelect: () => {},
     }));
-    expect(html).toContain('data-rail-unready-count="2"');
-    expect(html).toContain("2 need sign-in or have no access");
+    expect(html).toContain('data-rail-provider="grok"');
+    expect(html).not.toContain('data-rail-provider="kimi"');
+    expect(html).not.toContain('data-rail-provider="gemini"');
+    expect(html).not.toContain("data-rail-unready");
+    expect(html).not.toContain("need sign-in");
   });
 
-  it("folds an org No access yet provider even when the CLI session looks signed in", () => {
+  it("hides an org No access yet provider even when the CLI session looks signed in", () => {
     const opencode: InstanceInfo = {
       ...engine(), instanceId: "opencode", driverKind: "opencodeGo", displayName: "OpenCode",
       snapshot: { state: "available", authenticated: true },
@@ -503,12 +505,13 @@ describe("unready providers in the rail", () => {
         ? { label: "No access yet", attention: true }
         : { label: "Connected", attention: false },
     }));
-    const cloud = html.slice(html.indexOf(">Cloud<"));
-    expect(cloud.indexOf("data-rail-unready")).toBeLessThan(cloud.indexOf('data-rail-provider="opencode"'));
-    expect(html).toContain("No access yet");
+    expect(html).toContain('data-rail-provider="grok"');
+    expect(html).not.toContain('data-rail-provider="opencode"');
+    expect(html).not.toContain("No access yet");
+    expect(html).not.toContain("data-rail-unready");
   });
 
-  it("keeps a selected unready provider out of the folded group", () => {
+  it("keeps a selected unready provider visible", () => {
     const html = renderToStaticMarkup(createElement(ModelEngineRail, {
       instances: [kimi], selectedInstance: kimi, wide: true, onSelect: () => {},
     }));

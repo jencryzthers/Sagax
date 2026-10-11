@@ -3842,7 +3842,7 @@
   "settings.toolCalls.subtitle": "Affiche dans la transcription chaque outil qu'un bot utilise. Désactivé par défaut : la mascotte montre déjà que le travail avance.",
   "settings.toolCalls.title": "Appels d'outils",
   "settings.unreadyProviders.show": "Afficher les fournisseurs non configurés",
-  "settings.unreadyProviders.subtitle": "Afficher dans le sélecteur de modèles les fournisseurs qui exigent une connexion ou qui n'ont pas encore d'accès. Ils restent repliés dans chaque groupe Cloud et Local tant que cette option est désactivée.",
+  "settings.unreadyProviders.subtitle": "Afficher dans le sélecteur de modèles les fournisseurs qui exigent une connexion ou qui n'ont pas encore d'accès. Désactivé par défaut: ils restent cachés jusqu'à ce que vous activiez cette option.",
   "settings.unreadyProviders.title": "Fournisseurs non configurés",
   "settings.updates.check": "Rechercher des mises à jour",
   "settings.updates.checking": "Vérification…",
@@ -4424,5 +4424,16 @@
   "orgComputer.choice.worksHere": "{name} : ce bot travaille ici",
   "computer.view.screen": "Écran",
   "computer.view.browser": "Navigateur",
-  "computer.browserOf": "Navigateur de {name}"
+  "computer.browserOf": "Navigateur de {name}",
+  "botPanel.avatar.bot": "Bot",
+  "floatingBots.mascot.crab": "Crabe",
+  "floatingBots.move.scuttle": "Trotter",
+  "mascot.character.title": "Personnage",
+  "mascot.crabSkin.coral": "Corail",
+  "mascot.crabSkin.ink": "Encre",
+  "mascot.crabSkin.mint": "Menthe",
+  "mascot.crabSkin.plain": "Uni",
+  "mascot.crabSkin.sand": "Sable",
+  "persona.files.collapse": "Replier {name}",
+  "persona.files.expand": "Déplier {name}"
 }

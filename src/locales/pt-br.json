@@ -2182,7 +2182,7 @@
   "settings.toolCalls.subtitle": "Mostre na transcrição cada ferramenta que um bot usa. Desligado por padrão — o mascote já mostra que o trabalho está acontecendo.",
   "settings.toolCalls.title": "Chamadas de ferramenta",
   "settings.unreadyProviders.show": "Mostrar provedores não configurados",
-  "settings.unreadyProviders.subtitle": "Mostrar no seletor de modelos os provedores que pedem login ou ainda não têm acesso. Eles ficam recolhidos em cada grupo Cloud e Local até você ligar esta opção.",
+  "settings.unreadyProviders.subtitle": "Mostrar no seletor de modelos os provedores que pedem login ou ainda não têm acesso. Desligado por padrão: eles ficam ocultos até você ligar esta opção.",
   "settings.unreadyProviders.title": "Provedores não configurados",
   "settings.updates.check": "Verificar atualizações",
   "settings.updates.checking": "Verificando…",
@@ -2639,5 +2639,15 @@
   "settings.memory.state.refused": "Recusado",
   "settings.memory.state.returned": "Devolvido",
   "settings.memory.state.expired": "Expirado",
-  "settings.memory.edit": "edição"
+  "settings.memory.edit": "edição",
+  "botPanel.avatar.bot": "Bot",
+  "persona.files.collapse": "Recolher {name}",
+  "persona.files.expand": "Expandir {name}",
+  "mascot.crabSkin.coral": "Coral",
+  "mascot.crabSkin.ink": "Tinta",
+  "mascot.crabSkin.mint": "Menta",
+  "mascot.crabSkin.plain": "Liso",
+  "mascot.crabSkin.sand": "Areia",
+  "floatingBots.mascot.crab": "Caranguejo",
+  "floatingBots.move.scuttle": "Trotar"
 }

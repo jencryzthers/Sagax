@@ -20,7 +20,7 @@ vi.mock("@/components/DesktopCapabilities", () => ({
 
 vi.mock("@/state/store", () => ({
   api: vi.fn(),
-  useStore: () => ({ state: { routinesLoadState: "ready" }, dispatch: vi.fn() }),
+  useStore: () => ({ state: { routinesLoadState: "ready", config: { viewer: { principalId: "pr_me" } } }, dispatch: vi.fn() }),
 }));
 
 const { RoutinesSection, RoutineDetailHeader } = await import("./RoutinesSection");
@@ -121,6 +121,18 @@ describe("RoutinesSection", () => {
     expect(markup).toContain('aria-label="Create schedule"');
     expect(markup).toContain('aria-label="Run logs"');
     expect(markup).not.toContain("Next ");
+  });
+
+  it("does not print the viewer's name twice when they own the routine and it runs as them", () => {
+    const mine = {
+      ...activeRoutine,
+      owner: { id: "pr_me", name: "Jean-Christophe Proulx" },
+      runAs: { principalId: "pr_me", name: "Jean-Christophe Proulx" },
+    };
+    const markup = render([mine], []);
+    expect(markup).toContain("Morning brief");
+    expect(markup).not.toContain("data-routine-owner");
+    expect(markup).not.toContain("Runs as");
   });
 });
 

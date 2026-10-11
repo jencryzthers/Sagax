@@ -5427,7 +5427,7 @@
   "settings.toolCalls.subtitle": "Show each tool a bot runs in the transcript. Off by default: the mascot already shows that work is happening.",
   "settings.toolCalls.title": "Tool calls",
   "settings.unreadyProviders.show": "Show unconfigured providers",
-  "settings.unreadyProviders.subtitle": "Show providers that need sign-in or have no access yet in the model picker. They stay folded in each Cloud and Local group until you turn this on.",
+  "settings.unreadyProviders.subtitle": "Show providers that need sign-in or have no access yet in the model picker. Off by default: they stay hidden until you turn this on.",
   "settings.unreadyProviders.title": "Unconfigured providers",
   "settings.universalPins.subtitle": "Keep pinned bots from every group at the top of the sidebar, including a group's chief. They stay there while the rest of the list scrolls.",
   "settings.universalPins.title": "Universal pins",
@@ -6395,5 +6395,16 @@
   "orgComputer.choice.worksHere": "{name}: this bot works here",
   "computer.view.screen": "Screen",
   "computer.view.browser": "Browser",
-  "computer.browserOf": "{name}’s browser"
+  "computer.browserOf": "{name}’s browser",
+  "botPanel.avatar.bot": "Bot",
+  "floatingBots.mascot.crab": "Crab",
+  "floatingBots.move.scuttle": "Scuttle",
+  "mascot.character.title": "Character",
+  "mascot.crabSkin.coral": "Coral",
+  "mascot.crabSkin.ink": "Ink",
+  "mascot.crabSkin.mint": "Mint",
+  "mascot.crabSkin.plain": "Plain",
+  "mascot.crabSkin.sand": "Sand",
+  "persona.files.collapse": "Collapse {name}",
+  "persona.files.expand": "Expand {name}"
 }

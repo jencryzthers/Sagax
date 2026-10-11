@@ -440,6 +440,14 @@ describe("orderedSidebarThreads", () => {
   });
 });
 
+describe("filing a chat by dragging", () => {
+  it("makes the row draggable when it can move into a folder", () => {
+    const props = { task: { threadId: "t", title: "Notes" }, ownerId: "b", current: false, onSelect: vi.fn(), onRename: vi.fn(), onDelete: vi.fn(), locale: "en" };
+    expect(renderToStaticMarkup(createElement(SidebarThreadRow, props))).not.toContain('draggable="true"');
+    expect(renderToStaticMarkup(createElement(SidebarThreadRow, { ...props, onMove: vi.fn() }))).toContain('draggable="true"');
+  });
+});
+
 describe("archived threads", () => {
   const render = (task: ThreadRowProps["task"]) => renderToStaticMarkup(createElement(SidebarThreadRow, {
     task, ownerId: "scout", current: false, onSelect: vi.fn(), onRename: vi.fn(), onDelete: vi.fn(), locale: "en",
