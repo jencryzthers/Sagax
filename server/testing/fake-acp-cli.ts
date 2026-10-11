@@ -15,7 +15,7 @@
 //                       session, so its load succeeds.
 //   FAKE_ACP_CACHED_LIVE_LOAD  acknowledge session/load of a live session but
 //                       keep its original MCP credentials, matching Qwen.
-//   FAKE_ACP_MODE   happy (default) | image | empty-reply | reasoning-only | exit-early | fail-after-text | hang | hang-initialize | stall-after-text | unkeyed-tool | no-auth | auth-required | permission | question
+//   FAKE_ACP_MODE   happy (default) | image | empty-reply | reasoning-only | exit-early | fail-after-text | hang | hang-initialize | stall-after-text | stall-first-prompt | unkeyed-tool | no-auth | auth-required | permission | question
 //                   | ask-question-unsupported (send a cursor/ask_question server→client
 //                     request mid-prompt; the driver must answer -32601 method
 //                     not found, and the prompt completes only after that
@@ -500,6 +500,8 @@ let onAskQuestionAnswered: (() => void) | null = null;
 // session/cancel resolves it cancelled (the ACP spec's cancel contract)
 // and drops the keep-alive
 let hangingPromptId: unknown = null;
+// stall-first-prompt mode: how many prompts this process has received
+let stallPrompts = 0;
 let hangKeepAlive: ReturnType<typeof setInterval> | null = null;
 
 // ask-peer mode: the "agents" MCP server entry from session/new's mcpServers
@@ -950,6 +952,14 @@ function handle(msg: any) {
         writeFileSync(`${process.env.FAKE_ACP_DUMP}.prompt.json`, JSON.stringify(msg.params?.prompt ?? null, null, 2));
       }
       if (failRpc(msg)) return;
+      if (mode === "stall-first-prompt" && ++stallPrompts === 1) {
+        // The first prompt gets nothing at all back (a provider that never
+        // sends its first token); session/cancel resolves it cancelled and
+        // every later prompt answers normally.
+        hangingPromptId = msg.id;
+        hangKeepAlive = setInterval(() => {}, 1_000);
+        return;
+      }
       if (mode === "hang") {
         // never resolve the prompt on our own — lets tests exercise interrupt
         hangingPromptId = msg.id;

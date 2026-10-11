@@ -15,6 +15,7 @@ import type { DeviceSignIn } from "../device-auth.ts";
 import { decodeInjectId, hostApiKey, localHost, mergeLocalInject } from "../local-inject.ts";
 import { createAcpDriver, type AccountErrorCode, type AcpSupport } from "./core.ts";
 import { grokHostToolArgs, grokOrgAgentProfile } from "../host-tools.ts";
+import { knownGrokTools, knownGrokToolsSection, recordGrokToolUse, useToolName } from "./grok-tool-usage.ts";
 import { allowsTool, canUseMcpServer, narrowsNativeTools, parseToolScope } from "../../../shared/tool-scope.ts";
 
 /** Fallback only, for when the engine cannot be asked (not installed, or no
@@ -32,6 +33,16 @@ export const STATIC_GROK_MODELS: ModelCatalog = {
 
 /** Appended to the stable system half of every Grok turn (acp/core.ts
  * stableSystemHint): skip a search round for tools already discovered. */
+/** SAGAX_GROK_STALL_RETRY_MS: ms of total silence after a prompt before
+ * Sagax cancels and asks once more (default 20000, 0 turns it off). */
+export function grokStallRetryMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.SAGAX_GROK_STALL_RETRY_MS;
+  if (raw === undefined || raw.trim() === "") return 20_000;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) return 20_000;
+  return Math.floor(value);
+}
+
 export const GROK_TOOL_REUSE_HINT =
   "\n\nTool calls: each search_tool call costs a full extra round trip. When search_tool already showed you a tool earlier in this conversation," +
   " call it again directly with use_tool (same tool_name, arguments per the schema you saw) instead of searching again. Use search_tool only for a tool you have not seen yet," +
@@ -830,6 +841,17 @@ const support: AcpSupport = {
   // rounds (search_tool, use_tool, answer), ~3.5 s each. A tool already found
   // in this conversation needs no second search.
   stableSystemHint: GROK_TOOL_REUSE_HINT,
+
+  // The tools this bot already used successfully, named once per
+  // conversation (and again only when the set changes), so a first use in a
+  // new conversation skips the search_tool round too.
+  volatileSection: ({ botId, serverNames }) => knownGrokToolsSection(knownGrokTools(botId, serverNames)),
+  onToolCompleted: ({ botId, rawInput }) => recordGrokToolUse(botId, useToolName(rawInput)),
+
+  // grok.com sometimes takes 30-90 s to its first token. Normal silent
+  // stretches before the first streamed byte stayed under 9 s (a reasoning
+  // round, GOX server 2026-10-11), so 20 s of nothing at all is a stall.
+  stallRetryMs: grokStallRetryMs,
 };
 
 export const GrokAgentDriver = createAcpDriver(support);
