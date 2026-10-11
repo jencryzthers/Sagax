@@ -20,7 +20,7 @@ fail if a call reaches any xAI path other than `/v1/stt`, `/v1/tts` and
 ## The bot knows it is on the phone
 
 Every turn said on a call is sent with `voiceCall` (`{ callId, interrupted?,
-language? }`, stored on the person's message as `Message.voiceCall`; words
+language?, duplex? }`, stored on the person's message as `Message.voiceCall`; words
 typed to a bot while its call is live carry the call id too). For such a turn
 the server adds a hidden "Phone call" section to the bot's system prompt
 (`server/voice-call-prompt.ts`): a live phone call with the person, words from
@@ -54,7 +54,35 @@ starts, stays alive and ends (`POST /api/bots/<id>/voice/call`
 lasts is a call turn, whatever path it takes (typed words, a queued line
 steered with the Steer button, a retry). A call never closed expires after
 20 minutes without a turn. On a call, words sent while the bot works always
-join its turn (no parallel or after chooser).
+join its turn (no parallel or after chooser), unless Advanced >
+"Full-duplex conversation" is on: then a new utterance interrupts the
+in-flight turn, discards the steer queue, and starts only those words
+(issue #292). The flag is off by default. Typed chat still keeps its
+queue on Stop.
+
+## Full-duplex conversation (issue #292)
+
+The stacked answers JC heard were not the TTS sentence queue (that is
+one reply's clauses, cancelled on barge-in). They were the harness
+steer queue: talking while the bot was thinking did not interrupt
+(`call-machine.ts`), a send that raced `stoppingThreads` was
+`queueSteeredMessage`, and drain played each leftover utterance as
+the next answer.
+
+`CallSettings.fullDuplex` (device-local, `omb.voiceCall.v1`, default
+off) plus `voiceCall.duplex` on the send: confirmed speech while the
+bot is busy or speaking cancels that turn; the server never steers or
+queues those words. The thinking cue is 400 ms instead of 1200 ms so
+the line is not dead air. Approvals stay spoken yes or no and are not
+cancelled. Tools still run on the bot; the prompt already asks for a
+spoken "Je regarde ça..." before slow work.
+
+xAI Speech-to-Speech (`wss://api.x.ai/v1/realtime`, grok-voice-latest)
+is still not the brain: it would drop Sagax tools, memory, approvals
+and MCP. Tests: `src/lib/voice-mode/duplex-policy.test.ts`,
+`call-logic.test.ts`, `server/voice-call-duplex.test.ts`,
+`scripts/voice-duplex-harness.test.ts`,
+`server/voice-call-reliability.e2e.test.ts` (duplex case).
 
 Each utterance has an `utteranceId` (also its `sendId`): the server
 delivers it once, and answers a second send of it with the first receipt.
@@ -430,6 +458,9 @@ the server's own voice routes.
   verdict on synthetic contours (falling, rising, flat filler, mid-word),
   and the turn detector using it.
 - `server/tts/grok.test.ts`: the xAI requests (speed, language, STT form).
+- `src/lib/voice-mode/duplex-policy.test.ts`, `call-logic.test.ts` duplex
+  cases, `server/voice-call-duplex.test.ts`, `scripts/voice-duplex-harness.test.ts`:
+  full-duplex barge-in while thinking, admit never queues, one active turn.
 - `src/lib/voice-mode/call-logic.test.ts`: the call's state machine (barge-in,
   cancellation, hold, mute), endpointing and its adaptation, the echo guard,
   the sentence splitter.
