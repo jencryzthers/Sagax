@@ -365,7 +365,13 @@ the driver tests or `src/components/ApprovalModeSelector.fullAccess.test.ts`:
   new threads and routines). The first grant needs `confirmFullAccess: true`;
   the server keeps `fullAccessConsent` on the bot so later grants skip it.
 - Settings > Organization > Allow full access (`organization.allowFullAccess`,
-  admin only, on by default, `PATCH /api/org/settings`). Off: grants answer
+  admin only, `PATCH /api/org/settings`). Off until an admin turns it on
+  (2026-10-11, `orgFullAccessAllowed` reads `=== true`); a saved value
+  stays. Once per data directory (`org-full-access-default.v1`), an
+  organization that never saved it and already has a bot or thread on Full
+  with its owner's consent gets `allowFullAccess: true` written
+  (`orgFullAccessGrandfathered`, an `org.settings` row, actor worker), so no
+  bot changes level. Off: grants answer
   403 `org_full_access_disabled`, a send to a Full thread is refused with the
   same code, and stored Full runs as Ask (`approvalModeForTurn`).
 - A turn runs Full only while the policy is on and the consent is the bot's
@@ -378,21 +384,33 @@ the driver tests or `src/components/ApprovalModeSelector.fullAccess.test.ts`:
 - Mode changes (`approval.mode`), Full turns (`approval.full_access_turn`)
   and the policy (`org.settings`) go to the admin activity log.
 
-## Default approval mode (2026-10-05)
+## Default approval mode (2026-10-05, organizations 2026-10-11)
 
-Approve for me (`approvalMode: "auto"`) is the mode a bot starts on. Keep
-these rules, covered by `server/independent-task-store.test.ts` ("moves Ask
-bots and threads to Approve for me once"):
+Approve for me (`approvalMode: "auto"`) is the mode a bot starts on, on a
+solo server. On an organization server the organization's policy decides.
+Keep these rules, covered by `server/independent-task-store.test.ts` ("moves
+Ask bots and threads to Approve for me once"), `server/org-full-access.test.ts`
+and `server/store.org-approval-default.test.ts`:
 
-- `createBot` writes `auto` on the bot and its first thread. `POST /api/bots`
-  keeps a level the request names. This computer (`computer: "local"`) stays
-  Ask until its own warning. The New bot dialog shows Approve for me when the
-  saved template names no mode.
+- `createBot` writes the Store's `newBotApprovalMode()` on the bot and its
+  first thread (`auto` on a solo server; index.ts `newBotApprovalMode`).
+  `POST /api/bots` keeps a level the request names. This computer
+  (`computer: "local"`) stays Ask until its own warning. `GET
+  /api/bot-defaults` answers `approvalMode` (that level) and the New bot
+  dialog starts on it when the saved template names no mode
+  (`newBotStartMode`).
+- Organization server (`orgNewBotApprovalMode`): `defaults.approvalMode`
+  (`newBotDefaults.profile.approvalMode`, what the console's `POST settings`
+  writes) `auto` starts on Approve for me; anything else, no policy saved
+  included, starts on Ask (`full` and `custom` need the owner's consent,
+  which a new bot cannot have). Existing bots are never moved.
 - The first start of a data directory moves bots and threads still on Ask, or
   with no mode, onto Approve for me, then writes `approval-default-auto.v1`.
-  A later choice of Ask stays. Edits, Full and Custom stay. A grant revoked
-  at that start stays Ask, threads included. Import and team backup still
-  force Ask.
+  Where new bots start on Ask (an organization not set to `auto`) nothing
+  moves and the marker is written all the same, so a later policy change
+  never moves existing bots. A later choice of Ask stays. Edits, Full and
+  Custom stay. A grant revoked at that start stays Ask, threads included.
+  Import and team backup still force Ask.
 
 ## Settled approvals in the chat (2026-10-05)
 

@@ -820,7 +820,7 @@ import { createDirectGrantRoutes } from "./direct-grants.ts";
 import { directoryIntervalMs, PerspicaxDirectory, type ModelProvider } from "./perspicax-link.ts";
 import { PERSPICAX_UNAVAILABLE_WHY, PerspicaxMcp, perspicaxUnavailableRow, type PerspicaxUnavailableReason } from "./perspicax-mcp.ts";
 import { createPerspicaxOrgRoutes, orgDirectoryEntries, type OrgSettings, type PendingAdminApproval } from "./perspicax-org-routes.ts";
-import { orgFullAccessAllowed, orgFullAccessGrantRefusal, orgFullAccessHolds, ORG_FULL_ACCESS_DISABLED } from "./org-full-access.ts";
+import { ORG_FULL_ACCESS_DEFAULT_MARKER, orgFullAccessAllowed, orgFullAccessGrandfathered, orgFullAccessGrantRefusal, orgFullAccessHolds, orgNewBotApprovalMode, ORG_FULL_ACCESS_DISABLED } from "./org-full-access.ts";
 import { createInterimAttachRoutes, INTERIM_WINDOW_DAYS, interimWindowUntil, windowWithDays } from "./interim-attach-routes.ts";
 import { createLinkedSubjectsRoute, createOrgExportRoute } from "./org-export.ts";
 import { createOrgBotForceRoutes } from "./org-bot-force.ts";
@@ -5054,6 +5054,7 @@ const presetStore = createPresetStore();
 const store = new Store(
   () => bootSelection,
   (selection) => withNewBotEffort(selection, cfg.newBotDefaults?.profile.modelSelection?.effort, registry.get(selection.instanceId)?.adapter.capabilities.effortLevels),
+  newBotApprovalMode,
 );
 const teamComputers = new TeamComputers(join(DATA_DIR, "team-computers.json"), ENVIRONMENT_ID);
 let followupsReady = false;
@@ -5089,6 +5090,22 @@ if (startupCatalogs.length) {
 }
 store.seedIfEmpty();
 hostedModels?.reconcile(store);
+// 2026-10-11, once per data directory: Full access on an organization
+// server is off until an admin turns it on. An organization that never saved
+// the setting and already runs bots on Full keeps it, as an explicit true.
+if (IDENTITY.kind === "perspicax" && !existsSync(join(DATA_DIR, ORG_FULL_ACCESS_DEFAULT_MARKER))) {
+  if (orgFullAccessGrandfathered(cfg.organization, store.bots)) {
+    saveConfig({ organization: { ...cfg.organization, allowFullAccess: true } });
+    cfg.organization = { ...cfg.organization, allowFullAccess: true };
+    appendAdminAction(DATA_DIR, {
+      category: "org", action: "org.settings", target: { kind: "organization" }, changed: ["allowFullAccess"],
+      before: { allowFullAccess: null }, after: { allowFullAccess: true }, actor: { kind: "worker" },
+    });
+    console.log("organization: Full access stays allowed (bots already ran on it before it became off by default)");
+  }
+  try { writeFileAtomic(join(DATA_DIR, ORG_FULL_ACCESS_DEFAULT_MARKER), "off-by-default\n", { mode: 0o600 }); }
+  catch (error) { console.warn("organization: the Full access default marker was not saved", error); }
+}
 // Skills library boot sweep (features.skillsLibrary): migrate per-bot
 // copies into the shared library and apply assignments. Flag-off boots
 // never enter this block, keeping per-bot behavior byte-identical.
@@ -22043,6 +22060,12 @@ function memberOwnedInOrg(bot: { ownerUserId?: unknown }): boolean {
 function orgFullAccessPolicy(): boolean {
   return orgFullAccessAllowed(cfg.organization);
 }
+/** 2026-10-11: the level a new bot starts on. A solo server keeps Approve
+ * for me; an organization server follows its policy (`defaults.approvalMode`)
+ * and starts on Ask when it names none. */
+function newBotApprovalMode(): "ask" | "auto" {
+  return IDENTITY.kind === "perspicax" ? orgNewBotApprovalMode(cfg.newBotDefaults?.profile.approvalMode) : "auto";
+}
 /** Organization server: a stored Full that may not run as Full now (the
  * policy is off, or the bot's current owner never confirmed it). Never on
  * a solo server, where the desktop's private channel grants Full. */
@@ -31396,6 +31419,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (method === "GET" && path === "/api/bot-defaults") {
       return json(res, 200, {
         defaults: structuredClone(cfg.newBotDefaults ?? newBotDefaultsSchema.parse({})),
+        // 2026-10-11: what a new bot starts on when the template names no
+        // level (New bot shows it): Approve for me, or the organization's.
+        approvalMode: newBotApprovalMode(),
         modelSelection: await defaultSelection(),
         suggestedName: pickBotName(store.bots.map(bot => bot.name)),
       });
@@ -31544,9 +31570,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const createdRoutines: Array<{ id: string; enabled: boolean }> = [];
       try {
         const { chiefOfStaff: _chief, managedSections: _managed, toolScope: _toolScope, ...ordinary } = settings;
-        // Approve for me unless the request chose another level, or the bot
-        // works on this computer (that warning is its own confirmation).
-        const approvalMode = ordinary.approvalMode ?? (ordinary.computer === "local" ? "ask" : "auto");
+        // The server's new bot level (Approve for me, or the organization's
+        // policy) unless the request chose another level, or the bot works
+        // on this computer (that warning is its own confirmation).
+        const approvalMode = ordinary.approvalMode ?? (ordinary.computer === "local" ? "ask" : newBotApprovalMode());
         store.patchBot(bot.id, {
           // Store creation completes workspace defaults (including effort).
           // Applying the rest of the template must not undo that selection.

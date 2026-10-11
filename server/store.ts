@@ -699,6 +699,8 @@ export class Store {
   private threads = new Map<string, ThreadState>();
   private defaultSelection: () => ModelSelection;
   private completeNewBotSelection: (selection: ModelSelection) => ModelSelection;
+  /** The approval level every new bot and its first thread start on. */
+  private newBotApprovalMode: () => "ask" | "auto";
   private listeners = new Set<(change: StoreChange) => void>();
   /** A broken team registry must not prevent loading independent chat data. */
   private registeringInitialSections = true;
@@ -711,9 +713,13 @@ export class Store {
     /** Template effort applied to every new bot's selection, whichever path
      * created it. */
     completeNewBotSelection: (selection: ModelSelection) => ModelSelection = (selection) => selection,
+    /** Approve for me on a solo server; on an organization server the
+     * organization's policy decides (2026-10-11, orgNewBotApprovalMode). */
+    newBotApprovalMode: () => "ask" | "auto" = () => "auto",
   ) {
     this.defaultSelection = defaultSelection;
     this.completeNewBotSelection = completeNewBotSelection;
+    this.newBotApprovalMode = newBotApprovalMode;
     mkdirSync(DATA_DIR, { recursive: true });
     for (const file of [BOTS_FILE, GROUPS_FILE]) tightenRegistryFile(file);
     // Whether the bot list is the real one. Room repair below trusts it to
@@ -1049,9 +1055,12 @@ export class Store {
     // choice of Ask, Edits, Full or Custom stays. This computer keeps Ask
     // until its own warning. A grant revoked above stays Ask, threads included.
     // The marker is written after the save so a crash before the write retries.
+    // Where new bots start on Ask (an organization whose policy does not say
+    // Approve for me, 2026-10-11) nothing moves, and the marker is written so
+    // a later change of that policy never moves existing bots either.
     const approvalDefaultMarker = join(DATA_DIR, "approval-default-auto.v1");
     const approvalDefaultPending = !existsSync(approvalDefaultMarker);
-    if (approvalDefaultPending) {
+    if (approvalDefaultPending && this.newBotApprovalMode() === "auto") {
       for (const b of this.bots) {
         if (b.computer === "local" || keepAskBot.has(b.id)) continue;
         if (b.approvalMode === undefined || b.approvalMode === "ask") {
@@ -2008,6 +2017,7 @@ export class Store {
     this.rememberSections([profile.section]);
     const name = profile.name?.trim() || pickBotName(this.bots.map((b) => b.name));
     const section = sectionKey(profile.section);
+    const startMode = this.newBotApprovalMode();
     const bot: BotRecord = {
       id: newId(),
       threadId: newId(),
@@ -2026,8 +2036,8 @@ export class Store {
       ...(toolScope.scope ? { toolScope: toolScope.scope } : {}),
       unread: false,
       modelSelection: this.newBotSelection(profile.modelSelection),
-      approvalMode: "auto",
-      autoApprove: true,
+      approvalMode: startMode,
+      autoApprove: startMode === "auto",
       resumeCursors: {},
       createdAt: Date.now(),
       host: { kind: "fleet" },
@@ -2041,8 +2051,8 @@ export class Store {
       createdAt: bot.createdAt,
       updatedAt: bot.createdAt,
       resumeCursors: {},
-      approvalMode: "auto",
-      autoApprove: true,
+      approvalMode: startMode,
+      autoApprove: startMode === "auto",
       unread: false,
       activity: "idle",
       busy: false,

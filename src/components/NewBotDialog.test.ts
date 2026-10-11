@@ -24,7 +24,7 @@ vi.mock("@/state/store", async importOriginal => {
   const store = await importOriginal<typeof import("@/state/store")>();
   return { ...store, api: fixture.api, BotEditorStore: () => null, useStore: () => ({ state: { ...store.initialState, ...fixture.state }, dispatch: fixture.dispatch }) };
 });
-import { LocalNewBotDialog as NewBotDialog, BotsReadOnlyDialog, CompanionNewBotDialog, DefaultBotSettings, NewBotDialog as RoutedNewBotDialog } from "./NewBotDialog";
+import { LocalNewBotDialog as NewBotDialog, BotsReadOnlyDialog, CompanionNewBotDialog, DefaultBotSettings, NewBotDialog as RoutedNewBotDialog, newBotStartMode } from "./NewBotDialog";
 
 type Node = ReactElement<{ children?: ReactNode; role?: string; "aria-label"?: string; onClick?: () => void; onMouseDown?: (event: unknown) => void; onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void; disabled?: boolean }>;
 function nodes(value: ReactNode): Node[] {
@@ -204,5 +204,16 @@ describe("bot draft dialog", () => {
       expect(onClose).toHaveBeenCalledOnce();
       expect(renderToStaticMarkup(createElement(DefaultBotSettings))).toContain("data-bots-read-only");
     });
+  });
+});
+
+describe("newBotStartMode (2026-10-11)", () => {
+  it("starts on the template's level, else the server's, else Approve for me; This computer keeps its own warning", () => {
+    expect(newBotStartMode({ approvalMode: "auto" }, "ask")).toBe("auto");
+    expect(newBotStartMode({}, "ask")).toBe("ask");
+    expect(newBotStartMode({}, "auto")).toBe("auto");
+    // an older server that sends no level
+    expect(newBotStartMode({}, undefined)).toBe("auto");
+    expect(newBotStartMode({ computer: "local" }, "auto")).toBeUndefined();
   });
 });

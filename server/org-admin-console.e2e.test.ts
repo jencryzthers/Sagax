@@ -498,7 +498,7 @@ posixOnly("Perspicax console: the Sagax admin routes", () => {
     const settings = await admin("GET", "settings", ALICE);
     expect(settings.status, settings.text).toBe(200);
     expect(settings.body).toMatchObject({
-      org: { allowFullAccess: true, orgKeyConfigured: true },
+      org: { allowFullAccess: false, orgKeyConfigured: true },
       policies: { allowedMarketplaces: null, allowedEngines: null },
       backup: { enabled: true, schedule: "daily 03:00 UTC", ok: true },
     });
