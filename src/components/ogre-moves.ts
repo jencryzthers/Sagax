@@ -870,7 +870,7 @@ export function ogreDesktopShot(activity: string, previous: { activity: string }
   return ogreMoveFor(activity);
 }
 
-/** The moves the avatar popover and the desktop's Moves menu offer for Ogre: clips it plays as its own moves, in that order. */
+/** The moves the Appearance gallery and the desktop's Moves menu offer for Ogre: clips it plays as its own moves, in that order. */
 export const OGRE_MENU_CLIPS = ["wave", "love", "angry", "wingStretch", "dance", "peck", "petted", "think", "stretch", "hop"] as const;
 
 /** The move a clip or a move id plays, or null. */

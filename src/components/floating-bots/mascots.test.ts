@@ -173,7 +173,7 @@ describe("the mascot registry", () => {
   });
 });
 
-describe("the avatar popover's Bot tab", () => {
+describe("the Appearance gallery", () => {
   const render = (mascotLook?: Parameters<typeof botMascotLook>[0], mascotSkin = "none") =>
     renderToStaticMarkup(createElement(MascotLookEditor, { bot: { color: "blue", mascotSkin: mascotSkin as never, mascotLook: botMascotLook(mascotLook) }, onPatch: () => undefined }));
   const enforce = (rewards: string[]) => resetAchievementsForTests({ status: "ready", snapshot: { rewards, items: [] } as unknown as AchievementSnapshot });
@@ -197,17 +197,26 @@ describe("the avatar popover's Bot tab", () => {
     expect(html).not.toContain("data-character-shape");
   });
 
-  it("hides locked characters and skins, and shows Shapes once a Grok account is linked", () => {
+  it("shows every character, the locked ones on To unlock with their achievement, and Shapes once a Grok account is linked", () => {
+    const lockedIds = (html: string) => [...html.matchAll(/data-character-option="([a-z]+)" data-locked=""/g)].map((match) => match[1]);
+    const shelf = (html: string, id: string) => {
+      const start = html.indexOf(`data-mascot-shelf="${id}"`);
+      return start < 0 ? "" : html.slice(start, html.indexOf("</section>", start));
+    };
     enforce([]);
     const locked = render(undefined);
-    expect(locked).toContain('data-character-option="owl"');
-    for (const id of ["shape", "trombi", "bunbu"]) expect(locked).not.toContain(`data-character-option="${id}"`);
-    // the Mastery characters (Shiba, Grump, Ogre, Frog) stay in the row, locked, with their achievement; nothing else shows locked
-    for (const id of ["shiba", "grump", "ogre", "frog"]) expect(locked).toContain(`data-character-option="${id}"`);
+    // Trombi's achievement is a secret: the easter egg stays out until earned
+    expect(locked).not.toContain('data-character-option="trombi"');
+    // the owl the bot wears is on Yours; every other character waits on To unlock, previewable (never disabled)
+    expect(lockedIds(locked)).toEqual(MASCOTS.filter((option) => option.id !== "owl" && option.id !== "trombi").map((option) => option.id));
+    expect(shelf(locked, "yours")).toContain('data-character-option="owl"');
+    expect(shelf(locked, "locked")).toContain('data-character-option="ogre"');
     expect(locked).toMatch(/data-character-option="ogre" data-locked="" data-unlock-achievement="conductor"/);
-    const lockedOptions = [...locked.matchAll(/data-character-option="([a-z]+)" data-locked=""/g)].map((match) => match[1]);
-    expect(lockedOptions.every((id) => isMasteryCharacter(id)), lockedOptions.join()).toBe(true);
-    expect(locked.match(/data-locked/g)?.length ?? 0).toBe(lockedOptions.length);
+    expect(locked).not.toMatch(/data-character-option="ogre"[^>]*\sdisabled=""/);
+    // no paid edition is sold, so there is no Premium shelf nor chip
+    expect(locked).not.toContain('data-mascot-shelf="premium"');
+    expect(locked).not.toContain('data-mascot-filter="premium"');
+    // locked skins stay out, the Mastery ones excepted
     expect(locked).not.toContain('data-tab="epic"');
     expect(locked).toContain('data-mascot-skin-option="none"');
     // the skin this bot already wears stays visible
@@ -215,15 +224,18 @@ describe("the avatar popover's Bot tab", () => {
     expect(render(undefined, "chrome")).not.toContain('data-mascot-skin-option="lightning"');
     setGrokAccountLinked(true);
     const linked = render(undefined);
-    expect(linked).toContain('data-character-option="shape"');
-    expect(linked).not.toContain('data-character-option="trombi"');
+    expect(lockedIds(linked)).not.toContain("shape");
+    expect(lockedIds(linked)).toContain("bunbu");
     setGrokAccountLinked(false);
     enforce(["character:trombi", "character:bunbu", "skin:owl:chrome"]);
     const earned = render(undefined);
-    expect(earned).toContain('data-character-option="trombi"');
-    expect(earned).toContain('data-character-option="bunbu"');
-    expect(earned).not.toContain('data-character-option="shape"');
+    expect(lockedIds(earned)).not.toContain("trombi");
+    expect(lockedIds(earned)).not.toContain("bunbu");
+    expect(lockedIds(earned)).toContain("shape");
+    expect(shelf(earned, "yours")).toContain('data-character-option="trombi"');
     expect(earned).toContain('data-tab="epic"');
+    // Mastery characters keep their achievement on the tile
+    for (const id of lockedIds(earned).filter(isMasteryCharacter)) expect(earned).toMatch(new RegExp(`data-character-option="${id}" data-locked="" data-unlock-achievement="[a-z-]+"`));
   });
 
   it("offers a shape its shapes, colors, skins by rarity and its own moves, and nothing of the owl", () => {

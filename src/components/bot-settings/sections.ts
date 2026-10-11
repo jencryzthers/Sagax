@@ -7,6 +7,8 @@
 // "sharing" only on a server signed in with Perspicax, where it replaces
 // "visibility"; "perspicax" (the MCP profiles the bot offers) only there too.
 // Works on is its own row, labelled Computer, immediately after Access.
+// "appearance" (the mascot gallery and the picture sources) is the persona
+// editor's second category, right after Overview.
 // The Computer tab is the screen only.
 import {
   BookOpen,
@@ -22,6 +24,7 @@ import {
   Mic,
   Monitor,
   Network,
+  Palette,
   Plug,
   ScrollText,
   ShieldCheck,
@@ -43,6 +46,7 @@ export const BOT_SECTIONS: Array<{
   keywords: string[];
 }> = [
   { id: "overview", label: "Overview", labelKey: "botSettings.nav.overview", icon: LayoutDashboard, keywords: ["summary", "status", "what it does", "won't", "prompt", "what the model sees"] },
+  { id: "appearance", label: "Appearance", labelKey: "botSettings.nav.appearance", icon: Palette, keywords: ["appearance", "mascot", "avatar", "character", "skin", "color", "colour", "look", "picture", "image", "generate", "upload", "moves"] },
   { id: "slack", label: "Slack", icon: Slack, keywords: ["slack", "slack app", "admin", "message", "direct messages", "mentions"] },
   { id: "soul", label: "Soul", labelKey: "botSettings.nav.soul", icon: Sparkles, keywords: ["standing instructions", "instructions", "persona", "rules", "soul.md"] },
   { id: "rules", label: "Rules", labelKey: "botSettings.nav.rules", icon: ScrollText, keywords: ["rules", "rules.md", "constraints", "never", "always", "policy", "guardrails"] },

@@ -72,7 +72,7 @@ export interface OwlAvatarProps {
   skin?: MascotSkinId | string | null;
   /** Play the skin's effects even while `animated` is off (skin pickers). */
   skinAnimated?: boolean;
-  /** A one-shot move's skin effect (the avatar popover's Moves): its particles, trails and rings. */
+  /** A one-shot move's skin effect (the Appearance gallery's Moves): its particles, trails and rings. */
   move?: FxMoveRequest | null;
   className?: string;
 }

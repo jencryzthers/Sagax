@@ -25,7 +25,7 @@ export type BunbuMood = "idle" | "thinking" | "working" | "happy" | "sleeping" |
 /** What the limbs and ears are doing: the signature ear flop, a wave, dangling while dragged, ears back in a hop. */
 export type BunbuAction = "earflop" | "wave" | "drag" | "hop" | "walk";
 
-/** The clip the avatar popover sends for Bunbu's signature move (an idle clip every character plays). */
+/** The clip the Appearance gallery sends for Bunbu's signature move (an idle clip every character plays). */
 export const BUNBU_EARFLOP_CLIP = "ruffle";
 
 export interface BunbuMascotProps {

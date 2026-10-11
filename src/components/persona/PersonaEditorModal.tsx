@@ -4,8 +4,8 @@
 // section the bot panel used to show under More (useBotSectionContent), so both
 // save through the same paths. A section this viewer may not change stays
 // in the list and says why (botSectionLock); nothing is hidden for lack of a
-// permission. Opened from the mascot's menu in the bot panel (store action
-// openPersonaEditor).
+// permission. Opened from the mascot's menu in the bot panel, and on
+// Appearance from a click on the bot's avatar (store action openPersonaEditor).
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { Lock, Search, X } from "lucide-react";
 
