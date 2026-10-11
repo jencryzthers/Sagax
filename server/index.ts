@@ -939,6 +939,10 @@ const ENVIRONMENT_ID = loadEnvironmentId(DATA_DIR);
 // sign-in list, invitations and mailer; an organization server signs people
 // in with Pulsatrix only (Perspicax owns accounts), so the list is empty
 // there and a legacy email session ends at its next request.
+// 2026-10-11: the server log tail of the console's Logs page survives a
+// restart (server/server-log-ring.ts): a bounded window on disk.
+serverLog.persistTo(join(DATA_DIR, "server-log"));
+process.once("exit", () => serverLog.flush());
 const IDENTITY = identityConfigFromEnv();
 /** A model on an engine the organization's admin does not allow (allowedEngines). */
 const ORG_ENGINE_NOT_ALLOWED = "Your organization does not allow this model provider.";
@@ -10734,6 +10738,21 @@ bus.subscribe((event: RuntimeEvent) => {
       const messageId = event.requestId ? askMessageByRequest.get(`${event.threadId}:${event.requestId}`) : null;
       if (messageId) {
         const existing = store.messagesFor(event.threadId).find((m) => m.id === messageId);
+        // 2026-10-11: a permission card nobody answered before its own
+        // timeout is a decision too, so the approvals history can say
+        // "expired" (GET /api/org/admin/approvals/history).
+        if (event.source === "timeout" && existing?.card?.requestType === "permission" && !existing.card.answered) {
+          appendDecision(DATA_DIR, {
+            threadId: event.threadId,
+            requestId: event.requestId,
+            botId: waiting?.id,
+            botName: waiting?.name,
+            tool: existing.card.tool,
+            summary: existing.card.subtitle,
+            decision: "expired",
+            source: "timeout",
+          });
+        }
         if (existing?.card && !existing.card.answered) {
           if (shouldSettleRequestCard(existing.card, event.source)) {
             store.patchMessage(event.threadId, messageId, {

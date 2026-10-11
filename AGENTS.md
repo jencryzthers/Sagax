@@ -449,6 +449,23 @@ and `server/store.org-approval-default.test.ts`:
   Custom stay. A grant revoked at that start stays Ask, threads included.
   Import and team backup still force Ask.
 
+## Server log on disk and expired approvals (2026-10-11)
+
+- The server log tail behind `GET /api/org/admin/logs`
+  (`server/server-log-ring.ts`) is a sliding window on disk as well as in
+  memory: `serverLog.persistTo(<data>/server-log)` at start, two JSON-lines
+  files (`current.jsonl`, `previous.jsonl`) of at most `LOG_FILE_MAX_BYTES`
+  (2 MiB) each, 0600 in a 0700 folder, written in batches (1 s, flushed at
+  exit), lines redacted before they are kept. A restart reloads the last
+  2,000 lines and `seq` continues; the answer's shape is unchanged. The
+  folder is never in a workspace backup (`ephemeralWorkspaceTokenPath`).
+  Covered by `server/server-log-ring.test.ts`.
+- A permission card whose own timeout passed with no answer
+  (`request.resolved` with `source: "timeout"`) writes a decision row
+  `expired` (source `timeout`), and `GET approvals/history` answers it as
+  `decision: "expired"` with `by` null (`server/org-admin-routines.test.ts`).
+  The bot activity log reads it as denied (nothing ran).
+
 ## Settled approvals in the chat (2026-10-05)
 
 A permission ask stays in the chat only while it is still waiting. Once it

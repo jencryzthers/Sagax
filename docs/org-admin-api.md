@@ -559,9 +559,10 @@ listed, never decidable.
 ```
 
 From the decision log: the cards a person answered (in Sagax or from the
-console), newest first. Sagax records no expiry decision: `expired` is never
-answered. `by` names the person when Sagax knows them, else the device
-label.
+console), and since 2026-10-11 the permission cards nobody answered before
+their own timeout (`decision: "expired"`, `by` null), newest first. `by`
+names the person when Sagax knows them, else the device label. A card that
+expired before that day has no row.
 
 ## Connections
 
@@ -655,10 +656,12 @@ engine, person, bot or day and exports CSV from the rows it holds.
 }
 ```
 
-The last 2,000 lines this process wrote to its console, kept in memory (a
-restart starts empty), each at most 2,000 characters, secrets redacted when
-captured (`redactSecretsInText`). The container's log driver keeps the
-whole log.
+The last 2,000 lines the server wrote to its console, each at most 2,000
+characters, secrets redacted when captured (`redactSecretsInText`). Since
+2026-10-11 the window also lives on disk (`<data>/server-log/`, two files of
+at most 2 MiB each, mode 0600, left out of workspace backups), so a restart
+keeps the last lines and `seq` keeps growing across restarts; the answer's
+shape is unchanged. The container's log driver keeps the whole log.
 
 ### `GET incidents`
 
@@ -786,4 +789,3 @@ linked from the console keeps the poll and the refresh at each sign-in.
 |---|---|
 | `people[].engines[].ok` in `GET connections` | no background check: null, test on demand |
 | `presence.idle` | Sagax knows online, away and offline only: always 0 |
-| `approvals/history` `decision: "expired"` | Sagax records no expiry decision |
