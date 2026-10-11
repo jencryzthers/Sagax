@@ -617,6 +617,17 @@ final class DesktopSidebarFlags: ObservableObject {
         features = config.features
         viewerId = PrimaryBotRules.viewerId(config: config)
     }
+
+    /// After Settings > Experimental PATCH, so Connected apps and Browse Bots
+    /// hide at once like the desktop store's `configStatus`.
+    func apply(_ features: ServerFeatures?) {
+        self.features = features
+    }
+
+    func apply(_ config: DesktopSettingsConfig?) {
+        guard let features = config?.features else { return }
+        self.features = ServerFeatures(browser: features.browser, connectedApps: features.connectedApps, templates: features.templates)
+    }
 }
 
 /// The places (`SidebarPlaces`: 36 pt rows 2 apart, a 20 pt icon at x 16,

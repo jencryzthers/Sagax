@@ -34,6 +34,7 @@ import { UsageSection } from "./UsageSection";
 import { VisibilitySection } from "./VisibilitySection";
 import { SharingSection } from "./SharingSection";
 import { PerspicaxSection } from "./PerspicaxSection";
+import { AppearancePane } from "../appearance/AppearancePane";
 import type { PromptPreviewData } from "./PromptPreview";
 
 /** Which sections this server offers at all (not a permission). Slack is
@@ -255,6 +256,8 @@ export function useBotSectionContent(bot: Bot, {
             onOpen={onOpenSection}
           />
         );
+      case "appearance":
+        return <AppearancePane bot={bot} onPatch={derived.patch} />;
       case "soul":
         if (!canEditBotField(state.config, bot, "soul")) return null;
         return <SoulSection bot={bot} patch={derived.patch} />;

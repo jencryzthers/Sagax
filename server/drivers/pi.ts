@@ -1300,6 +1300,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
           turn.text,
           Boolean(turn.mentionTurn),
           PI_PROMPT_RE_ANCHOR_TURNS,
+          turn.systemVolatileSections,
         );
         message = composed.text;
         pendingReceipt = { key: receiptKey, receipt: composed.receipt };

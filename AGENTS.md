@@ -1099,9 +1099,10 @@ Electron restart (no HMR); launch-test them before committing.
   actions, with cooldowns and the activity level) and cross-fades them.
   Nothing moves faster than about 4 Hz; reactions keep a minimum dwell.
   Test new behavior there, not in the view.
-- Characters live in the registry `mascots.tsx` (id, label, thumbnail,
-  renderer, capabilities, popover paint and moves); adding one is adding an
-  entry. The desktop owl is the flat one (`Owl25D.tsx`, owl-art's own SVG
+- Characters live in the registry `mascots.tsx` (id, family, label,
+  thumbnail, renderer, capabilities, the Appearance gallery's paint and
+  moves; optional `premium: { price }` and `isNew` badge its tile, none is
+  set yet); adding one is adding an entry. The desktop owl is the flat one (`Owl25D.tsx`, owl-art's own SVG
   parts). A stored look `style` of `3d` still validates and is drawn flat.
   The modeled owl under `owl3d/` stays for its own checks; the editor and
   the floating window do not load it. `src/lib/floating-bots.test.ts` guards
@@ -1223,7 +1224,7 @@ Electron restart (no HMR); launch-test them before committing.
   `.fb-menu` stays for the in-app overlay and an older preload. Its items
   come from the brain (`floatingMenu` in `brain.ts`): Talk, Start a voice
   call, Open in Sagax; Switch bot (`switch:<botId>`) and Moves
-  (`move:<clip>`, the list of `moves.ts`, shared with the avatar popover);
+  (`move:<clip>`, the list of `moves.ts`, shared with the Appearance gallery);
   Hide for 1 hour (`snooze`, `hiddenUntil`, the window reopens by itself) and
   Hide (`dock`); On the desktop (always on top, fly away, activity) and
   Settings (Settings > Appearance). Items may be separators, greyed or one
@@ -1241,15 +1242,19 @@ Electron restart (no HMR); launch-test them before committing.
   window falls back to the plain owl rather than drawing nothing.
 - The character (owl, Shapes, Trombi, Bunbu, Shiba, Frog) and its look live with the bot
   (`bot.mascotLook`, `shared/mascot-look.ts`, validated by the server), chosen
-  in the avatar popover (`MascotLookEditor.tsx`) and drawn by `BotAvatar` for
-  every bot avatar in the app; never draw a bot's mascot outside `BotAvatar`.
-  By default the popover offers only the owl and its Common skins. Shapes
-  appears after a linked Grok account. Trombi appears only from its hidden
-  command (an easter egg; do not write the command down). Bunbu and every
-  skin above Common appear when their achievement unlocks them. A locked
-  reward is left out of the editor and the app icon picker until then. What
-  a bot already wears stays listed. The phone follows the same list from the
-  server's reward keys and has no Grok detector of its own.
+  in the persona editor's Appearance gallery (`MascotLookEditor.tsx`) and
+  drawn by `BotAvatar` for every bot avatar in the app; never draw a bot's
+  mascot outside `BotAvatar`. By default the owl and its Common skins are
+  the bot's to wear. The gallery shows every other character on its To
+  unlock shelf, greyed with its achievement and progress: it can be
+  previewed, not worn. Shapes unlocks with a linked Grok account. Trombi
+  stays out of the gallery until its hidden command earns it (an easter egg
+  behind a secret achievement; do not write the command down). Bunbu and
+  every skin above Common unlock with their achievement; a locked skin stays
+  out of the skin cards (a Mastery skin excepted) and a locked reward out of
+  the app icon picker. What a bot already wears stays listed. The phone
+  follows the same rules from the server's reward keys and has no Grok
+  detector of its own.
 - Bunbu is an original character of ours (a collectible-vinyl little monster:
   long paddle ears, gumdrop body, five small teeth, a tummy heart). It is
   inspired by the designer-toy genre, never a copy of an existing one: keep
@@ -1317,9 +1322,9 @@ Electron restart (no HMR); launch-test them before committing.
 - Bot colors live in `shared/mascot-colors.ts` (palettes Vivid, Pastel, Deep,
   Neon, Neutral; the original fifteen ids keep their values) and every skin,
   the owl's included (`OWL_SKIN_TIER`, `LEGACY_OWL_SKINS`), has a rarity. The
-  popover shows one palette and one rarity at a time (`editor-tabs.ts`,
-  covered by `editor-tabs.test.ts`); a renamed skin id goes in the legacy
-  table, never removed.
+  gallery's detail shows one palette and one rarity at a time
+  (`editor-tabs.ts`, covered by `editor-tabs.test.ts`); a renamed skin id
+  goes in the legacy table, never removed.
 - Per device:, the mood (`omb.floatingBots.mood.v1`, never punishing),
   and the settings "Fly away during tasks" and "Activity level"
   (`omb.floatingBots.prefs.v1`, Settings > Appearance and the right-click
@@ -1769,7 +1774,21 @@ under them (`DesktopPersonaEditor.offered`), a pushed page on the phone
 iPad (`desktop-panel-edit-persona`, `DesktopShellModel.showPersona`). The
 name and label are edited where they show (`InlineEditableText`). The
 description is not a line under the label; `IdentitySection` still edits it.
-There are no Name or Label fields in this panel. Details lists Coding,
+There are no Name or Label fields in this panel. The persona editor's
+categories (`src/lib/persona-sections.ts`) start with Overview, then
+Appearance (2026-10-11, `appearance/AppearancePane.tsx`): a Mascot,
+Generate and Upload control with Reset, and under Mascot a compact gallery
+that fits the modal without scrolling (search, filter chips All, Owned, To
+unlock, Premium only while one is sold, one chip per family; shelves Yours,
+To unlock, Premium, all from `floating-bots/wardrobe.ts`) beside a detail
+column (a preview stage that plays the moves, then color, skin, moves and
+In use, Use or the unlock hint). It is a size container: the two columns
+stack when the pane is under 34rem. An unlocked character saves on pick, a
+locked one only previews. Clicking the bot's avatar (`BotProfileAvatarCard`,
+in the panel and in the editor's Overview) opens the editor on Appearance;
+there is no avatar popover, and a right click keeps the mascot menu. The
+New bot dialog's draft is not in the store yet, so its avatar shows the same
+pane under it. Details lists Coding,
 Activity, then Routines (`ActivitySection`, `ActivityListModal`,
 `ActivityDetailModal`).
 Coding is code work only: the server marks an entry `coding` from its

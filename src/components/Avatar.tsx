@@ -29,6 +29,7 @@ import type { ShibaExpression } from "./shiba-art";
 import { GrumpMascot } from "./GrumpMascot";
 import { OgreMascot } from "./OgreMascot";
 import { FrogMascot } from "./FrogMascot";
+import { CrabMascot } from "./CrabMascot";
 import type { FrogExpression } from "./frog-art";
 import type { FxMoveRequest } from "./skin-fx/skin-fx";
 
@@ -83,7 +84,7 @@ export type MausAvatarProps = {
   skin?: MascotSkinId | null;
   /** Play the skin's effects even while `animated` is off (skin pickers). */
   skinAnimated?: boolean;
-  /** A one-shot move's skin effect (the avatar popover's Moves). */
+  /** A one-shot move's skin effect (the Appearance gallery's Moves). */
   move?: FxMoveRequest | null;
 };
 
@@ -175,7 +176,7 @@ export type BotAvatarProps = Omit<MausAvatarProps, "color"> & {
     /** The bot's character (owl, shape, Trombi); absent means the owl. */
     mascotLook?: MascotLook | null;
   };
-  /** A one-shot move (the avatar popover's Moves): a shape's or Trombi's body motion and skin effect, the owl's skin effect. */
+  /** A one-shot move (the Appearance gallery's Moves): a shape's or Trombi's body motion and skin effect, the owl's skin effect. */
   characterMove?: FxMoveRequest | null;
   /** Mark this avatar as its person's Primary Bot: a small orange circle with
    * a white star at the bottom-right corner. Lists pass it (sidebar,
@@ -311,6 +312,9 @@ function CharacterAvatar({ look, color, size, state, animated = true, label, mov
   }
   if (full.character === "frog") {
     return <FrogMascot skin={full.skins.frog} color={color} size={size} mood={bunbuMoodFor(state)} expression={frogExpressionFor(state)} animated={animated} move={move} moveBody label={label ?? null} />;
+  }
+  if (full.character === "crab") {
+    return <CrabMascot skin={full.skins.crab} color={color} size={size} mood={bunbuMoodFor(state)} expression={frogExpressionFor(state)} animated={animated} move={move} moveBody label={label ?? null} />;
   }
   if (full.character === "bunbu") {
     return <BunbuMascot skin={full.skins.bunbu} color={color} size={size} mood={bunbuMoodFor(state)} animated={animated} move={move} moveBody label={label ?? null} />;

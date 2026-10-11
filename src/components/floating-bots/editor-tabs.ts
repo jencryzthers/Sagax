@@ -1,6 +1,6 @@
-// The avatar popover's tabs, as pure functions (MascotLookEditor.tsx): skins
+// The Appearance gallery's tabs, as pure functions (MascotLookEditor.tsx): skins
 // grouped by rarity (Common, Rare, Epic, Legendary) and colors grouped by
-// palette (Vivid, Pastel, Deep, Neon, Neutral). The popover opens on the tab
+// palette (Vivid, Pastel, Deep, Neon, Neutral). The gallery opens on the tab
 // of the current choice and follows it when it changes elsewhere (Reset).
 import { MASCOT_COLOR_GROUPS, mascotColorGroup, paletteSwatches, type MascotColorGroup, type MascotColorName } from "../../../shared/mascot-colors";
 import type { SkinTier } from "../../../shared/mascot-look";
@@ -42,7 +42,7 @@ export function colorTabs(groups: readonly MascotColorGroup[] = MASCOT_COLOR_GRO
 /** The palettes a character offers: Clay only for Shapes, Shiba, Grump, Ogre and Frog, or for a bot that already wears a Clay color. */
 export function colorGroupsFor(character: string, color: string | null | undefined): MascotColorGroup[] {
   const own = mascotColorGroup(color);
-  return MASCOT_COLOR_GROUPS.filter((group) => group !== "clay" || character === "shape" || character === "shiba" || character === "grump" || character === "ogre" || character === "frog" || own === "clay");
+  return MASCOT_COLOR_GROUPS.filter((group) => group !== "clay" || character === "shape" || character === "shiba" || character === "grump" || character === "ogre" || character === "frog" || character === "crab" || own === "clay");
 }
 
 /** The palette tab the picker opens on: the current color's own (an unknown color opens Vivid). */

@@ -4,7 +4,7 @@
 // draws each character with the app's own components and paints the result
 // through the system template (shared/app-icon-template.ts).
 import type { MascotSkinId } from "../../shared/mascot-skins";
-import type { BunbuSkin, FrogSkin, GrumpSkin, MascotShape, OgreSkin, ShapeSkin, ShibaSkin, TrombiSkin } from "../../shared/mascot-look";
+import type { BunbuSkin, CrabSkin, FrogSkin, GrumpSkin, MascotShape, OgreSkin, ShapeSkin, ShibaSkin, TrombiSkin } from "../../shared/mascot-look";
 import type { MascotColorName } from "../../shared/mascot-colors";
 import type { LocaleKey } from "@/locales";
 import type { AppIconGlyph } from "./app-icon-glyphs";
@@ -20,6 +20,7 @@ export type AppIconArt =
   | { kind: "grump"; skin: GrumpSkin; color: MascotColorName }
   | { kind: "ogre"; skin: OgreSkin; color: MascotColorName }
   | { kind: "frog"; skin: FrogSkin; color: MascotColorName }
+  | { kind: "crab"; skin: CrabSkin; color: MascotColorName }
   | { kind: "glyph"; glyph: AppIconGlyph }
   | { kind: "primary"; botId: string }
   | { kind: "upload" };
@@ -75,6 +76,7 @@ export const APP_ICON_CHOICES: readonly AppIconChoice[] = [
   { id: "grump:plain", labelKey: "floatingBots.mascot.grump", background: ["#F6EEDF", "#D9C6A8"], art: { kind: "grump", skin: "plain", color: "brown" }, fit: "contain" },
   { id: "ogre:plain", labelKey: "floatingBots.mascot.ogre", background: ["#F3EBD2", "#C9D79A"], art: { kind: "ogre", skin: "plain", color: "green" }, fit: "contain" },
   { id: "frog:plain", labelKey: "floatingBots.mascot.frog", background: ["#EEF6DC", "#BFDDA0"], art: { kind: "frog", skin: "plain", color: "green" }, fit: "contain" },
+  { id: "crab:plain", labelKey: "floatingBots.mascot.crab", background: ["#F8E6DC", "#E8B89A"], art: { kind: "crab", skin: "coral", color: "orange" }, fit: "contain" },
 ];
 
 /** The Primary Bot's look, when the person has one. */

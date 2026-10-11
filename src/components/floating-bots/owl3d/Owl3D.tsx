@@ -141,6 +141,8 @@ export const OWL_CLIP_FOR: Record<ClipName, OwlClip> = {
   sideEye: "lookRight",
   blinkOne: "blink",
   longJump: "hop",
+  // a crab's own clips (Crab), should the owl ever play one
+  scuttle: "walk",
 };
 
 /** Activities whose clip loops until the activity changes; the others play once and hold. */

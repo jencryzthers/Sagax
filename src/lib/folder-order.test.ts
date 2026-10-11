@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { draggedFolder, FOLDER_DRAG_TYPE, moveFolder, placeFolder } from "./folder-order";
+import { draggedFolder, draggedThread, FOLDER_DRAG_TYPE, THREAD_DRAG_TYPE, moveFolder, placeFolder } from "./folder-order";
 
 describe("folder ordering", () => {
   const ids = ["one", "two", "three"];
@@ -25,5 +25,14 @@ describe("folder ordering", () => {
     expect(draggedFolder(JSON.stringify({ botId: "bot", projectId: "deleted" }), "bot", ids)).toBeNull();
     for (const raw of ["bots", "two", "{}", "null", "[]", "true"]) expect(draggedFolder(raw, "bot", ids)).toBeNull();
     expect(FOLDER_DRAG_TYPE).not.toBe("application/x-openmausbot-sidebar-section");
+    expect(THREAD_DRAG_TYPE).not.toBe(FOLDER_DRAG_TYPE);
+  });
+
+  it("accepts only same-owner existing chats for a folder drop", () => {
+    const threads = ["general", "budget"];
+    expect(draggedThread(JSON.stringify({ ownerId: "bot", threadId: "budget" }), "bot", threads)).toBe("budget");
+    expect(draggedThread(JSON.stringify({ ownerId: "other", threadId: "budget" }), "bot", threads)).toBeNull();
+    expect(draggedThread(JSON.stringify({ ownerId: "bot", threadId: "gone" }), "bot", threads)).toBeNull();
+    for (const raw of ["chats", "budget", "{}", "null", "[]", "true"]) expect(draggedThread(raw, "bot", threads)).toBeNull();
   });
 });

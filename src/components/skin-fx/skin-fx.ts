@@ -154,7 +154,7 @@ export function useEquipBurst(skin: string, enabled: boolean): number | null {
   return enabled ? burst : null;
 }
 
-/** A one-shot move asked by the app (the avatar popover's Moves), shown for MOVE_FX_MS. */
+/** A one-shot move asked by the app (the Appearance gallery's Moves), shown for MOVE_FX_MS. */
 export interface FxMoveRequest {
   clip: string;
   key: number;

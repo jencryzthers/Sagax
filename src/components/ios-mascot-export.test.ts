@@ -31,6 +31,9 @@
 // - ios/Sources/CompanionCore/OgreStillArt.swift: Ogre's still drawing (the
 //   approved head and shoulders, `ogreParts` in ogre-art.ts) as draw
 //   operations, every face, the skins' fixed colors and palette samples.
+// - ios/Sources/CompanionCore/CrabArt.swift: Crab's pixel rects and skins,
+//   written by hand (the sprite is nine rectangles). The fixture carries
+//   each skin's fill and eyes (`crabPalettes`) which CrabArt.paint must match.
 //
 // They are all checked here; `UPDATE_IOS_MASCOT=1 pnpm vitest run
 // src/components/ios-mascot-export.test.ts` rewrites them after a desktop
@@ -41,8 +44,10 @@ import { describe, expect, it } from "vitest";
 import {
   BUNBU_SKINS,
   GRUMP_SKINS,
+  CRAB_SKINS,
   FROG_SKINS,
   LEGACY_BUNBU_SKINS,
+  LEGACY_CRAB_SKINS,
   LEGACY_GRUMP_SKINS,
   LEGACY_OGRE_SKINS,
   LEGACY_FROG_SKINS,
@@ -76,6 +81,7 @@ import { ogreSkinPaint } from "./skin-fx/ogre-skins";
 import { FROG_BUST, FROG_BUST_MAX, FROG_EXPRESSIONS, FROG_MOUTHS, FROG_PIVOTS, FROG_ROLES, frogFlyOps, frogHaunchOps, frogLegOps, frogMouthOps, frogOutline, frogPadOps, frogParts, frogThroatOps, frogTongueOps, type FrogOp } from "./frog-art";
 import { FLY_AT, FROG_TRACKS, frogMoveAt, THROAT_TOP, type FrogMove } from "./frog-moves";
 import { frogSkinPaint } from "./skin-fx/frog-skins";
+import { crabSkinPaint } from "./skin-fx/crab-skins";
 
 const ROOT = join(__dirname, "..", "..");
 const FIXTURE = join(ROOT, "ios/Tests/CompanionCoreTests/Fixtures/mascot-looks.json");
@@ -115,9 +121,10 @@ function lookCases(): Case[] {
   for (const skin of GRUMP_SKINS) add(`grump ${skin}`, { character: "grump", skins: { grump: skin } });
   for (const skin of OGRE_SKINS) add(`ogre ${skin}`, { character: "ogre", skins: { ogre: skin } });
   for (const skin of FROG_SKINS) add(`frog ${skin}`, { character: "frog", skins: { frog: skin } });
+  for (const skin of CRAB_SKINS) add(`crab ${skin}`, { character: "crab", skins: { crab: skin } });
   // the desktop editor saves every choice made (completeMascotLook), every character's skin at once
   for (const character of MASCOT_CHARACTERS) {
-    add(`editor ${character}`, completeMascotLook({ character, shape: "cloud", skins: { shape: "galaxy", trombi: "holo", bunbu: "velvet", shiba: "sesame", grump: "calico", ogre: "lava", frog: "poison" } }));
+    add(`editor ${character}`, completeMascotLook({ character, shape: "cloud", skins: { shape: "galaxy", trombi: "holo", bunbu: "velvet", shiba: "sesame", grump: "calico", ogre: "lava", frog: "poison", crab: "mint" } }));
     add(`editor default ${character}`, completeMascotLook({ character }));
   }
   for (const [legacy] of Object.entries(LEGACY_SHAPES)) add(`legacy shape ${legacy}`, { character: "shape", shape: legacy });
@@ -128,6 +135,7 @@ function lookCases(): Case[] {
   for (const [legacy] of Object.entries(LEGACY_GRUMP_SKINS)) add(`legacy grump skin ${legacy}`, { character: "grump", skins: { grump: legacy } });
   for (const [legacy] of Object.entries(LEGACY_OGRE_SKINS)) add(`legacy ogre skin ${legacy}`, { character: "ogre", skins: { ogre: legacy } });
   for (const [legacy] of Object.entries(LEGACY_FROG_SKINS)) add(`legacy frog skin ${legacy}`, { character: "frog", skins: { frog: legacy } });
+  for (const [legacy] of Object.entries(LEGACY_CRAB_SKINS)) add(`legacy crab skin ${legacy}`, { character: "crab", skins: { crab: legacy } });
   // a newer build's skin is dropped, never the character
   add("unknown shape skin", { character: "shape", shape: "pill", skins: { shape: "plasma" } });
   add("unknown bunbu skin", { character: "bunbu", skins: { bunbu: "plasma", shape: "gold" } });
@@ -135,6 +143,7 @@ function lookCases(): Case[] {
   add("unknown grump skin", { character: "grump", skins: { grump: "plasma", shiba: "gold" } });
   add("unknown ogre skin", { character: "ogre", skins: { ogre: "plasma", shiba: "red" } });
   add("unknown frog skin", { character: "frog", skins: { frog: "plasma", shiba: "red" } });
+  add("unknown crab skin", { character: "crab", skins: { crab: "plasma", frog: "tree" } });
   add("unknown skins key", { character: "trombi", skins: { trombi: "gold", dragon: "red" } });
   add("null skins", { character: "bunbu", skins: null });
   add("null skin value", { character: "shape", shape: "drop", skins: { shape: null } });
@@ -162,6 +171,7 @@ function fixture() {
     grumpSkins: GRUMP_SKINS,
     ogreSkins: OGRE_SKINS,
     frogSkins: FROG_SKINS,
+    crabSkins: CRAB_SKINS,
     owlSkins: MASCOT_SKIN_IDS,
     colorGroups: Object.fromEntries(MASCOT_COLOR_GROUPS.map((group) => [group, Object.keys(MASCOT_COLOR_PALETTES[group])])),
     colors: MASCOT_COLOR_HEX,
@@ -169,6 +179,7 @@ function fixture() {
     owlSkinCases: owlSkins,
     shibaPalettes: shibaPalettes(),
     frogPalettes: frogPalettes(),
+    crabPalettes: crabPalettes(),
   };
 }
 
@@ -286,6 +297,17 @@ function frogPalettes() {
   );
 }
 
+/** Crab's fill and eyes for every skin on a few colors, which CrabArt.paint must match. */
+function crabPalettes() {
+  const colors = ["orange", "blue", "white", "butter", "black", "mint"] as const;
+  return CRAB_SKINS.flatMap((skin) =>
+    colors.map((color) => {
+      const paint = crabSkinPaint(skin, MASCOT_COLOR_HEX[color]);
+      return { skin, color, fill: paint.fill.toUpperCase(), eyes: paint.eyes.toUpperCase() };
+    }),
+  );
+}
+
 /** Frog's ops drawn at two sizes as Swift, each stroke `width + perOutline * outline` (the Shiba's rule). */
 function frogOps(a: readonly FrogOp[], b: readonly FrogOp[], indent: string, hideInBust?: (op: FrogOp) => boolean): string {
   expect(a.length).toBe(b.length);
@@ -345,7 +367,7 @@ function frogSwift(): string {
   for (const mouth of FROG_MOUTHS) lines.push(`        ${str(mouth)}: ${frogOps(frogMouthOps(mouth, frogOutline(SHIBA_A)), frogMouthOps(mouth, frogOutline(SHIBA_B)), "            ")},`);
   lines.push("    ]");
   lines.push(`    /// The throat sac full; a puff scales it about its top.`, `    public static let throat: [FrogOp] = ${two((ow) => frogThroatOps(1, ow))}`);
-  lines.push(`    /// The hind legs stretched out (a hop scales them from the hips), shins behind the body, haunches over it.`);
+  lines.push(`    /// The hind legs kicked out (a hop scales them from the hips), palmate feet behind the body, haunches over it.`);
   lines.push(`    public static let legs: [FrogOp] = ${two((ow) => [...frogLegOps(-1, 1, ow), ...frogLegOps(1, 1, ow)])}`);
   lines.push(`    public static let haunches: [FrogOp] = ${two((ow) => [...frogHaunchOps(-1, 1, ow), ...frogHaunchOps(1, 1, ow)])}`);
   lines.push(`    public static let tongue: [FrogOp] = ${two((ow) => frogTongueOps(FLY_AT, 1, ow))}`);

@@ -170,6 +170,8 @@ describe("Settings → Appearance", () => {
     const html = render();
     expect(html).toContain('aria-label="Show unconfigured providers"');
     expect(html).toContain("Unconfigured providers");
+    expect(html).toContain("they stay hidden until you turn this on");
+    expect(html).not.toContain("folded");
     const toggle = fixture.switches.find((props) => props["aria-label"] === "Show unconfigured providers")!;
     expect(toggle.checked).toBe(false);
     toggle.onClick!({} as never);

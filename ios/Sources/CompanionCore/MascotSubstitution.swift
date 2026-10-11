@@ -56,6 +56,8 @@ public enum MascotSubstitution {
         case .frog:
             guard FrogArt.baseOnly.contains(look.frogSkin) else { return [] }
             return [Entry(character: .frog, wanted: "Frog skin \(look.frogSkin.rawValue)", drawn: "its palette and skin gradient, patterns as their base tone, without its effects")]
+        case .crab:
+            return []
         }
     }
 

@@ -1,12 +1,26 @@
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+// The bot's avatar: a click opens the persona editor on Appearance (the
+// look's one home), a right click keeps the bot panel's menu, and a draft
+// bot (New bot) shows the Appearance pane under its avatar instead.
+//
+// A happy-dom window installed by hand (src/testing/happy-window.ts).
+import { act, createElement } from "react";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { installHappyWindow } from "@/testing/happy-window";
+import { setLocale } from "@/lib/i18n";
+import type { Bot } from "@/state/store";
 
-import { StoreProvider, type Bot } from "@/state/store";
-import { MAUS_COLOR_NAMES } from "@/lib/mascot";
-import { BotProfileAvatarCard, editorDismissRoot } from "./BotProfileAvatarCard";
-import { popoverClosesOnKey, popoverClosesOnPointer } from "@/hooks/use-popover-dismiss";
-import MascotLookEditor from "./floating-bots/MascotLookEditor";
+const closeWindow = installHappyWindow();
+const { createRoot } = await import("react-dom/client");
+type Root = ReturnType<typeof createRoot>;
+
+const fixture = vi.hoisted(() => ({ dispatch: vi.fn() }));
+vi.mock("@/state/store", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/state/store")>();
+  return { ...original, useStore: () => ({ state: original.initialState, dispatch: fixture.dispatch, flushBotPatches: vi.fn(async () => null) }) };
+});
+
+const { BotProfileAvatarCard } = await import("./BotProfileAvatarCard");
+const { BotEditorContext } = await import("./bot-settings/BotEditorContext");
 
 function makeBot(overrides: Partial<Bot> = {}): Bot {
   return {
@@ -24,150 +38,55 @@ function makeBot(overrides: Partial<Bot> = {}): Bot {
   };
 }
 
-function renderCard(bot: Bot) {
-  return renderToStaticMarkup(
-    createElement(
-      StoreProvider,
-      null,
-      createElement(BotProfileAvatarCard, {
-        bot,
-        activeState: "idle",
-        mascotMotion: null,
-        onPatch: vi.fn(),
-      }),
-    ),
-  );
-}
-
-/** The Bot tab's content (loaded lazily in the popover). */
-function renderEditor(bot: Bot) {
-  return renderToStaticMarkup(createElement(MascotLookEditor, { bot, onPatch: vi.fn() }));
-}
+beforeAll(() => setLocale("en"));
 
 describe("BotProfileAvatarCard", () => {
-  it("no longer offers a body picker: every bot is the owl", () => {
-    for (const bot of [makeBot(), makeBot({ mascotBody: "star" })]) {
-      const markup = renderCard(bot);
-      expect(markup).toContain(">Bot<");
-      expect(markup).not.toMatch(/aria-label="Use the [^"]+ body"/);
-      expect(markup).not.toContain(">Body<");
-    }
+  let host: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    fixture.dispatch = vi.fn();
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+  });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+  });
+  afterAll(() => closeWindow());
+
+  const avatar = () => host.querySelector<HTMLButtonElement>("[data-avatar-edit]")!;
+
+  it("opens the persona editor on Appearance, with no popover of its own", async () => {
+    await act(async () => root.render(createElement(BotProfileAvatarCard, { bot: makeBot(), activeState: "idle", mascotMotion: null, onPatch: vi.fn() })));
+    expect(avatar().getAttribute("aria-label")).toBe("Edit avatar");
+    expect(avatar().getAttribute("aria-haspopup")).toBe("dialog");
+    expect(avatar().hasAttribute("aria-expanded")).toBe(false);
+    await act(async () => avatar().click());
+    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "openPersonaEditor", botId: "bot-1", section: "appearance" });
+    expect(document.querySelector("[data-avatar-popover]")).toBeNull();
+    expect(host.querySelector("[data-appearance-pane]")).toBeNull();
   });
 
-  it("still offers every bot color for the mascot, on its palette's tab", () => {
-    for (const color of MAUS_COLOR_NAMES) {
-      const markup = renderEditor(makeBot({ color }));
-      expect(markup).toMatch(new RegExp(`aria-checked="true"[^>]*aria-label="Use ${color} mascot color"`));
-    }
-    expect(renderEditor(makeBot())).toMatch(/aria-checked="true"[^>]*aria-label="Use green mascot color"/);
+  it("keeps the right click for the bot panel's menu", async () => {
+    const onContextMenu = vi.fn();
+    await act(async () => root.render(createElement(BotProfileAvatarCard, { bot: makeBot(), activeState: "idle", mascotMotion: null, onPatch: vi.fn(), onContextMenu })));
+    await act(async () => avatar().dispatchEvent(new MouseEvent("contextmenu", { bubbles: true })));
+    expect(onContextMenu).toHaveBeenCalledTimes(1);
+    expect(fixture.dispatch).not.toHaveBeenCalled();
   });
 
-  it("offers zoom and drag framing for a custom image", () => {
-    const markup = renderCard(makeBot({
-      avatarUrl: "/api/attachments/cat.webp",
-      avatarCrop: "circle",
-      avatarZoom: 1.5,
-    }));
-    expect(markup).toContain('aria-label="Zoom avatar"');
-    expect(markup).toContain("Drag the picture to reposition it");
-    expect(markup).toContain("150%");
-    expect(markup).toContain("Reset framing");
-  });
-
-  it("hides zoom controls for the mascot", () => {
-    const markup = renderCard(makeBot());
-    expect(markup).not.toContain('aria-label="Zoom avatar"');
-  });
-
-  it("offers the mascot back for every flat crop", () => {
-    for (const crop of ["circle", "rounded", "square"] as const) {
-      const markup = renderCard(makeBot({ avatarCrop: crop }));
-
-      expect(markup).not.toContain(">Body<");
-      expect(markup).not.toContain("mascot color");
-    }
-  });
-});
-
-describe("BotProfileAvatarCard skins and moves", () => {
-  it("offers every skin with a live preview, by rarity, Classic chosen by default", () => {
-    const markup = renderEditor(makeBot());
-    expect(markup).toContain(">Skin<");
-    for (const skin of ["none", "snowy", "barn", "carbon"]) {
-      expect(markup).toContain(`data-mascot-skin-option="${skin}"`);
-    }
-    expect(markup).toContain('aria-checked="true" aria-label="Classic, Common"');
-    expect(markup).toContain('aria-checked="false" aria-label="Snowy, Common"');
-    const epic = renderEditor(makeBot({ mascotSkin: "lightning" }));
-    expect(epic).toContain('aria-checked="true" aria-label="Lightning, Epic"');
-    // the previews play their effects without joining the frame loop
-    expect(epic).toMatch(/data-owl-skin="lightning" data-owl-fx="live"/);
-    expect(renderEditor(makeBot({ mascotSkin: "frost" }))).toContain('aria-label="Ice, Rare"');
-  });
-
-  it("reflects a stored skin, and reads an unknown one as none", () => {
-    expect(renderEditor(makeBot({ mascotSkin: "gold" }))).toContain('aria-checked="true" aria-label="Gold, Rare"');
-    // SAFETY: a skin this build does not know can arrive from a newer client.
-    expect(renderEditor(makeBot({ mascotSkin: "plasma" as Bot["mascotSkin"] }))).toContain(
-      'aria-checked="true" aria-label="Classic, Common"',
-    );
-  });
-
-  it("offers every wing move as a button with a readable label", () => {
-    const markup = renderEditor(makeBot());
-    expect(markup).toContain(">Moves<");
-    for (const [move, label] of [
-      ["spread-wings", "Spread wings"],
-      ["flap", "Flap"],
-      ["take-off", "Take off"],
-      ["shake", "Ruffle"],
-      ["hoot", "Hoot"],
-    ]) {
-      expect(markup).toContain(`data-character-move="${move}"`);
-      expect(markup).toContain(`aria-label="Play the ${label} move"`);
-    }
-  });
-
-  it("offers black among the colors, outlined so it reads on a dark card", () => {
-    const markup = renderEditor(makeBot({ color: "black" }));
-    expect(markup).toMatch(/aria-label="Use black mascot color"/);
-    expect(markup).toContain("inset 0 0 0 1.5px");
-  });
-
-  it("hides skins and moves for a flat image", () => {
-    const markup = renderCard(makeBot({ avatarUrl: "/api/attachments/cat.webp", avatarCrop: "rounded" }));
-    expect(markup).not.toContain("data-mascot-skin-option");
-    expect(markup).not.toContain("data-mascot-move");
-  });
-});
-
-describe("avatar editor dismissal", () => {
-  const node = (...inside: unknown[]) => ({ contains: (target: unknown) => target === undefined ? false : inside.includes(target) });
-  const button = { id: "button", closest: () => null };
-  const panel = { id: "panel" };
-  const swatch = { id: "swatch", closest: () => null };
-  const page = { id: "page", closest: () => null };
-  const root = editorDismissRoot(
-    { current: node(button) as unknown as Node },
-    { current: node(panel, swatch) as unknown as Node },
-  );
-
-  it("closes on a press outside the panel and the avatar", () => {
-    expect(popoverClosesOnPointer(page as unknown as EventTarget, root)).toBe(true);
-  });
-
-  it("stays open on the panel's controls and on the avatar button itself", () => {
-    expect(popoverClosesOnPointer(swatch as unknown as EventTarget, root)).toBe(false);
-    expect(popoverClosesOnPointer(panel as unknown as EventTarget, root)).toBe(false);
-    expect(popoverClosesOnPointer(button as unknown as EventTarget, root)).toBe(false);
-  });
-
-  it("closes on Escape", () => {
-    expect(popoverClosesOnKey({ key: "Escape", defaultPrevented: false, isComposing: false })).toBe(true);
-  });
-
-  it("is outside everywhere while the panel is closed", () => {
-    const closed = editorDismissRoot({ current: null }, { current: null });
-    expect(closed.contains(page)).toBe(false);
+  it("shows the Appearance pane under a draft's avatar, since the store holds no such bot yet", async () => {
+    const card = createElement(BotProfileAvatarCard, { bot: makeBot(), activeState: "idle", mascotMotion: null, onPatch: vi.fn() });
+    await act(async () => root.render(createElement(BotEditorContext.Provider, { value: { request: vi.fn(), draft: true } }, card)));
+    expect(avatar().getAttribute("aria-expanded")).toBe("false");
+    await act(async () => avatar().click());
+    expect(fixture.dispatch).not.toHaveBeenCalled();
+    expect(avatar().getAttribute("aria-expanded")).toBe("true");
+    const modes = [...host.querySelectorAll("[data-appearance-mode]")].map((tab) => tab.textContent);
+    expect(modes).toEqual(["Mascot", "Generate", "Upload"]);
+    await act(async () => avatar().click());
+    expect(host.querySelector("[data-appearance-pane]")).toBeNull();
   });
 });

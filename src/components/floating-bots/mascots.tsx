@@ -28,11 +28,14 @@ import { OgreMascot } from "@/components/OgreMascot";
 import { OGRE_MENU_CLIPS, ogreDesktopAction, ogreDesktopShot } from "@/components/ogre-moves";
 import { FrogMascot } from "@/components/FrogMascot";
 import { FROG_TRACKS, frogCueFor, frogHeldFor, frogMoveFor, type FrogDesktopState } from "@/components/frog-moves";
+import { CrabMascot } from "@/components/CrabMascot";
+import { CRAB_TRACKS, crabHeldFor, crabMoveFor } from "@/components/crab-moves";
 import { fxMoveFor, useEquipBurst, useMoveBurst, useReducedMotion, type FxMoveRequest } from "@/components/skin-fx/skin-fx";
 import { completeMascotLook, MASCOT_SHAPES, type MascotCharacter, type MascotLook, type MascotShape } from "../../../shared/mascot-look";
 import { createFrameSmoother, type MascotActivity, type MascotFrame, type MascotTask } from "./behavior";
 import Owl25D, { flatTilt, flatTurn } from "./Owl25D";
 import type { FloatingPose } from "./protocol";
+import type { MascotFamily } from "./wardrobe";
 
 export interface MascotRenderProps {
   color: string;
@@ -75,10 +78,16 @@ export interface MascotCapabilities {
 
 export interface MascotDefinition {
   id: MascotCharacter;
+  /** Its family in the Appearance gallery (a filter chip and the tile's second line). */
+  family: MascotFamily;
+  /** A paid edition: the tile shows its price and it sits on the Premium shelf. None is sold yet. */
+  premium?: { price: string };
+  /** A NEW badge on its tile, for a character just added. */
+  isNew?: boolean;
   capabilities: MascotCapabilities;
-  /** What the avatar popover offers for it: the bot colors, the owl skins. */
+  /** What the Appearance gallery offers for it: the bot colors, the owl skins. */
   paint: { colors: boolean; skins: boolean };
-  /** The moves the avatar popover can preview for a character without wings (the owl keeps its wing moves): clips, or the Shapes moves. */
+  /** The moves the Appearance gallery can preview for a character without wings (the owl keeps its wing moves): clips, or the Shapes moves. */
   moves: readonly string[];
   /** A move's own name for this character (Bunbu's ear flop is the ruffle clip). */
   moveLabels?: Partial<Record<string, LocaleKey>>;
@@ -342,7 +351,7 @@ function BunbuThumb({ color, look, size }: MascotThumbProps) {
 /* -------------------------------------------------------------- Shiba */
 
 /**
- * Shiba's moves in the avatar popover and the mascot's "Moves" menu: desktop
+ * Shiba's moves in the Appearance gallery and the mascot's "Moves" menu: desktop
  * clips its rig plays (the dog's own first, then the shared ones).
  */
 export const SHIBA_MENU_MOVES = ["bark", "turnCircles", "wag", "sniff", "tilt", "stretch", "lieDown", "ruffle", "wave", "excited"] as const;
@@ -380,6 +389,7 @@ export function cueClipFor(character: MascotCharacter, cue: "nudge" | "achieveme
   }
   // Frog croaks at a nudge, celebrates an achievement and catches a fly when a message lands
   if (character === "frog") return cue === "nudge" ? "croak" : cue === "achievement" ? "celebrate" : cue === "message" ? "tongue" : null;
+  if (character === "crab") return cue === "nudge" ? "wave" : cue === "achievement" ? "hop" : cue === "message" ? "look" : cue === "snooze" ? "sleep" : null;
   if (character !== "shiba") return null;
   if (cue === "refusal" || cue === "error") return null;
   return cue === "nudge" ? "bark" : cue === "achievement" ? "turnCircles" : cue === "snooze" ? "lieDown" : "excited";
@@ -442,7 +452,7 @@ export const GRUMP_CUES: Readonly<Record<"nudge" | "achievement" | "message" | "
 };
 
 /**
- * Grump's moves in the avatar popover and the mascot's "Moves" menu: desktop
+ * Grump's moves in the Appearance gallery and the mascot's "Moves" menu: desktop
  * clips its rig plays (the cat's own first, then the shared ones).
  */
 export const GRUMP_MENU_MOVES = ["stretch", "groom", "knead", "pounce", "ledge", "hiss", "bonk", "slowBlink", "tailFlick", "yawn", "curl", "wave"] as const;
@@ -552,7 +562,7 @@ function OgreThumb({ color, look, size }: MascotThumbProps) {
 
 /* --------------------------------------------------------------- Frog */
 
-/** Frog's moves in the avatar popover and the mascot's "Moves" menu: its own first, then the shared ones. */
+/** Frog's moves in the Appearance gallery and the mascot's "Moves" menu: its own first, then the shared ones. */
 export const FROG_MENU_MOVES = ["hop", "longJump", "tongue", "croak", "smugNod", "blinkOne", "legStretch", "sideEye", "shiver", "wave"] as const;
 export const FROG_MOVE_LABELS: Partial<Record<string, LocaleKey>> = {
   hop: "floatingBots.move.hop",
@@ -594,14 +604,51 @@ function FrogThumb({ color, look, size }: MascotThumbProps) {
   return <FrogMascot skin={look.skins.frog} color={color} size={size} animated={false} label={null} />;
 }
 
+
+/* --------------------------------------------------------------- Crab */
+
+export const CRAB_MENU_MOVES = ["wave", "hop", "look", "scuttle", "celebrate"] as const;
+export const CRAB_MOVE_LABELS: Partial<Record<string, LocaleKey>> = {
+  wave: "floatingBots.move.wave",
+  hop: "floatingBots.move.hop",
+  look: "floatingBots.move.headTilt",
+  scuttle: "floatingBots.move.scuttle",
+  celebrate: "floatingBots.move.excited",
+};
+
+function useCrabClipMove(activity: MascotActivity): FxMoveRequest | null {
+  const last = useRef<{ activity: MascotActivity; request: FxMoveRequest | null }>({ activity: "idle", request: null });
+  if (last.current.activity !== activity) {
+    const move = crabMoveFor(activity);
+    last.current = { activity, request: move && !CRAB_TRACKS[move].loop ? { clip: activity, key: Date.now() } : null };
+  }
+  return last.current.request;
+}
+
+function CrabRender({ color, look, size, activity, pose, frame, fps, onHitTest }: MascotRenderProps) {
+  const own = useCrabClipMove(activity);
+  const fx = useClipFx(activity);
+  return (
+    <Motion25D size={size} frame={frame} fps={fps} onHitTest={onHitTest} transform={shibaMotionTransform}>
+      <CrabMascot skin={look.skins.crab} color={color} size={size * 0.9} mood={bunbuMoodFor(activity, pose)} expression={shapeExpressionForClip(activity)} detail="full" move={own ?? fx} activity={crabHeldFor(activity, pose)} rig label={null} />
+    </Motion25D>
+  );
+}
+
+function CrabThumb({ color, look, size }: MascotThumbProps) {
+  return <CrabMascot skin={look.skins.crab} color={color} size={size} animated={false} label={null} />;
+}
+
 /* ----------------------------------------------------------- registry */
 
 export const MASCOTS: readonly MascotDefinition[] = [
-  { id: "owl", capabilities: { walk: true, fly: true, wings: true, blink: true, turn: true, flip: true }, paint: { colors: true, skins: true }, moves: [], Render: OwlRender, Thumb: OwlThumb },
-  { id: "shape", capabilities: { walk: true, fly: false, wings: false, blink: true, turn: true, flip: true }, paint: { colors: true, skins: true }, moves: SHAPE_MOVES, Render: ShapeRender, Thumb: ShapeThumb },
-  { id: "trombi", capabilities: { walk: true, fly: false, wings: false, blink: false, turn: true, flip: true }, paint: { colors: false, skins: true }, moves: ["hop", "jump", "dance", "hoot"], Render: TrombiRender, Thumb: TrombiThumb },
+  { id: "owl", family: "classics", capabilities: { walk: true, fly: true, wings: true, blink: true, turn: true, flip: true }, paint: { colors: true, skins: true }, moves: [], Render: OwlRender, Thumb: OwlThumb },
+  { id: "crab", family: "animals", capabilities: { walk: true, fly: false, wings: false, blink: true, turn: true, flip: true }, paint: { colors: true, skins: true }, moves: CRAB_MENU_MOVES, moveLabels: CRAB_MOVE_LABELS, Render: CrabRender, Thumb: CrabThumb },
+  { id: "shape", family: "shapes", capabilities: { walk: true, fly: false, wings: false, blink: true, turn: true, flip: true }, paint: { colors: true, skins: true }, moves: SHAPE_MOVES, Render: ShapeRender, Thumb: ShapeThumb },
+  { id: "trombi", family: "classics", capabilities: { walk: true, fly: false, wings: false, blink: false, turn: true, flip: true }, paint: { colors: false, skins: true }, moves: ["hop", "jump", "dance", "hoot"], Render: TrombiRender, Thumb: TrombiThumb },
   {
     id: "bunbu",
+    family: "animals",
     capabilities: { walk: true, fly: false, wings: false, blink: true, turn: true, flip: true },
     paint: { colors: true, skins: true },
     moves: ["wave", "dance", "jump", "hop", "love", BUNBU_EARFLOP_CLIP],
@@ -611,6 +658,7 @@ export const MASCOTS: readonly MascotDefinition[] = [
   },
   {
     id: "shiba",
+    family: "animals",
     capabilities: { walk: true, fly: false, wings: false, blink: true, turn: true, flip: true },
     paint: { colors: true, skins: true },
     moves: SHIBA_MENU_MOVES,
@@ -620,6 +668,7 @@ export const MASCOTS: readonly MascotDefinition[] = [
   },
   {
     id: "grump",
+    family: "animals",
     capabilities: { walk: true, fly: false, wings: false, blink: true, turn: true, flip: true },
     paint: { colors: true, skins: true },
     moves: GRUMP_MENU_MOVES,
@@ -629,6 +678,7 @@ export const MASCOTS: readonly MascotDefinition[] = [
   },
   {
     id: "ogre",
+    family: "animals",
     capabilities: { walk: true, fly: false, wings: false, blink: true, turn: true, flip: true },
     paint: { colors: true, skins: true },
     moves: OGRE_MENU_CLIPS,
@@ -647,6 +697,7 @@ export const MASCOTS: readonly MascotDefinition[] = [
   },
   {
     id: "frog",
+    family: "animals",
     capabilities: { walk: true, fly: false, wings: false, blink: true, turn: true, flip: true },
     paint: { colors: true, skins: true },
     moves: FROG_MENU_MOVES,

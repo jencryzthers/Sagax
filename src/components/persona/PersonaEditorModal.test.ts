@@ -44,6 +44,7 @@ vi.mock("../bot-settings/VisibilitySection", () => ({ VisibilitySection: marker(
 vi.mock("../bot-settings/HistorySection", () => ({ HistorySection: marker("history") }));
 vi.mock("../bot-settings/UsageSection", () => ({ UsageSection: marker("usage") }));
 vi.mock("../BotProfileAvatarCard", () => ({ BotProfileAvatarCard: marker("avatar") }));
+vi.mock("../appearance/AppearancePane", () => ({ AppearancePane: marker("appearance") }));
 vi.mock("@/state/store", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/state/store")>();
   return {
@@ -57,6 +58,7 @@ vi.mock("@/state/store", async (importOriginal) => {
 });
 
 const { PersonaEditorModal, PERSONA_CATEGORIES, personaCategoryMatches } = await import("./PersonaEditorModal");
+const { personaCategoryForSection } = await import("@/lib/persona-sections");
 
 const bot = {
   id: "pepper", threadId: "t", name: "Pepper", title: "Research", description: "Finds sources.", notifications: true,
@@ -93,7 +95,7 @@ describe("persona editor shell", () => {
     expect(html).toContain("w-[198px]");
     const listed = [...html.matchAll(/data-persona-category="(\w+)"/g)].map((match) => match[1]);
     expect(listed).toEqual([...PERSONA_CATEGORIES]);
-    expect(listed).toEqual(["overview", "soul", "rules", "skills", "memory", "files", "access", "model", "permissions", "voice", "perspicax", "history", "usage"]);
+    expect(listed).toEqual(["overview", "appearance", "soul", "rules", "skills", "memory", "files", "access", "model", "permissions", "voice", "perspicax", "history", "usage"]);
     expect(html).toContain('data-persona-search=""');
     expect(html).toContain(">Persona<");
     expect(html).toContain('aria-current="page"');
@@ -117,12 +119,13 @@ describe("persona editor shell", () => {
     fixture.advanced = false;
     const listed = [...render("overview").matchAll(/data-persona-category="(\w+)"/g)].map((match) => match[1]);
     // Rules and Files stay in Simple mode (Files hides its badges' details)
-    expect(listed).toEqual(["overview", "soul", "rules", "memory", "files", "model", "permissions", "voice"]);
+    expect(listed).toEqual(["overview", "appearance", "soul", "rules", "memory", "files", "model", "permissions", "voice"]);
   });
 });
 
 describe("persona editor categories", () => {
   const bodies: Record<string, string[]> = {
+    appearance: ["appearance"],
     soul: ["soul"],
     skills: ["skills"],
     access: ["access", "worksOn"],
@@ -153,6 +156,19 @@ describe("persona editor categories", () => {
       expect(elsewhere).toMatch(new RegExp(`<div hidden=""><div data-section-body="${category}"></div></div>`));
     });
   }
+
+  it("finds Appearance by the words people use for the bot's look", () => {
+    for (const word of ["mascot", "avatar", "skin", "color", "character", "look"]) expect(personaCategoryMatches("appearance", word), word).toBe(true);
+    expect(personaCategoryMatches("appearance", "zzz")).toBe(false);
+    expect(render("appearance")).toMatch(/<h2[^>]*>Appearance<\/h2>/);
+  });
+
+  it("lands a deep link to Appearance on its own category, never locked", () => {
+    expect(personaCategoryForSection("appearance")).toBe("appearance");
+    const state = { config: memberConfig };
+    const listed = [...render("overview", state).matchAll(/data-persona-category="(\w+)"( data-locked="")?/g)];
+    expect(listed.find((match) => match[1] === "appearance")?.[2]).toBeUndefined();
+  });
 
   it("finds Rules and Files by the words people use for them", () => {
     expect(personaCategoryMatches("rules", "constraints")).toBe(true);

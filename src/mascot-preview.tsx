@@ -18,10 +18,11 @@ import {
 } from "@/lib/mascot";
 import { EXPRESSION_COUNT } from "@/components/CursorAvatar";
 import { OwlAvatar, type OwlAvatarHandle } from "@/components/OwlAvatar";
-import { BotProfileAvatarCard } from "@/components/BotProfileAvatarCard";
+import { AppearancePane } from "@/components/appearance/AppearancePane";
 import { OWL_WING_MOVES, type OwlWingMove } from "@/lib/owl/owl-art";
 import { StoreProvider, type Bot } from "@/state/store";
 import { MASCOT_SKIN_IDS, botMascotSkin, type MascotSkinId } from "../shared/mascot-skins";
+import { botMascotLook } from "../shared/mascot-look";
 import "./styles.css";
 import "./mascot-preview.css";
 
@@ -558,7 +559,7 @@ function SidebarScene({ params }: { params: URLSearchParams }) {
   );
 }
 
-/** The real appearance card around a sample bot: `?picker=1&color=black&skin=lightning`. */
+/** The real Appearance pane around a sample bot, at the persona editor's pane width: `?picker=1&color=black&skin=lightning&character=frog`. */
 function PickerScene({ params }: { params: URLSearchParams }) {
   const [bot, setBot] = useState<Bot>({
     id: "preview-bot",
@@ -569,20 +570,16 @@ function PickerScene({ params }: { params: URLSearchParams }) {
     notifications: false,
     color: (params.get("color") ?? "black") as MausColor,
     mascotSkin: botMascotSkin(params.get("skin")),
+    mascotLook: botMascotLook({ character: params.get("character") ?? "owl" }),
     unread: false,
     modelSelection: { instanceId: "preview", model: "preview" },
     messages: [],
   });
   return (
     <div data-skin={params.get("theme") ?? "pulsatrix"} className="min-h-screen bg-app p-6 text-ink">
-      <div className="mx-auto w-[380px] rounded-2xl bg-card pb-[560px]">
+      <div className="mx-auto w-[702px] max-w-full rounded-2xl bg-app px-8 pb-6 pt-4">
         <StoreProvider>
-          <BotProfileAvatarCard
-            bot={bot}
-            activeState="idle"
-            mascotMotion={null}
-            onPatch={(patch) => setBot((current) => ({ ...current, ...patch }))}
-          />
+          <AppearancePane bot={bot} onPatch={(patch) => setBot((current) => ({ ...current, ...patch }))} />
         </StoreProvider>
       </div>
     </div>

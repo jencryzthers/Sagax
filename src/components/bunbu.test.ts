@@ -29,7 +29,7 @@ describe("Bunbu's look", () => {
 
   it("keeps each character's own skin when switching and back", () => {
     const look = completeMascotLook({ character: "bunbu", skins: { bunbu: "galaxy", shape: "gold" } });
-    expect(completeMascotLook({ ...look, character: "shape" }).skins).toEqual({ shape: "gold", trombi: "classic", bunbu: "galaxy", shiba: "plain", grump: "plain", ogre: "plain", frog: "plain" });
+    expect(completeMascotLook({ ...look, character: "shape" }).skins).toEqual({ shape: "gold", trombi: "classic", bunbu: "galaxy", shiba: "plain", grump: "plain", ogre: "plain", frog: "plain", crab: "plain" });
   });
 
   it("reads other names a stored skin may carry, and drops one it does not know without losing the character", () => {
@@ -162,7 +162,7 @@ describe("Bunbu on the desktop and in the popover", () => {
     expect(bunbuActionFor("idle")).toBeNull();
   });
 
-  it("offers its colors, skins by rarity and moves in the avatar popover", () => {
+  it("offers its colors, skins by rarity and moves in the Appearance gallery", () => {
     const render = (look: unknown) => renderToStaticMarkup(createElement(MascotLookEditor, { bot: { color: "mint", mascotSkin: "none", mascotLook: botMascotLook(look) }, onPatch: () => undefined }));
     const html = render({ character: "bunbu" });
     expect(html).toContain('data-character-option="bunbu"');

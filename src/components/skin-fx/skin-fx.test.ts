@@ -230,15 +230,18 @@ describe("skin ids persist and migrate", () => {
   });
 });
 
-describe("the avatar popover's layout", () => {
+describe("the Appearance gallery's layout", () => {
   const render = (mascotLook: unknown) =>
     renderToStaticMarkup(createElement(MascotLookEditor, { bot: { color: "blue", mascotSkin: "none", mascotLook: botMascotLook(mascotLook) }, onPatch: () => undefined }));
 
-  it("has no preview tile: the character cards use the full width", () => {
+  it("sets the gallery beside a compact detail with its own preview stage, stacked in a narrow pane", () => {
     const html = render({ character: "shape" });
     expect(html).toContain('data-character-row=""');
-    expect(html).not.toContain("size-[64px]");
-    expect(html).not.toContain("place-items-end overflow-visible");
+    expect(html).toContain('data-mascot-stage=""');
+    expect(html).toContain("size-[112px]");
+    // side by side from a 34rem pane (a size container query), one column under it
+    expect(html).toContain("@[34rem]:grid-cols-[minmax(0,1fr)_20rem]");
+    expect(html).toMatch(/data-mascot-browser=""[\s\S]*data-mascot-detail="shape"/);
   });
 
   it("names the character Shapes (Formes), never Original shapes", () => {
@@ -255,8 +258,9 @@ describe("the avatar popover's layout", () => {
       expect(html).toMatch(new RegExp(`data-tier="${SHAPE_SKIN_TIER[skin]}"[^>]*data-shape-skin-option="${skin}"`));
       const cards = html.match(/data-shape-skin-option="/g) ?? [];
       expect(cards.length).toBe(SHAPE_SKINS.filter((other) => SHAPE_SKIN_TIER[other] === SHAPE_SKIN_TIER[skin]).length);
-      // the open tab's cards play their skins (the Shape grid's thumbnails never do)
-      expect((html.match(/skin-fx-live/g) ?? []).length).toBe(cards.length);
+      // the open tab's cards play their skins (the Shape row's thumbnails never do)
+      const panel = html.slice(html.indexOf("data-skin-panel"), html.indexOf("data-character-move"));
+      expect((panel.match(/skin-fx-live/g) ?? []).length).toBe(cards.length);
     }
     expect(render({ character: "shape", skins: { shape: "galaxy" } })).toContain(">Legendary<");
     for (const skin of TROMBI_SKINS) expect(render({ character: "trombi", skins: { trombi: skin } })).toContain(`data-trombi-skin-option="${skin}"`);

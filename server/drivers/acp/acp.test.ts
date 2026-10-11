@@ -19,6 +19,7 @@ import type { ProviderInstance } from "../../contracts.ts";
 import { TurnNotStartedError } from "../../contracts.ts";
 import { recordEvents, type EventRecorder } from "../../testing/events.ts";
 import { promptSplitFingerprints, writePromptSplitReceipt } from "../prompt-split.ts";
+import { GROK_TOOL_REUSE_HINT as HINT } from "./grok.ts";
 import { createAcpDriver, DEFAULT_ACP_PROMPT_IDLE_MS, skipSubscriptionAuthForLocalInject, type AcpSupport } from "./core.ts";
 import { GrokAgentDriver, grokAcceptsUnadvertisedImages } from "./grok.ts";
 import { GeminiAgentDriver } from "./gemini.ts";
@@ -404,7 +405,7 @@ describe("ACP turns (fake CLI)", () => {
 
     // The establishing turn carries the full prompt, exactly as before.
     expect(await send("first", "Memory: likes quiet hours."))
-      .toBe("Standing rules.\n\nMemory: likes quiet hours.\n\nfirst");
+      .toBe("Standing rules.\n\nMemory: likes quiet hours." + HINT + "\n\nfirst");
     // The pooled session already carries it: later turns go through bare.
     expect(await send("second", "Memory: likes quiet hours.")).toBe("second");
     // A changed volatile half rides the next prompt as a labelled note.
@@ -437,7 +438,7 @@ describe("ACP turns (fake CLI)", () => {
     }
     // Agents can compact their own history away between turns; the re-anchor
     // backstop returns the standing instructions within a bounded window.
-    const full = "Standing rules.\n\nMemory: likes quiet hours.";
+    const full = "Standing rules.\n\nMemory: likes quiet hours." + HINT;
     expect(messages[0]).toBe(full + "\n\nturn 0");
     for (let i = 1; i <= 8; i++) expect(messages[i]).toBe("turn " + i);
     expect(messages[9]).toBe(full + "\n\nturn 9");
@@ -445,7 +446,9 @@ describe("ACP turns (fake CLI)", () => {
 
   // One split-prompt thread: usage() sets the context sizes the fake reports
   // on the next turn, and send() returns the prompt text the agent received.
-  const FULL = "Standing rules.\n\nMemory: likes quiet hours.";
+  const SYSTEM = "Standing rules.\n\nMemory: likes quiet hours.";
+  // Grok appends its standing tool line (stableSystemHint) to what it delivers
+  const FULL = SYSTEM + HINT;
   const usageThread = async (name: string) => {
     const dump = join(scratch, `acp-${name}.json`);
     const usageFile = join(scratch, `acp-${name}-usage.json`);
@@ -460,7 +463,7 @@ describe("ACP turns (fake CLI)", () => {
       const { turnId } = await instance.adapter.sendTurn({
         threadId,
         text,
-        system: FULL,
+        system: SYSTEM,
         systemStable: "Standing rules.",
         systemVolatile: "Memory: likes quiet hours.",
       });
@@ -558,7 +561,7 @@ describe("ACP turns (fake CLI)", () => {
     writePromptSplitReceipt(
       "grokAgent",
       JSON.stringify([threadId, "fake-acp-session"]),
-      promptSplitFingerprints("Standing rules.", "Memory: likes quiet hours."),
+      promptSplitFingerprints("Standing rules." + HINT, "Memory: likes quiet hours."),
     );
     usage(50000);
     expect(await send("turn 1")).toBe("turn 1");
@@ -1856,7 +1859,7 @@ describe("ACP turns (fake CLI)", () => {
     expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
     expect(recorder.events.find((e) => e.type === "session.started")).toMatchObject({ rebuilt: true });
     const prompt = JSON.parse(readFileSync(`${dump}.prompt.json`, "utf8"));
-    expect(prompt).toEqual([{ type: "text", text: `Keep current bot instructions.\n\n${recoveryText}` }]);
+    expect(prompt).toEqual([{ type: "text", text: `Keep current bot instructions.${HINT}\n\n${recoveryText}` }]);
   });
 
   it.each([

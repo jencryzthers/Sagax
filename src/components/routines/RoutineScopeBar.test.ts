@@ -154,4 +154,26 @@ describe("someone else's routine in the list", () => {
     expect(markup).not.toContain("data-routine-owner");
     expect(switchTag(markup)).not.toContain('disabled=""');
   });
+
+  it("an own routine that runs as its owner: neither chip", () => {
+    const markup = list({ ...base, owner: { id: "pr_me", name: "Jean-Christophe Proulx" }, runAs: { principalId: "pr_me", name: "Jean-Christophe Proulx" } });
+    expect(markup).not.toContain("data-routine-owner");
+    expect(markup).not.toContain("data-routine-run-as");
+    expect(markup).not.toContain("Runs as");
+  });
+
+  it("someone else's routine that runs as its owner: owner chip once, no Runs as", () => {
+    const markup = list({ ...base, owner: { id: "pr_bob", name: "Bob" }, runAs: { principalId: "pr_bob", name: "Bob" }, canEdit: false });
+    expect(markup).toContain('data-routine-owner="pr_bob"');
+    expect(markup).toContain(">Bob</span>");
+    expect(markup).not.toContain("data-routine-run-as");
+    expect(markup).not.toContain("Runs as");
+  });
+
+  it("someone else's routine that runs as a third person: owner chip and Runs as", () => {
+    const markup = list({ ...base, owner: { id: "pr_bob", name: "Bob" }, runAs: { principalId: "pr_ada", name: "Ada" } });
+    expect(markup).toContain('data-routine-owner="pr_bob"');
+    expect(markup).toContain("data-routine-run-as");
+    expect(markup).toContain("Runs as Ada");
+  });
 });

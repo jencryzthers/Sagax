@@ -1,4 +1,4 @@
-// The moves a character can play on request: the avatar popover's Moves row
+// The moves a character can play on request: the Appearance gallery's Moves row
 // (MascotLookEditor.tsx) and the desktop mascot's "Moves" menu offer the
 // same list, with the same names.
 import type { LocaleKey } from "@/locales";

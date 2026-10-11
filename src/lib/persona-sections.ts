@@ -7,6 +7,7 @@ import type { BotSettingsSection } from "@/state/store";
 /** The categories, in the order the persona editor lists them. */
 export const PERSONA_CATEGORIES = [
   "overview",
+  "appearance",
   "soul",
   "rules",
   "skills",

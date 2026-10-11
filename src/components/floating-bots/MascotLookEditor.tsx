@@ -1,11 +1,18 @@
-// The Bot tab of the bot's avatar popover: the bot's character and its look,
-// stored with the bot (bot.mascotLook, bot.color, bot.mascotSkin), so the
-// change shows everywhere the bot appears and on its desktop mascot.
+// The Mascot view of the persona editor's Appearance category
+// (appearance/AppearancePane.tsx): the bot's character and its look, stored
+// with the bot (bot.mascotLook, bot.color, bot.mascotSkin), so the change
+// shows everywhere the bot appears and on its desktop mascot. Kept compact so
+// every option shows at a normal modal size without scrolling.
 //
-//   Character: Owl, Shapes, Trombi, Bunbu, Shiba, Grump, Ogre, Frog (the registry, mascots.tsx), full width:
-//   the bot's avatar above the popover (the bot panel's header) is the
-//   preview, and plays the moves and the equip animation. Then that
-//   character's own options:
+//   Left, the gallery: a search, the filter chips (All, Owned, To unlock,
+//   Premium while one is sold, then one per family) and the shelves (Yours,
+//   To unlock, Premium; wardrobe.ts), one tile per character of the registry
+//   (mascots.tsx) in the bot's color, its lock and achievement progress on
+//   the tile; a character behind a secret achievement stays out until
+//   earned. The arrow keys move across the tiles.
+//   Right, the detail: a preview stage of the character picked in the
+//   gallery (the real avatar, which plays the moves and the equip
+//   animation), its name and family, then that character's own options:
 //     Owl: color, skin
 //     Shapes: shape (8), color (with the Clay palette), shape skin (Clay first)
 //     Trombi: Trombi skin
@@ -14,28 +21,29 @@
 //     Grump: color (the markings), Grump skin (the cat coats, then premium editions)
 //     Ogre: color, Ogre skin (the ogre's hides, Lava and Armor, then premium editions)
 //     Frog: color (a tint of the skin), Frog skin (real frogs, then premium editions)
+//   then its moves (chips that play on the stage, with the skin's effect) and
+//   the action button (In use, Use <name>, or the unlock hint).
 //   Colors show one palette at a time (Vivid, Pastel, Deep, Neon, Neutral),
 //   skins one rarity at a time (Common, Rare, Epic, Legendary), each tab
-//   opening on the current choice (editor-tabs.ts). Skin cards preview the
-//   skin animated; the Shape grid previews the current color and skin still.
-//   Section titles stay on top while their options scroll (sticky).
-//   Moves: that character's moves only (Shapes: its fourteen), each with its skin's effect
+//   opening on the current choice (editor-tabs.ts).
 //
-// Each character keeps its own skin, so switching and back finds it again.
-// Loaded lazily with the popover.
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Lock } from "lucide-react";
-import { characterLock, characterUnlocked, lockHint, reportAchievement, skinLock, useUnlocks, type LockInfo } from "@/lib/achievements";
+// An unlocked character saves at once when picked (as the avatar popover
+// did); a locked one only previews, its options disabled. Each character
+// keeps its own skin, so switching and back finds it again. Loaded lazily
+// with the pane.
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { Check, Lock, Search } from "lucide-react";
+import { characterLock, lockHint, reportAchievement, skinLock, useUnlocks, type LockInfo } from "@/lib/achievements";
 import { useGrokAccountLinked } from "@/lib/grok-account";
 import "@/components/achievements/achievements.css";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
 import { MAUS_COLORS, swatchStyle, type MausColor, type MausMotion } from "@/lib/mascot";
-import { MausAvatar } from "@/components/Avatar";
+import { BotAvatar, MausAvatar } from "@/components/Avatar";
 import { MASCOT_SKIN_IDS, OWL_SKIN_TIER, botMascotSkin, type MascotSkinId } from "../../../shared/mascot-skins";
 import type { MascotColorGroup } from "../../../shared/mascot-colors";
-import { BUNBU_SKIN_TIER, BUNBU_SKINS, completeMascotLook, FROG_SKIN_TIER, FROG_SKINS, GRUMP_SKIN_TIER, GRUMP_SKINS, OGRE_SKIN_TIER, OGRE_SKINS, SHIBA_SKIN_TIER, SHIBA_SKINS, SHAPE_SKIN_TIER, SHAPE_SKINS, TROMBI_SKIN_TIER, TROMBI_SKINS, type MascotCharacter, type MascotLook, type MascotShape, type ShapeSkin, type SkinTier } from "../../../shared/mascot-look";
+import { BUNBU_SKIN_TIER, BUNBU_SKINS, completeMascotLook, CRAB_SKIN_TIER, CRAB_SKINS, FROG_SKIN_TIER, FROG_SKINS, GRUMP_SKIN_TIER, GRUMP_SKINS, OGRE_SKIN_TIER, OGRE_SKINS, SHIBA_SKIN_TIER, SHIBA_SKINS, SHAPE_SKIN_TIER, SHAPE_SKINS, TROMBI_SKIN_TIER, TROMBI_SKINS, type MascotCharacter, type MascotLook, type MascotShape, type ShapeSkin, type SkinTier } from "../../../shared/mascot-look";
 import { ShapeMascot } from "@/components/ShapeMascot";
 import { SkinnedTrombi } from "@/components/skin-fx/SkinnedTrombi";
 import { BunbuMascot } from "@/components/BunbuMascot";
@@ -43,10 +51,13 @@ import { ShibaMascot } from "@/components/ShibaMascot";
 import { GrumpMascot } from "@/components/GrumpMascot";
 import { OgreMascot } from "@/components/OgreMascot";
 import { FrogMascot } from "@/components/FrogMascot";
+import { CrabMascot } from "@/components/CrabMascot";
+import type { FxMoveRequest } from "@/components/skin-fx/skin-fx";
 import "@/components/skin-fx/skin-fx.css";
 import { colorGroupsFor, colorTabFor, colorTabs, nextTab, skinTabFor, skinTierTabs } from "./editor-tabs";
-import { MASCOTS, SHAPE_CHOICES } from "./mascots";
+import { MASCOTS, SHAPE_CHOICES, type CompleteLook, type MascotDefinition } from "./mascots";
 import { characterMoves, type OwlMove } from "./moves";
+import { filterWardrobe, MASCOT_FAMILY_LABEL, wardrobeFilters, wardrobeShelves, wardrobeStep, type WardrobeFilter, type WardrobeShelf } from "./wardrobe";
 
 export interface MascotLookPatch {
   color?: MausColor;
@@ -55,13 +66,11 @@ export interface MascotLookPatch {
 }
 
 export interface MascotLookEditorProps {
-  bot: { color: MausColor; mascotSkin?: MascotSkinId | null; mascotLook?: MascotLook | null };
+  bot: { name?: string; color: MausColor; mascotSkin?: MascotSkinId | null; mascotLook?: MascotLook | null };
   disabled?: boolean;
   onPatch: (patch: MascotLookPatch) => void;
   /** The owl's wing moves also play on the bot's avatars across the app. */
   onOwlMove?: (move: Exclude<MausMotion, "none">) => void;
-  /** A character's move (a Shapes move, a Trombi or Bunbu clip), played by the bot's avatar above (the preview). */
-  onMove?: (clip: string) => void;
 }
 
 export const CHARACTER_LABEL = {
@@ -73,6 +82,7 @@ export const CHARACTER_LABEL = {
   grump: "floatingBots.mascot.grump",
   ogre: "floatingBots.mascot.ogre",
   frog: "floatingBots.mascot.frog",
+  crab: "floatingBots.mascot.crab",
 } satisfies Record<MascotCharacter, LocaleKey>;
 
 export const SHAPE_LABEL = {
@@ -194,6 +204,14 @@ export const FROG_SKIN_LABEL = {
   molten: "mascot.frogSkin.molten",
 } satisfies Record<(typeof FROG_SKINS)[number], LocaleKey>;
 
+export const CRAB_SKIN_LABEL = {
+  plain: "mascot.crabSkin.plain",
+  coral: "mascot.crabSkin.coral",
+  sand: "mascot.crabSkin.sand",
+  ink: "mascot.crabSkin.ink",
+  mint: "mascot.crabSkin.mint",
+} satisfies Record<(typeof CRAB_SKINS)[number], LocaleKey>;
+
 export const SKIN_TIER_LABEL = {
   common: "mascot.tier.common",
   rare: "mascot.tier.rare",
@@ -226,17 +244,16 @@ export const COLOR_GROUP_LABEL = {
   clay: "mascot.color.group.clay",
 } satisfies Record<MascotColorGroup, LocaleKey>;
 
-// A section's title row stays on top while its options scroll under it, so a
-// long popover keeps its bearings; it spans the popover's padding (p-3.5, so it
-// sticks 14px up, flush with the popover's edge) and covers what scrolls under it.
-const sectionHead = "sticky top-[-14px] z-10 -mx-3.5 mb-1 mt-0.5 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 bg-card px-3.5 pb-1 pt-2";
-const heading = "text-[11px] font-medium uppercase tracking-[0.08em] text-ink-secondary";
+
+const heading = "text-[10.5px] font-medium uppercase tracking-[0.08em] text-ink-secondary";
 const card = "flex flex-col items-center justify-center gap-0.5 rounded-lg bg-inset p-1 transition-colors hover:bg-control disabled:opacity-50";
 const on = "ring-2 ring-accent-border";
+const focusRing = "outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
-function SectionHead({ title, children }: { title: string; children?: ReactNode }) {
+/** A title row: its title, and the tabs that go with it (wrapping under it when the column is narrow). */
+function Head({ title, children }: { title: string; children?: ReactNode }) {
   return (
-    <div className={sectionHead} data-section-head="">
+    <div className="mb-1 flex min-h-[22px] flex-wrap items-center justify-between gap-x-1.5 gap-y-1" data-section-head="">
       <span className={heading}>{title}</span>
       {children}
     </div>
@@ -285,7 +302,7 @@ function SegmentedTabs<T extends string>({ label, items, value, onChange, idPref
               sibling?.focus();
             }}
             className={cn(
-              "segment-tab inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] leading-4 transition-colors",
+              "segment-tab inline-flex items-center gap-1 rounded-md px-[5px] py-0.5 text-[10.5px] leading-4 transition-colors",
               selected ? "bg-control text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
             )}
           >
@@ -303,7 +320,7 @@ function SegmentedTabs<T extends string>({ label, items, value, onChange, idPref
   );
 }
 
-/** A Mastery look's lock on its card: the padlock, and how far its achievement went. */
+/** A locked look's lock on its card or tile: the padlock, and how far its achievement went. */
 function LockBadge({ lock }: { lock: LockInfo }) {
   const item = lock.item;
   return (
@@ -319,9 +336,9 @@ function LockBadge({ lock }: { lock: LockInfo }) {
 }
 
 /**
- * A skin's card: its animated preview, its name and its rarity, shimmering
- * above Common. Locked skins are not offered, except a Mastery skin
- * (shared/mascot-unlocks.ts), shown locked with the achievement that unlocks it.
+ * A skin's card: its animated preview and its name, on its rarity's ground,
+ * shimmering above Common. Locked skins are not offered, except a Mastery
+ * skin (shared/mascot-unlocks.ts), shown locked with the achievement that unlocks it.
  */
 function SkinCard({ tier, label, checked, disabled, onSelect, data, lock, children }: { tier: SkinTier; label: string; checked: boolean; disabled?: boolean; onSelect: () => void; data: Record<string, string>; lock?: LockInfo; children: ReactNode }) {
   const tierLabel = t(SKIN_TIER_LABEL[tier]);
@@ -340,15 +357,12 @@ function SkinCard({ tier, label, checked, disabled, onSelect, data, lock, childr
       data-unlock-achievement={locked ? lock?.achievement?.id : undefined}
       {...data}
       onClick={onSelect}
-      className={cn(card, "skin-card relative h-[70px] gap-0 pt-1", checked && on)}
+      className={cn(card, "skin-card relative h-[56px] gap-0 pt-0.5", focusRing, checked && on)}
     >
-      <span className="grid size-[40px] place-items-center" aria-hidden="true">
+      <span className="grid size-[36px] place-items-center" aria-hidden="true">
         {children}
       </span>
-      <span className="w-full truncate text-center text-[10.5px] leading-[13px] text-ink">{label}</span>
-      <span className="skin-tier" data-tier={tier} aria-hidden="true">
-        {tierLabel}
-      </span>
+      <span className="w-full truncate text-center text-[10px] leading-[12px] text-ink">{label}</span>
       {locked && lock && <LockBadge lock={lock} />}
     </button>
   );
@@ -357,7 +371,7 @@ function SkinCard({ tier, label, checked, disabled, onSelect, data, lock, childr
 /**
  * The skins of one character, one rarity at a time. Opens on the current
  * skin's rarity and follows it when it changes elsewhere (Reset); only the
- * open tab's cards are drawn, so the popover animates a handful at most.
+ * open tab's cards are drawn, so the pane animates a handful at most.
  */
 function SkinPicker<S extends string>({ skins, tierOf, selected, labelOf, idPrefix, dataKey, disabled, onSelect, preview, lockOf }: { skins: readonly S[]; tierOf: Readonly<Record<S, SkinTier>>; selected: S; labelOf: (skin: S) => string; idPrefix: string; dataKey: string; disabled?: boolean; onSelect: (skin: S) => void; preview: (skin: S) => ReactNode; lockOf?: (skin: S) => LockInfo }) {
   // A locked skin stays out of the picker, but a Mastery one shows locked (the goal is to want it). The one this bot wears stays, so the current look never vanishes.
@@ -375,8 +389,8 @@ function SkinPicker<S extends string>({ skins, tierOf, selected, labelOf, idPref
   }, [selected, skins, tierOf]);
   const open = tabs.find((item) => item.tier === tab) ?? tabs[0];
   return (
-    <>
-      <SectionHead title={t("mascot.skin.title")}>
+    <div>
+      <Head title={t("mascot.skin.title")}>
         <SegmentedTabs
           label={t("mascot.tier.tabs")}
           idPrefix={idPrefix}
@@ -385,9 +399,9 @@ function SkinPicker<S extends string>({ skins, tierOf, selected, labelOf, idPref
           onChange={setTab}
           items={tabs.map((item) => ({ id: item.tier, label: t(SKIN_TIER_LABEL[item.tier]), count: item.count, tier: item.tier }))}
         />
-      </SectionHead>
+      </Head>
       <div id={`${idPrefix}-panel`} role="tabpanel" aria-labelledby={`${idPrefix}-tab-${open.tier}`} data-skin-panel={open.tier}>
-        <div className="grid grid-cols-5 gap-1.5" role="radiogroup" aria-label={t("mascot.skin.title")}>
+        <div className="grid grid-cols-5 gap-1" role="radiogroup" aria-label={t("mascot.skin.title")}>
           {open.skins.map((skin) => (
             <SkinCard key={skin} tier={tierOf[skin]} label={labelOf(skin)} checked={selected === skin} disabled={disabled} data={{ [dataKey]: skin }} lock={skin === selected ? undefined : lockOf?.(skin)} onSelect={() => onSelect(skin)}>
               {preview(skin)}
@@ -395,7 +409,7 @@ function SkinPicker<S extends string>({ skins, tierOf, selected, labelOf, idPref
           ))}
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -412,8 +426,8 @@ function ColorPicker({ color, groups, disabled, onSelect }: { color: MausColor; 
   const current = colorTabFor(color);
   const open = tabs.find((item) => item.group === tab) ?? tabs[0];
   return (
-    <>
-      <SectionHead title={t("mascot.color.title")}>
+    <div>
+      <Head title={t("mascot.color.title")}>
         <SegmentedTabs
           label={t("mascot.color.groups")}
           idPrefix="mascot-color"
@@ -422,7 +436,7 @@ function ColorPicker({ color, groups, disabled, onSelect }: { color: MausColor; 
           onChange={setTab}
           items={tabs.map((item) => ({ id: item.group, label: t(COLOR_GROUP_LABEL[item.group]), dot: item.group === current ? MAUS_COLORS[color] : undefined }))}
         />
-      </SectionHead>
+      </Head>
       <div id="mascot-color-panel" role="tabpanel" aria-labelledby={`mascot-color-tab-${open.group}`} data-color-panel={open.group}>
         <div className="flex flex-wrap gap-1.5 px-0.5 py-0.5" role="radiogroup" aria-label={t("mascot.color.title")}>
           {open.colors.map((name) => (
@@ -434,7 +448,7 @@ function ColorPicker({ color, groups, disabled, onSelect }: { color: MausColor; 
               aria-checked={color === name}
               data-mascot-color={name}
               onClick={() => onSelect(name)}
-              className={cn("size-6 rounded-full disabled:opacity-50", color === name && "ring-2 ring-white/80 ring-offset-2 ring-offset-card")}
+              className={cn("size-5 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50", color === name && "ring-2 ring-ink/80 ring-offset-2 ring-offset-panel")}
               style={swatchStyle(name)}
               title={name}
               aria-label={t("mascot.color.use", { color: name })}
@@ -442,11 +456,93 @@ function ColorPicker({ color, groups, disabled, onSelect }: { color: MausColor; 
           ))}
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
-export default function MascotLookEditor({ bot, disabled, onPatch: savePatch, onOwlMove, onMove }: MascotLookEditorProps) {
+const SHELF_LABEL = {
+  yours: "appearance.shelf.yours",
+  locked: "appearance.filter.locked",
+  premium: "appearance.filter.premium",
+} satisfies Record<WardrobeShelf, LocaleKey>;
+
+function filterLabel(filter: WardrobeFilter): string {
+  if (filter === "all") return t("appearance.filter.all");
+  if (filter === "owned") return t("appearance.filter.owned");
+  if (filter === "locked") return t("appearance.filter.locked");
+  if (filter === "premium") return t("appearance.filter.premium");
+  return t(MASCOT_FAMILY_LABEL[filter.slice("family:".length) as keyof typeof MASCOT_FAMILY_LABEL]);
+}
+
+/**
+ * A character's tile in the gallery: a still preview in the bot's color and
+ * the character's own skin, its name and family. The tile shown in the
+ * detail is outlined with the accent; the one the bot wears carries a
+ * check. A locked tile is greyed with its padlock and achievement progress;
+ * a paid edition shows its price, a new one a NEW badge.
+ */
+function MascotTile({ option, look, color, owlSkin, selected, inUse, lock, disabled, onSelect, onKeyDown }: {
+  option: MascotDefinition;
+  look: CompleteLook;
+  color: MausColor;
+  owlSkin: MascotSkinId;
+  selected: boolean;
+  inUse: boolean;
+  lock: LockInfo;
+  disabled?: boolean;
+  onSelect: () => void;
+  onKeyDown: (event: ReactKeyboardEvent<HTMLButtonElement>) => void;
+}) {
+  const name = t(CHARACTER_LABEL[option.id]);
+  const family = t(MASCOT_FAMILY_LABEL[option.family]);
+  const locked = lock.locked;
+  const hint = locked ? lockHint(lock) : "";
+  const label = locked
+    ? t("appearance.tile.locked", { name, hint })
+    : option.premium ? `${name}, ${option.premium.price}`
+      : inUse ? t("appearance.tile.inUse", { name }) : name;
+  return (
+    <button
+      type="button"
+      data-character-option={option.id}
+      data-locked={locked ? "" : undefined}
+      data-unlock-achievement={locked ? lock.achievement?.id : undefined}
+      data-in-use={inUse ? "" : undefined}
+      aria-pressed={selected}
+      aria-label={label}
+      title={locked ? hint : undefined}
+      disabled={disabled}
+      onClick={onSelect}
+      onKeyDown={onKeyDown}
+      className={cn(
+        "relative flex h-[78px] min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg bg-inset px-1 pt-1 transition-colors hover:bg-control disabled:opacity-50",
+        locked ? "pb-2" : "pb-1",
+        focusRing,
+        selected && on,
+      )}
+    >
+      <span className={cn("grid size-10 shrink-0 place-items-center overflow-hidden", locked && "opacity-60 grayscale")} aria-hidden="true">
+        <option.Thumb color={color} skin={owlSkin} look={{ ...look, character: option.id }} size={36} />
+      </span>
+      <span className="w-full truncate text-center text-[11.5px] leading-4 text-ink">{name}</span>
+      {!locked && <span className="w-full truncate text-center text-[10px] leading-3 text-ink-tertiary">{option.premium && option.isNew ? option.premium.price : family}</span>}
+      {inUse && (
+        <span className="absolute left-1 top-1 grid size-4 place-items-center rounded-full bg-accent text-accent-ink" aria-hidden="true">
+          <Check size={10} strokeWidth={3} />
+        </span>
+      )}
+      {locked ? (
+        <LockBadge lock={lock} />
+      ) : option.isNew ? (
+        <span className="absolute right-1 top-1 rounded-full bg-accent px-1.5 text-[9px] font-semibold uppercase leading-[14px] text-accent-ink" aria-hidden="true">{t("appearance.badge.new")}</span>
+      ) : option.premium ? (
+        <span className="absolute right-1 top-1 rounded-full bg-control px-1.5 text-[9px] font-semibold leading-[14px] text-ink" aria-hidden="true">{option.premium.price}</span>
+      ) : null}
+    </button>
+  );
+}
+
+export default function MascotLookEditor({ bot, disabled, onPatch: savePatch, onOwlMove }: MascotLookEditorProps) {
   const look = completeMascotLook(bot.mascotLook);
   const owlSkin = botMascotSkin(bot.mascotSkin);
   // what this person unlocked (src/lib/achievements.ts); what the bot wears now always stays.
@@ -456,251 +552,388 @@ export default function MascotLookEditor({ bot, disabled, onPatch: savePatch, on
   const unlocks = grokLinked && stored.enforced && !stored.keys.has("character:shape")
     ? { enforced: true as const, keys: new Set([...stored.keys, "character:shape"]) }
     : stored;
-  // a Mastery character stays in the row, locked, with the achievement that unlocks it
-  const characters = MASCOTS.filter((option) => option.id === look.character || characterUnlocked(unlocks, option.id) || characterLock(unlocks, option.id).mastery === true);
+  const lockOf = (id: MascotCharacter): LockInfo => (id === look.character ? { locked: false } : characterLock(unlocks, id));
+  // A character behind a secret achievement (Trombi's hidden command) stays out until it is earned: the easter egg stays one.
+  const listed = MASCOTS.filter((option) => {
+    const lock = lockOf(option.id);
+    return !(lock.locked && lock.achievement?.hidden && !lock.item?.unlockedAt);
+  });
   const onPatch = (patch: MascotLookPatch) => {
     savePatch(patch);
     reportAchievement("bot.customized", { key: patch.mascotLook?.character ?? look.character });
   };
   const setLook = (next: Partial<MascotLook>) => onPatch({ mascotLook: { ...look, ...next, skins: { ...look.skins, ...next.skins } } });
 
-  const colors = <ColorPicker color={bot.color} groups={colorGroupsFor(look.character, bot.color)} disabled={disabled} onSelect={(color) => onPatch({ color })} />;
+  // The character in the detail: the one the bot wears, or one picked to look at. It follows the bot's (Reset, another window).
+  const [shown, setShown] = useState<MascotCharacter>(look.character);
+  const followed = useRef(look.character);
+  useEffect(() => {
+    if (followed.current === look.character) return;
+    followed.current = look.character;
+    setShown(look.character);
+  }, [look.character]);
+  const shownOption = MASCOTS.find((option) => option.id === shown) ?? MASCOTS[0];
+  const shownLock = lockOf(shown);
+  const shownLook: MascotLook = { ...look, character: shown };
+  const shownName = t(CHARACTER_LABEL[shown]);
+  const inUse = shown === look.character;
+  // A locked character previews only: its options show, disabled.
+  const optionsOff = disabled || shownLock.locked;
 
-  // the same moves, with the same names, as the desktop mascot's "Moves" menu (moves.ts)
-  const moves: { id: string; label: string; clip: string; owl?: OwlMove }[] = characterMoves(look).map((move) => ({ ...move, label: t(move.label) }));
+  const pick = (id: MascotCharacter) => {
+    setShown(id);
+    if (disabled || id === look.character || lockOf(id).locked) return;
+    setLook({ character: id });
+  };
+
+  // the gallery: a search and a chip narrow it, the shelves split what is left
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<WardrobeFilter>("all");
+  const filters = wardrobeFilters(listed);
+  const kept = filterWardrobe(listed, {
+    filter,
+    query,
+    nameOf: (option) => t(CHARACTER_LABEL[option.id]),
+    familyNameOf: (family) => t(MASCOT_FAMILY_LABEL[family]),
+    lockedOf: (option) => lockOf(option.id).locked,
+  });
+  const shelves = wardrobeShelves(kept, (option) => lockOf(option.id).locked);
+  const owned = listed.filter((option) => !lockOf(option.id).locked).length;
+  const browser = useRef<HTMLDivElement>(null);
+  const onTileKey = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    const tiles = Array.from(browser.current?.querySelectorAll<HTMLButtonElement>("[data-character-option]") ?? []);
+    const index = tiles.indexOf(event.currentTarget);
+    const grid = event.currentTarget.parentElement;
+    const columns = grid ? getComputedStyle(grid).gridTemplateColumns.split(" ").filter(Boolean).length : 1;
+    const next = wardrobeStep(index, tiles.length, columns, event.key);
+    if (next === null || index < 0) return;
+    event.preventDefault();
+    tiles[next]?.focus();
+  };
+
+  // the stage plays a move: the owl's wing motion, and every character's clip with its skin's effect
+  const [owlMotion, setOwlMotion] = useState<{ kind: Exclude<MausMotion, "none">; nonce: number } | null>(null);
+  const [fxMove, setFxMove] = useState<FxMoveRequest | null>(null);
+  const moves: { id: string; label: string; clip: string; owl?: OwlMove }[] = characterMoves(shownLook).map((move) => ({ ...move, label: t(move.label) }));
+  const play = (move: { clip: string; owl?: OwlMove }) => {
+    if (move.owl) {
+      const kind = move.owl;
+      setOwlMotion((last) => ({ kind, nonce: (last?.nonce ?? 0) + 1 }));
+      onOwlMove?.(kind);
+    }
+    setFxMove((last) => ({ clip: move.clip, key: (last?.key ?? 0) + 1 }));
+  };
+
+  const colors = shownOption.paint.colors && <ColorPicker color={bot.color} groups={colorGroupsFor(shown, bot.color)} disabled={optionsOff} onSelect={(color) => onPatch({ color })} />;
 
   return (
-    <div data-mascot-look-editor="">
-      {/* the character row, full width: the bot's avatar above is the preview */}
-      <SectionHead title={t("mascot.character.title")} />
-      <div className="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label={t("mascot.character.title")} data-character-row="">
-        {characters.map((option) => {
-          const lock = option.id === look.character ? undefined : characterLock(unlocks, option.id);
-          const locked = Boolean(lock?.locked);
-          return (
-          <button
-            key={option.id}
-            type="button"
-            role="radio"
-            disabled={disabled || locked}
-            aria-checked={look.character === option.id}
-            data-character-option={option.id}
-            data-locked={locked ? "" : undefined}
-            data-unlock-achievement={locked ? lock?.achievement?.id : undefined}
-            title={locked && lock ? lockHint(lock) : undefined}
-            onClick={() => setLook({ character: option.id })}
-            className={cn(card, "relative h-[46px] flex-row gap-2 px-2", look.character === option.id && on)}
-          >
-            <span className="grid size-8 shrink-0 place-items-center overflow-hidden" aria-hidden="true">
-              <option.Thumb color={bot.color} skin={owlSkin} look={{ ...look, character: option.id }} size={30} />
-            </span>
-            <span className="truncate text-[11.5px] leading-4 text-ink">{t(CHARACTER_LABEL[option.id])}</span>
-            {locked && lock && <LockBadge lock={lock} />}
-          </button>
-          );
-        })}
+    <div data-mascot-look-editor="" className="grid gap-4 @[34rem]:grid-cols-[minmax(0,1fr)_20rem]">
+      <div ref={browser} data-mascot-browser="" className="flex min-w-0 flex-col gap-2">
+        <label className="flex h-7 items-center gap-1.5 rounded-lg border border-hairline-weak bg-elevated px-2">
+          <Search size={13} aria-hidden="true" className="shrink-0 text-ink-secondary" />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              // Escape clears a search first; an empty one leaves Escape to the modal
+              if (event.key === "Escape" && query) {
+                event.preventDefault();
+                event.stopPropagation();
+                setQuery("");
+              }
+            }}
+            placeholder={t("appearance.search", { count: listed.length })}
+            aria-label={t("appearance.searchLabel")}
+            data-mascot-search=""
+            className="w-full min-w-0 bg-transparent text-[12px] text-ink placeholder:text-ink-secondary focus:outline-none"
+          />
+        </label>
+        <div role="group" aria-label={t("appearance.filters")} className="flex flex-wrap gap-1" data-mascot-filters="">
+          {filters.map((id) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={filter === id}
+              data-mascot-filter={id}
+              onClick={() => setFilter(id)}
+              className={cn(
+                "rounded-full border px-2 py-px text-[11px] leading-4 transition-colors",
+                focusRing,
+                filter === id ? "border-accent-border bg-selected text-ink" : "border-hairline-weak text-ink-secondary hover:text-ink",
+              )}
+            >
+              {filterLabel(id)}
+            </button>
+          ))}
+        </div>
+        {shelves.map(({ shelf, entries }) => (
+          <section key={shelf} data-mascot-shelf={shelf} aria-labelledby={`mascot-shelf-${shelf}`}>
+            <div className="mb-1 flex items-baseline justify-between gap-2">
+              <h3 id={`mascot-shelf-${shelf}`} className={heading}>{t(SHELF_LABEL[shelf])}</h3>
+              <span className="text-[10.5px] tabular-nums text-ink-tertiary">
+                {shelf === "yours" ? t("appearance.shelf.count", { count: owned, total: listed.length }) : entries.length}
+              </span>
+            </div>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(70px,1fr))] gap-1.5" data-character-row="">
+              {entries.map((option) => (
+                <MascotTile
+                  key={option.id}
+                  option={option}
+                  look={look}
+                  color={bot.color}
+                  owlSkin={owlSkin}
+                  selected={shown === option.id}
+                  inUse={look.character === option.id}
+                  lock={lockOf(option.id)}
+                  disabled={disabled}
+                  onSelect={() => pick(option.id)}
+                  onKeyDown={onTileKey}
+                />
+              ))}
+            </div>
+          </section>
+        ))}
+        {shelves.length === 0 && (
+          <p className="py-4 text-center text-[12px] text-ink-secondary" data-mascot-empty="">
+            {query.trim() ? t("appearance.noMatch", { query: query.trim() }) : t("appearance.empty")}
+          </p>
+        )}
       </div>
 
-      {look.character === "owl" && (
-        <div data-character-options="owl">
-          {colors}
-          <SkinPicker
-            key="owl"
-            skins={MASCOT_SKIN_IDS}
-            tierOf={OWL_SKIN_TIER}
-            selected={owlSkin}
-            labelOf={(skin) => t(OWL_SKIN_LABEL[skin])}
-            idPrefix="owl-skin"
-            dataKey="data-mascot-skin-option"
-            disabled={disabled}
-            onSelect={(skin) => onPatch({ mascotSkin: skin })}
-            lockOf={(skin) => (skin === owlSkin ? { locked: false } : skinLock(unlocks, "owl", skin))}
-            preview={(skin) => <MausAvatar color={bot.color} skin={skin} state="idle" size={38} animated={false} skinAnimated trackPointer={false} />}
-          />
-        </div>
-      )}
-
-      {look.character === "shape" && (
-        <div data-character-options="shape">
-          <SectionHead title={t("floatingBots.mascot.shape")} />
-          {/* 8 shapes on two rows; each previews the current color and skin, still and cheap */}
-          <div className="grid grid-cols-4 gap-1" role="radiogroup" aria-label={t("floatingBots.mascot.shape")}>
-            {SHAPE_CHOICES.map((shape) => (
-              <button
-                key={shape}
-                type="button"
-                role="radio"
-                disabled={disabled}
-                aria-checked={look.shape === shape}
-                data-character-shape={shape}
-                aria-label={t(SHAPE_LABEL[shape])}
-                title={t(SHAPE_LABEL[shape])}
-                onClick={() => setLook({ shape })}
-                className={cn(card, "h-[40px]", look.shape === shape && on)}
-              >
-                <ShapeThumbnail shape={shape} skin={look.skins.shape} color={bot.color} size={28} />
-              </button>
-            ))}
+      <div data-mascot-detail={shown} className="flex min-w-0 flex-col gap-2.5 rounded-xl border border-hairline-weak bg-panel p-2.5">
+        {/* the stage (the real avatar in the bot's color, playing the moves and the equip animation), and beside it the name and the action */}
+        <div className="flex gap-2.5">
+          <div data-mascot-stage="" className="relative grid size-[112px] shrink-0 place-items-center overflow-hidden rounded-lg bg-inset">
+            <span className="absolute bottom-2.5 h-2 w-14 rounded-full bg-ink/15 blur-[3px]" aria-hidden="true" />
+            <BotAvatar
+              bot={{ name: bot.name, color: bot.color, mascotSkin: owlSkin, mascotLook: shownLook, avatarCrop: "mascot" }}
+              size={80}
+              state="idle"
+              motion={owlMotion?.kind ?? "none"}
+              motionKey={owlMotion?.nonce ?? 0}
+              characterMove={fxMove}
+              label={t("appearance.preview", { name: shownName })}
+            />
+            {shownLock.locked && (
+              <span className="absolute right-1.5 top-1.5 grid size-5 place-items-center rounded-full bg-control text-ink-secondary" aria-hidden="true"><Lock size={11} strokeWidth={2.4} /></span>
+            )}
           </div>
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <div className="min-w-0">
+              <div className="truncate text-[14px] font-medium leading-5 text-ink">{shownName}</div>
+              <div className="truncate text-[11px] leading-4 text-ink-tertiary">
+                {t(MASCOT_FAMILY_LABEL[shownOption.family])} · {t("appearance.moveCount", { count: moves.length })}
+              </div>
+            </div>
+            {/* the action: what the bot wears, the character to wear, or what unlocks it */}
+            <button
+              type="button"
+              data-mascot-action={shownLock.locked ? "locked" : inUse ? "in-use" : "use"}
+              disabled={disabled || inUse || shownLock.locked}
+              onClick={() => setLook({ character: shown })}
+              className={cn(
+                "mt-auto flex min-h-8 items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-center text-[12px] leading-4",
+                focusRing,
+                !inUse && !shownLock.locked ? "bg-accent font-medium text-accent-ink hover:brightness-110" : "bg-control text-ink-secondary",
+              )}
+            >
+              {shownLock.locked ? <Lock size={12} className="shrink-0" aria-hidden="true" /> : inUse ? <Check size={13} className="shrink-0" aria-hidden="true" /> : null}
+              <span>{shownLock.locked ? lockHint(shownLock) : inUse ? t("appearance.inUse") : t("appearance.use", { name: shownName })}</span>
+            </button>
+          </div>
+        </div>
+
+        <div data-character-options={shown} className="flex flex-col gap-2.5">
+          {shown === "shape" && (
+            <div>
+              <Head title={t("floatingBots.mascot.shape")} />
+              {/* 8 shapes in one row; each previews the current color and skin, still and cheap */}
+              <div className="grid grid-cols-8 gap-1" role="radiogroup" aria-label={t("floatingBots.mascot.shape")}>
+                {SHAPE_CHOICES.map((shape) => (
+                  <button
+                    key={shape}
+                    type="button"
+                    role="radio"
+                    disabled={optionsOff}
+                    aria-checked={look.shape === shape}
+                    data-character-shape={shape}
+                    aria-label={t(SHAPE_LABEL[shape])}
+                    title={t(SHAPE_LABEL[shape])}
+                    onClick={() => setLook({ shape })}
+                    className={cn(card, "h-[30px] p-0.5", focusRing, look.shape === shape && on)}
+                  >
+                    <ShapeThumbnail shape={shape} skin={look.skins.shape} color={bot.color} size={22} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {colors}
-          <SkinPicker
-            key="shape"
-            skins={SHAPE_SKINS}
-            tierOf={SHAPE_SKIN_TIER}
-            selected={look.skins.shape}
-            labelOf={(skin) => t(SHAPE_SKIN_LABEL[skin])}
-            idPrefix="shape-skin"
-            dataKey="data-shape-skin-option"
-            disabled={disabled}
-            onSelect={(skin) => setLook({ skins: { ...look.skins, shape: skin } })}
-            lockOf={(skin) => skinLock(unlocks, "shape", skin)}
-            preview={(skin) => <ShapeMascot shape={look.shape} skin={skin} color={bot.color} size={38} detail="full" label={null} />}
-          />
-        </div>
-      )}
+          {shown === "owl" && (
+            <SkinPicker
+              key="owl"
+              skins={MASCOT_SKIN_IDS}
+              tierOf={OWL_SKIN_TIER}
+              selected={owlSkin}
+              labelOf={(skin) => t(OWL_SKIN_LABEL[skin])}
+              idPrefix="owl-skin"
+              dataKey="data-mascot-skin-option"
+              disabled={optionsOff}
+              onSelect={(skin) => onPatch({ mascotSkin: skin })}
+              lockOf={(skin) => (skin === owlSkin ? { locked: false } : skinLock(unlocks, "owl", skin))}
+              preview={(skin) => <MausAvatar color={bot.color} skin={skin} state="idle" size={36} animated={false} skinAnimated trackPointer={false} />}
+            />
+          )}
+          {shown === "shape" && (
+            <SkinPicker
+              key="shape"
+              skins={SHAPE_SKINS}
+              tierOf={SHAPE_SKIN_TIER}
+              selected={look.skins.shape}
+              labelOf={(skin) => t(SHAPE_SKIN_LABEL[skin])}
+              idPrefix="shape-skin"
+              dataKey="data-shape-skin-option"
+              disabled={optionsOff}
+              onSelect={(skin) => setLook({ skins: { ...look.skins, shape: skin } })}
+              lockOf={(skin) => skinLock(unlocks, "shape", skin)}
+              preview={(skin) => <ShapeMascot shape={look.shape} skin={skin} color={bot.color} size={32} detail="full" label={null} />}
+            />
+          )}
+          {shown === "trombi" && (
+            <SkinPicker
+              key="trombi"
+              skins={TROMBI_SKINS}
+              tierOf={TROMBI_SKIN_TIER}
+              selected={look.skins.trombi}
+              labelOf={(skin) => t(TROMBI_SKIN_LABEL[skin])}
+              idPrefix="trombi-skin"
+              dataKey="data-trombi-skin-option"
+              disabled={optionsOff}
+              onSelect={(skin) => setLook({ skins: { ...look.skins, trombi: skin } })}
+              lockOf={(skin) => skinLock(unlocks, "trombi", skin)}
+              preview={(skin) => <SkinnedTrombi skin={skin} pose="idle" size={34} width={26} detail="full" label={null} />}
+            />
+          )}
+          {shown === "bunbu" && (
+            <SkinPicker
+              key="bunbu"
+              skins={BUNBU_SKINS}
+              tierOf={BUNBU_SKIN_TIER}
+              selected={look.skins.bunbu}
+              labelOf={(skin) => t(BUNBU_SKIN_LABEL[skin])}
+              idPrefix="bunbu-skin"
+              dataKey="data-bunbu-skin-option"
+              disabled={optionsOff}
+              onSelect={(skin) => setLook({ skins: { ...look.skins, bunbu: skin } })}
+              lockOf={(skin) => skinLock(unlocks, "bunbu", skin)}
+              preview={(skin) => <BunbuMascot skin={skin} color={bot.color} size={32} detail="full" label={null} />}
+            />
+          )}
+          {shown === "shiba" && (
+            <SkinPicker
+              key="shiba"
+              skins={SHIBA_SKINS}
+              tierOf={SHIBA_SKIN_TIER}
+              selected={look.skins.shiba}
+              labelOf={(skin) => t(SHIBA_SKIN_LABEL[skin])}
+              idPrefix="shiba-skin"
+              dataKey="data-shiba-skin-option"
+              disabled={optionsOff}
+              onSelect={(skin) => setLook({ skins: { ...look.skins, shiba: skin } })}
+              lockOf={(skin) => skinLock(unlocks, "shiba", skin)}
+              preview={(skin) => <ShibaMascot skin={skin} color={bot.color} size={32} detail="full" label={null} />}
+            />
+          )}
+          {shown === "grump" && (
+            <SkinPicker
+              key="grump"
+              skins={GRUMP_SKINS}
+              tierOf={GRUMP_SKIN_TIER}
+              selected={look.skins.grump}
+              labelOf={(skin) => t(GRUMP_SKIN_LABEL[skin])}
+              idPrefix="grump-skin"
+              dataKey="data-grump-skin-option"
+              disabled={optionsOff}
+              onSelect={(skin) => setLook({ skins: { ...look.skins, grump: skin } })}
+              lockOf={(skin) => skinLock(unlocks, "grump", skin)}
+              preview={(skin) => <GrumpMascot skin={skin} color={bot.color} size={32} detail="full" label={null} />}
+            />
+          )}
+          {shown === "ogre" && (
+            <SkinPicker
+              key="ogre"
+              skins={OGRE_SKINS}
+              tierOf={OGRE_SKIN_TIER}
+              selected={look.skins.ogre}
+              labelOf={(skin) => t(OGRE_SKIN_LABEL[skin])}
+              idPrefix="ogre-skin"
+              dataKey="data-ogre-skin-option"
+              disabled={optionsOff}
+              onSelect={(skin) => setLook({ skins: { ...look.skins, ogre: skin } })}
+              lockOf={(skin) => skinLock(unlocks, "ogre", skin)}
+              preview={(skin) => <OgreMascot skin={skin} color={bot.color} size={32} detail="full" label={null} />}
+            />
+          )}
+          {shown === "frog" && (
+            <SkinPicker
+              key="frog"
+              skins={FROG_SKINS}
+              tierOf={FROG_SKIN_TIER}
+              selected={look.skins.frog}
+              labelOf={(skin) => t(FROG_SKIN_LABEL[skin])}
+              idPrefix="frog-skin"
+              dataKey="data-frog-skin-option"
+              disabled={optionsOff}
+              onSelect={(skin) => setLook({ skins: { ...look.skins, frog: skin } })}
+              lockOf={(skin) => skinLock(unlocks, "frog", skin)}
+              preview={(skin) => <FrogMascot skin={skin} color={bot.color} size={32} detail="full" label={null} />}
+            />
+          )}
+          {shown === "crab" && (
+            <SkinPicker
+              key="crab"
+              skins={CRAB_SKINS}
+              tierOf={CRAB_SKIN_TIER}
+              selected={look.skins.crab}
+              labelOf={(skin) => t(CRAB_SKIN_LABEL[skin])}
+              idPrefix="crab-skin"
+              dataKey="data-crab-skin-option"
+              disabled={optionsOff}
+              onSelect={(skin) => setLook({ skins: { ...look.skins, crab: skin } })}
+              lockOf={(skin) => skinLock(unlocks, "crab", skin)}
+              preview={(skin) => <CrabMascot skin={skin} color={bot.color} size={32} detail="full" label={null} />}
+            />
+          )}
 
-      {look.character === "trombi" && (
-        <div data-character-options="trombi">
-          <SkinPicker
-            key="trombi"
-            skins={TROMBI_SKINS}
-            tierOf={TROMBI_SKIN_TIER}
-            selected={look.skins.trombi}
-            labelOf={(skin) => t(TROMBI_SKIN_LABEL[skin])}
-            idPrefix="trombi-skin"
-            dataKey="data-trombi-skin-option"
-            disabled={disabled}
-            onSelect={(skin) => setLook({ skins: { ...look.skins, trombi: skin } })}
-            lockOf={(skin) => skinLock(unlocks, "trombi", skin)}
-            preview={(skin) => <SkinnedTrombi skin={skin} pose="idle" size={40} width={30} detail="full" label={null} />}
-          />
+          <div>
+            <Head title={t("mascot.moves.title")} />
+            <div className="flex flex-wrap gap-1">
+              {moves.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  data-character-move={item.id}
+                  aria-label={t("mascot.moves.play", { move: item.label })}
+                  onClick={() => play(item)}
+                  className={cn("rounded-md bg-control px-2 py-0.5 text-[11px] leading-4 text-ink hover:bg-raised-hover", focusRing)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-      )}
-
-      {look.character === "bunbu" && (
-        <div data-character-options="bunbu">
-          {colors}
-          <SkinPicker
-            key="bunbu"
-            skins={BUNBU_SKINS}
-            tierOf={BUNBU_SKIN_TIER}
-            selected={look.skins.bunbu}
-            labelOf={(skin) => t(BUNBU_SKIN_LABEL[skin])}
-            idPrefix="bunbu-skin"
-            dataKey="data-bunbu-skin-option"
-            disabled={disabled}
-            onSelect={(skin) => setLook({ skins: { ...look.skins, bunbu: skin } })}
-            lockOf={(skin) => skinLock(unlocks, "bunbu", skin)}
-            preview={(skin) => <BunbuMascot skin={skin} color={bot.color} size={38} detail="full" label={null} />}
-          />
-        </div>
-      )}
-
-      {look.character === "shiba" && (
-        <div data-character-options="shiba">
-          {colors}
-          <SkinPicker
-            key="shiba"
-            skins={SHIBA_SKINS}
-            tierOf={SHIBA_SKIN_TIER}
-            selected={look.skins.shiba}
-            labelOf={(skin) => t(SHIBA_SKIN_LABEL[skin])}
-            idPrefix="shiba-skin"
-            dataKey="data-shiba-skin-option"
-            disabled={disabled}
-            onSelect={(skin) => setLook({ skins: { ...look.skins, shiba: skin } })}
-            lockOf={(skin) => skinLock(unlocks, "shiba", skin)}
-            preview={(skin) => <ShibaMascot skin={skin} color={bot.color} size={38} detail="full" label={null} />}
-          />
-        </div>
-      )}
-
-      {look.character === "grump" && (
-        <div data-character-options="grump">
-          {colors}
-          <SkinPicker
-            key="grump"
-            skins={GRUMP_SKINS}
-            tierOf={GRUMP_SKIN_TIER}
-            selected={look.skins.grump}
-            labelOf={(skin) => t(GRUMP_SKIN_LABEL[skin])}
-            idPrefix="grump-skin"
-            dataKey="data-grump-skin-option"
-            disabled={disabled}
-            onSelect={(skin) => setLook({ skins: { ...look.skins, grump: skin } })}
-            lockOf={(skin) => skinLock(unlocks, "grump", skin)}
-            preview={(skin) => <GrumpMascot skin={skin} color={bot.color} size={38} detail="full" label={null} />}
-          />
-        </div>
-      )}
-
-      {look.character === "ogre" && (
-        <div data-character-options="ogre">
-          {colors}
-          <SkinPicker
-            key="ogre"
-            skins={OGRE_SKINS}
-            tierOf={OGRE_SKIN_TIER}
-            selected={look.skins.ogre}
-            labelOf={(skin) => t(OGRE_SKIN_LABEL[skin])}
-            idPrefix="ogre-skin"
-            dataKey="data-ogre-skin-option"
-            disabled={disabled}
-            onSelect={(skin) => setLook({ skins: { ...look.skins, ogre: skin } })}
-            lockOf={(skin) => skinLock(unlocks, "ogre", skin)}
-            preview={(skin) => <OgreMascot skin={skin} color={bot.color} size={38} detail="full" label={null} />}
-          />
-        </div>
-      )}
-
-      {look.character === "frog" && (
-        <div data-character-options="frog">
-          {colors}
-          <SkinPicker
-            key="frog"
-            skins={FROG_SKINS}
-            tierOf={FROG_SKIN_TIER}
-            selected={look.skins.frog}
-            labelOf={(skin) => t(FROG_SKIN_LABEL[skin])}
-            idPrefix="frog-skin"
-            dataKey="data-frog-skin-option"
-            disabled={disabled}
-            onSelect={(skin) => setLook({ skins: { ...look.skins, frog: skin } })}
-            lockOf={(skin) => skinLock(unlocks, "frog", skin)}
-            preview={(skin) => <FrogMascot skin={skin} color={bot.color} size={38} detail="full" label={null} />}
-          />
-        </div>
-      )}
-
-      <SectionHead title={t("mascot.moves.title")} />
-      <div className="flex flex-wrap gap-1">
-        {moves.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            disabled={disabled}
-            data-character-move={item.id}
-            aria-label={t("mascot.moves.play", { move: item.label })}
-            onClick={() => {
-              if (item.owl) onOwlMove?.(item.owl);
-              // every move also plays its skin's effect on the preview above
-              onMove?.(item.clip);
-            }}
-            className="rounded-lg bg-control px-2.5 py-1 text-[12px] text-ink hover:bg-raised-hover disabled:opacity-50"
-          >
-            {item.label}
-          </button>
-        ))}
       </div>
     </div>
   );
 }
 
 /**
- * A shape's thumbnail in the Shape grid: that shape in the bot's current
+ * A shape's thumbnail in the Shape row: that shape in the bot's current
  * color and skin, in the skin's still look (no filter, nothing animated), so
- * every thumbnail matches the preview above and costs nothing.
+ * every thumbnail matches the stage and costs nothing.
  */
-export function ShapeThumbnail({ shape, skin, color, size }: { shape: MascotShape; skin: ShapeSkin; color: string; size: number }) {
+function ShapeThumbnail({ shape, skin, color, size }: { shape: MascotShape; skin: ShapeSkin; color: string; size: number }) {
   return <ShapeMascot shape={shape} skin={skin} color={color} size={size} animated={false} detail="static" label={null} />;
 }
