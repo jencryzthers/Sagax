@@ -37,6 +37,8 @@ export interface ConsoleContext {
   url: URL;
   /** The path parameters of the template, decoded. */
   params: Record<string, string>;
+  /** The request's headers (a conditional GET's If-None-Match). */
+  headers?: import("node:http").IncomingHttpHeaders;
   /** The JSON body of a POST: null when empty, undefined when unreadable. */
   body: unknown;
   /** A route with `rawBody`: the request whose body is a file, unread. */

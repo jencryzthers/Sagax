@@ -59,7 +59,7 @@ GET /api/org/admin/capabilities
 ```json
 {
   "version": "0.4.15",
-  "api": 4,
+  "api": 5,
   "routes": ["GET audit", "GET bots", "GET capabilities", "GET overview", "GET usage"],
   "permissionsVersion": 1,
   "permissionGroups": [{ "id": "bots", "label": { "en": "Bots", "fr": "Bots" } }],
@@ -86,6 +86,11 @@ GET /api/org/admin/capabilities
     { "id": "claude", "name": "Claude", "kind": "cloud", "installed": true, "auth": "oauth" },
     { "id": "openai", "name": "OpenAI", "kind": "cloud", "installed": true, "auth": "apiKey" },
     { "id": "ollama", "name": "Ollama", "kind": "local", "installed": true, "auth": "none" }
+  ],
+  "mascotFamilies": ["classics", "shapes", "animals"],
+  "mascots": [
+    { "id": "owl", "family": "classics", "colors": true, "skins": ["none", "snowy", "..."], "defaultSkin": "none", "defaultColor": null },
+    { "id": "shape", "family": "shapes", "colors": true, "skins": ["plain", "pastel", "..."], "defaultSkin": "plain", "defaultColor": null, "shapes": ["circle", "bean", "squircle", "pill", "pick", "hexagon", "cloud", "drop"] }
   ]
 }
 ```
@@ -93,8 +98,9 @@ GET /api/org/admin/capabilities
 `version` is the Sagax release people know (`package.json` `forkVersion`, or
 `SAGAX_RELEASE_VERSION`), not the base version the link sends. `api` is 1 for
 a server that predates this route (it answers `404 not_found`), 2 since
-the console routes, 3 since the permission catalogue and 4 since `engines`
-(both 2026-10-09). A route
+the console routes, 3 since the permission catalogue, 4 since `engines`
+(both 2026-10-09) and 5 since the bots' `look` and `persona` with `mascots`
+(2026-10-11). A route
 missing from `routes` is not offered by this server: the console says so
 instead of calling it.
 
@@ -121,6 +127,14 @@ local model server, `cloud` for a subscription or API key engine),
 access (`oauth`: a sign-in with the provider's account, `apiKey`: a key,
 `none`: nothing to sign in to). A server before api 4 answers without
 `engines`.
+
+`mascots` (api 5) lists every character a bot's `look` can name, in the
+app's registry order (`shared/mascot-catalog.ts`, checked against
+`src/components/floating-bots/mascots.tsx`): its `family` (one of
+`mascotFamilies`, the Appearance gallery's chips), whether it is painted in
+the bot's color (`colors`; Trombi is not), its skins in the picker's order,
+the skin it wears by default and the color it shows where no bot gives one.
+See "A bot's look and persona" below for the whole list.
 
 ### `GET overview`
 
@@ -183,11 +197,16 @@ GET /api/org/admin/bots?status=active&q=atl&limit=50
     "engine": { "instanceId": "claude", "driverKind": "claudeAgent", "installed": true }, "model": "claude-opus-4-1",
     "access": "org-key", "mcpProfiles": [], "grants": [], "sections": [], "routines": 1,
     "createdAt": 1791500000000, "lastActivityAt": 1791500100000,
-    "status": "active", "label": null, "threads": 3
+    "status": "active", "label": null, "threads": 3,
+    "look": { "kind": "mascot", "character": "shiba", "family": "animals", "color": "orange", "colorHex": "#E78531", "skin": "sesame", "shape": null, "expression": null, "image": null },
+    "persona": { "displayName": "Atlas", "title": "Sales assistant", "description": "Prepares the weekly sales digest." }
   }],
   "next": null
 }
 ```
+
+Every bot carries `look` and `persona` (api 5, "A bot's look and persona"
+below), with or without paging.
 
 Every bot now carries `status` (`archived` is Sagax's archived bot: out of
 the sidebar, skipped by rooms, its routines do not run, until restored),
@@ -333,6 +352,7 @@ disabled person's routines stop anyway). Listed in `GET capabilities` as
 | Method and path | Role | What |
 |---|---|---|
 | `GET bots/{id}` | manager | a bot's page |
+| `GET bots/{id}/avatar` | manager | the bot's uploaded picture |
 | `POST bots/{id}/clone` | manager (bot and new owner in reach) | a copy for its owner or another person |
 | `POST bots/{id}/archive` | manager in reach, admin | archive |
 | `POST bots/{id}/restore` | manager in reach, admin | restore |
@@ -364,6 +384,70 @@ disabled person's routines stop anyway). Listed in `GET capabilities` as
 The AdminBot fields of `GET bots`, plus the facts above. `soul.summary` is
 the first line of the instructions (at most 140 characters), never the
 instructions themselves; no message, memory or routine prompt is answered.
+
+### A bot's look and persona
+
+`look` is what the bot wears, as the app resolves it
+(`server/org-admin-look.ts`, the rule of `src/components/Avatar.tsx`); the
+console draws the character itself from it.
+
+```json
+{
+  "kind": "image",
+  "character": "owl", "family": "classics",
+  "color": "blue", "colorHex": "#377FE6",
+  "skin": "galaxy", "shape": null, "expression": "happy",
+  "image": { "crop": "circle", "zoom": 1.4, "focusX": 0.5, "focusY": 0.35, "version": "9f2c41d07ab3e655", "type": "image/png" }
+}
+```
+
+- `kind`: `image` when the bot has an uploaded picture shown with a photo
+  crop (`GET bots/{id}/avatar` serves it); `mascot` when its owner chose a
+  character or a skin; `default` when they chose nothing: the owl in the
+  bot's color, as every bot wore before. The character fields are always
+  there: they are what the app draws when the picture fails to load.
+- `character`: `owl`, `shape`, `trombi`, `bunbu`, `shiba`, `grump`, `ogre`
+  or `frog`. `family`: `classics` (owl, trombi), `shapes` (shape) or
+  `animals` (bunbu, shiba, grump, ogre, frog).
+- `color`: the bot's color name (`shared/mascot-colors.ts`, six palettes);
+  `colorHex` its value, null for a name this server does not know. Trombi
+  ignores it.
+- `skin`: the character's skin. The owl's is the bot's owl skin (`none`,
+  `snowy`, `barn`, `carbon`, `gold`, `frost`, `neon`, `lightning`,
+  `chrome`, `inferno`, `holo`, `galaxy`, `spirit`); the other characters'
+  are listed per character in `GET capabilities` `mascots[].skins`
+  (shape: `plain` ... `galaxy`; trombi: `classic` ... `molten`; bunbu,
+  shiba, grump, ogre and frog: `plain`, their own coats, then the premium
+  set). An older stored name reads as its current id.
+- `shape`: the shape character's shape (`circle`, `bean` the heart,
+  `squircle`, `pill` the capsule, `pick` the triangle, `hexagon`, `cloud`,
+  `drop` the teardrop), else null.
+- `expression`: the owl's resting face when the owner picked one, else null.
+- `image`: null unless `kind` is `image`. `crop` is `circle`, `rounded`
+  (22 % radius) or `square`; `zoom` 1 to 3 over a cover fit; `focusX` and
+  `focusY` the point of the picture kept in the middle, 0 to 1; `version`
+  changes when the picture changes (it is the avatar route's ETag); `type`
+  the picture's media type.
+
+Sagax stores no accessory on a bot (nothing beyond character, skin, shape,
+color and the owl's face), so `look` has none. A bot's legacy `mascotBody`
+is not drawn by the app any more and is left out.
+
+`persona` is what the persona window shows: `displayName` (the bot's name),
+`title` (its role or tagline, null when empty) and `description` (null when
+empty, at most 500 characters; `descriptionTruncated: true` when the stored
+one was longer).
+
+### `GET bots/{id}/avatar`
+
+The bytes of the bot's uploaded picture (PNG, JPEG, GIF or WebP, at most 10
+MiB) with its `content-type`, a strong `ETag` (`"<look.image.version>"`),
+`Cache-Control: private, no-cache` and `X-Content-Type-Options: nosniff`;
+`If-None-Match` with that tag answers `304`. `404 not_found` when the bot
+has no picture (or shows its mascot), `413 too_large` past the cap, and the
+bot route's reach rules (out of a manager's reach is 404). The answer never
+names a file or a path; the picture is read without following a link. Not
+audited (a read of what the bot shows everyone it talks to).
 
 ### `POST bots/{id}/clone`
 

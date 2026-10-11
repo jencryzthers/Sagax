@@ -828,6 +828,7 @@ import { createOrgBotForceRoutes } from "./org-bot-force.ts";
 import { createOrgPersonConnectionRoutes, orgConnectionListing, revokeOrgConnections, type OrgPersonConnectionsDeps } from "./org-person-connections.ts";
 import { peopleRoutes, type EngineVia, type PeopleDeps } from "./org-admin-people.ts";
 import { botsRoutes, type BotsDeps } from "./org-admin-bots.ts";
+import { botLook, botPersona, readBotAvatar } from "./org-admin-look.ts";
 import { ConsoleRefusal } from "./org-admin-console.ts";
 import { routineScheduleLabel } from "./org-admin-schedule.ts";
 import { routinesRoutes, type RoutinesDeps } from "./org-admin-routines.ts";
@@ -24306,6 +24307,8 @@ function orgAdminBots(): Array<{ bot: AdminBot; reach: AdminBotReach }> {
         status: bot.hidden ? "archived" : "active",
         label: sectionName || null,
         threads: botThreadIds(bot).length,
+        look: botLook(bot, attachmentExists),
+        persona: botPersona(bot),
       },
       reach: orgBotReach(bot),
     };
@@ -24531,6 +24534,10 @@ async function importPackageFor(raw: unknown, ownerPrincipalId: string): Promise
 /** The console's Bots (server/org-admin-bots.ts). */
 const orgBotsDeps: BotsDeps = {
   bots: () => orgAdminBots(),
+  avatar: (botId) => {
+    const bot = store.bot(botId);
+    return bot ? readBotAvatar(bot, ATTACHMENTS_DIR) : null;
+  },
   detail: (botId) => {
     const bot = store.bot(botId);
     if (!bot) return null;
