@@ -28,6 +28,7 @@ import speakerModelUrl from "./models/campplus-sv-en-int8.onnx?url";
 import { streamVoiceModeSpeech } from "./api";
 import { type CallSettings } from "./call-settings";
 import { INITIAL_CALL, step, type CallEffect, type CallEvent, type CallState } from "./call-machine";
+import { thinkingCueMs } from "./duplex-policy";
 import { EchoGuard } from "./echo";
 import { loadOrt } from "./onnx";
 import { PcmPlayer, type PlaybackCut, type Sentence } from "./player";
@@ -233,6 +234,7 @@ export class VoiceCall {
 
   constructor(options: VoiceCallOptions) {
     this.o = options;
+    this.state = { ...INITIAL_CALL, duplex: options.settings().fullDuplex === true };
     this.now = options.now ?? (() => performance.now());
     this.voiceprint = options.voiceprint !== undefined ? options.voiceprint : readVoiceprint();
     this.player = options.player ?? new PcmPlayer();
@@ -698,7 +700,7 @@ export class VoiceCall {
   private armCue(turn: TurnMetrics): void {
     this.disarmCue();
     if (!this.o.settings().thinkingCue) return;
-    const wait = Math.max(0, THINKING_CUE_MS - (this.now() - turn.stoppedAt));
+    const wait = Math.max(0, thinkingCueMs(this.state.duplex) - (this.now() - turn.stoppedAt));
     this.cueTimer = setTimeout(() => {
       this.cueTimer = null;
       if (this.turn !== turn || turn.firstAudioAt !== undefined || this.closed) return;
@@ -726,6 +728,8 @@ export class VoiceCall {
   // ── the state machine's effects ────────────────────────────────────────
 
   private dispatch(event: CallEvent): void {
+    const duplex = this.o.settings().fullDuplex === true;
+    if (this.state.duplex !== duplex) this.state = { ...this.state, duplex };
     // A turn that starts right after the last one, before the bot said a
     // word, is the same utterance cut by a pause: it is sent whole, and the
     // turn the fragment started is cancelled.

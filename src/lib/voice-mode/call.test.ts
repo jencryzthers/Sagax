@@ -766,3 +766,13 @@ describe("the two Advanced switches", () => {
     expect(cleanCallSettings({ streamingVoice: "yes" })).toMatchObject({ streamingVoice: true });
   });
 });
+
+describe("full-duplex conversation", () => {
+  it("is off by default, also for settings saved before it existed, and keeps an explicit on", () => {
+    expect(DEFAULT_CALL_SETTINGS.fullDuplex).toBe(false);
+    expect(cleanCallSettings({ input: "auto", pause: "short" }).fullDuplex).toBe(false);
+    expect(cleanCallSettings({ fullDuplex: true }).fullDuplex).toBe(true);
+    expect(cleanCallSettings({ fullDuplex: false }).fullDuplex).toBe(false);
+    expect(cleanCallSettings({ fullDuplex: "yes" }).fullDuplex).toBe(false);
+  });
+});

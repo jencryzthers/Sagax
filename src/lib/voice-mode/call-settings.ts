@@ -30,12 +30,16 @@ export interface CallSettings {
   /** Advanced: the voice's ending (pitch and energy) may end a turn sooner
    * or later (prosody.ts); never in Patient */
   fasterEndOfTurn: boolean;
+  /** Advanced: talking while the bot works or speaks cancels that reply
+   * and never stacks the next ones. Off: words said while it works join
+   * that turn (a steer). Default off. */
+  fullDuplex: boolean;
 }
 
 export type CallPause = "short" | "normal" | "patient";
 export const CALL_PAUSES: readonly CallPause[] = ["short", "normal", "patient"];
 
-export const DEFAULT_CALL_SETTINGS: CallSettings = { input: "auto", onlyMyVoice: true, earcons: true, thinkingCue: true, pause: "normal", advancedOpen: false, captions: true, streamingVoice: true, fasterEndOfTurn: true };
+export const DEFAULT_CALL_SETTINGS: CallSettings = { input: "auto", onlyMyVoice: true, earcons: true, thinkingCue: true, pause: "normal", advancedOpen: false, captions: true, streamingVoice: true, fasterEndOfTurn: true, fullDuplex: false };
 
 type Storage = Pick<globalThis.Storage, "getItem" | "setItem">;
 const watchers = new Set<() => void>();
@@ -61,6 +65,7 @@ export function cleanCallSettings(value: unknown): CallSettings {
     captions: typeof record.captions === "boolean" ? record.captions : DEFAULT_CALL_SETTINGS.captions,
     streamingVoice: typeof record.streamingVoice === "boolean" ? record.streamingVoice : DEFAULT_CALL_SETTINGS.streamingVoice,
     fasterEndOfTurn: typeof record.fasterEndOfTurn === "boolean" ? record.fasterEndOfTurn : DEFAULT_CALL_SETTINGS.fasterEndOfTurn,
+    fullDuplex: typeof record.fullDuplex === "boolean" ? record.fullDuplex : DEFAULT_CALL_SETTINGS.fullDuplex,
   };
 }
 
