@@ -8074,7 +8074,9 @@
       "mascot.crabSkin.plain": "8b854ade2cd01bdca1aa982f6ecff0086f70e3d2140d7fae2786a2e4150eeb4c",
       "mascot.crabSkin.sand": "82855c11ae69b0652a292b72967a82d5f4973b88d76c6c793276ef8c5942a803",
       "persona.files.collapse": "19f25826b84b030c2c08c3166fe344167a98e50cc672a669aa5a86397d1f7cae",
-      "persona.files.expand": "d386e9414ed2f5eeee998a520fccfaa678259bd94fbd98a7a028d2c2e9726085"
+      "persona.files.expand": "d386e9414ed2f5eeee998a520fccfaa678259bd94fbd98a7a028d2c2e9726085",
+      "mcp.engineName.renamed": "b28d75df28d1e34aab347b049cd734f209b7d0384b0a5f2e1725fc584a14e44e",
+      "mcp.engineName.unregistrable": "0c7176ecd008576c98967c3d3666ff75584cc979cb948381b9d7fdce89ba706a"
     },
     "hi": {
       "approval.action.allowOnce": "168511d24d9ee03122b3200f929be11eaaedad45cb0ecb20a95f549b3e3f4d0f",
