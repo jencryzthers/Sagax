@@ -48,5 +48,11 @@ Writes still raise the approval card. The decision is recorded on every agent-ap
 
 In shadow mode the audit shows what enforcing would refuse. Today that is `create_agent`, which is admin tier and has no grants yet.
 
+## Grants routes (B3a)
+Admin scope only (gate + handler). Policy rows are `tool-grants:admin`, never default-enabled, so no agent tool can grant itself anything.
+- `GET /api/tool-grants[?kind=bot|user&id=…]`: every row (active, expired, revoked) with `state`.
+- `POST /api/tool-grants` `{subject:{kind,id}, scope:"<area>:<tier>", expiresAt?}`: a bot must exist; admin-tier grants need an expiry within 30 days.
+- `POST /api/tool-grants/<id>/revoke`: keeps the row. Both writes go to the admin activity log (category `rights`).
+
 ## B2.1: guard before the card
 An `agents__<tool>` (or `mcp__agents__<tool>`) permission request is checked before the card or Full access answers it: the bot's grant, then the grant of the person its turn speaks for. Audit rows (`agents.<tool>`, admin activity): `card` (pre_card, with guard decision and `speakerPrincipalId`), then `declined`/`expired` when nobody approves; an approved call is audited by the call itself (now with `speakerPrincipalId`). Enforce: `refused` and denied without a card. Shadow (default): recorded only.
