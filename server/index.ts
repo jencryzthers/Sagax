@@ -15025,7 +15025,15 @@ async function startTurn(
         await instance.adapter.interruptTurn(threadId).catch(() => {});
       });
       if (warmOnly) {
-        if (dispatch.cancelled || opts?.warmSignal?.aborted) instance.adapter.releaseWarmSession?.(threadId);
+        // A duplex interrupt while the person is still talking cancels this
+        // claim: there is no spoken turn yet, and releasing the process
+        // would make the first words pay a cold start. Hangup aborts the
+        // signal and is the path that closes it. The interrupt also
+        // quarantines this handshake for 30s; the warm has no provider
+        // turn id to retire, so leaving the mark would hold the first
+        // utterance until it expired.
+        clearCancelledProviderHandshake(threadId, `direct:${dispatchClaimId}`);
+        if (opts?.warmSignal?.aborted) instance.adapter.releaseWarmSession?.(threadId);
         else {
           warmOk = true;
           // The HTTP pool is already warm from GET /models. One 1-token

@@ -61,10 +61,12 @@
 //                     servers reconnected, history read back), a prompt
 //                     waits FAKE_ACP_FIRST_TOKEN_MS, then streams
 //                     FAKE_ACP_VOICE_REPLY word by word FAKE_ACP_TOKEN_MS
-//                     apart. With FAKE_ACP_VOICE_TOOL=<tool>, each prompt
-//                     first calls that tool on the injected agents MCP
-//                     server and ends its reply with "mcp:<tool>:ok" or
-//                     "mcp:<tool>:error")
+//                     apart. session/cancel stops that answer and resolves
+//                     the prompt cancelled, so a speculative reissue does
+//                     not wait out the sentence. With FAKE_ACP_VOICE_TOOL=<tool>,
+//                     each prompt first calls that tool on the injected
+//                     agents MCP server and ends its reply with
+//                     "mcp:<tool>:ok" or "mcp:<tool>:error")
 //                   | mcp-tools (connect every server in session/new's mcpServers
 //                     the way the agent's own client does, stdio or http,
 //                     with grok 1.0.25's initialize (FAKE_ACP_MCP_HANDSHAKE JSON
@@ -700,6 +702,9 @@ let voiceQueue: Promise<void> = Promise.resolve();
 /** Set once a cache-prime prompt has been answered, so the next spoken
  * prompt can use FAKE_ACP_CACHED_FIRST_TOKEN_MS. Unset keeps the cold delay. */
 let voiceCachePrimed = false;
+/** The spoken prompt still streaming. session/cancel resolves it and the
+ * loop stops, so a replaced utterance does not hold the thread. */
+let voiceInFlight: { id: number; settled: boolean } | null = null;
 async function voiceDelay(msg: any): Promise<void> {
   if (msg.method === "initialize") await pause(bootAt + envMs("FAKE_ACP_COLD_MS") - Date.now());
   else if (msg.method === "session/new" || msg.method === "session/load" || msg.method === "session/resume") await pause(envMs("FAKE_ACP_LOAD_MS"));
@@ -1023,6 +1028,16 @@ function handle(msg: any) {
         return;
       }
       if (mode === "voice") {
+        const job = { id: msg.id as number, settled: false };
+        voiceInFlight = job;
+        const finish = (body: Record<string, unknown>) => {
+          if (job.settled) return;
+          job.settled = true;
+          if (voiceInFlight === job) voiceInFlight = null;
+          emitUsageUpdates();
+          recordMethod("session/prompt.result");
+          result(msg.id, body);
+        };
         void (async () => {
           // After a cache prime, FAKE_ACP_CACHED_FIRST_TOKEN_MS (when set)
           // stands in for a prefix-cache hit. Unset keeps the cold delay,
@@ -1032,18 +1047,21 @@ function handle(msg: any) {
             ? envMs("FAKE_ACP_CACHED_FIRST_TOKEN_MS")
             : envMs("FAKE_ACP_FIRST_TOKEN_MS");
           await pause(firstToken);
+          if (job.settled) return;
           let reply = process.env.FAKE_ACP_VOICE_REPLY || "Sure. It is sunny in Montreal today, with a high of twenty degrees and a light wind. Do you want the forecast for tomorrow too?";
           const tool = process.env.FAKE_ACP_VOICE_TOOL;
           if (tool) {
             const ok = agentsMcp ? await driveMcp(agentsMcp, [{ name: tool, args: () => ({}) }], true).then(() => true, () => false) : false;
             reply += ` mcp:${tool}:${ok ? "ok" : "error"}`;
           }
+          if (job.settled) return;
           const tokenMs = envMs("FAKE_ACP_TOKEN_MS");
           for (const word of reply.match(/\S+\s*/g) ?? [reply]) {
+            if (job.settled) return;
             out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: word } } } });
             if (tokenMs) await pause(tokenMs);
           }
-          complete();
+          finish({ stopReason: "end_turn", _meta: { inputTokens: 10, outputTokens: 5 } });
         })();
         return;
       }
@@ -1482,6 +1500,13 @@ function handle(msg: any) {
       // the interrupted prompt resolves as cancelled. FAKE_ACP_CANCEL_REPLY
       // = "error" rejects it instead, any other value is the stopReason the
       // agent answers with (agents differ on how a cancel settles).
+      if (voiceInFlight && !voiceInFlight.settled) {
+        const job = voiceInFlight;
+        job.settled = true;
+        voiceInFlight = null;
+        recordMethod("session/prompt.result");
+        result(job.id, { stopReason: "cancelled", _meta: {} });
+      }
       if (hangingPromptId !== null) {
         const cancelReply = process.env.FAKE_ACP_CANCEL_REPLY;
         if (cancelReply === "error") out({ jsonrpc: "2.0", id: hangingPromptId, error: { code: -32800, message: "Request cancelled" } });
