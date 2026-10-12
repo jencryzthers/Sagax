@@ -9,12 +9,38 @@ import type { AdminActionRow } from "./admin-activity.ts";
 import { planHiddenAgentThreads } from "./agent-threads.ts";
 import { DATA_DIR } from "./config.ts";
 import type { ModelSelection } from "./contracts.ts";
-import { Store, taskHiddenFromPerson, type BotRecord } from "./store.ts";
+import { isInterBotThread, Store, taskHiddenFromPerson, type BotRecord } from "./store.ts";
 import { viewerThread } from "./thread-privacy.ts";
 
 const selection = (): ModelSelection => ({ instanceId: "claude", model: "default" });
 const savedBots = (): BotRecord[] => JSON.parse(readFileSync(join(DATA_DIR, "bots.json"), "utf8"));
 const JC = "pr_00000000-0000-4000-8000-000000000001";
+
+describe("bot-to-bot threads are never shown to the person", () => {
+  beforeEach(() => rmSync(DATA_DIR, { recursive: true, force: true }));
+
+  it("an unread thread another bot opened never lights the bot's dot; the bot still finds it", () => {
+    const store = new Store(selection);
+    const cryptic = store.createBot({}, { seedMessages: false });
+    const agreements = store.createBot({}, { seedMessages: false });
+    const task = store.createTask(agreements.id, "@Cryptic · work", false, undefined, { botId: cryptic.id, name: "Cryptic", at: 1, kind: "work" })!;
+    expect(isInterBotThread(agreements.id, task)).toBe(true);
+    store.patchTask(agreements.id, task.threadId, { unread: true });
+    expect(store.bot(agreements.id)!.unread).toBe(false);
+    // bots keep using it: it is stored, not hidden
+    expect(store.taskByThread(agreements.id, task.threadId)?.hidden).toBeUndefined();
+    store.patchTask(agreements.id, agreements.threadId, { unread: true });
+    expect(store.bot(agreements.id)!.unread).toBe(true);
+  });
+
+  it("a bot's own thread (opened by itself, e.g. incidents) is not bot-to-bot", () => {
+    const store = new Store(selection);
+    const chief = store.createBot({}, { seedMessages: false });
+    const task = store.createTask(chief.id, "Incidents", false, undefined, { botId: chief.id, name: "Chief", at: 1 })!;
+    expect(isInterBotThread(chief.id, task)).toBe(false);
+    expect(isInterBotThread(chief.id, { title: "x" } as never)).toBe(false);
+  });
+});
 
 describe("a hidden conversation in the store", () => {
   beforeEach(() => rmSync(DATA_DIR, { recursive: true, force: true }));

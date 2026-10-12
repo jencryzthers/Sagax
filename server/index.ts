@@ -407,6 +407,7 @@ import {
   type GroupRecord,
   type Message,
   type TaskRecord,
+  isInterBotThread,
   toWireTask,
 } from "./store.ts";
 import * as tts from "./tts/index.ts";
@@ -8853,6 +8854,8 @@ function notify(notification: Notification | null) {
   // client that started it reads the answer. An approval is the exception:
   // only the person can give it, and the conversation is in no sidebar.
   if (notification && notification.kind !== "approval" && notificationInHiddenThread(notification.threadId)) return;
+  // a bot-to-bot thread never buzzes the person for its own replies
+  if (notification && notificationIsInterBotChatter(notification)) return;
   // the conversation on a live voice call is heard, not buzzed (notify.ts)
   if (notification && quietForCall(notification, lastPersonMessage(notification.threadId), Date.now(), Boolean(voiceCalls.active(notification.threadId)))) return;
   // nested rather than spread — the frame's own `kind` names the frame,
@@ -8914,6 +8917,17 @@ function notificationInHiddenThread(threadId: string | undefined): boolean {
   if (!threadId) return false;
   const bot = store.botByThread(threadId);
   return Boolean(bot && store.taskByThread(bot.id, threadId)?.hidden === true);
+}
+
+/** Whether a notification is a bot-to-bot thread's own chatter (a reply,
+ * a finished turn): never shown to the person. What only the person can
+ * answer (an approval, a question) and alarms (incident, takeover, spend,
+ * failures) still reach them. */
+function notificationIsInterBotChatter(notification: Notification): boolean {
+  if (notification.kind !== "done") return false;
+  const bot = notification.threadId ? store.botByThread(notification.threadId) : undefined;
+  const task = bot && notification.threadId ? store.taskByThread(bot.id, notification.threadId) : undefined;
+  return Boolean(bot && task && isInterBotThread(bot.id, task));
 }
 
 /** The person's latest message in a thread (a call turn carries voiceCall). */
