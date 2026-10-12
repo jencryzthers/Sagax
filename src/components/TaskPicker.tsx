@@ -723,8 +723,11 @@ export function TaskPicker({ bot, initialOpen = false }: { bot: Bot; initialOpen
  * the bot's, it shows only while threads are on (Settings > Appearance). */
 export function GroupTaskPicker({ group }: { group: Group }) {
   const { dispatch } = useStore();
-  const showThreads = useShowThreads();
-  if (!showThreads) return null;
+  // Like a bot's and a person's: in the header location only; the sidebar
+  // location lists the room's threads under its row instead, never both.
+  const threadsOn = useShowThreads();
+  const location = useThreadsLocationChoice();
+  if (!threadsOn || location !== "header") return null;
   return (
     <ConversationTaskPicker
       threadId={group.threadId}

@@ -376,17 +376,16 @@ export function GroupListItem({
     if (showThreads && selected && !wasSelected.current) setThreadsOpen(true);
     wasSelected.current = selected;
   }, [selected, showThreads, setThreadsOpen]);
-  // A conversation with a person lists its threads like a bot does: under
-  // the row only in the sidebar location (the chat header's thread button
-  // otherwise, never both), and once there is a list (a second thread or a
-  // folder) to open.
+  // A room and a conversation with a person list their threads like a bot
+  // does: under the row only in the sidebar location (the chat header's
+  // thread button otherwise, never both), and once there is a list (a
+  // second thread, or a person's folder) to open. So every row kind sits at
+  // one inset in the header location, the avatar and the name aligned.
   const threadsLocation = useThreadsLocationChoice();
-  const personInSidebar = Boolean(group.peopleDm) && showThreads && threadsLocation === "sidebar";
-  // one thread is the room itself; the disclosure and the list only earn
-  // their place once there is a second thread to show
-  const hasThreadList = group.peopleDm
-    ? personInSidebar && ((group.tasks?.length ?? 1) > 1 || (group.projects?.length ?? 0) > 0 || Boolean(query))
-    : showThreads && ((group.tasks?.length ?? 1) > 1 || Boolean(query));
+  const inSidebar = showThreads && threadsLocation === "sidebar";
+  const hasThreadList = inSidebar && (group.peopleDm
+    ? (group.tasks?.length ?? 1) > 1 || (group.projects?.length ?? 0) > 0 || Boolean(query)
+    : (group.tasks?.length ?? 1) > 1 || Boolean(query));
   const expanded = !group.dm && threadsOpen && density !== "icons" && hasThreadList;
   // quiet rows keep the line only while the room reports work in progress
   const groupStatus = Boolean(group.busyBotId) || Boolean(group.working);
@@ -422,12 +421,11 @@ export function GroupListItem({
       }}
       className={cn(
         "relative flex w-full items-center rounded-lg text-left outline-none focus-visible:ring-1 focus-visible:ring-accent/60",
-        density === "icons" ? "justify-center px-1 py-1.5" : density === "compact" ? "gap-2 py-1.5 pr-9" : "min-h-[56px] gap-1.5 py-1.5 pr-2",
-        // Same inset as BotListItem so the group and its bots line up; a
-        // room's disclosure chevron sits inside its thread-mode inset. A
-        // person's row moves like a bot row (#152): only in the sidebar
-        // location, where its chevron sits.
-        density !== "icons" && ((group.peopleDm ? personInSidebar : showThreads) ? "pl-6" : density === "compact" ? "pl-2" : "pl-1"),
+        density === "icons" ? "justify-center px-1 py-1.5" : density === "compact" ? cn(inSidebar ? "gap-1.5 py-1" : "gap-2 py-1.5", "pr-9") : "min-h-[56px] gap-1.5 py-1.5 pr-2",
+        // The same box and inset as BotListItem, so every row's avatar and
+        // name line up: a room or a person moves like a bot row (#152),
+        // only in the sidebar location, where its chevron sits.
+        density !== "icons" && (inSidebar ? "pl-6" : density === "compact" ? "pl-2" : "pl-1"),
         selected && !expanded ? "bg-sidebar-selected" : "hover:bg-sidebar-hover",
       )}
       title={density === "icons" ? rowName : undefined}
