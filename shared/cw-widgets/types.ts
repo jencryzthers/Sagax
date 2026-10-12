@@ -54,6 +54,74 @@ export interface CwTicket {
   link?: string;
 }
 
+/** A time entry charged to a ticket, a project or a charge code. */
+export interface CwTimeEntry {
+  id: number;
+  /** "Ticket #48213" style label, when the entry names what it charges */
+  charge?: string;
+  chargeToId?: number;
+  company?: string;
+  member?: string;
+  workType?: string;
+  workRole?: string;
+  /** ConnectWise billableOption: Billable, DoNotBill or NoCharge */
+  billable?: string;
+  hours?: number;
+  notes?: string;
+  start?: string;
+  end?: string;
+  status?: string;
+  agreement?: string;
+  link?: string;
+}
+
+/** One block on the dispatch calendar. */
+export interface CwScheduleEntry {
+  id: number;
+  name: string;
+  member?: string;
+  company?: string;
+  /** the service ticket or project the block is for */
+  objectId?: number;
+  type?: string;
+  where?: string;
+  status?: string;
+  start?: string;
+  end?: string;
+  hours?: number;
+  done?: boolean;
+  link?: string;
+}
+
+export interface CwAgreement {
+  id: number;
+  name: string;
+  company?: string;
+  type?: string;
+  status?: string;
+  start?: string;
+  end?: string;
+  /** periodic bill amount, in the agreement's own currency */
+  billAmount?: number;
+  cycle?: string;
+  cancelled?: boolean;
+  link?: string;
+}
+
+export interface CwCompany {
+  id: number;
+  name: string;
+  identifier?: string;
+  status?: string;
+  type?: string;
+  phone?: string;
+  /** https only; anything else is dropped */
+  website?: string;
+  city?: string;
+  territory?: string;
+  link?: string;
+}
+
 export interface CwWidgetBase {
   v: typeof CW_WIDGET_VERSION;
   /** one record: a card; several: the family's list view */
@@ -68,6 +136,26 @@ export interface CwTicketWidget extends CwWidgetBase {
   records: CwTicket[];
 }
 
-export type CwWidget = CwTicketWidget;
+export interface CwTimeWidget extends CwWidgetBase {
+  family: "time";
+  records: CwTimeEntry[];
+}
+
+export interface CwScheduleWidget extends CwWidgetBase {
+  family: "schedule";
+  records: CwScheduleEntry[];
+}
+
+export interface CwAgreementWidget extends CwWidgetBase {
+  family: "agreement";
+  records: CwAgreement[];
+}
+
+export interface CwCompanyWidget extends CwWidgetBase {
+  family: "company";
+  records: CwCompany[];
+}
+
+export type CwWidget = CwTicketWidget | CwTimeWidget | CwScheduleWidget | CwAgreementWidget | CwCompanyWidget;
 export type CwFamily = CwWidget["family"];
 export type CwRecordOf<F extends CwFamily> = Extract<CwWidget, { family: F }>["records"][number];

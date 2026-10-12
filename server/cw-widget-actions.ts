@@ -13,7 +13,7 @@ import { randomUUID } from "node:crypto";
 import { cwSite } from "../shared/cw-widgets/links.ts";
 import { cwWidgetFromToolCall, isCwWriteTool } from "../shared/cw-widgets/tool-call.ts";
 import type { CwSite, CwWidget } from "../shared/cw-widgets/types.ts";
-import { cwActionAnchors, cwActionSummary, cwActionWrite, type CwAction, type CwLanguage } from "../shared/cw-widgets/actions.ts";
+import { cwActionMatchesWrite, cwActionSummary, cwActionWrite, type CwAction, type CwLanguage } from "../shared/cw-widgets/actions.ts";
 import { redactSecrets } from "./redact.ts";
 
 export const CW_ACTION_PASS_MS = 10 * 60_000;
@@ -57,11 +57,6 @@ export function cwActionCard(action: CwAction, language: CwLanguage, by: string)
   };
 }
 
-const KIND_WORDS: Record<CwAction["kind"], RegExp> = {
-  "ticket.status": /status/i,
-  "ticket.note": /note|text/i,
-};
-
 interface Pass {
   action: CwAction;
   expires: number;
@@ -75,10 +70,6 @@ export interface CwActionPasses {
   /** Withdraw a pass whose message never reached the bot. */
   revoke(threadId: string, action: CwAction): void;
   size(): number;
-}
-
-function namesRecord(input: string, id: number): boolean {
-  return new RegExp(`(?<![\\d.])${id}(?![\\d.])`).test(input);
 }
 
 export function createCwActionPasses(now: () => number = Date.now): CwActionPasses {
@@ -98,8 +89,7 @@ export function createCwActionPasses(now: () => number = Date.now): CwActionPass
     take(threadId, tool, input) {
       if (!input || !isCwWriteTool(tool)) return null;
       const kept = live(threadId);
-      const index = kept.findIndex((pass) =>
-        KIND_WORDS[pass.action.kind].test(input) && cwActionAnchors(pass.action).every((id) => namesRecord(input, id)));
+      const index = kept.findIndex((pass) => cwActionMatchesWrite(pass.action, input));
       if (index < 0) return null;
       const [pass] = kept.splice(index, 1);
       if (kept.length) passes.set(threadId, kept);

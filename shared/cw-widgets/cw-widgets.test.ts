@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   cwActionAnchors,
   cwActionInstruction,
+  cwActionMatchesWrite,
   cwActionSummary,
   cwActionWrite,
   cwRecordLink,
@@ -20,7 +21,16 @@ import {
   type CwTicket,
   type CwWidget,
 } from "./index.ts";
-import { FIXTURE_TICKETS, FIXTURE_TICKET_NOTES, fixtureMcpContent, fixtureQueryResult } from "./fixtures.ts";
+import {
+  FIXTURE_AGREEMENTS,
+  FIXTURE_COMPANIES,
+  FIXTURE_SCHEDULE,
+  FIXTURE_TICKETS,
+  FIXTURE_TICKET_NOTES,
+  FIXTURE_TIME,
+  fixtureMcpContent,
+  fixtureQueryResult,
+} from "./fixtures.ts";
 
 const ticketsOf = (widget: CwWidget | null): CwTicket[] => {
   expect(widget?.family).toBe("ticket");
@@ -258,5 +268,47 @@ describe("widget actions", () => {
     expect(cwActionSummary(note, "fr")).toBe("Ajouter une note à la discussion au billet #48213");
     expect(cwActionInstruction(note, "fr")).toContain('"resource":"service/tickets/48213/notes"');
     expect(cwActionInstruction(note, "fr")).toContain("Pièce commandée.");
+  });
+
+  it("maps time, schedule, agreements and companies, and drops a foreign website", () => {
+    const time = cwWidgetFromToolCall("cw_psa__query", JSON.stringify({ resource: "time/entries" }), fixtureQueryResult(FIXTURE_TIME));
+    expect(time).toMatchObject({ family: "time", view: "list" });
+    expect(time?.family === "time" && time.records[0]).toMatchObject({ id: 88021, charge: "Ticket #48213", billable: "Billable", hours: 1.25 });
+
+    const schedule = cwWidgetFromToolCall("cw_psa__query", JSON.stringify({ resource: "schedule/entries/33011" }), fixtureQueryResult([FIXTURE_SCHEDULE[0]]));
+    expect(schedule).toMatchObject({ family: "schedule", view: "card" });
+    expect(schedule?.family === "schedule" && schedule.records[0]?.done).toBe(false);
+
+    const agreements = cwWidgetFromToolCall("cw_psa__query", JSON.stringify({ resource: "finance/agreements" }), fixtureQueryResult(FIXTURE_AGREEMENTS));
+    expect(agreements).toMatchObject({ family: "agreement", view: "list" });
+
+    const companies = cwWidgetFromToolCall("cw_psa__query", JSON.stringify({ resource: "company/companies" }), fixtureQueryResult(FIXTURE_COMPANIES));
+    expect(companies?.family === "company" && companies.records.map((company) => company.website)).toEqual(["https://clinique.example/", undefined]);
+  });
+
+  it("keeps a fence honest and refuses a script or a foreign link", () => {
+    const widget = parseCwWidgetText(JSON.stringify({
+      v: 1,
+      family: "company",
+      records: [{ id: 250, name: "Clinique", website: "javascript:alert(1)", link: "https://evil.example/steal", phone: "418-555-0142" }],
+    }));
+    expect(widget?.family).toBe("company");
+    expect(widget?.family === "company" && widget.records[0]).toMatchObject({ name: "Clinique", phone: "418-555-0142" });
+    expect(widget?.family === "company" && widget.records[0]?.website).toBeUndefined();
+    expect(widget?.family === "company" && widget.records[0]?.link).toBeUndefined();
+    expect(parseCwWidgetText(JSON.stringify({ v: 2, family: "ticket", records: [{ id: 1, summary: "x" }] }))).toBeNull();
+  });
+
+  it("does not let one record's approval cover another family's write", () => {
+    const time = parseCwAction({ kind: "time.billable", entryId: 48213, billable: "DoNotBill", from: "Billable" })!;
+    const company = parseCwAction({ kind: "company.note", companyId: 48213, text: "Appelé le client." })!;
+    const ticketNote = JSON.stringify({ resource: "service/tickets/48213/notes", text: "x" });
+    expect(cwActionMatchesWrite(time, ticketNote)).toBe(false);
+    expect(cwActionMatchesWrite(company, ticketNote)).toBe(false);
+    expect(cwActionMatchesWrite(time, JSON.stringify(cwActionWrite(time)))).toBe(true);
+    expect(cwActionMatchesWrite(company, JSON.stringify(cwActionWrite(company)))).toBe(true);
+    expect(cwActionWrite(parseCwAction({ kind: "schedule.done", entryId: 33011, done: true })!)).toMatchObject({
+      resource: "schedule/entries/33011",
+    });
   });
 });

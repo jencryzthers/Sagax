@@ -99,6 +99,123 @@ export const FIXTURE_TICKET_NOTES = [
   },
 ];
 
+export const FIXTURE_TIME = [
+  {
+    id: 88021,
+    chargeToId: 48213,
+    chargeToType: "ServiceTicket",
+    company: { id: 250, identifier: "ClinVet", name: "Clinique vétérinaire Beauport" },
+    member: { id: 31, identifier: "jtremblay", name: "Julien Tremblay" },
+    workType: { id: 2, name: "À distance" },
+    workRole: { id: 4, name: "Technicien" },
+    billableOption: "Billable",
+    actualHours: 1.25,
+    notes: "Redémarré le spouleur d'impression. La file répond, une page de test est sortie.",
+    timeStart: "2026-10-09T14:10:00Z",
+    timeEnd: "2026-10-09T15:25:00Z",
+    status: { id: 1, name: "Ouverte" },
+    agreement: { id: 704, name: "Soutien illimité" },
+  },
+  {
+    id: 88040,
+    chargeToId: 48197,
+    chargeToType: "ServiceTicket",
+    company: { id: 118, name: "Les Bois Laurentides inc." },
+    member: { id: 12, name: "Sophie Lavoie" },
+    workType: { name: "Sur place" },
+    workRole: { name: "Ingénieure" },
+    billableOption: "DoNotBill",
+    actualHours: 0.5,
+    notes: "Vérifié la date d'expiration du certificat. Renouvellement déjà commandé.",
+    timeStart: "2026-10-11T13:00:00Z",
+    timeEnd: "2026-10-11T13:30:00Z",
+    status: { name: "Ouverte" },
+  },
+];
+
+export const FIXTURE_SCHEDULE = [
+  {
+    id: 33011,
+    name: "Sur place, imprimante 2e étage",
+    objectId: 48213,
+    type: { id: 1, name: "Service" },
+    member: { id: 31, name: "Julien Tremblay" },
+    company: { id: 250, name: "Clinique vétérinaire Beauport" },
+    dateStart: "2026-10-13T13:00:00Z",
+    dateEnd: "2026-10-13T15:00:00Z",
+    hours: 2,
+    where: { id: 9, name: "Clinique Beauport" },
+    status: { id: 2, name: "Confirmé" },
+    doneFlag: false,
+  },
+  {
+    id: 33028,
+    name: "Coup d'œil au portail client",
+    objectId: 48197,
+    type: { name: "Service" },
+    member: { name: "Sophie Lavoie" },
+    company: { name: "Les Bois Laurentides inc." },
+    dateStart: "2026-10-14T15:30:00Z",
+    dateEnd: "2026-10-14T16:00:00Z",
+    hours: 0.5,
+    where: { name: "À distance" },
+    status: { name: "Fait" },
+    doneFlag: true,
+  },
+];
+
+export const FIXTURE_AGREEMENTS = [
+  {
+    id: 704,
+    name: "Soutien illimité",
+    type: { id: 3, name: "Mensuel" },
+    company: { id: 250, name: "Clinique vétérinaire Beauport" },
+    agreementStatus: "Active",
+    startDate: "2026-01-01T00:00:00Z",
+    endDate: "2026-12-31T00:00:00Z",
+    billAmount: 890,
+    billingCycle: { id: 2, name: "Monthly" },
+    cancelledFlag: false,
+  },
+  {
+    id: 711,
+    name: "Surveillance du courriel",
+    type: { name: "Annuel" },
+    company: { name: "Les Bois Laurentides inc." },
+    agreementStatus: "Expired",
+    startDate: "2025-04-01T00:00:00Z",
+    endDate: "2026-03-31T00:00:00Z",
+    billAmount: 2400,
+    billingCycle: { name: "Yearly" },
+    cancelledFlag: true,
+  },
+];
+
+export const FIXTURE_COMPANIES = [
+  {
+    id: 250,
+    identifier: "ClinVet",
+    name: "Clinique vétérinaire Beauport",
+    status: { id: 1, name: "Active" },
+    type: { id: 2, name: "Client" },
+    phoneNumber: "418-555-0142",
+    website: "https://clinique.example",
+    city: "Québec",
+    territory: { id: 4, name: "Capitale-Nationale" },
+  },
+  {
+    id: 118,
+    identifier: "Bois",
+    name: "Les Bois Laurentides inc.",
+    status: { name: "Active" },
+    type: { name: "Client" },
+    phoneNumber: "450-555-0198",
+    website: "http://bois.example",
+    city: "Saint-Jérôme",
+    territory: { name: "Laurentides" },
+  },
+];
+
 /** A query result as the Perspicax `cw_psa__query` tool returns it. */
 export function fixtureQueryResult(records: unknown[], total = records.length): string {
   return JSON.stringify({ result: records, count: records.length, total });

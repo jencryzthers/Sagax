@@ -12,7 +12,9 @@ export type CwRecordType =
   | "ContactFv"
   | "OpportunityFv"
   | "AgreementFv"
-  | "InvoiceFv";
+  | "InvoiceFv"
+  | "TimeEntry"
+  | "ActivityFv";
 
 const HOST = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i;
 const COMPANY = /^[A-Za-z0-9_.-]{1,60}$/;

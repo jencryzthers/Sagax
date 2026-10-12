@@ -32,6 +32,14 @@ describe("ConnectWise widget passes", () => {
     expect(passes.take("t1", "cw_psa__write", writeInput({ resource: "service/tickets/48150/notes", text: "x" }))).toEqual(note);
   });
 
+  it("does not spend a time-entry pass on a ticket write that shares the id", () => {
+    const passes = createCwActionPasses();
+    const billable: CwAction = { kind: "time.billable", entryId: 48213, billable: "DoNotBill", from: "Billable" };
+    passes.grant("t1", billable);
+    expect(passes.take("t1", "cw_psa__write", writeInput({ resource: "service/tickets/48213", body: [{ path: "status" }] }))).toBeNull();
+    expect(passes.take("t1", "cw_psa__write", writeInput({ resource: "time/entries/48213", body: [{ path: "billableOption", value: "DoNotBill" }] }))).toEqual(billable);
+  });
+
   it("lapses after ten minutes and can be withdrawn", () => {
     let clock = 1_000;
     const passes = createCwActionPasses(() => clock);

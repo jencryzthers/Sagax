@@ -7,14 +7,23 @@
 import {
   CW_MAX_RECORDS,
   CW_WIDGET_VERSION,
+  type CwAgreement,
+  type CwCompany,
+  type CwScheduleEntry,
   type CwSite,
+  type CwRecordOf,
   type CwTicket,
   type CwTicketNote,
+  type CwTimeEntry,
   type CwWidget,
 } from "./types.ts";
 import { id, isRecord, num, type CwRecord } from "./read.ts";
 import { siteFromRecord } from "./links.ts";
 import { looksLikeNote, looksLikeTicket, noteFrom, orderNotes, ticketFrom, ticketIdOfNote } from "./ticket.ts";
+import { looksLikeTime, timeFrom } from "./time.ts";
+import { looksLikeSchedule, scheduleFrom } from "./schedule.ts";
+import { agreementFrom, looksLikeAgreement } from "./agreement.ts";
+import { companyFrom, looksLikeCompany } from "./company.ts";
 
 /** The ConnectWise words of a tool's name, from the `cw_psa` prefix on
  * (`mcp__perspicax_x__cw_psa_schedule__query` → cw, psa, schedule, query),
@@ -63,11 +72,19 @@ interface CallShape {
 const RESOURCE_FAMILIES: Array<[RegExp, Family]> = [
   [/^(?:service|project)\/tickets\/\d+\/(?:notes|allnotes)(?:\/|$)/, "ticketNotes"],
   [/^(?:service|project)\/tickets(?:\/|$)/, "ticket"],
+  [/^time\/entries(?:\/|$)/, "time"],
+  [/^schedule\/entries(?:\/|$)/, "schedule"],
+  [/^finance\/agreements(?:\/|$)/, "agreement"],
+  [/^company\/companies(?:\/|$)/, "company"],
 ];
 
 const NAME_FAMILIES: Array<[RegExp, Family]> = [
   [/^notes?$/, "ticketNotes"],
   [/^tickets?$/, "ticket"],
+  [/^times?$/, "time"],
+  [/^schedules?$/, "schedule"],
+  [/^agreements?$/, "agreement"],
+  [/^compan(?:y|ies)$/, "company"],
 ];
 
 function normalizeResource(value: string): string {
@@ -122,7 +139,7 @@ export function callShape(toolName: string, inputPreview: string | undefined): C
   return shape;
 }
 
-const WRAPPER_KEYS = ["result", "results", "data", "items", "records", "value", "rows", "tickets", "notes", "entries"];
+const WRAPPER_KEYS = ["result", "results", "data", "items", "records", "value", "rows", "tickets", "notes", "entries", "companies", "agreements"];
 
 interface Parsed {
   records: CwRecord[];
@@ -213,6 +230,10 @@ function familyOfRecords(records: CwRecord[]): Family | undefined {
   const sample = records.slice(0, 5);
   if (sample.every(looksLikeTicket)) return "ticket";
   if (sample.every(looksLikeNote)) return "ticketNotes";
+  if (sample.every(looksLikeTime)) return "time";
+  if (sample.every(looksLikeSchedule)) return "schedule";
+  if (sample.every(looksLikeAgreement)) return "agreement";
+  if (sample.every(looksLikeCompany)) return "company";
   return undefined;
 }
 
@@ -260,7 +281,46 @@ export function cwWidgetFromToolCall(
       parsed.records.length,
     );
   }
+  if (family === "time" || shape.family === "time") {
+    const records = parsed.records.slice(0, CW_MAX_RECORDS)
+      .map((record) => timeFrom(record, site))
+      .filter((entry): entry is CwTimeEntry => Boolean(entry));
+    return listWidget("time", records, site, parsed);
+  }
+  if (family === "schedule" || shape.family === "schedule") {
+    const records = parsed.records.slice(0, CW_MAX_RECORDS)
+      .map((record) => scheduleFrom(record, site))
+      .filter((entry): entry is CwScheduleEntry => Boolean(entry));
+    return listWidget("schedule", records, site, parsed);
+  }
+  if (family === "agreement" || shape.family === "agreement") {
+    const records = parsed.records.slice(0, CW_MAX_RECORDS)
+      .map((record) => agreementFrom(record, site))
+      .filter((entry): entry is CwAgreement => Boolean(entry));
+    return listWidget("agreement", records, site, parsed);
+  }
+  if (family === "company" || shape.family === "company") {
+    const records = parsed.records.slice(0, CW_MAX_RECORDS)
+      .map((record) => companyFrom(record, site))
+      .filter((entry): entry is CwCompany => Boolean(entry));
+    return listWidget("company", records, site, parsed);
+  }
   return null;
+}
+
+function listWidget<F extends "time" | "schedule" | "agreement" | "company">(
+  family: F,
+  records: CwRecordOf<F>[],
+  site: CwSite | undefined,
+  parsed: Parsed,
+): CwWidget | null {
+  if (records.length === 0) return null;
+  const single = records.length === 1 && (parsed.total === undefined || parsed.total <= 1);
+  return finish(
+    { v: CW_WIDGET_VERSION, family, view: single ? "card" : "list", records, ...(site ? { site } : {}) } as CwWidget,
+    parsed.total,
+    parsed.records.length,
+  );
 }
 
 /** A tool's result as text, for the mapper: a string as is, anything else
