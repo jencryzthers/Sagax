@@ -851,6 +851,7 @@ import { DesktopLocalModels } from "./desktop-local-models.ts";
 import { withDesktopModelPerson } from "./desktop-model-grant.ts";
 import { setDesktopInjectModels } from "./drivers/local-inject.ts";
 import { handleDesktopBridgeMcp } from "./desktop-bridge-tools.ts";
+import { cloudOnlyBot } from "./cloud-only-bots.ts";
 import { AUTO_COMPUTER_MCP_NAME, COMPUTER_SELECT_TOOL, autoComputerGuidance, autoComputerReason, autoComputerToolRefusal, selectAutoComputer, type AutoComputerState, type FixedWorksOn } from "./auto-computer.ts";
 import { attachDesktopTunnel, createBridgeAudit, createDesktopBridgeRoutes } from "./desktop-bridge-routes.ts";
 import { DesktopTunnels, startEgressProxy, type EgressProxy } from "./desktop-egress.ts";
@@ -9999,7 +10000,8 @@ function turnSurfacePlan(bot: BotRecord, runOn?: RoutineRunOn, threadId?: string
   const instance = registry.get(bot.modelSelection.instanceId);
   const remote = remoteComputerForTurn({
     organization: IDENTITY.kind === "perspicax",
-    runOnCloud: runOn === "cloud",
+    // A cloud-only bot (server/cloud-only-bots.ts) always runs as a cloud run.
+    runOnCloud: runOn === "cloud" || cloudOnlyBot(bot.id),
     hasTeamComputer: Boolean(inheritedTeamComputer(bot)),
   });
   return resolveSurface({
@@ -13589,7 +13591,7 @@ async function startTurn(
   });
   const turnRemote = remoteComputerForTurn({
     organization: IDENTITY.kind === "perspicax",
-    runOnCloud: opts?.runOn === "cloud",
+    runOnCloud: opts?.runOn === "cloud" || cloudOnlyBot(bot.id),
     hasTeamComputer: Boolean(inheritedTeamComputer(bot)),
   });
   const turnAuto = autoComputerStateFor(turnPlace, turnWorksOn(plan, turnRemote.forceCloud), routineLineage(speaker));
