@@ -5,7 +5,9 @@ import { expect, it } from "vitest";
 import { classifyVoiceIntent } from "../src/lib/voice-mode/voice-topics.ts";
 import {
   ACCEPTANCE_SCRIPT,
+  acceptanceVoiceCall,
   matchAcceptanceLine,
+  noteWarmTotal,
   scoreAcceptance,
   type AcceptanceEvent,
 } from "./voice-acceptance-call.ts";
@@ -123,6 +125,24 @@ it.skipIf(process.env.SAGAX_VOICE_ACCEPTANCE !== "1")("runs the real STT/LLM/TTS
   expect(result.dir).toMatch(/sagax-voice-acceptance/);
   expect(result.scores.map((row) => row.scenario)).toEqual(["a", "b", "c", "d", "e", "f", "latency"]);
 }, 600_000);
+
+it("records one warm total per utterance, not every metrics event", () => {
+  const seen = new Set<string>();
+  const totals: number[] = [];
+  expect(noteWarmTotal(seen, totals, { utteranceId: "u1", stoppedAt: 100, firstAudioAt: 900 })).toBe(true);
+  expect(noteWarmTotal(seen, totals, { utteranceId: "u1", stoppedAt: 100, firstAudioAt: 900 })).toBe(false);
+  expect(noteWarmTotal(seen, totals, { utteranceId: "u2", stoppedAt: 2000, firstAudioAt: 2700 })).toBe(true);
+  expect(totals).toEqual([800, 700]);
+});
+
+it("marks speculative and continues on an acceptance send like LiveCall", () => {
+  expect(acceptanceVoiceCall("c", "u", "fr", { speculative: true })).toMatchObject({
+    callId: "c", utteranceId: "u", language: "fr", duplex: true, speculative: true,
+  });
+  expect(acceptanceVoiceCall("c", "u", "en", { continues: true })).toMatchObject({ continues: true, language: "en" });
+  expect(acceptanceVoiceCall("c", "u", "en", {})).not.toHaveProperty("continues");
+  expect(acceptanceVoiceCall("c", "u", "en", {})).not.toHaveProperty("speculative");
+});
 
 it("latency reports warm p50 against 800 ms without inventing a pass", () => {
   const miss = scoreAcceptance([], { warmTotals: [900, 1100, 1300, 1500], targetMs: 800 });

@@ -23,6 +23,7 @@ import {
   BENCH_SAY_VOICE_FR,
   ClockPlayer,
   applyBenchRuntimeEvent,
+  benchInterruptBody,
   holdVoiceUntilTail,
   loadVoiceBenchKey,
   pcmFrames,
@@ -157,6 +158,37 @@ const HINT: Record<string, RegExp> = {
   D: /\b(quebec|québec|how far)\b/i,
   A: /\b(montreal|montréal|story|weather|histoire)\b/i,
 };
+
+/** One warm EOS->first-audio sample per utterance. Metrics events repeat. */
+export function noteWarmTotal(
+  seen: Set<string>,
+  totals: number[],
+  turn: { utteranceId?: string; stoppedAt?: number; firstAudioAt?: number },
+): boolean {
+  if (typeof turn.stoppedAt !== "number" || typeof turn.firstAudioAt !== "number") return false;
+  const key = turn.utteranceId ?? `${turn.stoppedAt}:${turn.firstAudioAt}`;
+  if (seen.has(key)) return false;
+  seen.add(key);
+  totals.push(Math.max(0, Math.round(turn.firstAudioAt - turn.stoppedAt)));
+  return true;
+}
+
+export function acceptanceVoiceCall(
+  callId: string,
+  utteranceId: string,
+  lang: string,
+  turn: { continues?: boolean; speculative?: boolean; interrupted?: boolean } = {},
+): Record<string, unknown> {
+  return {
+    callId,
+    utteranceId,
+    language: voiceCallMarkLanguage(lang),
+    duplex: true,
+    ...(turn.continues ? { continues: true } : {}),
+    ...(turn.speculative ? { speculative: true } : {}),
+    ...(turn.interrupted ? { interrupted: true } : {}),
+  };
+}
 
 export function matchAcceptanceLine(text: string): AcceptanceLine | undefined {
   const intent = classifyVoiceIntent(text);
@@ -357,22 +389,21 @@ export async function runVoiceAcceptanceCall(outDir?: string): Promise<{
     };
 
     const warmTotals: number[] = [];
+    const warmSeen = new Set<string>();
     let metrics: Record<string, number | boolean | undefined> = {};
     call.on("metrics", (turn) => {
       if (!turn) return;
       metrics = { ...turn } as never;
-      if (typeof turn.stoppedAt === "number" && typeof turn.firstAudioAt === "number") {
-        warmTotals.push(Math.max(0, Math.round(turn.firstAudioAt - turn.stoppedAt)));
-      }
+      noteWarmTotal(warmSeen, warmTotals, turn);
     });
-    call.on("utterance", (text, turnMetrics) => {
+    call.on("utterance", (text, turnMetrics, turn) => {
       metrics = { ...metrics, ...turnMetrics } as never;
       current.sentAt ??= performance.now();
       const line = matchAcceptanceLine(text);
-      const utteranceId = `acc-${Math.random().toString(36).slice(2, 10)}`;
+      const utteranceId = turn.utteranceId ?? `acc-${Math.random().toString(36).slice(2, 10)}`;
       void api("POST", `/api/bots/${bot.id}/messages`, {
         threadId, text, sendId: utteranceId,
-        voiceCall: { callId, utteranceId, language: voiceCallMarkLanguage(line?.lang ?? "en"), duplex: true },
+        voiceCall: acceptanceVoiceCall(callId, utteranceId, line?.lang ?? "en", turn),
       }).then((sent) => {
         const parallel = (sent.body as { parallel?: { state?: string; threadId?: string } }).parallel;
         const stopped = (sent.body as { stopped?: boolean }).stopped;
@@ -387,9 +418,9 @@ export async function runVoiceAcceptanceCall(outDir?: string): Promise<{
         log(`send ${line?.id ?? "?"} status=${sent.status} parallel=${parallel?.state ?? "none"}`);
       });
     });
-    call.on("interrupt-bot", () => {
+    call.on("interrupt-bot", (target) => {
       mark({ kind: "interrupt", id: "barge" });
-      void api("POST", `/api/bots/${bot.id}/interrupt`, { threadId }).then(() => mark({ kind: "cancelled", id: "A", threadId }));
+      void api("POST", `/api/bots/${bot.id}/interrupt`, benchInterruptBody(threadId, target)).then(() => mark({ kind: "cancelled", id: "A", threadId }));
     });
 
     const eventsAbort = new AbortController();
