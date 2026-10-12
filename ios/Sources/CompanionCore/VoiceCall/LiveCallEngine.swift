@@ -471,7 +471,11 @@ public final class LiveCallEngine {
         if event == .speechStart, !state.botAudible, let sent = lastSent, !sent.botSpoke,
            now() - sent.endedAt <= Self.continuationSeconds {
             continuing = true
-            if state.botBusy { events.interruptBot() }
+            // Duplex speech-start already interrupt-bot via CallMachine.step
+            // (cancel-and-interrupt). Flag off still needs this extra emit.
+            if state.botBusy && !(state.duplex && !state.backgroundWork) {
+                events.interruptBot()
+            }
         }
         if event == .botAudioStart { lastSent?.botSpoke = true }
         let (next, effects) = CallMachine.step(state, event)

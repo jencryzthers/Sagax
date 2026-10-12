@@ -244,6 +244,13 @@ try {
     delivery_mode: "foreground",
   };
   assertToolResult(
+    await rpc("tools/call", {
+      name: "get_window_state",
+      arguments: { session, pid: xev.pid, window_id: Number(windowId), include_screenshot: true },
+    }),
+    "get_window_state",
+  );
+  assertToolResult(
     await rpc("tools/call", { name: "click", arguments: target }),
     "click",
   );
