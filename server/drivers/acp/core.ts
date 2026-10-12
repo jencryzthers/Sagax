@@ -37,6 +37,7 @@ import { applyStoredEngineEnv } from "../../engine-api-keys.ts";
 import { openStartupModelCatalog, writeStartupModelCache } from "../../startup-model-catalog.ts";
 import { decodeInjectId } from "../local-inject.ts";
 import { DeviceAuthController, type DeviceSignIn } from "../device-auth.ts";
+import { LinkSignInController, type LinkSignIn } from "../link-sign-in.ts";
 import { deletePromptSplitReceipt, promptHalves, readPromptSplitReceipt, splitSessionPrompt, writePromptSplitReceipt } from "../prompt-split.ts";
 import type { PromptSplitReceipt } from "../prompt-split.ts";
 import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../../procs.ts";
@@ -328,6 +329,8 @@ export interface AcpSupport {
    * binary and environment as the turns, and is confirmed by isAuthenticated's
    * own evidence (device-auth.ts). */
   deviceSignIn?: DeviceSignIn;
+  /** A CLI sign-in that prints a page and no one-time code (Cursor). */
+  linkSignIn?: LinkSignIn;
   /** CLI argv AFTER the binary name to enter ACP stdio mode. */
   spawnArgs(config: AcpConfig, turn: SendTurnInput, launch?: { approvalGate: boolean }): string[];
   /** Sagax gates this turn's MCP calls itself (mcp-gate-approval.ts): every
@@ -814,6 +817,9 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
       }
       const deviceSignIn = support.deviceSignIn
         ? new DeviceAuthController(support.deviceSignIn, { cli: config.cli, environment: () => childEnv(), onAuthenticated: refreshModels })
+        : null;
+      const linkSignIn = support.linkSignIn
+        ? new LinkSignInController(support.linkSignIn, { cli: config.cli, environment: () => childEnv(), onAuthenticated: refreshModels })
         : null;
       const listeners = new Set<RuntimeEventListener>();
       interface Turn {
@@ -2827,6 +2833,11 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           startAuthentication: () => deviceSignIn.start(),
           getAuthentication: (flowId: string) => deviceSignIn.get(flowId),
           cancelAuthentication: () => deviceSignIn.cancel(),
+        } : linkSignIn ? {
+          authenticationMethod: "open-link" as const,
+          startAuthentication: () => linkSignIn.start(),
+          getAuthentication: (flowId: string) => linkSignIn.get(flowId),
+          cancelAuthentication: () => linkSignIn.cancel(),
         } : {}),
         snapshot,
         adapter: {
@@ -2880,6 +2891,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         },
         dispose: async () => {
           await deviceSignIn?.dispose();
+          await linkSignIn?.dispose();
           for (const { stop } of active.values()) stop();
           for (const threadId of Array.from(sessions.keys())) closeSession(threadId, "dispose");
           for (const [threadId, children] of retiring) {
