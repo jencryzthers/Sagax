@@ -19,9 +19,11 @@ describe("agents catalog: the agent-to-agent tools", () => {
     expect(member).not.toContain("create_agent");
   });
 
-  it("is off by default, in rooms and for an external runtime; old tools stay", () => {
+  it("is off by default and for an external runtime; the harness alone decides rooms; old tools stay", () => {
     expect(names({})).not.toContain("list_agents");
-    expect(names({ SAGAX_AGENT_API: "1", SAGAX_ROOM_TURN: "1" })).not.toContain("send_prompt");
+    // a direct-coordination turn sets SAGAX_ROOM_TURN too: the tools stay
+    expect(names({ SAGAX_AGENT_API: "1", SAGAX_ROOM_TURN: "1" })).toContain("send_prompt");
+    expect(names({ SAGAX_AGENT_API: "0", SAGAX_ROOM_TURN: "1" })).not.toContain("send_prompt");
     expect(names({ SAGAX_AGENT_API: "1", SAGAX_EXTERNAL_RUNTIME: "1" })).not.toContain("list_agents");
     const direct = names({ SAGAX_AGENT_API: "1" });
     expect(direct).toContain("list_bots");

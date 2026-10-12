@@ -1197,7 +1197,7 @@ export function availableTools(profile: CatalogProfile) {
 
 function catalogTools(profile: CatalogProfile) {
   const base = coreCatalogTools(profile);
-  if (!profile.agentApi || profile.externalRuntime || profile.coordinating) return base;
+  if (!profile.agentApi || profile.externalRuntime) return base;
   return [...base, ...AGENT_API_TOOLS.filter((tool) => profile.chief || tool.name !== "create_agent")];
 }
 

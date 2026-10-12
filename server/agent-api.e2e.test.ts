@@ -42,7 +42,7 @@ beforeAll(async () => {
   writeFileSync(join(staticDir, "index.html"), "<!doctype html><title>agent API test</title>");
   writeFileSync(join(data, "config.json"), JSON.stringify({
     instances: {
-      plain: { driver: "claudeAgent", displayName: "Plain fixture", environment: { FAKE_CLAUDE_MODE: "happy" }, config: { cli: FAKE_CLAUDE } },
+      plain: { driver: "claudeAgent", displayName: "Plain fixture", environment: { FAKE_CLAUDE_MODE: "happy", FAKE_CLAUDE_DUMP: join(home, "turn-dump.json") }, config: { cli: FAKE_CLAUDE } },
     },
   }));
   const port = await freePortBlock([0, 1]);
@@ -103,6 +103,10 @@ describe("agent-to-agent API (real server)", () => {
     expect((await api("PATCH", `/api/bots/${outsider.id}`, { section: "Elsewhere" })).status).toBe(200);
     expect((await api("POST", `/api/bots/${alpha.id}/messages`, { text: "Warm up" })).status).toBe(202);
     await expect.poll(async () => (await botState(alpha.id))?.busy, { timeout: 15_000 }).toBe(false);
+    // the real harness mounts the tools in an ordinary direct chat (GOX
+    // 2026-10-12: the room-coordination flag had kept them off everywhere)
+    const dump = JSON.parse(readFileSync(join(home, "turn-dump.json"), "utf8"));
+    expect(dump.mcpConfig?.mcpServers?.agents?.env?.SAGAX_AGENT_API).toBe("1");
     const token = await mint(alpha.id, alpha.threadId);
 
     const listed = await tool(token, "list_agents", {});
