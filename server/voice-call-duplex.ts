@@ -8,7 +8,8 @@ export type DuplexAdmit =
   | { action: "queue" }
   | { action: "replace"; interrupt: boolean; discardQueue: boolean }
   | { action: "background" }
-  | { action: "defer" };
+  | { action: "defer" }
+  | { action: "stop"; interrupt: boolean; discardQueue: true };
 
 export function admitDuplexSend(input: {
   duplex: boolean;
@@ -18,13 +19,16 @@ export function admitDuplexSend(input: {
   backgroundWork?: boolean;
   newTopic?: boolean;
   speculative?: boolean;
+  intent?: "stop" | "correction" | "new_topic";
 }): DuplexAdmit {
   if (!input.duplex) {
     return input.botBusy || input.stopping || input.queued ? { action: "steer" } : { action: "start" };
   }
-  // A new topic forks even while this thread is only thinking. Stop and
-  // correction keep replace (newTopic false). A speculative guess during
-  // a parallel card is admitted the same way (start or background).
+  // "stop" cancels the in-flight turn and does not start a new LLM turn.
+  // A correction still replaces. A new topic forks even while thinking.
+  if (input.intent === "stop" && (input.botBusy || input.stopping)) {
+    return { action: "stop", interrupt: true, discardQueue: true };
+  }
   if (input.newTopic && input.botBusy && !input.stopping) {
     return { action: "background" };
   }

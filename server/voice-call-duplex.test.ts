@@ -58,6 +58,21 @@ describe("admitDuplexSend", () => {
     })).toEqual({ action: "replace", interrupt: true, discardQueue: true });
   });
 
+  it("stop cancels the thinking turn and does not start a new one", () => {
+    expect(admitDuplexSend({
+      duplex: true, botBusy: true, stopping: false, queued: false, intent: "stop",
+    })).toEqual({ action: "stop", interrupt: true, discardQueue: true });
+    expect(admitDuplexSend({
+      duplex: true, botBusy: true, stopping: false, queued: false, backgroundWork: true, intent: "stop",
+    })).toEqual({ action: "stop", interrupt: true, discardQueue: true });
+  });
+
+  it("a correction still replaces a thinking turn", () => {
+    expect(admitDuplexSend({
+      duplex: true, botBusy: true, stopping: false, queued: false, intent: "correction",
+    })).toEqual({ action: "replace", interrupt: true, discardQueue: true });
+  });
+
   it("stop or a correction still replaces, even with background work", () => {
     expect(admitDuplexSend({
       duplex: true, botBusy: true, stopping: false, queued: false, backgroundWork: true, newTopic: false,
