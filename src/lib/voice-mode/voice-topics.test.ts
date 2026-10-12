@@ -10,6 +10,8 @@ import {
   openTopics,
   sourceUserId,
   topicLabel,
+  topicsFromCallMessages,
+  voiceCallTopicsNote,
 } from "./voice-topics";
 
 describe("voice topics", () => {
@@ -72,5 +74,30 @@ describe("voice topics", () => {
     expect(sourceUserId(messages, 1, {
       parallelTask: { requestMessageId: "uB" },
     })).toBe("uB");
+  });
+
+  it("rebuilds open topics from the call thread", () => {
+    const topics = topicsFromCallMessages([
+      { id: "uA", role: "user", text: "look up the weather in Montreal", voiceCall: { callId: "call-0123456789" } },
+      { id: "cardA", role: "bot", parallelTask: { role: "card", state: "running", requestMessageId: "uA" } },
+      { id: "uB", role: "user", text: "what time is it in Tokyo", voiceCall: { callId: "call-0123456789" } },
+    ]);
+    expect(openTopics(topics).map((topic) => [topic.id, topic.status])).toEqual([
+      ["uA", "background"],
+      ["uB", "active"],
+    ]);
+    const note = voiceCallTopicsNote(topics);
+    expect(note).toContain("Open topics on this call");
+    expect(note).toContain("look up the weather in Montreal (still running in the background)");
+    expect(note).toContain("what time is it in Tokyo (current)");
+    expect(note).not.toMatch(/[–—]/);
+  });
+
+  it("a stop utterance drops open topics", () => {
+    const topics = topicsFromCallMessages([
+      { id: "uA", role: "user", text: "look up the weather", voiceCall: { callId: "call-1" } },
+      { id: "uStop", role: "user", text: "stop", voiceCall: { callId: "call-1" } },
+    ]);
+    expect(openTopics(topics)).toEqual([]);
   });
 });

@@ -75,6 +75,18 @@ describe("the phone-call instruction", () => {
     expect(voiceCallSection(undefined, undefined, "Ada")).toBe("");
   });
 
+  it("injects open topics into the call instruction", () => {
+    const call = { voiceCall: { callId: "call-0123456789" } };
+    const text = voiceCallSection(call, undefined, "Ada", [
+      { id: "a", label: "weather in Montreal", status: "background" },
+      { id: "b", label: "time in Tokyo", status: "active" },
+    ]);
+    expect(text).toContain("Open topics on this call");
+    expect(text).toContain("weather in Montreal (still running in the background)");
+    expect(text).toContain("time in Tokyo (current)");
+    expect(text).not.toMatch(/[–—]/);
+  });
+
   it("marks every call turn's own words, since a live session gets the section only once", () => {
     expect(voiceCallTurnPrompt("hi", undefined)).toBe("hi");
     const marked = voiceCallTurnPrompt("hi", { callId: "call-0123456789" });

@@ -65,6 +65,48 @@ export function openTopics(topics: VoiceTopic[]): VoiceTopic[] {
   return topics.filter((topic) => topic.status === "active" || topic.status === "background");
 }
 
+/** Rebuild open topics from the call thread so the model can refer back. */
+export function topicsFromCallMessages(messages: Array<{
+  id: string;
+  role?: string;
+  text?: string;
+  voiceCall?: unknown;
+  parallelTask?: { role?: string; state?: string; requestMessageId?: string };
+}>): VoiceTopic[] {
+  let topics: VoiceTopic[] = [];
+  for (const message of messages) {
+    if (message.role === "user" && message.voiceCall && message.text?.trim()) {
+      if (isStopUtterance(message.text)) {
+        for (const open of openTopics(topics)) topics = applyTopicEvent(topics, { type: "drop", id: open.id });
+        continue;
+      }
+      if (topics.length === 0 || isNewVoiceTopic(message.text)) {
+        topics = applyTopicEvent(topics, { type: "start", id: message.id, label: topicLabel(message.text) });
+      }
+    }
+    const card = message.parallelTask;
+    if (card?.role === "card") {
+      const id = card.requestMessageId ?? message.id;
+      if (card.state === "running" || card.state === "queued") topics = applyTopicEvent(topics, { type: "background", id });
+      else if (card.state === "done" || card.state === "failed" || card.state === "stopped") {
+        topics = applyTopicEvent(topics, { type: "done", id });
+      }
+    }
+  }
+  return topics;
+}
+
+/** Lines for the phone-call prompt. Empty when nothing is open. */
+export function voiceCallTopicsNote(topics: VoiceTopic[]): string {
+  const open = openTopics(topics);
+  if (!open.length) return "";
+  const lines = [
+    "Open topics on this call. Refer back to them by these names when it helps (\"for the other thing you asked...\"):",
+    ...open.map((topic) => `- ${topic.label} (${topic.status === "background" ? "still running in the background" : "current"})`),
+  ];
+  return lines.join("\n");
+}
+
 export function callHasBackgroundWork(messages: Array<{
   kind?: string;
   tool?: { name?: string; ok?: boolean };
