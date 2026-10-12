@@ -12906,7 +12906,7 @@ setSafetyConfirm(async (request) => {
       heldCode: "approval.held.native",
     },
   });
-  if (bot) notify(deliverableNotification("approval", bot, threadId, summary, { ...(bot.avatarUrl ? { avatarUrl: bot.avatarUrl } : {}) }));
+  if (bot) notify(deliverableNotification("approval", bot, threadId, summary, bot.avatarUrl ? { avatarUrl: bot.avatarUrl } : {}));
   const answer = await held.answer;
   if (answer === "timeout") {
     const stale = store.messagesFor(threadId).find((row) => row.id === message.id);
