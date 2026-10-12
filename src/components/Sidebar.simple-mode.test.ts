@@ -205,13 +205,15 @@ describe("group rows line up with bot rows", () => {
   const rowClass = (markup: string, marker: string) => markup.match(new RegExp(`${marker}[^>]*class="([^"]*)"`))?.[1]
     ?? markup.match(new RegExp(`class="([^"]*)"[^>]*${marker}`))?.[1] ?? "";
 
-  it.each([true, false])("keeps the bot row inset fixed and the room row inset for its chevron with showThreads=%s, no outline around stacked faces", (showThreads) => {
+  it.each([true, false])("puts a room row at the bot row's inset and 44px box with showThreads=%s in the header location, no outline around stacked faces", (showThreads) => {
     fixture.showThreads = showThreads;
     fixture.state.bots = [bot, pepper];
     const groupMarkup = renderToStaticMarkup(createElement(GroupListItem, { group: twoBots, density: "comfortable", onMenu: vi.fn() }));
     const botMarkup = renderToStaticMarkup(createElement(BotListItem, { bot: pepper, density: "comfortable", onMenu: vi.fn() }));
-    // rooms keep a chevron in thread mode; bot rows never move
-    expect(rowClass(groupMarkup, 'data-sidebar-group-row="group"').split(" ")).toContain(showThreads ? "pl-6" : "pl-1");
+    // a room lists its threads under the row only in the sidebar location,
+    // like a bot and a person, so in the header location it never moves
+    expect(rowClass(groupMarkup, 'data-sidebar-group-row="group"').split(" ")).toContain("pl-1");
+    expect(rowClass(groupMarkup, 'data-sidebar-group-row="group"').split(" ")).not.toContain("pl-6");
     expect(rowClass(botMarkup, 'data-sidebar-bot-row="pepper"').split(" ")).toContain("pl-1");
     expect(rowClass(botMarkup, 'data-sidebar-bot-row="pepper"').split(" ")).not.toContain("pl-6");
     // same 44px avatar footprint as the bot row

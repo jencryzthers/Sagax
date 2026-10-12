@@ -2528,9 +2528,9 @@ rules, each covered by `shared/achievements-catalog.test.ts`,
   `src/lib/public-achievements.test.ts`, `PersonPanel.test.ts`,
   `achievements-ui.test.ts`, `SidebarProfileMenu.footer.test.ts`.
 - People rows in the sidebar sit at the bot rows' inset (`pl-1`, `pl-2` compact) with thread
-  mode on or off and carry no thread chevron, like bot rows since #152; only
-  room rows keep the thread-mode `pl-6` for their chevron
-  (`Sidebar.simple-mode.test.ts`).
+  mode on or off and carry no thread chevron, like bot rows since #152; room
+  rows too since 2026-10-12: every row takes `pl-6` and its chevron only in
+  the sidebar location (`Sidebar.simple-mode.test.ts`).
 - The toast never shows while the person types, one at a time, its chime
   follows Notification sounds, and reduced motion stills it.
 
@@ -2577,8 +2577,13 @@ and `sidebar-logo-preferences.test.ts`:
 - Rows (comfortable): a 44px portrait at `pl-1`, 6px before the name, 56px
   tall; the name 14px medium, then the last message 13px; the title is not
   drawn (avatar tooltip and `sr-only` with the name). Group and people rows
-  share the inset and the 44px footprint; people rows keep their custom
-  label (a Sagax feature upstream does not have). The row actions show on
+  share the inset and the 44px box (a room's stacked mascots fit inside
+  it), so every row's avatar and name start at one x in every density;
+  people rows keep their custom label (a Sagax feature upstream does not
+  have). A room follows Threads location like a bot and a person: its
+  threads are listed under its row (`pl-6`, the chevron) only in the
+  sidebar location, and its header picker (`GroupTaskPicker`) shows only
+  in the header location, never both. The row actions show on
   hover or focus only, and on touch screens.
 - Midnight's rail secondary ink is `#fcfcfca1` (#a5a5a5 on the rail, the
   window's preview and header grey); the default skin stays Pulsatrix.
