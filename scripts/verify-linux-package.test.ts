@@ -23,4 +23,10 @@ describe("verify-linux-package cloudflared pin", () => {
     expect(src).toContain(`Maintainer: ${maintainer}`);
     expect(src).not.toContain("Maintainer: Milind Soni");
   });
+
+  it("pins the Linux desktop Name to electron-builder.yml", () => {
+    const src = readFileSync(new URL("./verify-linux-package.mjs", import.meta.url), "utf8");
+    expect(src).toContain('"Name=Pulsatrix Sagax"');
+    expect(src).not.toContain('"Name=Sagax"');
+  });
 });
