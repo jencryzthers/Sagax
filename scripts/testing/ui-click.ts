@@ -11,12 +11,28 @@ export function openProfileAria(name: string): string {
 export function clickByAccessibleNameJs(name: string): string {
   return `(() => {
     const name = ${jsLiteral(name)};
+    const visible = (el) => {
+      if (!(el instanceof Element) || el.closest("[disabled], [aria-disabled='true']")) return false;
+      if (el instanceof HTMLButtonElement && el.disabled) return false;
+      const style = getComputedStyle(el);
+      if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return false;
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    };
     const match = (el) => {
+      if (!visible(el)) return false;
       const label = (el.getAttribute("aria-label") || "").trim();
       const text = (el.textContent || "").replace(/\\s+/g, " ").trim();
       return label === name || text === name;
     };
-    const el = [...document.querySelectorAll("button, [role=button], [aria-label], a")].find(match);
+    const pick = (root) => {
+      const found = [...root.querySelectorAll("button, [role=button], [aria-label], a")].filter(match);
+      return found[found.length - 1] || null;
+    };
+    const catalog = document.querySelector("[data-bot-catalog-modal]");
+    const dialogs = [...document.querySelectorAll("[role=dialog]")];
+    const top = catalog || dialogs[dialogs.length - 1];
+    const el = (top && pick(top)) || pick(document);
     if (!el) return false;
     el.click();
     return true;

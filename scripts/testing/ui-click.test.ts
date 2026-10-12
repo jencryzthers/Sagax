@@ -14,6 +14,14 @@ describe("renderer e2e click helpers", () => {
     expect(source).toContain("aria-label");
   });
 
+  it("prefers a visible match inside the top dialog over the first node in the page", () => {
+    const source = clickByAccessibleNameJs("Create team");
+    expect(source).toContain("Create team");
+    expect(source).toContain("[role=dialog]");
+    expect(source).toContain("data-bot-catalog-modal");
+    expect(source).toContain("getBoundingClientRect");
+  });
+
   it("treats the bot catalog modal as an overlay that covers the sidebar", () => {
     expect(overlaysOpenJs()).toContain("data-bot-catalog-modal");
     expect(overlaysOpenJs()).toContain("[role=dialog]");
