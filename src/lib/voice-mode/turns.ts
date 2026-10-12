@@ -26,11 +26,12 @@ import { CONTOUR_MS, contourVerdict, type ContourPoint, type ContourVerdict } fr
 //   `incompleteMs` longer, so "give me a good prompt to" is not sent as is.
 // - The person's pace preference (`pause`: short, normal, patient) sets the
 //   range; the adaptation works inside it.
-// - A sentence that is clearly over ends sooner (`completeMs`): the words so
-//   far close with final punctuation ("what time is it?"), and the silence
-//   after them is confident (the VAD is sure nobody speaks, not just under
-//   its threshold). A pause inside a sentence never ends it early, and a
-//   person who goes on after it is joined back (call.ts CONTINUATION_MS).
+// - A sentence that is clearly over ends sooner (`completeMs`, 200-300 ms):
+//   the words so far close with final punctuation ("what time is it?").
+//   That cut uses unvoiced frames (`silenceMs`), so a breath above
+//   QUIET_PROBABILITY still ends a finished question. A pause inside an
+//   unfinished clause never ends it early. A person who goes on after a
+//   wrong cut is joined back (call.ts CONTINUATION_MS).
 // - How the voice ends counts too ("Faster end of turn", `prosody`, Short
 //   and Normal only): the pitch and energy of the last 400 ms before the
 //   silence (prosody.ts). A finished contour (a fall that fades out, or a
@@ -46,8 +47,8 @@ export const FRAME_MS = 32;
 
 /** The endpoint range for each pause preference (the call's settings). */
 export const PAUSE_PRESETS = {
-  short: { minEndpointMs: 420, endpointMs: 520, maxEndpointMs: 800, incompleteMs: 500, completeMs: 160 },
-  normal: { minEndpointMs: 560, endpointMs: 700, maxEndpointMs: 1_100, incompleteMs: 750, completeMs: 192 },
+  short: { minEndpointMs: 420, endpointMs: 520, maxEndpointMs: 800, incompleteMs: 500, completeMs: 224 },
+  normal: { minEndpointMs: 560, endpointMs: 700, maxEndpointMs: 1_100, incompleteMs: 750, completeMs: 256 },
   patient: { minEndpointMs: 800, endpointMs: 1_000, maxEndpointMs: 1_500, incompleteMs: 1_000, completeMs: 288 },
 } as const;
 
@@ -317,7 +318,7 @@ export class TurnDetector {
   }
 
   /** Speaking and already in the endpoint silence. call.ts keeps feeding STT
-   * until the partial can start the LLM, then stops so xAI can speech_final. */
+   * while the partial is incomplete, then stops so xAI can speech_final. */
   get inSilence(): boolean {
     return this.state === "speaking" && this.silenceMs > 0;
   }
@@ -413,7 +414,9 @@ export class TurnDetector {
     const contourEnd = this.contourEarly && !this.complete;
     const verdict = this.verdict;
     const early = this.earlyEndpointMs;
-    const endsEarly = early !== null && this.quietMs >= early && this.silenceMs < this.effectiveEndpointMs;
+    const punctuatedEarly = this.complete && early !== null && this.silenceMs >= early;
+    const contourQuietEarly = contourEnd && early !== null && this.quietMs >= early;
+    const endsEarly = (punctuatedEarly || contourQuietEarly) && this.silenceMs < this.effectiveEndpointMs;
     if (endsEarly || this.silenceMs >= this.effectiveEndpointMs || this.turnMs >= this.o.maxTurnMs) {
       const speechMs = this.speechMs;
       const endpointMs = endsEarly ? early : this.effectiveEndpointMs;

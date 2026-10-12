@@ -369,15 +369,13 @@ describe("a finished sentence ends sooner (docs/voice-mode-xai.md, Latency)", ()
     expect(end).toMatchObject({ type: "end", early: true, endpointMs: PAUSE_PRESETS.normal.completeMs });
     expect(detector.endpointMs).toBe(before);
 
-    // the same words, but the VAD is not sure it is silence (a breath, a murmur)
+    // a complete punctuated sentence ends on silence even if the VAD is a breath
     const unsure = new TurnDetector();
     unsure.setPause("normal");
     feed(unsure, [{ p: 0.9, n: frames(900) }]);
     unsure.hint("What time is it in Tokyo?");
-    expect(feed(unsure, [{ p: 0.25, n: frames(400) }]).some((event) => event.type === "end")).toBe(false);
-    const late = feed(unsure, [{ p: 0.25, n: frames(400) }]).find((event) => event.type === "end");
-    expect(late).toMatchObject({ type: "end" });
-    expect((late as { early?: boolean }).early).toBeUndefined();
+    const breath = feed(unsure, [{ p: 0.25, n: frames(300) }]).find((event) => event.type === "end");
+    expect(breath).toMatchObject({ type: "end", early: true, endpointMs: PAUSE_PRESETS.normal.completeMs });
 
     // not a finished sentence: the full endpoint
     const open = new TurnDetector();
@@ -395,6 +393,30 @@ describe("a finished sentence ends sooner (docs/voice-mode-xai.md, Latency)", ()
     speculated.hint("How is the weather");
     const speculatedEnd = feed(speculated, [{ p: 0.05, n: frames(400) }]).find((event) => event.type === "end");
     expect(speculatedEnd).toMatchObject({ type: "end", early: true, endpointMs: PAUSE_PRESETS.normal.completeMs });
+  });
+
+  it("a complete punctuated sentence ends after 200-300 ms of silence", () => {
+    expect(PAUSE_PRESETS.normal.completeMs).toBeGreaterThanOrEqual(200);
+    expect(PAUSE_PRESETS.normal.completeMs).toBeLessThanOrEqual(300);
+    const detector = new TurnDetector({ ...PAUSE_PRESETS.normal });
+    feed(detector, [{ p: 0.9, n: frames(900) }]);
+    detector.hint("Quelle heure est-il?");
+    const events = feed(detector, [{ p: 0.25, n: frames(300) }]);
+    const end = events.find((event) => event.type === "end");
+    expect(end).toMatchObject({ type: "end", early: true, endpointMs: PAUSE_PRESETS.normal.completeMs });
+    expect(end!.at).toBeGreaterThanOrEqual(PAUSE_PRESETS.normal.completeMs);
+    expect(end!.at).toBeLessThanOrEqual(PAUSE_PRESETS.normal.completeMs + FRAME_MS);
+  });
+
+  it("an incomplete clause is not cut by a 300 ms pause mid-sentence", () => {
+    const detector = new TurnDetector({ ...PAUSE_PRESETS.normal });
+    feed(detector, [{ p: 0.9, n: frames(900) }]);
+    detector.hint("What is two plus");
+    expect(feed(detector, [{ p: 0.05, n: frames(300) }]).some((event) => event.type === "end")).toBe(false);
+    const resume = feed(detector, [{ p: 0.9, n: frames(400) }, { p: 0.05, n: frames(2000) }]);
+    expect(resume.filter((event) => event.type === "end")).toHaveLength(1);
+    const end = resume.find((event) => event.type === "end")!;
+    expect((end as { early?: boolean }).early).toBeUndefined();
   });
 
   it("inSilence is true only while speaking through the endpoint pause", () => {

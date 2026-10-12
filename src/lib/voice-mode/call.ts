@@ -49,10 +49,10 @@ import type { VoiceModeSettings } from "../../../shared/voice-mode";
 const RATE = 16_000;
 const PREROLL_IDLE_FRAMES = 10; // 320 ms before the first voiced frame
 const PREROLL_BARGE_FRAMES = 15; // 480 ms: first syllables over the bot stay in the STT window
-/** Trailing silence still sent to STT so the last word can land, then we
- * stop so xAI can speech_final. Matches short completeMs. Do not send
- * `{type:"finalize"}` here: that stuck the listen socket. */
-const STT_SILENCE_GRACE_MS = 96;
+/** Trailing silence is still sent to STT while the partial is incomplete
+ * so the last word can land. Once `maySpeculate`, stop so xAI can
+ * speech_final. Do not send `{type:"finalize"}` here: that stuck the listen
+ * socket. */
 /** A turn that starts this soon after the last one ended, before the bot
  * said anything, continues it: one utterance cut by a pause. */
 export const CONTINUATION_MS = 1_500;
@@ -729,12 +729,12 @@ export class VoiceCall {
     const event = this.turns.feed({ probability, level, botAudible, echo, pitch });
     if (!event) {
       if (this.turns.active) {
-        // Keep sending trailing silence until the partial can start the LLM,
-        // or for a short grace so the last word can land. Then stop so xAI
-        // can speech_final. Do not wait the full endpoint on a 3-word partial.
+        // Keep sending trailing silence until the partial can start the LLM
+        // (complete clause or four stable words). An incomplete "What is two
+        // plus" keeps streaming so the last word can land. Then stop so xAI
+        // can speech_final.
         const ready = maySpeculate(this.turnPartial, true);
-        const silenceMs = this.turns.inSilence ? this.now() - this.lastVoicedAt : 0;
-        if (!this.turns.inSilence || (!ready && silenceMs < STT_SILENCE_GRACE_MS)) this.transcriber.push(frame);
+        if (!this.turns.inSilence || !ready) this.transcriber.push(frame);
         if (probability > 0.5) {
           this.lastVoicedAt = this.now();
           this.turnLevel.sum += level;

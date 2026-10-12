@@ -611,14 +611,11 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
 
     const unsure = await setup({ transcripts: ["What time is it in Tokyo?"], settings: { fullDuplex: false } });
     await speak(unsure, "What time is it in Tokyo?");
-    // under the voice threshold, but not confidently silent (a breath)
-    await unsure.feed(0.25, 0.001, 14);
-    await unsure.settle();
-    expect(unsure.utterances).toHaveLength(0);
+    // under the voice threshold (a breath): a complete sentence still ends early
     await unsure.feed(0.25, 0.001, 10);
     await unsure.settle();
     expect(unsure.utterances).toHaveLength(1);
-    expect(unsure.utterances[0]!.metrics.earlyEnd).toBeUndefined();
+    expect(unsure.utterances[0]!.metrics.earlyEnd).toBe(true);
   });
 
   it("sends again with the final words when they differ: the answer to the partial is stopped and never spoken", async () => {
@@ -773,21 +770,21 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     expect(t.socket().audioBytes).toBe(bytesReady);
   });
 
-  it("duplex stops feeding STT after a short silence grace so xAI can finalize", async () => {
+  it("duplex keeps feeding STT past 96 ms while the clause is incomplete so the last word can land", async () => {
     const t = await setup({
-      transcripts: ["How is the weather?"],
+      transcripts: ["What is two plus two?"],
       settings: { fullDuplex: true },
       finalDelayMs: 200,
     });
     await t.feed(0.95, 0.05, 24);
-    t.socket().partial("How is the");
+    t.socket().partial("What is two plus");
     await t.settle();
     const start = t.socket().audioBytes;
-    await t.feed(0.02, 0.001, 2);
+    await t.feed(0.02, 0.001, 10);
     expect(t.socket().audioBytes).toBeGreaterThan(start);
-    const mid = t.socket().audioBytes;
-    await t.feed(0.02, 0.001, 8);
-    expect(t.socket().audioBytes).toBe(mid);
+    const stillIncomplete = t.socket().audioBytes;
+    await t.feed(0.02, 0.001, 4);
+    expect(t.socket().audioBytes).toBeGreaterThan(stillIncomplete);
   });
 
   it("does not start the LLM on a partial when duplex is off", async () => {
