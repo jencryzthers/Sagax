@@ -229,8 +229,8 @@ describe("achievements modal", () => {
     expect(html).toContain("h-[min(700px,calc(100dvh-96px))] w-[min(900px,calc(100vw-40px))]");
     expect(html).toContain("w-[198px]");
     expect(html).toContain('aria-label="Close"');
-    const labels = ["All", "Getting started", "Productivity", "Power user", "Voice", "Together", "Streaks", "Mastery", "Tiers", "Secrets"];
-    expect(ACHIEVEMENTS_MODAL_CATEGORIES).toEqual(["all", "onboarding", "productivity", "power", "voice", "collaboration", "streaks", "mastery", "tiers", "secrets"]);
+    const labels = ["All", "Getting started", "Productivity", "Power user", "Voice", "Claude", "Together", "Streaks", "Mastery", "Tiers", "Secrets"];
+    expect(ACHIEVEMENTS_MODAL_CATEGORIES).toEqual(["all", "onboarding", "productivity", "power", "voice", "claude", "collaboration", "streaks", "mastery", "tiers", "secrets"]);
     const nav = html.slice(html.indexOf("data-achievements-nav"), html.indexOf("</nav>"));
     let at = 0;
     for (const label of labels) {

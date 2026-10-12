@@ -29,6 +29,7 @@ export const CATEGORY_LABEL: Record<AchievementCategory, LocaleKey> = {
   productivity: "achievements.category.productivity",
   power: "achievements.category.power",
   voice: "achievements.category.voice",
+  claude: "achievements.category.claude",
   collaboration: "achievements.category.collaboration",
   streaks: "achievements.category.streaks",
   mastery: "achievements.category.mastery",
