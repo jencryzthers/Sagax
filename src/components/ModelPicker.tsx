@@ -7,7 +7,7 @@
 // Reasoning effort rides along (EffortRow): model and effort are one choice to
 // the person making it, so the chat header and the settings dialog render the
 // same row and write through the same action.
-import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, ChevronRight, Info, KeyRound, Loader2, Plus, RefreshCw, Sparkles, X } from "lucide-react";
 import { useStore, type Bot, type InstanceInfo, type ModelSelection } from "@/state/store";
@@ -105,7 +105,6 @@ export function EffortRow({
   className,
   label,
   compact = false,
-  dense = false,
 }: {
   bot: Bot;
   threadId?: string;
@@ -115,14 +114,12 @@ export function EffortRow({
   className?: string;
   label?: ReactNode;
   compact?: boolean;
-  /** The composer's model menu: the label and the levels on one line. */
-  dense?: boolean;
 }) {
   const { state, dispatch } = useStore();
   const selection = bot.modelSelection;
   const instance = state.instances.find((candidate) => candidate.instanceId === selection.instanceId);
   if (instance?.capabilities?.modelVariants) {
-    return <ModelVariantRow bot={bot} threadId={threadId} updateBotDefault={updateBotDefault} viewerLocal={viewerLocal} className={className} label={label} compact={compact || dense} />;
+    return <ModelVariantRow bot={bot} threadId={threadId} updateBotDefault={updateBotDefault} viewerLocal={viewerLocal} className={className} label={label} compact={compact} />;
   }
   const levels = instance?.capabilities?.effortLevels;
   // An engine with no levels gets no control at all, not an empty one.
@@ -149,11 +146,11 @@ export function EffortRow({
   );
 
   return (
-    <div className={cn(dense && "flex items-center justify-between gap-3", className)}>
+    <div className={className}>
       {label}
       {/* wraps rather than dividing a fixed width: pi offers Default plus six
           levels, which a segmented control would squeeze in the popover */}
-      <div className={cn("flex flex-wrap gap-1", dense ? "justify-end" : "mt-2")} role="group" aria-label={t("model.effort.aria")}>
+      <div className="mt-2 flex flex-wrap gap-1" role="group" aria-label={t("model.effort.aria")}>
         {[undefined, ...levels].map((level) => (
           <button
             key={level ?? "default"}
@@ -168,8 +165,7 @@ export function EffortRow({
               dispatch({ type: "setModel", botId: bot.id, threadId, ...(updateBotDefault ? { updateBotDefault: true } : {}), selection: { ...selection, effort: level } });
             }}
             className={cn(
-              "rounded-full border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70",
-              dense ? "px-2 py-0.5 text-[11.5px]" : "px-2.5 py-1 text-[12px]",
+              "rounded-full border px-2.5 py-1 text-[12px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70",
               selection.effort === level
                 ? "border-accent/60 bg-control text-ink"
                 : "border-hairline/40 text-ink-secondary hover:bg-control/60 hover:text-ink",
@@ -344,7 +340,11 @@ export function ModelEngineRail({ instances, selectedInstance, claudeInstance, o
         data-rail-provider={family ?? instance.instanceId}
         data-rail-not-allowed={blocked || undefined}
         disabled={blocked}
-        onClick={() => onSelect(target)}
+        onClick={(event?: ReactMouseEvent<HTMLButtonElement>) => {
+          // the focus follows the choice, so only the selected mode looks selected
+          event?.currentTarget.focus();
+          onSelect(target);
+        }}
         aria-label={managedBy ? `${label} · ${managedBy}` : label}
         aria-describedby={`model-rail-status-${instance.instanceId}`}
         aria-pressed={selected}
@@ -372,7 +372,11 @@ export function ModelEngineRail({ instances, selectedInstance, claudeInstance, o
       <button
         type="button"
         key={instance.instanceId}
-        onClick={() => onSelect(target)}
+        onClick={(event?: ReactMouseEvent<HTMLButtonElement>) => {
+          // the focus follows the choice, so only the selected mode looks selected
+          event?.currentTarget.focus();
+          onSelect(target);
+        }}
         disabled={blocked}
         data-rail-not-allowed={blocked || undefined}
         aria-label={managedBy ? `${label} · ${managedBy}` : label}
@@ -408,7 +412,7 @@ export function ModelEngineRail({ instances, selectedInstance, claudeInstance, o
     if (visible.length === 0 && !extra) return null;
     const heading = headingClass
       ? <EngineGroupLabel className={headingClass}>{label}</EngineGroupLabel>
-      : <EngineGroupLabel className="hidden px-2.5 pb-0.5 pt-2 text-[10px] first:pt-0.5 sm:block">{label}</EngineGroupLabel>;
+      : <EngineGroupLabel className="hidden px-2.5 pb-0.5 pt-2 text-[11.5px] normal-case tracking-normal first:pt-0.5 sm:block">{label}</EngineGroupLabel>;
     return (
       <Fragment key={`rail-${label}`}>
         {heading}
@@ -425,7 +429,10 @@ export function ModelEngineRail({ instances, selectedInstance, claudeInstance, o
           <button
             type="button"
             data-rail-auto
-            onClick={auto.onSelect}
+            onClick={(event?: ReactMouseEvent<HTMLButtonElement>) => {
+              event?.currentTarget.focus();
+              auto.onSelect();
+            }}
             aria-pressed={auto.selected}
             aria-describedby="model-rail-status-auto"
             className={cn("relative flex min-w-[9.5rem] shrink-0 items-center gap-2.5 rounded-lg px-2.5 py-2 text-left sm:mb-1 sm:min-w-0 sm:w-full",
@@ -1341,7 +1348,7 @@ export function ModelPicker({
       <ModelSearchList variant="popover" autoFocus sections={allSections} onPick={onRow} onEscape={() => closeMenu(true)} disabled={Boolean(bot.busy)} />
       {advanced && (active?.capabilities?.effortLevels?.length || active?.capabilities?.modelVariants) ? (
         <div data-model-menu-effort className="border-t border-popover-hairline px-3.5 py-2">
-          <EffortRow bot={bot} threadId={threadId} updateBotDefault={Boolean(threadId)} dense
+          <EffortRow bot={bot} threadId={threadId} updateBotDefault={Boolean(threadId)} compact
             label={<span className="shrink-0 text-[12.5px] text-popover-ink-secondary">{effortTitle}</span>} />
         </div>
       ) : null}

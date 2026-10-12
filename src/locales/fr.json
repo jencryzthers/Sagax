@@ -2422,7 +2422,7 @@
   "model.provider": "Fournisseur : {name}",
   "model.providers": "Fournisseurs de modèles",
   "model.rail.apiKeys": "Clés API",
-  "model.rail.cloud": "Infonuagique",
+  "model.rail.cloud": "Cloud",
   "model.rail.local": "Local",
   "model.rail.unready": "{count} exigent une connexion ou n'ont pas d'accès",
   "model.rail.unreadyOne": "1 exige une connexion ou n'a pas d'accès",
