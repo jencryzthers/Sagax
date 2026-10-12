@@ -63,6 +63,11 @@ describe("bot panel header and tabs", () => {
     expect(html.match(/data-edit-persona=""/g)).toHaveLength(1);
     // no second persona button (the 0.4.19 one): the badge says Edit bot
     expect(html).not.toContain('aria-label="Edit persona"');
+    expect(html).not.toContain(">Edit persona<");
+    // the name and label pencils show only on hover or focus (and on touch screens)
+    const inlinePencils = [...html.matchAll(/<svg[^>]*lucide-pencil[^>]*>/g)].map((m) => m[0]).filter((svg) => svg.includes("opacity-0"));
+    expect(inlinePencils).toHaveLength(2);
+    for (const svg of inlinePencils) expect(svg).toContain("group-hover/inline:opacity-100");
     // the one pencil is the mascot's badge
     expect(html.match(/<button[^>]*data-edit-persona=""[^>]*>/)?.[0]).toContain("data-persona-edit-badge");
     expect(html.indexOf('data-edit-persona=""')).toBeLessThan(html.indexOf('role="tablist"'));
