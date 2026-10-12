@@ -287,6 +287,7 @@ export class ClockPlayer {
   resetLedger() {}
   playback() { return { heard: "", unheard: "" }; }
   private async pump() {
+    if (this.pumping) return;
     this.pumping = true;
     const mine = this.generation;
     try {
@@ -317,6 +318,10 @@ export class ClockPlayer {
       }
     } finally {
       this.pumping = false;
+    }
+    if (this.queue.length) {
+      void this.pump();
+      return;
     }
     setTimeout(() => {
       if (!this.busy) this.events.onIdle?.();

@@ -62,6 +62,41 @@ it("spoken bench frames stay voiced until the tail so say pauses do not false-cu
   expect(held.slice(-4).every((frame) => p(frame) < 0.2)).toBe(true);
 });
 
+it("plays a sentence enqueued after cancel while the previous pump is still finishing", async () => {
+  const player = new ClockPlayer();
+  const started: string[] = [];
+  player.events.onSentenceStart = (text) => started.push(text);
+  let closeOld: (() => void) | undefined;
+  const oldAudio = new ReadableStream<Uint8Array>({
+    start(controller) {
+      closeOld = () => controller.close();
+    },
+  });
+  player.enqueue({
+    text: "old",
+    audio: Promise.resolve({ body: oldAudio, sampleRate: 24_000 }),
+    abort() {},
+  });
+  for (let i = 0; i < 40 && !closeOld; i++) await new Promise((r) => setTimeout(r, 5));
+  expect(closeOld).toBeTypeOf("function");
+  await new Promise((r) => setTimeout(r, 15));
+  await player.cancel();
+  const newAudio = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array(2 * 240));
+      controller.close();
+    },
+  });
+  player.enqueue({
+    text: "new",
+    audio: Promise.resolve({ body: newAudio, sampleRate: 24_000 }),
+    abort() {},
+  } as Sentence);
+  closeOld!();
+  for (let i = 0; i < 40 && started.length === 0; i++) await new Promise((r) => setTimeout(r, 5));
+  expect(started).toEqual(["new"]);
+});
+
 it("ClockPlayer ignores a scheduled sentence start after cancel", async () => {
   const player = new ClockPlayer();
   const started: string[] = [];

@@ -256,6 +256,10 @@ export class PcmPlayer {
     } finally {
       this.pumping = false;
     }
+    if (this.queue.length) {
+      void this.pump();
+      return;
+    }
     this.scheduleIdle();
   }
 
