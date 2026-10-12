@@ -267,7 +267,7 @@ describe("clauses without the 36 character wait (streaming voice)", () => {
   it("a one word opener is not a clause on its own", () => {
     const stream = new SentenceStream(STREAMING_CLAUSES);
     expect(stream.feed("Well, ")).toEqual([]);
-    expect(stream.feed("Well, it is sunny, ")).toEqual(["Well, it is sunny,"]);
+    expect(stream.feed("Well, it is sunny, ")).toEqual(["Well, it"]);
   });
 
   it("sentences still end at their punctuation, and later short ones still join", () => {
@@ -276,9 +276,9 @@ describe("clauses without the 36 character wait (streaming voice)", () => {
     expect(stream.finish("Sure. It is sunny. Yes.")).toEqual(["It is sunny. Yes."]);
   });
 
-  it("the first clause goes at a space after four words, even without a comma", () => {
+  it("the first clause goes at a space after two words, even without a comma", () => {
     const stream = new SentenceStream(STREAMING_CLAUSES);
-    expect(stream.feed("It is sunny today in Montreal")).toEqual(["It is sunny today"]);
+    expect(stream.feed("It is sunny today in Montreal")).toEqual(["It is"]);
     expect(stream.feed("It is sunny today in Montreal this afternoon")).toEqual([]);
     // the POST path still waits for punctuation or the six-word comma cut
     expect(new SentenceStream().feed("It is sunny today in Montreal")).toEqual([]);

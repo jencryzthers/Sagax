@@ -51,7 +51,7 @@ const PREROLL_BARGE_FRAMES = 15; // 480 ms: first syllables over the bot stay in
 /** Trailing silence still sent to STT so the last word can land, then we
  * stop so xAI can speech_final. Matches short completeMs. Do not send
  * `{type:"finalize"}` here: that stuck the listen socket. */
-const STT_SILENCE_GRACE_MS = 160;
+const STT_SILENCE_GRACE_MS = 96;
 /** A turn that starts this soon after the last one ended, before the bot
  * said anything, continues it: one utterance cut by a pause. */
 export const CONTINUATION_MS = 1_500;

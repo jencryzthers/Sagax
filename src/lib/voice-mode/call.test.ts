@@ -731,7 +731,7 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     await t.settle();
     expect(t.utterances).toHaveLength(0);
     const bytesAtIncomplete = t.socket().audioBytes;
-    await t.feed(0.02, 0.001, 4);
+    await t.feed(0.02, 0.001, 2);
     expect(t.socket().audioBytes).toBeGreaterThan(bytesAtIncomplete);
     t.socket().partial("How is the weather?");
     await t.settle();
@@ -751,7 +751,7 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     t.socket().partial("How is the");
     await t.settle();
     const start = t.socket().audioBytes;
-    await t.feed(0.02, 0.001, 4);
+    await t.feed(0.02, 0.001, 2);
     expect(t.socket().audioBytes).toBeGreaterThan(start);
     const mid = t.socket().audioBytes;
     await t.feed(0.02, 0.001, 8);
