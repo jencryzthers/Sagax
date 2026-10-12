@@ -264,10 +264,17 @@ describe("clauses without the 36 character wait (streaming voice)", () => {
     expect(new SentenceStream().feed("Bien sûr, il fait")).toEqual([]);
   });
 
-  it("a one word opener is not a clause on its own", () => {
+  it("a one word punctuated opener is a clause", () => {
+    const well = new SentenceStream(STREAMING_CLAUSES);
+    expect(well.feed("Well, ")).toEqual(["Well,"]);
+    expect(well.feed("Well, it is sunny, ")).toEqual([]);
+    expect(new SentenceStream(STREAMING_CLAUSES).feed("Sure, ")).toEqual(["Sure,"]);
+  });
+
+  it("an unpunctuated one word is not a clause", () => {
     const stream = new SentenceStream(STREAMING_CLAUSES);
-    expect(stream.feed("Well, ")).toEqual([]);
-    expect(stream.feed("Well, it is sunny, ")).toEqual(["Well, it"]);
+    expect(stream.feed("Well ")).toEqual([]);
+    expect(stream.feed("Well it is sunny")).toEqual(["Well it"]);
   });
 
   it("sentences still end at their punctuation, and later short ones still join", () => {

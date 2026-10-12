@@ -11,8 +11,8 @@
 // speaking sooner; later short sentences are joined to the next one, so a reply of
 // many short lines is not many requests. With the streaming voice
 // (`streamingClauses`, speech-stream.ts) there is no character wait: the
-// first clause goes at its first comma or space once it has two words, since the
-// voice socket is already open and starts on it at once.
+// first clause goes at a one-word punctuated opener ("Well,", "Sure,") or
+// at a space after two words, since the voice socket is already open.
 
 import { speakableSentence } from "./spoken";
 
@@ -35,7 +35,7 @@ export interface SentenceStreamOptions {
 }
 
 /** The streaming voice's splitting: clause boundaries, no character wait. */
-export const STREAMING_CLAUSES: SentenceStreamOptions = { firstClauseChars: 0, firstClauseWords: 2, firstSpaceWords: 2 };
+export const STREAMING_CLAUSES: SentenceStreamOptions = { firstClauseChars: 0, firstClauseWords: 1, firstSpaceWords: 2 };
 
 export class SentenceStream {
   private consumed = 0;

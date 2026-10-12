@@ -293,8 +293,9 @@ What keeps it short:
   as its complete version (`voiceCall.continues`).
 - **The first clause speaks first.** Over POST, the first sentence is cut at
   a comma after about six words (36 characters). With the streaming voice
-  there is no character wait: the first clause goes at its first comma once
-  it has two words (`STREAMING_CLAUSES`), since the socket is already open.
+  there is no character wait: the first clause goes at a one-word
+  punctuated opener ("Well,", "Sure,") or at a space after two words
+  (`STREAMING_CLAUSES`), since the socket is already open.
 - **Streaming voice (Advanced, on by default).** One socket for the call:
   the page opens `GET /voice/speech` (voice, speed and language in the
   query) when the call starts, and the server opens xAI's streaming text to
