@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { AdminActionRow } from "./admin-activity.ts";
-import { planHiddenAgentThreads } from "./agent-threads.ts";
+import { parseHideList, planHiddenAgentThreads, planHiddenBotThreads } from "./agent-threads.ts";
 import { DATA_DIR } from "./config.ts";
 import type { ModelSelection } from "./contracts.ts";
 import { isInterBotThread, Store, taskHiddenFromPerson, type BotRecord } from "./store.ts";
@@ -120,5 +120,28 @@ describe("hiding the threads an AI client opened before #291", () => {
       row({ runId: "r1" }, { action: "client.routine_run", target: { kind: "routine", id: "r1" } }),
     ], (_botId, threadId) => stored.get(threadId));
     expect(plan).toEqual([{ botId: "b1", threadId: "t-new" }]);
+  });
+});
+
+describe("the second sweep (agent-threads-hidden.v2)", () => {
+  it("hides bot-to-bot threads and the listed AI-client threads, nothing else", () => {
+    const plan = planHiddenBotThreads(
+      [
+        { id: "agreements", threadId: "own", tasks: [
+          { threadId: "own" },
+          { threadId: "work", openedBy: { botId: "cryptic" } },
+          { threadId: "self", openedBy: { botId: "agreements" } },
+          { threadId: "done", hidden: true, openedBy: { botId: "cryptic" } },
+          { threadId: "grok" },
+          { threadId: "person" },
+        ] },
+      ],
+      parseHideList("# fan-out 2026-10-11\nagreements grok\n\n"),
+    );
+    expect(plan).toEqual([{ botId: "agreements", threadId: "work" }, { botId: "agreements", threadId: "grok" }]);
+  });
+
+  it("keeps the bot's current thread even when another bot opened it", () => {
+    expect(planHiddenBotThreads([{ id: "a", threadId: "t", tasks: [{ threadId: "t", openedBy: { botId: "b" } }] }])).toEqual([]);
   });
 });
