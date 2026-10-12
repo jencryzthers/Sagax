@@ -102,6 +102,14 @@ describe("achievement engine", () => {
     expect(store.record(ADA, [{ type: "claude.linked" }], "server").unlocked).toEqual([]);
   });
 
+  it("three-tides needs opus, sonnet and haiku keys; a Fable turn does not count as a tide", () => {
+    const { store } = setup();
+    store.record(ADA, [{ type: "claude.turn" }], "server");
+    expect(store.snapshot(ADA).items.find((item) => item.id === "three-tides")).toMatchObject({ current: 0, target: 3 });
+    store.record(ADA, [{ type: "claude.turn", key: "opus" }, { type: "claude.turn", key: "sonnet" }, { type: "claude.turn", key: "haiku" }], "server");
+    expect(store.snapshot(ADA).items.find((item) => item.id === "three-tides")?.unlockedAt).toBeTypeOf("number");
+  });
+
   it("unlocks Trombi for good with its command", () => {
     const { dir, store } = setup();
     expect(store.snapshot(ADA).rewards).not.toContain("character:trombi");

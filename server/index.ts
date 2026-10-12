@@ -31,6 +31,7 @@ import { draftSummary, foldPoint } from "./compaction-summary.ts";
 import { compactBudget, contextWindowFor, defaultCompactAt, nativeCompactionPoint, shouldCompact } from "./context-budget.ts";
 import { autoCompactWindow, ClaudeDriver, resolveClaudeConfigDir } from "./drivers/claude.ts";
 import { claudeAccountLinked } from "./claude-account.ts";
+import { claudeActivityEvents, isClaudeComputerTool } from "./claude-activity.ts";
 import { provenRequestPerson, SharedComputers, sharedComputerOperation, sharedComputerRegistration } from "./shared-computers.ts";
 import { createUserComputerRouter } from "./user-computers.ts";
 import { SharedComputerControl } from "./shared-computer-control.ts";
@@ -787,7 +788,7 @@ import { createDesktopAppearanceRoutes } from "./routes/desktop-appearance.ts";
 import { createDesktopAppearanceStore } from "./desktop-appearance.ts";
 import { achievementFrameAllowed, achievementRequestEvents, achievementSendEvents, activityEvents, createAchievementStore, routineRunEvents, type AchievementEvent } from "./achievements.ts";
 import { createAchievementRoutes } from "./routes/achievements.ts";
-import { lockedLookChange, masteryDelegationFacts, masteryFrameFacts, masteryRequestFacts, masterySendFacts, threadCensus, type LookRefusal, type PersonFact } from "./achievements-mastery.ts";
+import { lockedLookChange, masteryDelegationFacts, masteryFrameFacts, masteryRequestFacts, masterySendFacts, modelFamily, threadCensus, type LookRefusal, type PersonFact } from "./achievements-mastery.ts";
 import { grandfatheredFromBots } from "../shared/achievements.ts";
 import { createBotMemoryRoutes } from "./routes/bot-memory.ts";
 import { createToolGrantRoutes } from "./routes/tool-grants.ts";
@@ -1201,6 +1202,14 @@ function observeAchievementFrame(payload: Record<string, unknown>): void {
       /* a bonus: never fail the frame */
     }
   }
+  if (payload.kind === "runtime" && payload.event && typeof payload.event === "object") {
+    const event = payload.event as { type?: unknown; threadId?: unknown; provider?: unknown };
+    if (event.type === "turn.completed" && typeof event.threadId === "string") {
+      const model = masteryThreadModel(event.threadId) ?? (typeof event.provider === "string" ? event.provider : null);
+      const family = modelFamily(model);
+      recordAchievements(achievementThreadPerson(event.threadId), claudeActivityEvents({ family, kind: "turn", model }));
+    }
+  }
   if (payload.kind === "routine.run" && payload.run && typeof payload.run === "object") {
     const run = payload.run as { id?: unknown; status?: unknown; routineId?: unknown };
     const events = routineRunEvents(run);
@@ -1209,12 +1218,21 @@ function observeAchievementFrame(payload: Record<string, unknown>): void {
     const bot = routine ? store.bot(routine.botId) : undefined;
     const runAs: unknown = routine?.runAs;
     const runAsPerson = typeof runAs === "string" ? runAs : runAs && typeof runAs === "object" ? (runAs as { principalId?: string }).principalId : undefined;
-    recordAchievements(runAsPerson || (bot ? effectiveBotOwner(bot) : null), events);
+    const person = runAsPerson || (bot ? effectiveBotOwner(bot) : null);
+    recordAchievements(person, events);
+    const model = bot?.modelSelection?.model ?? null;
+    recordAchievements(person, claudeActivityEvents({ family: modelFamily(model), kind: "routine" }));
     return;
   }
   if ((payload.kind === "message" || payload.kind === "message.patch") && typeof payload.threadId === "string" && payload.message && typeof payload.message === "object") {
     const events = activityEvents(payload.message as Parameters<typeof activityEvents>[0]);
     if (events.length) recordAchievements(achievementThreadPerson(payload.threadId), events);
+    const family = modelFamily(masteryThreadModel(payload.threadId));
+    const extra: AchievementEvent[] = [];
+    if ((payload.message as { tool?: { parentItemId?: unknown } }).tool?.parentItemId) extra.push(...claudeActivityEvents({ family, kind: "subagent" }));
+    const toolName = typeof (payload.message as { tool?: { name?: unknown } }).tool?.name === "string" ? (payload.message as { tool: { name: string } }).tool.name : "";
+    if (isClaudeComputerTool(toolName)) extra.push(...claudeActivityEvents({ family, kind: "computer" }));
+    recordAchievements(achievementThreadPerson(payload.threadId), extra);
   }
 }
 /** A person's "where bots work" preference (shared/bot-workplace.ts). */
@@ -33977,9 +33995,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return startOrQueueDirectMessage(bot.id, threadId, text, replyTo, sendId, messageSender(auth), trigger, speakerFor(auth), voiceCall);
         },
       );
-      recordAchievements(actorPrincipalId(auth), achievementSendEvents({ text, parallel: busyMode === "parallel", ...(voiceCall ? { voiceCall } : {}) }, achievementCallStarts, Date.now()));
+      const person = actorPrincipalId(auth);
+      recordAchievements(person, achievementSendEvents({ text, parallel: busyMode === "parallel", ...(voiceCall ? { voiceCall } : {}) }, achievementCallStarts, Date.now()));
+      if (voiceCall) {
+        const family = modelFamily(masteryThreadModel(threadId));
+        recordAchievements(person, claudeActivityEvents({ family, kind: "voice" }));
+      }
       // a correction into the running turn (steer, queued into it) counts for Prompter
-      recordMastery(masterySendFacts({ threadId, text, steered: busyMode === "steer" && (receipt as { queued?: unknown }).queued === true }, actorPrincipalId(auth)));
+      recordMastery(masterySendFacts({ threadId, text, steered: busyMode === "steer" && (receipt as { queued?: unknown }).queued === true }, person));
       return json(res, 202, receipt);
     }
 
