@@ -19,6 +19,7 @@ import {
   assignAcceptanceTurnIds,
   waitForAcceptanceSend,
   waitForAcceptanceSpeech,
+  waitForAcceptanceDone,
   acceptanceBotSpeaking,
   stampAcceptanceMainThread,
   type AcceptanceEvent,
@@ -29,6 +30,7 @@ it("matches spoken lines to script ids, including stop and correction", () => {
   expect(matchAcceptanceLine("Please wait twelve seconds")?.id).toBe("A");
   expect(matchAcceptanceLine("Please wait 12 seconds")?.id).toBe("A");
   expect(matchAcceptanceLine("Count to two hundred please")?.id).toBe("A");
+  expect(matchAcceptanceLine("Name the capital of Japan.")?.id).toBe("B");
   expect(matchAcceptanceLine("What time is it in Tokyo?")?.id).toBe("B");
   expect(matchAcceptanceLine("Rédige un court courriel de bonjour.")?.id).toBe("C");
   expect(matchAcceptanceLine("stop")?.id).toBe("stop");
@@ -240,10 +242,10 @@ it("skips a second POST of the same scripted utterance", () => {
     "Rédige un court courriel de bonjour.",
   )).toBe(true);
   expect(shouldSkipDuplicateAcceptance(
-    "What time is it in Tokyo?",
+    "Name the capital of Japan.",
     "How far is Quebec City from Montreal?",
   )).toBe(false);
-  expect(shouldSkipDuplicateAcceptance(undefined, "What time is it in Tokyo?")).toBe(false);
+  expect(shouldSkipDuplicateAcceptance(undefined, "Name the capital of Japan.")).toBe(false);
 });
 
 it("skips speculative posts so a wait instruction is not a 4-word short turn", () => {
@@ -251,7 +253,7 @@ it("skips speculative posts so a wait instruction is not a 4-word short turn", (
   expect(shouldPostAcceptanceUtterance({ speculative: true }, "Please wait twelve seconds", "A")).toBe(false);
   expect(shouldPostAcceptanceUtterance({ speculative: true }, "Please wait 12 seconds", "A")).toBe(false);
   expect(shouldPostAcceptanceUtterance({ speculative: true }, "How far is Quebec City from Montreal?")).toBe(true);
-  expect(shouldPostAcceptanceUtterance({ speculative: true }, "What time is it in Tokyo?")).toBe(true);
+  expect(shouldPostAcceptanceUtterance({ speculative: true }, "Name the capital of Japan.")).toBe(true);
   expect(shouldPostAcceptanceUtterance({ speculative: true }, "hey what time is it in Paris")).toBe(true);
   expect(shouldPostAcceptanceUtterance({ speculative: false }, "Please wait twenty seconds")).toBe(true);
   expect(shouldPostAcceptanceUtterance({})).toBe(true);
@@ -270,6 +272,13 @@ it("a prefix complete on main is not A until the labeled A send", () => {
   expect(events[1]!.id).toBeUndefined();
   expect(events[3]!.id).toBe("A");
   expect(events[4]!.id).toBe("A");
+});
+
+it("barge can wait until A has completed", async () => {
+  const events: AcceptanceEvent[] = [];
+  const pending = waitForAcceptanceDone(events, "A", 1_000);
+  events.push({ t: 1, kind: "turn-completed", id: "A", threadId: "main" });
+  await expect(pending).resolves.toBe(true);
 });
 
 it("barge waits until the bot is currently speaking", async () => {

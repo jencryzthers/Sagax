@@ -51,18 +51,18 @@ export interface AcceptanceLine {
  * short answers so they can finish while A is still in wait. */
 export const ACCEPTANCE_SCRIPT: AcceptanceLine[] = [
   { id: "A", lang: "en", atMs: 0, text: "Please wait twenty seconds, then count to three." },
-  { id: "B", lang: "en", atMs: 5_000, text: "What time is it in Tokyo?" },
+  { id: "B", lang: "en", atMs: 5_000, text: "Name the capital of Japan." },
   { id: "C", lang: "fr", atMs: 10_000, text: "Rédige un court courriel de bonjour." },
-  { id: "barge", lang: "en", atMs: 13_000, text: "hey what time is it in Paris" },
   { id: "D", lang: "en", atMs: 16_000, text: "How far is Quebec City from Montreal?" },
   { id: "lim", lang: "fr", atMs: 20_000, text: "Prépare aussi le rapport mensuel des billets." },
-  { id: "corr", lang: "en", atMs: 40_000, text: "no, I meant Toronto" },
+  { id: "barge", lang: "en", atMs: 24_000, text: "hey what time is it in Paris" },
+  { id: "corr", lang: "en", atMs: 70_000, text: "no, I meant Toronto" },
 ];
 
 /** Second call: stop while A is thinking and B is a background task. */
 export const ACCEPTANCE_STOP_SCRIPT: AcceptanceLine[] = [
   { id: "A", lang: "en", atMs: 0, text: "Please wait twenty seconds, then count to three." },
-  { id: "B", lang: "en", atMs: 8_000, text: "What time is it in Tokyo?" },
+  { id: "B", lang: "en", atMs: 8_000, text: "Name the capital of Japan." },
   { id: "stop", lang: "en", atMs: 14_000, text: "stop" },
 ];
 
@@ -212,7 +212,7 @@ const HINT: Record<string, RegExp> = {
   barge: /\bparis\b/i,
   lim: /\b(rapport|mensuel)\b/i,
   C: /\b(courriel|bonjour|email)\b/i,
-  B: /\btokyo\b/i,
+  B: /\b(tokyo|japan|capital)\b/i,
   D: /\b(quebec|québec|how far)\b/i,
   A: /\b(count|two hundred|wait twelve|wait 12|wait twenty|wait 20|montreal|montréal|story|weather|histoire)\b/i,
 };
@@ -312,6 +312,21 @@ export function acceptanceBotSpeaking(events: AcceptanceEvent[]): boolean {
     else if (event.kind === "bot-speak-end") speaking = false;
   }
   return speaking;
+}
+
+export async function waitForAcceptanceDone(
+  events: AcceptanceEvent[],
+  id: string,
+  timeoutMs: number,
+  now: () => number = () => performance.now(),
+  pause: (ms: number) => Promise<void> = sleep,
+): Promise<boolean> {
+  const deadline = now() + timeoutMs;
+  while (now() < deadline) {
+    if (events.some((event) => event.kind === "turn-completed" && event.id === id)) return true;
+    await pause(50);
+  }
+  return events.some((event) => event.kind === "turn-completed" && event.id === id);
 }
 
 export async function waitForAcceptanceSpeech(
@@ -630,7 +645,9 @@ async function driveAcceptancePhase(input: {
   for (const item of spoken) {
     await sleep(acceptanceInjectWait(injectOrigin, item.row.atMs, performance.now()));
     if (item.row.id === "barge") {
-      const heard = await waitForAcceptanceSpeech(events, 20_000);
+      const finishedA = await waitForAcceptanceDone(events, "A", 45_000);
+      log(finishedA ? "barge after A done" : "barge before A done");
+      const heard = await waitForAcceptanceSpeech(events, 12_000);
       log(heard ? "barge over speech" : "barge without speech");
     }
     log(`inject ${item.row.id}`);
