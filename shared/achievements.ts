@@ -52,6 +52,12 @@ export const SERVER_EVENTS = [
   "voice.interrupt",
   /** A Mastery fact (shared/achievements-mastery.ts): carries `fact`, counts nothing else. */
   "mastery",
+  "claude.linked",
+  "claude.turn",
+  "claude.subagent",
+  "claude.routine",
+  "claude.computer",
+  "claude.voice",
 ] as const;
 
 /** Events the app reports (POST /api/me/achievements/events). */
@@ -111,7 +117,7 @@ export const DEFAULT_SERVER_LIMIT = { intervalMs: 0, perDay: 5_000 };
 // "mastery" is the Mastery tier (Maîtrise): the hard achievements that prove
 // real use of AI and of Sagax and unlock the Mastery characters
 // (shared/mascot-unlocks.ts). "tiers" holds the points tiers (Bronze to Platinum).
-export const ACHIEVEMENT_CATEGORIES = ["onboarding", "productivity", "power", "voice", "collaboration", "streaks", "mastery", "tiers", "secrets"] as const;
+export const ACHIEVEMENT_CATEGORIES = ["onboarding", "productivity", "power", "voice", "claude", "collaboration", "streaks", "mastery", "tiers", "secrets"] as const;
 export type AchievementCategory = (typeof ACHIEVEMENT_CATEGORIES)[number];
 
 /** Gamerscore-like values; 150 and above belong to the Mastery tier. */
@@ -139,6 +145,8 @@ export type AchievementRule =
   | { kind: "all"; events: readonly AchievementEventType[] }
   /** Active `target` days in a row. */
   | { kind: "streak"; target: number }
+  /** `target` consecutive days the named event happened. */
+  | { kind: "eventStreak"; event: AchievementEventType; target: number }
   /** Active on `target` days in all. */
   | { kind: "activeDays"; target: number }
   /** `target` points earned from the other achievements. */
@@ -346,6 +354,8 @@ export function ruleStatus(definition: AchievementDefinition, progress: Achievem
       return of(rule.events.filter((event) => (progress.counters[event] ?? 0) > 0).length, rule.events.length);
     case "streak":
       return of(longestStreak(progress.activeDays), rule.target);
+    case "eventStreak":
+      return of(longestStreak(progress.days[rule.event] ?? []), rule.target);
     case "activeDays":
       return of(new Set(progress.activeDays).size, rule.target);
     case "points": {
@@ -461,8 +471,8 @@ export function rewardLineVisible(reward: AchievementReward): boolean {
   }
 }
 
-/** Unlocked from the start: the owl and the crab, with their Common skins. Shapes waits for a linked Grok account. */
-export const DEFAULT_CHARACTERS: readonly MascotCharacter[] = ["owl", "crab"];
+/** Unlocked from the start: the owl, with its Common skins. The crab waits for a linked Claude account. Shapes waits for a linked Grok account. */
+export const DEFAULT_CHARACTERS: readonly MascotCharacter[] = ["owl"];
 
 /** The rarity of a character's skin, by its id. */
 export function skinTier(character: RewardCharacter, skin: string): SkinTier {

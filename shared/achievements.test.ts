@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { REWARD_REGISTRY, rewardKey, rewardLineVisible, type AchievementReward } from "./achievements.ts";
+import {
+  DEFAULT_CHARACTERS,
+  NOTHING_LOCKED,
+  REWARD_REGISTRY,
+  characterUnlocked,
+  emptyProgress,
+  longestStreak,
+  rewardKey,
+  rewardLineVisible,
+  ruleStatus,
+  type AchievementReward,
+} from "./achievements.ts";
 
 describe("reward keys for crab items", () => {
   it("names emote, move, accessory and effect the same way the store will store them", () => {
@@ -21,5 +32,38 @@ describe("reward keys for crab items", () => {
     expect(rewardLineVisible({ kind: "skin", character: "crab", skin: "pearl" })).toBe(true);
     expect(rewardLineVisible({ kind: "title", id: "rookie", name: { en: "Rookie", fr: "Recrue" } })).toBe(true);
     expect(rewardLineVisible({ kind: "appIcon", id: "glyph:cube" })).toBe(true);
+  });
+});
+
+describe("claude unlocks", () => {
+  it("treats only the owl as a default character", () => {
+    expect(DEFAULT_CHARACTERS).toEqual(["owl"]);
+    expect(characterUnlocked(NOTHING_LOCKED, "crab")).toBe(true);
+    const empty = { enforced: true, keys: new Set<string>() };
+    expect(characterUnlocked(empty, "owl")).toBe(true);
+    expect(characterUnlocked(empty, "crab")).toBe(false);
+    expect(characterUnlocked({ enforced: true, keys: new Set(["character:crab"]) }, "crab")).toBe(true);
+  });
+
+  it("scores eventStreak on progress.days[event], not activeDays", () => {
+    const definition = {
+      id: "claw-streak",
+      category: "claude" as const,
+      name: { en: "Claw Streak", fr: "Serie de pinces" },
+      description: { en: "x", fr: "y" },
+      icon: "CalendarCheck",
+      points: 20 as const,
+      rule: { kind: "eventStreak" as const, event: "claude.turn" as const, target: 7 },
+      rewards: [{ kind: "effect" as const, id: "bubbles" }],
+    };
+    const progress = {
+      ...emptyProgress(),
+      days: { "claude.turn": ["2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05", "2026-10-06", "2026-10-07"] },
+      activeDays: ["2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08"],
+    };
+    expect(longestStreak(progress.days["claude.turn"]!)).toBe(7);
+    expect(ruleStatus(definition, progress, [definition])).toEqual({ current: 7, target: 7, done: true });
+    const broken = { ...progress, days: { "claude.turn": ["2026-10-01", "2026-10-03"] } };
+    expect(ruleStatus(definition, broken, [definition])).toEqual({ current: 1, target: 7, done: false });
   });
 });

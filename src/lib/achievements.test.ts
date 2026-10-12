@@ -66,11 +66,12 @@ describe("locks", () => {
     expect(posted).toBe(0);
   });
 
-  it("offers the owl and its Common skins; Shapes, Trombi and Bunbu wait", () => {
+  it("offers the owl and its Common skins; Shapes, the crab, Trombi and Bunbu wait", () => {
     const unlocks = unlocksFromSnapshot(snapshot());
     expect(characterLock(unlocks, "owl").locked).toBe(false);
     expect(skinLock(unlocks, "owl", "snowy").locked).toBe(false);
     expect(characterLock(unlocks, "shape")).toMatchObject({ locked: true, achievement: { id: "grok-linked" } });
+    expect(characterLock(unlocks, "crab")).toMatchObject({ locked: true, achievement: { id: "claude-linked" } });
     expect(skinLock(unlocks, "shape", "glossy")).toMatchObject({ locked: true, achievement: { id: "grok-linked" } });
     expect(characterLock(unlocks, "trombi")).toMatchObject({ locked: true, achievement: { id: "trombi-summoned" } });
     expect(characterLock(unlocks, "bunbu")).toMatchObject({ locked: true, achievement: { id: "small-family" } });
