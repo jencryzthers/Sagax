@@ -3339,9 +3339,10 @@ function agentsIntegration(
       SAGAX_ROOM_TURN: roomCoordination ? "1" : "0",
       SAGAX_OWN_THREAD_CREATION: ownThreadCreation ? "1" : "0",
       SAGAX_SKILL_AUTHORING_ENABLED: skillAuthoring ? "1" : "0",
-      // The agent-to-agent tools (server/agent-api.ts) in direct turns; a
-      // room coordinates with coordinate_bots instead. The route re-checks.
-      SAGAX_AGENT_API: !roomCoordination && store.bot(botId) && agentApiMounted(store.bot(botId)!) ? "1" : "0",
+      // The agent-to-agent tools (server/agent-api.ts) in every turn outside
+      // a room, coordinate_bots turns included (roomCoordination is also set
+      // for direct coordination); a room uses post_to_room. The route re-checks.
+      SAGAX_AGENT_API: !store.groupByThread(threadId) && store.bot(botId) && agentApiMounted(store.bot(botId)!) ? "1" : "0",
       SAGAX_MEMORY_ENABLED: store.bot(botId)?.memoryEnabled === false ? "0" : "1",
       // A room turn in a group whose shared memory is on gets
       // group_memory_update (server/group-memory.ts); the route re-checks.
