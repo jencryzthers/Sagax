@@ -1,5 +1,6 @@
-# Fails a pull request whose title, branch name, changed paths, or added lines
-# contain a forbidden term. The term list is NOT stored in this repository: it
+# Fails a pull request whose title, branch name, changed paths, added lines, or
+# commit metadata (author/committer name and e-mail, message) contain a
+# forbidden term. The term list is NOT stored in this repository: it
 # is read from the FORBIDDEN_TERMS Actions secret (newline-separated).
 #
 # pull_request_target is used so the secret is available for pull requests
@@ -23,7 +24,7 @@ concurrency:
 
 jobs:
   scan:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 5
     steps:
       - name: Check out base branch (trusted script only)
@@ -55,10 +56,12 @@ jobs:
           set -euo pipefail
           gh api -H "Accept: application/vnd.github.diff" "repos/$REPO/pulls/$PR" > "$RUNNER_TEMP/pr.diff"
           echo "diff bytes: $(wc -c < "$RUNNER_TEMP/pr.diff")"
+          gh api --paginate "repos/$REPO/pulls/$PR/commits?per_page=100" --jq '.[]' > "$RUNNER_TEMP/commits.jsonl"
+          echo "commits: $(wc -l < "$RUNNER_TEMP/commits.jsonl")"
 
-      - name: Scan title, branch and diff
+      - name: Scan title, branch, commits and diff
         env:
           FORBIDDEN_TERMS: ${{ secrets.FORBIDDEN_TERMS }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BRANCH: ${{ github.event.pull_request.head.ref }}
-        run: python3 scripts/ci/term-guard.py "$RUNNER_TEMP/pr.diff"
+        run: python3 scripts/ci/term-guard.py --commits "$RUNNER_TEMP/commits.jsonl" "$RUNNER_TEMP/pr.diff"
