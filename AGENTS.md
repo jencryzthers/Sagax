@@ -1911,8 +1911,9 @@ the bot engine's (`shared/harness-commands.ts`, `server/harness-commands.ts`,
 ## Bot panel
 
 The bot's side panel (`src/components/BotSettingsDialog.tsx`, tabs in
-`bot-settings/panel-tabs.ts`) shows Details | Library | Computer, then an
-"Edit persona" button that opens every other section in the persona editor
+`bot-settings/panel-tabs.ts`) shows Details | Library | Computer under the
+mascot, which carries the "Edit persona" pencil (`data-edit-persona`, since
+0.4.19) that opens every other section in the persona editor
 (`PersonaEditorModal.tsx`); there is no More tab. iPhone and iPad match it
 (2026-10-11): the same three tabs (`DesktopPanelTab`), then "Edit persona"
 under them (`DesktopPersonaEditor.offered`), a pushed page on the phone
