@@ -74,6 +74,15 @@ export interface VoiceBenchUtterance {
   expected: "complete" | "cancelled";
 }
 
+export interface VoiceBenchFixtureTiming {
+  readonly scriptRevision: string;
+  readonly endpointDelayMs?: number;
+  readonly sttFinalDelayMs?: number;
+  readonly llmFirstTokenDelayMs?: number;
+  readonly ttsFirstByteDelayMs?: number;
+  readonly audioStartDelayMs?: number;
+}
+
 export interface VoiceBenchRun {
   runId: string;
   commitSha: string;
@@ -81,7 +90,7 @@ export interface VoiceBenchRun {
   engine: string;
   sttProvider: string;
   ttsProvider: string;
-  fixture: Readonly<Record<string, unknown>>;
+  fixture: VoiceBenchFixtureTiming;
 }
 
 export interface VoiceBenchProviderAudit {
@@ -229,6 +238,30 @@ export const VOICE_BENCH_THRESHOLDS = {
   maxMs: 2500,
 } as const;
 
+export const VOICE_BENCH_TURN_COUNT = 32;
+
+export const VOICE_BENCH_MANDATORY_SCENARIOS = [
+  "interruptions",
+  "correction",
+  "concurrentTopics",
+  "tools",
+] as const;
+
+const ACCEPTED_ANSWER_MARKS = new Set<VoiceBenchMark>([
+  "llm-first-token",
+  "tts-first-byte",
+  "audio-start",
+  "audio-end",
+]);
+
+const FIXTURE_DELAY_KEYS = [
+  "endpointDelayMs",
+  "sttFinalDelayMs",
+  "llmFirstTokenDelayMs",
+  "ttsFirstByteDelayMs",
+  "audioStartDelayMs",
+] as const satisfies readonly (keyof VoiceBenchFixtureTiming)[];
+
 function eventCopy<T extends VoiceBenchEvent>(event: T): T {
   return { ...event };
 }
@@ -252,6 +285,11 @@ export class VoiceBenchLedger {
     }
 
     if (event.kind === "mark") {
+      if (ACCEPTED_ANSWER_MARKS.has(event.mark) && !event.answerId?.trim()) {
+        throw new Error(
+          `non-empty answerId required for ${event.mark} on ${event.utteranceId}`,
+        );
+      }
       const key = `${event.utteranceId}\0${event.mark}`;
       const existing = this.#marks.get(key);
       if (existing) {
@@ -297,14 +335,6 @@ function nearestRank(values: readonly number[], percentile: number): number {
   return sorted[Math.max(0, index)]!;
 }
 
-function statistics(values: readonly number[]): VoiceBenchStatistics {
-  return {
-    p50: nearestRank(values, 0.5),
-    p90: nearestRank(values, 0.9),
-    max: Math.max(...values),
-  };
-}
-
 function markTimes(events: readonly VoiceBenchEvent[], utteranceId: string): Partial<Record<VoiceBenchMark, number>> {
   const timestamps: Partial<Record<VoiceBenchMark, number>> = {};
   for (const event of events) {
@@ -335,12 +365,41 @@ function stageValues(
 }
 
 export function compileVoiceBench(input: CompileVoiceBenchInput): VoiceBenchReport {
+  if (!input.run.fixture.scriptRevision.trim()) {
+    throw new Error("fixture scriptRevision must be a non-empty string");
+  }
+  for (const key of FIXTURE_DELAY_KEYS) {
+    const delay = input.run.fixture[key];
+    if (delay !== undefined && (!Number.isFinite(delay) || delay < 0)) {
+      throw new Error(`fixture delay ${key} must be finite nonnegative milliseconds`);
+    }
+  }
+  const fixture = Object.fromEntries([
+    ["scriptRevision", input.run.fixture.scriptRevision],
+    ...FIXTURE_DELAY_KEYS.flatMap((key) => {
+      const value = input.run.fixture[key];
+      return value === undefined ? [] : [[key, value] as const];
+    }),
+  ]) as unknown as VoiceBenchFixtureTiming;
+  const run: VoiceBenchRun = {
+    runId: input.run.runId,
+    commitSha: input.run.commitSha,
+    mode: input.run.mode,
+    engine: input.run.engine,
+    sttProvider: input.run.sttProvider,
+    ttsProvider: input.run.ttsProvider,
+    fixture,
+  };
   const ledger = new VoiceBenchLedger();
   for (const event of input.events) ledger.record(event);
   const events = ledger.events();
   const knownUtterances = new Set(input.utterances.map((utterance) => utterance.utteranceId));
   if (knownUtterances.size !== input.utterances.length) {
     throw new Error("voice benchmark utterance IDs must be unique");
+  }
+  const warmupCount = input.utterances.filter((utterance) => utterance.warmup === true).length;
+  if (warmupCount !== 1) {
+    throw new Error(`voice benchmark requires exactly one explicit warm-up; found ${warmupCount}`);
   }
   for (const event of events) {
     if (!knownUtterances.has(event.utteranceId)) {
@@ -443,10 +502,18 @@ export function compileVoiceBench(input: CompileVoiceBenchInput): VoiceBenchRepo
   if (measuredTurns.length === 0) {
     throw new Error("voice benchmark has no complete measured turns");
   }
+  const warmMeasuredTurns = measuredTurns.filter((turn) => !turn.warmup);
+  if (warmMeasuredTurns.length === 0) {
+    throw new Error("voice benchmark has no measured turn after warm-up");
+  }
   const summary = Object.fromEntries(
     SUMMARY_KEYS.map((stage) => [
       stage,
-      statistics(measuredTurns.map((turn) => turn.stages[stage]!)),
+      {
+        p50: nearestRank(warmMeasuredTurns.map((turn) => turn.stages[stage]!), 0.5),
+        p90: nearestRank(measuredTurns.map((turn) => turn.stages[stage]!), 0.9),
+        max: Math.max(...measuredTurns.map((turn) => turn.stages[stage]!)),
+      },
     ]),
   ) as unknown as VoiceBenchSummary;
   const intervals = turns.flatMap((turn) => turn.spokenInterval ? [turn.spokenInterval] : []);
@@ -468,11 +535,9 @@ export function compileVoiceBench(input: CompileVoiceBenchInput): VoiceBenchRepo
       });
     }
   }
-  const warmMeasuredTurns = measuredTurns.filter((turn) => !turn.warmup);
-  const p50Turns = warmMeasuredTurns.length > 0 ? warmMeasuredTurns : measuredTurns;
-  const p50Observed = statistics(p50Turns.map((turn) => turn.stages.total!)).p50;
+  const p50Observed = summary.total.p50;
   const maxObserved = summary.total.max;
-  const expectedTurnCount = input.expectedTurnCount ?? turns.length;
+  const expectedTurnCount = input.expectedTurnCount ?? VOICE_BENCH_TURN_COUNT;
   const p50Gate: VoiceBenchThresholdGate = {
     pass: p50Observed <= VOICE_BENCH_THRESHOLDS.p50Ms,
     thresholdMs: VOICE_BENCH_THRESHOLDS.p50Ms,
@@ -493,8 +558,12 @@ export function compileVoiceBench(input: CompileVoiceBenchInput): VoiceBenchRepo
     threshold: 0,
     observed: overlaps.length,
   };
-  const scenarioPass = Object.values(input.scenarios ?? {}).every((scenario) => scenario.pass);
-  const providerAudit = input.providerAudit ?? { paths: [], pass: true };
+  const scenarios: Record<string, VoiceBenchScenarioGate> = { ...input.scenarios };
+  for (const key of VOICE_BENCH_MANDATORY_SCENARIOS) {
+    scenarios[key] ??= { pass: false, observed: 0, required: 1 };
+  }
+  const scenarioPass = Object.values(scenarios).every((scenario) => scenario.pass);
+  const providerAudit = input.providerAudit ?? { paths: [], pass: false };
   const referenceInput = input.reference ?? { status: "not-provided" };
   if (
     referenceInput.status === "measured"
@@ -523,7 +592,7 @@ export function compileVoiceBench(input: CompileVoiceBenchInput): VoiceBenchRepo
 
   return {
     version: 1,
-    run: input.run,
+    run,
     events,
     turns,
     summary,
@@ -535,7 +604,7 @@ export function compileVoiceBench(input: CompileVoiceBenchInput): VoiceBenchRepo
       overlap: overlapGate,
       turnCount: turnCountGate,
     },
-    scenarios: input.scenarios ?? {},
+    scenarios,
     providerAudit,
     reference,
     passed,
