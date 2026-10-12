@@ -84,14 +84,14 @@ describe("call state machine", () => {
     expect(said.types).toEqual(["finalize-stt", "send"]);
   });
 
-  it("duplex: talking while the bot works silently cancels it", () => {
+  it("duplex: talking while the bot works silently does not interrupt; the send forks or stops", () => {
     const working = run([{ type: "bot-busy", busy: true }], { ...connected, duplex: true }).state;
     expect(working.phase).toBe("thinking");
     expect(working.duplex).toBe(true);
     const out = run([{ type: "speech-candidate" }, { type: "speech-start" }], working);
-    expect(out.types).toEqual(["cancel-speech", "earcon", "interrupt-bot"]);
-    expect(out.state.phase).toBe("interrupted");
-    expect(out.state.botAudible).toBe(false);
+    expect(out.types).toEqual([]);
+    expect(out.state.phase).toBe("hearing");
+    expect(out.types).not.toContain("interrupt-bot");
   });
 
   it("duplex: barge-in while speaking still cancels the voice and the turn", () => {

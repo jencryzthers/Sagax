@@ -67,14 +67,14 @@ final class CallMachineTests: XCTestCase {
         XCTAssertEqual(talk.state.phase, .hearing)
     }
 
-    func testDuplexTalkingWhileTheBotWorksSilentlyCancelsIt() {
+    func testDuplexTalkingWhileTheBotWorksSilentlyDoesNotInterrupt() {
         var working = CallMachine.step(CallMachine.step(.initial, .connected).state, .botBusy(true)).state
         working.duplex = true
         XCTAssertEqual(working.phase, .thinking)
         let talk = CallMachine.step(working, .speechStart)
-        XCTAssertEqual(talk.effects, [.cancelSpeech, .earcon(.interrupted), .interruptBot])
-        XCTAssertEqual(talk.state.phase, .interrupted)
-        XCTAssertFalse(talk.state.botAudible)
+        XCTAssertEqual(talk.effects, [])
+        XCTAssertEqual(talk.state.phase, .hearing)
+        XCTAssertFalse(talk.effects.contains(.interruptBot))
     }
 
     func testDuplexBargeInDoesNotKillBackgroundWork() {

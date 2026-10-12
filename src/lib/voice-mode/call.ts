@@ -871,8 +871,8 @@ export class VoiceCall {
     if (event.type === "speech-start" && this.lastSent && (wrongCut || (!this.state.botAudible && !this.lastSent.botSpoke &&
       this.now() - this.lastSent.endedAt <= CONTINUATION_MS))) {
       this.continuing = true;
-      // over the bot's voice the barge-in itself stops its turn. Duplex
-      // speech-start already interrupt-bot via step(); flag off still needs this.
+      // over the bot's voice the barge-in itself stops its turn. A pause
+      // continuation of the same utterance still replaces the fragment.
       if (this.state.botBusy && !this.state.botAudible && bargeInEffects(this.state) !== "cancel-and-interrupt") this.emit("interrupt-bot");
     }
     if (event.type === "bot-audio-start" && this.lastSent) this.lastSent.botSpoke = true;
