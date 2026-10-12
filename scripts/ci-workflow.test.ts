@@ -186,6 +186,11 @@ describe("CI concurrency", () => {
       }
       expect(job.needs).toBe("static");
       expect(job.if).toBe(`needs.static.outputs.${["ios", "android"].includes(name) ? "mobile" : "runtime"} == 'true'`);
+      if (name === "ios") {
+        const ios = job as { "runs-on"?: string; steps?: { run?: string }[] };
+        expect(ios["runs-on"]).toBe("macos-latest");
+        expect(ios.steps?.some((step) => step.run === "swift test --package-path ios")).toBe(true);
+      }
     }
   });
 
