@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { PassThrough } from "node:stream";
 
 import type { TerminalResource } from "../../../shared/terminal-resources.ts";
-import type { TerminalAttachment, TerminalListContext, TerminalOpenContext, TerminalResourceAdapter } from "../types.ts";
+import type { TerminalAttachment, TerminalOpenContext, TerminalResourceAdapter } from "../types.ts";
 
 const RESOURCE: TerminalResource = {
   id: "echo",

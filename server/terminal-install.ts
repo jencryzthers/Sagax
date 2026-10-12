@@ -12,7 +12,7 @@ import { createTerminalRoutes } from "./routes/terminal.ts";
 import { createTerminalInternalRoutes } from "./routes/terminal-internal.ts";
 import type { Store } from "./store.ts";
 import type { RequestAuth } from "./request-auth.ts";
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { IncomingMessage } from "node:http";
 
 export interface TerminalFeature {
   registry: TerminalResourceRegistry;
@@ -34,7 +34,7 @@ function sshArgv(dataDir: string, alias: string) {
   return { command: "ssh", args, env: { ...process.env, PATH: ssh.path } };
 }
 
-function configuredHosts(cfg: AppConfig, dataDir: string): { ssh: SshAliasTerminalHost[]; unraid: SshAliasTerminalHost[] } {
+function configuredHosts(cfg: AppConfig): { ssh: SshAliasTerminalHost[]; unraid: SshAliasTerminalHost[] } {
   const ssh: SshAliasTerminalHost[] = [];
   const unraid: SshAliasTerminalHost[] = [];
   const raw = cfg.terminalShell?.hosts;
@@ -86,7 +86,7 @@ export function installTerminalFeature(deps: {
   if (process.env.VITEST === "true" || process.env.SAGAX_TERMINAL_TEST === "1") {
     registry.register(testTerminalAdapter);
   }
-  const hosts = () => configuredHosts(deps.cfg(), deps.dataDir);
+  const hosts = () => configuredHosts(deps.cfg());
   registry.register(createSshAliasAdapter("ssh", () => hosts().ssh, (alias) => sshArgv(deps.dataDir, alias)));
   registry.register(createSshAliasAdapter("unraid", () => hosts().unraid, (alias) => sshArgv(deps.dataDir, alias)));
 

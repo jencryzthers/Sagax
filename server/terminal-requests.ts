@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { TerminalRequestCardData } from "../shared/terminal-request.ts";
 import { terminalResourceKey } from "../shared/terminal-resources.ts";
 import type { TerminalAuditEvent } from "./terminal-audit.ts";
-import type { Store, Message } from "./store.ts";
+import type { Store } from "./store.ts";
 import type { createTerminalSessionManager } from "./terminal-sessions.ts";
 import type { TerminalResourceRegistry } from "./terminal-resources/registry.ts";
 import type { RequestAuth } from "./request-auth.ts";
