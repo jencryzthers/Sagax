@@ -36,6 +36,7 @@ import type { Notification } from "./notification.ts";
 import type { Routine, RoutineRun } from "./routines.ts";
 import type { WebhookAttempt, WebhookTrigger } from "./webhooks.ts";
 import type { AutoModelRecord } from "./auto-model.ts";
+import type { WireVideoWidget } from "./video-widget.ts";
 
 /** Reasoning-effort levels, ascending. A union of everything any engine
  * accepts; each driver declares the subset its CLI will take. Lives here
@@ -514,7 +515,7 @@ export interface WireMessage {
   roomRequest?: { id: string; phase: "request" | "result" };
   id: string;
   role: "bot" | "user";
-  kind: "text" | "options" | "activity" | "screen" | "connector" | "secret" | "routine.run" | "goal.run" | "digest" | "compaction" | "access" | "nudge";
+  kind: "text" | "options" | "activity" | "screen" | "video" | "connector" | "secret" | "routine.run" | "goal.run" | "digest" | "compaction" | "access" | "nudge";
   text?: string;
   /** An accepted nudge. The app draws one line from these names: first
    * person for the sender, the sender's name for everyone else. `groupId`
@@ -618,6 +619,8 @@ export interface WireMessage {
   /** screen messages: a frame of the bot's computer (base64 image) */
   png?: string;
   mime?: string;
+  /** Inline live or recorded video (shared/video-widget.ts). */
+  video?: WireVideoWidget;
   at: number;
   /** the message this one follows; null = thread root. */
   parentId?: string | null;
