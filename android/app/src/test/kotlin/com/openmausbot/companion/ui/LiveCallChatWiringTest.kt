@@ -168,6 +168,7 @@ class LiveCallChatWiringTest {
     @Test
     fun `a phone's first call says what it sends to OpenAI first, once`() {
         mount(disclosureShown = false) { chatScreen() }
+        waitForCallButton()
         compose.onNodeWithContentDescription("Call Scout").performClick()
         compose.onNodeWithText(LiveCallRules.DISCLOSURE).assertIsDisplayed()
         compose.onNodeWithText("Cancel").performClick()
