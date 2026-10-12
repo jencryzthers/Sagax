@@ -114,18 +114,19 @@ function readOnlyTools(): ReadonlySet<string> {
 let approvalConn: Socket | undefined;
 let approvalDead = false;
 let approvalBuf = "";
-const approvalWaiting = new Map<string, (behavior: "allow" | "deny") => void>();
+const approvalWaiting = new Map<string, (answer: { behavior: "allow" | "deny"; note?: string }) => void>();
 
 function approvalFailAll(): void {
   approvalDead = true;
-  for (const resolve of approvalWaiting.values()) resolve("deny");
+  for (const resolve of approvalWaiting.values()) resolve({ behavior: "deny" });
   approvalWaiting.clear();
 }
 
 /** Ask the Sagax server whether this one call may run. Resolves "deny" on
- * any failure: an unreachable server never becomes an approval. */
-function askApproval(server: string, tool: string, args: unknown): Promise<"allow" | "deny"> {
-  if (approvalDead) return Promise.resolve("deny");
+ * any failure: an unreachable server never becomes an approval. A note, when
+ * the server sends one, is the safer path or the refusal the model reads. */
+function askApproval(server: string, tool: string, args: unknown): Promise<{ behavior: "allow" | "deny"; note?: string }> {
+  if (approvalDead) return Promise.resolve({ behavior: "deny" });
   if (!approvalConn) {
     approvalConn = connect(APPROVAL_SOCKET);
     approvalConn.setEncoding("utf8");
@@ -146,14 +147,18 @@ function askApproval(server: string, tool: string, args: unknown): Promise<"allo
         const resolve = approvalWaiting.get(answer.id);
         if (!resolve) continue;
         approvalWaiting.delete(answer.id);
-        resolve(answer.behavior === "allow" ? "allow" : "deny");
+        const note = typeof answer.note === "string" ? answer.note.trim() : "";
+        resolve(answer.behavior === "allow" ? { behavior: "allow" } : { behavior: "deny", ...(note ? { note } : {}) });
       }
     });
     approvalConn.unref();
   }
   const conn = approvalConn;
   return new Promise((resolve) => {
-    const ask: GateAsk = { t: "ask", id: randomUUID(), token: APPROVAL_TOKEN, server, tool, summary: gateArgsSummary(args) };
+    const ask: GateAsk = {
+      t: "ask", id: randomUUID(), token: APPROVAL_TOKEN, server, tool,
+      summary: gateArgsSummary(args), review: gateArgsSummary(args, 2000),
+    };
     approvalWaiting.set(ask.id, resolve);
     conn.write(`${JSON.stringify(ask)}\n`);
   });
@@ -403,10 +408,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     if (target !== undefined && !READ_ONLY.has(target)) {
       const callId = message.id;
       const held = askApproval(NAME, target, params.arguments)
-        .then((behavior) => {
-          if (behavior === "allow") return forward(line, message, id, params);
+        .then((decision) => {
+          if (decision.behavior === "allow") return forward(line, message, id, params);
           process.stderr.write(`mcp-gate(${NAME}): ${target} not approved; not run\n`);
-          process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: callId, result: { content: [{ type: "text", text: gateDeclinedText(NAME, target) }], isError: true } })}\n`);
+          const text = decision.note?.trim() || gateDeclinedText(NAME, target);
+          process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: callId, result: { content: [{ type: "text", text }], isError: true } })}\n`);
         })
         .finally(() => heldCalls.delete(held));
       heldCalls.add(held);

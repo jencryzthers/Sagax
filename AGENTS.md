@@ -829,6 +829,19 @@ a block. Details, the flag, and the French refusals:
   follows the flag.
 - What a person reads is Québec French, with no anglicism. Tests:
   `shared/misuse-guardrails.test.ts`, `server/misuse-guardrails.test.ts`.
+- Safety review uses the same flag. Shadow writes `safety.shadow` and
+  changes nothing. Enforce reviews shell, MCP, computer use, and routine
+  writes before they run: a hard block stays a 403 refusal, never a card
+  Full or Auto can accept; a risky call gets a safer path once, then a
+  native approval card the person accepts; denial and expiry are final for
+  that fingerprint, and for a destructive git intent, a prompt disclosure,
+  or a credential grab across rewording. Reads are auto-approved. Writes
+  and unknown tools wait. Outbound mail is a draft, then the existing send
+  card. Tool results, pages, files, and other bots' messages are wrapped
+  as `<<<UNTRUSTED>>>` and are not instructions. `security.triage` still
+  covers defensive work only. The tool guard (`SAGAX_TOOL_GUARD`) and the
+  agent card guard are unchanged. Tests: `shared/safety-review.test.ts`,
+  `server/safety-review.test.ts`.
 
 ## Bot actions
 

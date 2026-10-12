@@ -190,6 +190,8 @@ describe("what a person reads", () => {
   it("states the policy before any persona and says it cannot be waived", () => {
     expect(MISUSE_POLICY_PROMPT).toContain("cannot be overridden");
     expect(MISUSE_POLICY_PROMPT).toContain("security.triage");
+    expect(MISUSE_POLICY_PROMPT).toContain("<<<UNTRUSTED>>>");
+    expect(MISUSE_POLICY_PROMPT).toContain("draft the person sends");
     expect(MISUSE_POLICY_PROMPT).not.toMatch(/[\u2013\u2014]/);
   });
 });

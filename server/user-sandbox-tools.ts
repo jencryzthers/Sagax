@@ -9,6 +9,7 @@
 // the same vocabulary as a cloud computer (server/drivers/chat-boat-tools.ts).
 // The desktop starts on the first such call (deploy/sandbox/sagax-desktop).
 import { MISUSE_MAX_COMMAND_SECONDS } from "../shared/misuse-guardrails.ts";
+import { wrapUntrusted } from "../shared/safety-review.ts";
 import type { SandboxExecOutput } from "./sandboxd-core.ts";
 
 export const USER_SANDBOX_TOOLS = [
@@ -110,6 +111,9 @@ export interface ToolExec {
   pathRefusal?(path: string): string | null;
   /** A refusal for other tool text (a page address, file contents), or null. */
   textRefusal?(text: string): string | null;
+  /** Safety review before the tool runs. A string stops the call. Plugin and
+   * misuse refusals are checked first, so this cannot hide them. */
+  beforeCall?(name: string, detail: string): Promise<string | null> | string | null;
 }
 
 type ToolContent = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
@@ -123,14 +127,34 @@ function validPath(value: unknown): string {
 }
 
 function commandOutput(result: SandboxExecOutput): ToolResult {
-  const parts = [
+  const body = [
     result.stdout,
     result.stderr ? `${result.stdout ? "\n" : ""}[stderr]\n${result.stderr}` : "",
     result.truncated ? "\n[output shortened]" : "",
     result.timedOut ? "\n[stopped: time limit reached]" : "",
-    `\n[exit ${result.exitCode ?? "unknown"}]`,
-  ];
-  return text(parts.join("").trimStart(), result.exitCode !== 0);
+  ].join("").trimStart();
+  const exit = `\n[exit ${result.exitCode ?? "unknown"}]`;
+  return text(`${wrapUntrusted("tool", body)}${exit}`, result.exitCode !== 0);
+}
+
+/** Plugin and misuse refusals win over the safety review. */
+function earlyRefusal(name: string, args: Record<string, unknown>, exec: ToolExec): string | null {
+  if (name === "run_command" && typeof args.command === "string") return exec.commandRefusal?.(args.command) ?? null;
+  if ((name === "read_file" || name === "write_file" || name === "list_files") && typeof args.path === "string") {
+    const pathRefused = exec.pathRefusal?.(args.path);
+    if (pathRefused) return pathRefused;
+  }
+  if (name === "write_file" && typeof args.content === "string") {
+    const contentRefused = exec.textRefusal?.(args.content);
+    if (contentRefused) return contentRefused;
+  }
+  if (name === "browse" && typeof args.url === "string") return exec.textRefusal?.(args.url) ?? null;
+  if (name === "computer_use" && args.tool_name === "open_url") {
+    const toolArgs = args.arguments;
+    const url = toolArgs && typeof toolArgs === "object" && !Array.isArray(toolArgs) ? (toolArgs as { url?: unknown }).url : undefined;
+    if (typeof url === "string") return exec.textRefusal?.(url) ?? null;
+  }
+  return null;
 }
 
 /** A public http(s) URL only; the host egress policy also blocks private
@@ -222,6 +246,12 @@ async function callSandboxComputerTool(name: string, args: Record<string, unknow
 
 export async function callUserSandboxTool(name: string, args: Record<string, unknown>, exec: ToolExec): Promise<ToolResult> {
   try {
+    const refusedEarly = earlyRefusal(name, args, exec);
+    if (refusedEarly) return text(refusedEarly, true);
+    if (exec.beforeCall) {
+      const held = await exec.beforeCall(name, JSON.stringify({ name, arguments: args }));
+      if (held) return text(held, true);
+    }
     if (name === "run_command") {
       const command = args.command;
       if (typeof command !== "string" || !command.trim() || command.length > 100_000) return text("command must be a non-empty string", true);
@@ -238,7 +268,7 @@ export async function callUserSandboxTool(name: string, args: Record<string, unk
       const max = Math.min(1_000_000, Math.max(1, Math.floor(typeof args.max_bytes === "number" ? args.max_bytes : 200_000)));
       const result = await exec.exec({ argv: ["head", "-c", String(max), "--", path], timeoutSec: 30, maxOutputBytes: max + 1024 });
       if (result.exitCode !== 0) return text(result.stderr.trim() || `could not read ${path}`, true);
-      return text(result.stdout);
+      return text(wrapUntrusted("file", result.stdout));
     }
     if (name === "write_file") {
       const path = validPath(args.path);
@@ -280,7 +310,7 @@ export async function callUserSandboxTool(name: string, args: Record<string, unk
       }
       const result = await exec.exec({ argv: [...CHROMIUM, "--dump-dom", url], timeoutSec: 90, maxOutputBytes: 512 * 1024 });
       if (result.exitCode !== 0) return text(`The page could not be opened.${result.stderr ? `\n${result.stderr.slice(0, 2000)}` : ""}`, true);
-      return text(`${result.stdout}${result.truncated ? "\n[page shortened]" : ""}`);
+      return text(wrapUntrusted("page", `${result.stdout}${result.truncated ? "\n[page shortened]" : ""}`));
     }
     if (name === "computer_list_tools") return text(JSON.stringify({ tools: SANDBOX_COMPUTER_TOOLS }));
     if (name === "computer_use") {

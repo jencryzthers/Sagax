@@ -5,9 +5,11 @@ a server environment (one container) and, when they connect the desktop app,
 tools on their own computer. This layer stops an end user from turning a
 bot into a way to attack the platform, another tenant, or a third party.
 
-The approval filter and the tool guard stay as they are. This layer is
-separate. It classifies the person's message and the bot's tool calls, and
-it keeps the container limits that were already on the server environment.
+The approval filter and the tool guard stay as they are. A hard misuse
+block is a refusal, never an approval card. The safety review further down
+maps how a risky call that is not forbidden reaches that filter. This layer
+classifies the person's message and the bot's tool calls, and it keeps the
+container limits that were already on the server environment.
 
 ## What must not succeed
 
@@ -149,12 +151,54 @@ Perspicax is the exception):
 `shared/misuse-guardrails.test.ts` is the red-team suite (French, English,
 base64, split quotes, hex, octal, zero-width characters, jailbreaks, the
 triage permission, paths, the MCP gate). `server/misuse-guardrails.test.ts`
-covers the flag, the lockout, the alert, and the container limits. Neither
-file boots the server, so CI runs them with the unit shards.
+covers the flag, the lockout, the alert, and the container limits.
+`shared/safety-review.test.ts` and `server/safety-review.test.ts` cover the
+safer path, the explicit card, final denial, untrusted wrapping, and
+outbound drafts. None of these files boot the server, so CI runs them with
+the unit shards.
 
 ```
 pnpm exec vitest run shared/misuse-guardrails.test.ts server/misuse-guardrails.test.ts
 ```
+
+## Safety review
+
+The same flag, `SAGAX_MISUSE_GUARDRAILS`, drives a second decision for
+risky tool calls (shell, MCP, computer use, routine writes). Shadow, the
+default, writes `safety.shadow` and changes nothing. Enforce applies the
+decision. Off does neither.
+
+The authoritative review is the deterministic classifier in
+`shared/safety-review.ts`. When the engine exposes `reviewPermission`,
+enforce may ask that isolated reviewer to tighten a call that is not
+already a hard block and not a read. It cannot weaken either. The
+permission-card path does not wait for that reviewer: the card is
+synchronous. The sandbox, desktop, personal MCP, Perspicax, and shared
+computer paths do.
+
+| Situation | What happens in enforce |
+|---|---|
+| Hard misuse block | 403 refusal (`misuse_blocked`). Never a card. `security.triage` does not lift it. |
+| `security_operations` without `security.triage` | The message path keeps the existing approval refusal. On a tool, the safety review asks for an explicit card. With the permission, the call may run, after the prompt and credential checks. |
+| Prompt secrecy, minting access, scraping a token, turning the guardrail off | Refusal. No card. |
+| Read-only tool | Auto-approved, including in Ask (`safety-read`). A Sagax gate card stays a person's choice: the gate already runs its own read-only list without asking. |
+| Write, unknown tool, destructive git | A safer path is returned once. The next attempt is a native approval card. Full, Auto, and a saved Allow rule do not accept it (`safety-hold`, checked before those). |
+| Denial or expiry of that card | Final for that fingerprint. A destructive git intent, a prompt disclosure, or a credential grab is also final across rewording, splitting, and encoding. |
+| Outbound mail or message | First attempt tells the bot to write a draft the person sends. The next attempt is the existing "Send on your behalf?" card, including when outbound policy is allow. Denial seals that message only. A different later message still asks. |
+| Routine write | Full no longer applies it by itself. The routine card is explicit. Denial is final for that proposal. Allow does not admit the next one. |
+| Untrusted tool result, page, file, or other bot's message | Wrapped in `<<<UNTRUSTED>>>` markers. The model is told those markers are data. A consequential action taken from them (send, delete, spend, credentials, a new target) needs the person's confirmation. |
+
+People's direct conversations are not classified.
+
+How this sits next to the pieces that already existed:
+
+- Tool guard (`SAGAX_TOOL_GUARD`, default shadow) answers whether this bot and this speaker may call the route at all. It is unchanged.
+- Agent card guard runs before the approval card for `agents__` tools only. A missing grant is still a refusal, not a safety card.
+- Approval modes ask, auto, and full still answer ordinary cards. They do not answer a safety hold.
+- Perspicax `security.triage` is only for defensive security work. Admins hold every key. It is not a member default. It does not turn a hard block into a card.
+- The MCP gate still cannot see the person's permission. It blocks hard misuse categories in enforce, and it now carries the safety note (a safer path or a refusal) back to the model. A gate card is still one the person accepts.
+
+The reviewer is best-effort. A hard block never becomes a card. An explicit accept is not overridden, except by a later hard block.
 
 ## Residual risk
 
@@ -164,4 +208,9 @@ the second kind before enforce mode starts refusing. The prompt can be
 ignored by a model; the server classification and the container limits are
 what hold. The desktop bridge runs on the person's own computer, so a
 command that passes the classifier still runs there with that person's
-rights. The container limits do not apply to that computer.
+rights. The container limits do not apply to that computer. The safety
+review has the same pattern limit. A generic write with no class key can
+be reworded into a new fingerprint. A base64 blob shorter than 16
+characters is not decoded. The model reviewer cannot weaken the classifier.
+An accepted permission card admits that call once, so the tool execution
+that follows is not asked a second time.
