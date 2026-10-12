@@ -1071,8 +1071,13 @@ const playReply = (prompt: JsonValue, mcpNote: string) => {
     // FAKE_CLAUDE_GATE_DIR: a prompt carrying [gate:NAME] holds until
     // <dir>/NAME exists, so a test can finish several turns in any order.
     const gateDir = process.env.FAKE_CLAUDE_GATE_DIR;
-    // the last marker: a prompt may quote earlier lines before its request
-    const marker = gateDir ? [...promptText(prompt).matchAll(/\[gate:([\w-]+)\]/g)].at(-1)?.[1] : undefined;
+    // A parallel brief quotes earlier turns under "Recent lines" and puts
+    // this request after "Request:". Only this request's [gate:NAME] holds
+    // the turn; a quoted gate from the parent would deadlock both.
+    const whole = promptText(prompt);
+    const requestAt = whole.lastIndexOf("\nRequest:\n");
+    const region = requestAt >= 0 ? whole.slice(requestAt) : whole;
+    const marker = gateDir ? [...region.matchAll(/\[gate:([\w-]+)\]/g)].at(-1)?.[1] : undefined;
     const finishGate = marker && gateDir ? join(gateDir, marker)
       : lateContinuation ? process.env.FAKE_CLAUDE_LATE_STEER_GATE : process.env.FAKE_CLAUDE_SLOW_FINISH_GATE;
     if (finishGate) {

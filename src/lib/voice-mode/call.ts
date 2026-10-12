@@ -390,6 +390,13 @@ export class VoiceCall {
     if (this.state.botBusy !== busy) this.dispatch({ type: "bot-busy", busy });
   }
 
+  /** In-flight tools or a sibling topic: barge-in drops speech, not the work. */
+  setBackgroundWork(on: boolean): void {
+    if (this.state.backgroundWork === on) return;
+    this.state = { ...this.state, backgroundWork: on };
+    this.emit("state", this.state);
+  }
+
   // ── speaking ───────────────────────────────────────────────────────────
 
   /** Pre-synthesize the tool filler so the first tool has no TTS wait. */

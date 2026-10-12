@@ -305,6 +305,13 @@ public final class LiveCallEngine {
         if state.botBusy != busy { dispatch(.botBusy(busy)) }
     }
 
+    /// In-flight tools or a sibling topic: barge-in drops speech, not the work.
+    public func setBackgroundWork(_ on: Bool) {
+        guard state.backgroundWork != on else { return }
+        state.backgroundWork = on
+        events.state(state)
+    }
+
     // MARK: - Speaking
 
     /// Say a whole text (a prompt, a narration chip). True once heard, false when cut.

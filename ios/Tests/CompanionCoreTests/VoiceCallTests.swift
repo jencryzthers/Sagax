@@ -77,6 +77,17 @@ final class CallMachineTests: XCTestCase {
         XCTAssertFalse(talk.state.botAudible)
     }
 
+    func testDuplexBargeInDoesNotKillBackgroundWork() {
+        var speaking = CallMachine.step(CallMachine.step(.initial, .connected).state, .botBusy(true)).state
+        speaking = CallMachine.step(speaking, .botAudioStart).state
+        speaking.duplex = true
+        speaking.backgroundWork = true
+        let barged = CallMachine.step(speaking, .speechStart)
+        XCTAssertEqual(barged.effects, [.cancelSpeech, .earcon(.interrupted)])
+        XCTAssertFalse(barged.effects.contains(.interruptBot))
+        XCTAssertEqual(barged.state.phase, .interrupted)
+    }
+
     func testTheInterruptButtonStopsTheVoiceButNotTheTurn() {
         let (state, effects) = run([.connected, .botBusy(true), .botAudioStart, .interrupt])
         XCTAssertEqual(state.phase, .thinking)
@@ -594,6 +605,39 @@ final class CallConversationTests: XCTestCase {
             botName: "Ara", thinking: true, playerBusy: false
         )
         XCTAssertEqual(spoken, [.replyDone("It is sunny.", speakerId: nil)])
+    }
+
+    func testAnOlderTopicResultIsAnnouncedNotSpokenInFull() {
+        var conversation = CallConversation(existing: [])
+        let requestA = text("uA", "look up the weather in Montreal", role: .user)
+        var requestB = text("uB", "what time is it in Tokyo", role: .user)
+        requestB.parallelTask = ParallelTaskRef(threadId: "p", title: "time", requestMessageId: "uB", role: "request")
+        var resultB = text("bB", "It is morning in Tokyo.")
+        resultB.parallelTask = ParallelTaskRef(threadId: "p", title: "time", requestMessageId: "uB", role: "result")
+        let first = conversation.settle(messages: [requestA, requestB, resultB], botName: "Ara", thinking: true, playerBusy: false)
+        XCTAssertEqual(first, [.replyDone("It is morning in Tokyo.", speakerId: nil)])
+        let resultA = text("bA", "It is 12 and sunny in Montreal.")
+        let second = conversation.settle(messages: [requestA, requestB, resultB, resultA], botName: "Ara", thinking: true, playerBusy: false)
+        XCTAssertEqual(second, [.announce("For look up the weather in Montreal: It is 12 and sunny in Montreal.", speakerId: nil)])
+    }
+
+    func testBargeInDuringSpeechStillAnnouncesABackgroundResult() {
+        var conversation = CallConversation(existing: [])
+        conversation.speechCancelled(currentStream: "It is morning in Tokyo")
+        let requestA = text("uA", "look up the weather in Montreal", role: .user)
+        var requestB = text("uB", "what time is it in Tokyo", role: .user)
+        requestB.parallelTask = ParallelTaskRef(threadId: "p", title: "time", requestMessageId: "uB", role: "request")
+        let resultA = text("bA", "It is 12 and sunny in Montreal.")
+        let out = conversation.settle(messages: [requestA, requestB, resultA], botName: "Ara", thinking: true, playerBusy: false)
+        XCTAssertEqual(out, [.announce("For look up the weather in Montreal: It is 12 and sunny in Montreal.", speakerId: nil)])
+    }
+
+    func testInFlightToolsAreBackgroundWork() {
+        var chip = Message(id: "t", role: .bot, kind: .activity, at: 0)
+        chip.tool = ToolActivity(name: "Bash")
+        XCTAssertTrue(CallConversation.hasBackgroundWork([chip]))
+        chip.tool = ToolActivity(name: "Bash", ok: true)
+        XCTAssertFalse(CallConversation.hasBackgroundWork([chip]))
     }
 
     func testDuplexNarratesAToolChipWhileTheCuePlays() {

@@ -6,16 +6,22 @@ export type DuplexAdmit =
   | { action: "start" }
   | { action: "steer" }
   | { action: "queue" }
-  | { action: "replace"; interrupt: boolean; discardQueue: boolean };
+  | { action: "replace"; interrupt: boolean; discardQueue: boolean }
+  | { action: "background" };
 
 export function admitDuplexSend(input: {
   duplex: boolean;
   botBusy: boolean;
   stopping: boolean;
   queued: boolean;
+  backgroundWork?: boolean;
+  newTopic?: boolean;
 }): DuplexAdmit {
   if (!input.duplex) {
     return input.botBusy || input.stopping || input.queued ? { action: "steer" } : { action: "start" };
+  }
+  if (input.backgroundWork && input.newTopic && input.botBusy && !input.stopping) {
+    return { action: "background" };
   }
   if (input.botBusy || input.stopping || input.queued) {
     return { action: "replace", interrupt: input.botBusy || input.stopping, discardQueue: true };

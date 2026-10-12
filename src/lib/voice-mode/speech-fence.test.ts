@@ -70,4 +70,29 @@ describe("speech fence after barge-in", () => {
     expect(shouldNarrateToolChip({ duplex: false, playerBusy: true })).toBe(false);
     expect(shouldNarrateToolChip({ duplex: false, playerBusy: false })).toBe(true);
   });
+
+  it("an older topic's result still speaks after a speech-only barge-in", () => {
+    let fence = cancelSpeech(createSpeechFence(), "It is morning in Tokyo");
+    fence = noteUtteranceSent(fence);
+    const montreal = { id: "bA", role: "bot" as const, kind: "text", text: "It is 12 and sunny in Montreal." };
+    const out = settleReplies(fence, [userA, userB, montreal], ["bA"]);
+    expect(out.speak).toEqual([{ id: "bA", text: "It is 12 and sunny in Montreal." }]);
+  });
+
+  it("a parallel result for an older request still speaks", () => {
+    const older = {
+      id: "bA", role: "bot" as const, kind: "text", text: "Montreal is sunny.",
+      parallelTask: { role: "result", requestMessageId: "uA" },
+    };
+    const out = settleReplies(createSpeechFence(), [userA, userB, older], ["bA"]);
+    expect(out.speak).toEqual([{ id: "bA", text: "Montreal is sunny." }]);
+  });
+
+  it("a thinking interrupt still drops a dying turn that is not the latest user", () => {
+    let fence = cancelSpeech(createSpeechFence(), "");
+    fence = noteUtteranceSent(fence);
+    const late = settleReplies(fence, [userA, userB, dyingA], ["bA"]);
+    expect(late.speak).toEqual([]);
+    expect(late.skip).toEqual(["bA"]);
+  });
 });

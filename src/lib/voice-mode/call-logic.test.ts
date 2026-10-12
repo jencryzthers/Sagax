@@ -101,6 +101,21 @@ describe("call state machine", () => {
     expect(barged.state.phase).toBe("interrupted");
   });
 
+  it("duplex: barge-in during speech does not kill background work", () => {
+    const speaking = run([{ type: "bot-busy", busy: true }, { type: "bot-audio-start" }], { ...connected, duplex: true, backgroundWork: true }).state;
+    const barged = run([{ type: "speech-candidate" }, { type: "speech-start" }], speaking);
+    expect(barged.types).toEqual(["duck", "cancel-speech", "earcon"]);
+    expect(barged.types).not.toContain("interrupt-bot");
+    expect(barged.state.phase).toBe("interrupted");
+  });
+
+  it("duplex: talking while background work runs does not interrupt-bot", () => {
+    const working = run([{ type: "bot-busy", busy: true }], { ...connected, duplex: true, backgroundWork: true }).state;
+    const out = run([{ type: "speech-candidate" }, { type: "speech-start" }], working);
+    expect(out.types).not.toContain("interrupt-bot");
+    expect(out.state.phase).toBe("hearing");
+  });
+
   it("another voice (Only my voice) is dropped with a soft earcon and the bot resumes", () => {
     const speaking = run([{ type: "bot-audio-start" }], connected).state;
     const out = run([{ type: "speech-candidate" }, { type: "utterance-rejected", reason: "other-voice" }], speaking);

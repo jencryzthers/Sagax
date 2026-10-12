@@ -19,6 +19,8 @@ export interface CallState {
   ducked: boolean;
   /** single active turn: talking while the bot works cancels it (no steer queue) */
   duplex: boolean;
+  /** in-flight tools or a sibling topic: barge-in drops speech, not the work */
+  backgroundWork: boolean;
 }
 
 export type CallEvent =
@@ -61,7 +63,7 @@ export type CallEffect =
   | { type: "mic"; open: boolean }
   | { type: "release" };
 
-export const INITIAL_CALL: CallState = { phase: "connecting", muted: false, botBusy: false, botAudible: false, ducked: false, duplex: false };
+export const INITIAL_CALL: CallState = { phase: "connecting", muted: false, botBusy: false, botAudible: false, ducked: false, duplex: false, backgroundWork: false };
 
 /** The phase to rest in when nobody is talking. */
 function idle(state: CallState): CallPhase {

@@ -35,4 +35,14 @@ describe("duplex barge-in policy", () => {
     expect(thinkingCueMs(true)).toBe(400);
     expect(thinkingCueMs(false)).toBe(1200);
   });
+
+  it("background work: barge-in over speech drops the voice and does not interrupt the task", () => {
+    expect(bargeInEffects({ duplex: true, botBusy: true, botAudible: true, backgroundWork: true })).toBe("cancel-speech-only");
+    expect(bargeInEffects({ duplex: false, botBusy: true, botAudible: true, backgroundWork: true })).toBe("cancel-speech-only");
+  });
+
+  it("background work: talking while it thinks does not interrupt the task", () => {
+    expect(bargeInEffects({ duplex: true, botBusy: true, botAudible: false, backgroundWork: true })).toBe("none");
+    expect(bargeInEffects({ duplex: false, botBusy: true, botAudible: false, backgroundWork: true })).toBe("none");
+  });
 });

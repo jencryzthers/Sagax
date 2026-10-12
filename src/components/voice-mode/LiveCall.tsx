@@ -46,6 +46,7 @@ import {
   toolFillerLanguage,
   toolFillerText,
 } from "@/lib/voice-mode/tool-filler";
+import { announceTopic, callHasBackgroundWork, howToSpeakTopicResult, sourceUserId, topicLabel } from "@/lib/voice-mode/voice-topics";
 import { isRoutineApproval, isSkillApproval, pendingApprovals, spokenApprovalPrompt } from "../PendingApproval";
 import { VoiceModeBar, type VoiceAccessCard } from "./VoiceModeBar";
 
@@ -269,6 +270,10 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
     call?.setBotBusy(Boolean(bot.busy));
   }, [call, bot.busy]);
 
+  useEffect(() => {
+    call?.setBackgroundWork(callHasBackgroundWork(messages));
+  }, [call, messages]);
+
   // ── the answer, sentence by sentence while it is written ──────────────
   const live = streaming[bot.threadId];
   const streamingRef = useRef<string | undefined>(live);
@@ -311,7 +316,23 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
       lastCut.current = null;
       if (cut?.unheard) setUnheard((previous) => new Map(previous).set(id, cut.unheard));
     }
-    for (const reply of settled.speak) void call.replyDone(reply.text);
+    const lastUser = [...messages].reverse().find((message) => message.role === "user");
+    for (const reply of settled.speak) {
+      const row = messages.find((message) => message.id === reply.id);
+      const idx = messages.findIndex((message) => message.id === reply.id);
+      const replyUserId = sourceUserId(messages, idx, row);
+      const mode = howToSpeakTopicResult({
+        replyUserId,
+        lastUserId: lastUser?.id,
+        isParallelResult: row?.parallelTask?.role === "result",
+      });
+      if (mode === "announce") {
+        const source = messages.find((message) => message.id === replyUserId);
+        void call.say(announceTopic(topicLabel(source?.text ?? row?.parallelTask?.title ?? "the other thing"), reply.text));
+      } else {
+        void call.replyDone(reply.text);
+      }
+    }
     const replies = fresh.filter((m) => m.role === "bot" && m.kind === "text" && m.text?.trim());
     if (!replies.length && call.current.phase === "thinking") {
       const activity = [...fresh].reverse().find((m) => m.kind === "activity" && m.tool);

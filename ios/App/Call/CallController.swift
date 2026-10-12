@@ -617,6 +617,7 @@ final class CallController: ObservableObject {
             lastBusy = busy
             engine.setBotBusy(busy)
         }
+        engine.setBackgroundWork(CallConversation.hasBackgroundWork(messages))
         if let live = conversation.stream(state.streaming[threadId]) {
             engine.replyProgress(live)
         }
@@ -635,6 +636,9 @@ final class CallController: ObservableObject {
                 player.speaker = speaker(speakerId)
                 engine.speakNow(SpokenText.spokenPart(text))
             case let .narrate(text, speakerId):
+                player.speaker = speaker(speakerId)
+                engine.speakNow(text)
+            case let .announce(text, speakerId):
                 player.speaker = speaker(speakerId)
                 engine.speakNow(text)
             }

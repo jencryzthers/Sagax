@@ -74,6 +74,7 @@ export interface FenceMessage {
   kind: string;
   text?: string;
   requestMessageId?: string;
+  parallelTask?: { role?: string; requestMessageId?: string };
 }
 
 export function shouldSpeakReply(fence: SpeechFence, opts: {
@@ -84,10 +85,12 @@ export function shouldSpeakReply(fence: SpeechFence, opts: {
   replyText: string;
 }): "speak" | "skip" {
   if (opts.replyIndex < opts.lastUserIndex) return "skip";
-  if (opts.requestMessageId && opts.lastUserId && opts.requestMessageId !== opts.lastUserId) return "skip";
+  if (isCutContinuation(opts.replyText, fence.dropStream)) return "skip";
   if (fence.dropOldReply) {
     if (opts.requestMessageId && opts.lastUserId && opts.requestMessageId === opts.lastUserId) return "speak";
-    if (isCutContinuation(opts.replyText, fence.dropStream)) return "skip";
+    // Speech-only barge-in: a later result that is not the cut block still
+    // speaks (LiveCall announces it). A thinking interrupt has no prefix.
+    if (fence.dropStream) return "speak";
     return "skip";
   }
   return "speak";
@@ -111,7 +114,7 @@ export function settleReplies(
       replyIndex,
       lastUserIndex,
       lastUserId,
-      requestMessageId: reply.requestMessageId,
+      requestMessageId: reply.parallelTask?.requestMessageId || reply.requestMessageId,
       replyText: reply.text,
     }) === "speak") {
       speak.push({ id: reply.id, text: reply.text });

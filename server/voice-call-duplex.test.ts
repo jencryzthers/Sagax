@@ -37,6 +37,18 @@ describe("admitDuplexSend", () => {
     expect(admitDuplexSend({ duplex: true, botBusy: false, stopping: false, queued: true }))
       .toEqual({ action: "replace", interrupt: false, discardQueue: true });
   });
+
+  it("a new topic while background work runs is parked as background, not replaced", () => {
+    expect(admitDuplexSend({
+      duplex: true, botBusy: true, stopping: false, queued: false, backgroundWork: true, newTopic: true,
+    })).toEqual({ action: "background" });
+  });
+
+  it("stop or a correction still replaces, even with background work", () => {
+    expect(admitDuplexSend({
+      duplex: true, botBusy: true, stopping: false, queued: false, backgroundWork: true, newTopic: false,
+    })).toEqual({ action: "replace", interrupt: true, discardQueue: true });
+  });
 });
 
 describe("duplex replace slot", () => {

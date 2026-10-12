@@ -635,6 +635,7 @@ import {
   isThreadBusyError,
   waitForThreadIdle,
 } from "./voice-call-duplex.ts";
+import { callHasBackgroundWork, isNewVoiceTopic } from "../src/lib/voice-mode/voice-topics.ts";
 import { VoiceCallSessions } from "./voice-call-session.ts";
 import { VoiceCallWarmup } from "./voice-call-warmup.ts";
 import { callTurnEffort } from "./voice-call-effort.ts";
@@ -12351,12 +12352,22 @@ async function startDuplexCallTurn(
   if (!current) throw Object.assign(new Error("no such bot"), { status: 404 });
   const epoch = duplexEpochFor(threadId);
   const mine = epoch.claim();
+  const backgroundWork = callHasBackgroundWork(store.messagesFor(threadId))
+    || store.tasks(current.id).some((task) => task.parallelOf?.threadId === threadId && parallelPending(task));
   const admit = admitDuplexSend({
     duplex: true,
     botBusy: Boolean(current.busy) || threadBusy(botId, threadId),
     stopping: stoppingThreads.has(threadId),
     queued: hasQueuedSteeredMessages(current.id, threadId),
+    backgroundWork,
+    newTopic: isNewVoiceTopic(text),
   });
+  if (admit.action === "background") {
+    discardSteeredQueue(current.id, threadId);
+    return startParallelTask({
+      botId, threadId, text, replyTo, sendId, sender, trigger, speaker, voiceCall,
+    });
+  }
   if (admit.action === "replace") {
     if (admit.discardQueue) discardSteeredQueue(current.id, threadId);
     if (admit.interrupt) {
@@ -12458,6 +12469,8 @@ async function startParallelTask(input: {
   title?: string;
   /** Org audit actor. */
   auth?: RequestAuth;
+  /** Live call: the request was said on the call. */
+  voiceCall?: Message["voiceCall"];
 }): Promise<{ ok: true; threadId: string; message: Message; parallel: { threadId: string; title: string; state: ParallelTaskState; cardMessageId: string } }> {
   const bot = store.bot(input.botId);
   const parentTask = bot ? store.taskByThread(bot.id, input.threadId) : undefined;
@@ -12502,6 +12515,7 @@ async function startParallelTask(input: {
     replyToId: input.replyTo?.id,
     sendId: input.sendId,
     ...(input.sender ? { sender: input.sender } : {}),
+    ...(input.voiceCall ? { voiceCall: input.voiceCall } : {}),
     parallelTask: { threadId: child.threadId, title, requestMessageId: "", role: "request" },
   });
   if (request) {

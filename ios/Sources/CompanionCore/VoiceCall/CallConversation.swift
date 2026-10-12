@@ -51,6 +51,8 @@ public struct CallConversation: Sendable {
         case reply(String, speakerId: String?)
         /// a narrated tool step while the bot works
         case narrate(String, speakerId: String?)
+        /// a short spoken update for an older topic that just finished
+        case announce(String, speakerId: String?)
     }
 
     private struct AskedApproval: Sendable { var requestId: String; var skill: Bool; var submitted: Bool }
@@ -75,6 +77,31 @@ public struct CallConversation: Sendable {
     public init(existing: [Message], room: Bool = false) {
         spoken = Set(existing.map(\.id))
         self.room = room
+    }
+
+    /// In-flight tools or a sibling parallel card: barge-in drops speech, not the work.
+    public static func hasBackgroundWork(_ messages: [Message]) -> Bool {
+        messages.contains { message in
+            if message.kind == .activity, let tool = message.tool, tool.ok == nil { return true }
+            if let task = message.parallelTask, task.isCard, task.state == "running" || task.state == "queued" { return true }
+            return false
+        }
+    }
+
+    public static func topicLabel(_ text: String) -> String {
+        let line = text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if line.count <= 48 { return line }
+        let end = line.index(line.startIndex, offsetBy: 45, limitedBy: line.endIndex) ?? line.endIndex
+        return String(line[..<end]).trimmingCharacters(in: .whitespaces) + "..."
+    }
+
+    public static func announceTopic(label: String, result: String) -> String {
+        let clip = result.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if clip.count <= 160 { return "For \(label): \(clip)" }
+        let end = clip.index(clip.startIndex, offsetBy: 157, limitedBy: clip.endIndex) ?? clip.endIndex
+        return "For \(label): \(String(clip[..<end]).trimmingCharacters(in: .whitespaces))..."
     }
 
     // MARK: - Cards
@@ -205,13 +232,14 @@ public struct CallConversation: Sendable {
             }
             // an answer from before the person's latest words (the turn they cut)
             let index = messages.firstIndex { $0.id == reply.id } ?? 0
-            let belongsToLatest = reply.requestMessageId != nil && reply.requestMessageId == lastUserId
-            let belongsToOlder = reply.requestMessageId != nil && reply.requestMessageId != lastUserId
+            let sourceId = sourceUserId(messages: messages, reply: reply, index: index)
+            let belongsToLatest = sourceId != nil && sourceId == lastUserId
             let cutContinuation: Bool = {
                 guard let cut = dropStream, !cut.isEmpty, let text = reply.text else { return false }
                 return text.hasPrefix(String(cut.prefix(16)))
             }()
-            if belongsToOlder || index < lastUser || (dropOldReply && !belongsToLatest) || cutContinuation {
+            let thinkingDrop = dropOldReply && !belongsToLatest && (dropStream == nil || dropStream?.isEmpty == true)
+            if cutContinuation || index < lastUser || thinkingDrop {
                 interrupted.insert(reply.id)
                 // the words of it the person never heard stay in the transcript, marked
                 if let words = lastCutUnheard {
@@ -222,7 +250,13 @@ public struct CallConversation: Sendable {
             }
             dropOldReply = false
             dropStream = nil
-            out.append(.replyDone(reply.text ?? "", speakerId: reply.from?.botId))
+            if let sourceId, let lastUserId, sourceId != lastUserId {
+                let source = messages.first { $0.id == sourceId }
+                let label = Self.topicLabel(source?.text ?? reply.parallelTask?.title ?? "the other thing")
+                out.append(.announce(Self.announceTopic(label: label, result: reply.text ?? ""), speakerId: reply.from?.botId))
+            } else {
+                out.append(.replyDone(reply.text ?? "", speakerId: reply.from?.botId))
+            }
         }
         if replies.isEmpty && (thinking || room) {
             if let chip = fresh.last(where: { $0.kind == .activity && !($0.tool?.spoken ?? "").isEmpty }),
@@ -231,5 +265,19 @@ public struct CallConversation: Sendable {
             }
         }
         return out
+    }
+
+    private func sourceUserId(messages: [Message], reply: Message, index: Int) -> String? {
+        if let id = reply.parallelTask?.requestMessageId, !id.isEmpty { return id }
+        if let id = reply.requestMessageId, !id.isEmpty { return id }
+        var i = index - 1
+        while i >= 0 {
+            let message = messages[i]
+            if message.role == .user && message.parallelTask?.part != .request {
+                return message.id
+            }
+            i -= 1
+        }
+        return nil
     }
 }

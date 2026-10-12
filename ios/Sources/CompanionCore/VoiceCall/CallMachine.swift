@@ -21,14 +21,17 @@ public struct CallState: Equatable, Sendable {
     public var ducked: Bool
     /// Single active turn: talking while the bot works cancels it.
     public var duplex: Bool
+    /// In-flight tools or a sibling topic: barge-in drops speech, not the work.
+    public var backgroundWork: Bool
 
-    public init(phase: CallPhase = .connecting, muted: Bool = false, botBusy: Bool = false, botAudible: Bool = false, ducked: Bool = false, duplex: Bool = false) {
+    public init(phase: CallPhase = .connecting, muted: Bool = false, botBusy: Bool = false, botAudible: Bool = false, ducked: Bool = false, duplex: Bool = false, backgroundWork: Bool = false) {
         self.phase = phase
         self.muted = muted
         self.botBusy = botBusy
         self.botAudible = botAudible
         self.ducked = ducked
         self.duplex = duplex
+        self.backgroundWork = backgroundWork
     }
 
     public static let initial = CallState()
@@ -177,6 +180,14 @@ public enum CallMachine {
             }
         case .speechStart:
             if state.muted || state.phase == .held || state.phase == .connecting { return same }
+            if state.backgroundWork {
+                // barge-in cancels the spoken reply, not background tools
+                if state.botAudible {
+                    effects += [.cancelSpeech, .earcon(.interrupted)]
+                    return next { $0.phase = .interrupted; $0.botAudible = false; $0.ducked = false }
+                }
+                return next { $0.phase = .hearing }
+            }
             if state.botAudible {
                 // barge-in: the bot stops talking, what it had left to say is dropped
                 effects += [.cancelSpeech, .earcon(.interrupted)]
