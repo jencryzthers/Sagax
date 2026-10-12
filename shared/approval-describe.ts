@@ -496,7 +496,10 @@ export function describeApproval(
   const resource = op === "run"
     ? resourceRaw?.replace(/[/_-]+/g, " ").trim().toLowerCase() || undefined
     : resourcePhrase(resourceRaw, op, words);
-  const action = resource
+  // run_command / exec_shell: "run a command", not "run the command action"
+  const action = op === "run" && resource && RUN_COMMAND_NOUN.test(resource)
+    ? words.t("approval.tool.runCommand")
+    : resource
     ? words.t(`approval.verb.${op}`, { resource })
     : words.t(`approval.verb.${op}.bare`);
   return { action, product, summary, risk, server: parsed.server, argsJson };
@@ -512,6 +515,9 @@ export const RISK_LABEL: Record<ApprovalRisk, string> = {
 // ---------------------------------------------------------------------------
 // The words every surface shows: card title, the line under it, the push
 // notification, the always-allow rule. Same inputs, same words, wherever.
+
+/** A run tool whose object is a shell command (run_command, exec_shell). */
+const RUN_COMMAND_NOUN = /^(?:shell |terminal |bash )?(?:command|commands|cmd|shell|bash|terminal)$/;
 
 /** Built-in tools and ACP tool kinds as verb phrases (never "wants to
  * other"): an ACP driver can send the protocol's kind as the tool. */
