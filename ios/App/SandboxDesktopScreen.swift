@@ -202,26 +202,28 @@ final class SandboxViewerSession: NSObject, ObservableObject {
     private var urlSession: URLSession?
     private var password = ""
     private var viewOnly = true
-    private var htmlReady = false
-    private var socketOpen = false
+    /// Opens noVNC once per socket. SwiftUI re-attaches the web view on
+    /// every update; that re-attach must change nothing, or a running
+    /// environment loops the main thread until the watchdog kills the app.
+    private var gate = SandboxRFBGate()
     private var relay: Relay?
 
     func attach(_ webView: WKWebView) {
+        let newView = self.webView !== webView
         self.webView = webView
-        tryOpenRFB()
+        apply(.attached(newView: newView))
     }
 
     func markHTMLReady() {
-        htmlReady = true
-        tryOpenRFB()
+        apply(.pageLoaded)
     }
 
     func start(request: URLRequest, password: String, viewOnly: Bool) {
         stopSocket()
         self.password = password
         self.viewOnly = viewOnly
-        socketOpen = false
-        rfbReady = false
+        _ = gate.handle(.socketClosed)
+        setReady(false)
         let relay = Relay(owner: self)
         self.relay = relay
         let session = URLSession(configuration: .default, delegate: relay, delegateQueue: .main)
@@ -238,27 +240,32 @@ final class SandboxViewerSession: NSObject, ObservableObject {
 
     func stop() {
         stopSocket()
-        rfbReady = false
-        socketOpen = false
+        _ = gate.handle(.socketClosed)
+        setReady(false)
         js("window.sagaxClose && window.sagaxClose()")
     }
 
     fileprivate func handleSocketOpen() {
-        socketOpen = true
-        tryOpenRFB()
+        apply(.socketOpened)
     }
 
     fileprivate func handleSocketClose() {
-        socketOpen = false
-        rfbReady = false
+        _ = gate.handle(.socketClosed)
+        setReady(false)
         js("window.sagaxOnClose && window.sagaxOnClose()")
     }
 
-    private func tryOpenRFB() {
-        guard htmlReady, socketOpen, webView != nil else { return }
+    private func apply(_ event: SandboxRFBGate.Event) {
+        guard gate.handle(event) else { return }
         js("window.sagaxOpen(\(jsString(password)), \(viewOnly ? "true" : "false"))")
         js("window.sagaxOnOpen()")
-        rfbReady = true
+        setReady(true)
+    }
+
+    /// Publishes only a change: `@Published` notifies on every assignment,
+    /// and each notification re-renders the screen.
+    private func setReady(_ ready: Bool) {
+        if rfbReady != ready { rfbReady = ready }
     }
 
     private func stopSocket() {
@@ -314,7 +321,9 @@ final class SandboxViewerSession: NSObject, ObservableObject {
 }
 
 private struct SandboxDesktopWebView: UIViewRepresentable {
-    @ObservedObject var session: SandboxViewerSession
+    /// Not observed: the web view never redraws from the viewer's state (the
+    /// screen around it does), so a publish does not re-run `updateUIView`.
+    let session: SandboxViewerSession
 
     func makeCoordinator() -> Coordinator { Coordinator(session: session) }
 
