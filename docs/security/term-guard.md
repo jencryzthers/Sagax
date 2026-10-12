@@ -13,3 +13,10 @@ in this repository; it is the `FORBIDDEN_TERMS` Actions secret
   API. It never checks out or executes pull-request code.
 
 Tests: `python3 scripts/ci/term-guard.test.py`.
+
+## Path allowlist
+
+`.github/term-guard-allow-paths.txt` lists path globs (never terms) whose
+added lines are not scanned, e.g. data files of common given names. It is read
+from the base branch, so a change to it only takes effect after merge. Title,
+branch and changed paths are still checked for allowlisted files.

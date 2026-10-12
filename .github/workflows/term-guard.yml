@@ -31,7 +31,9 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
-          sparse-checkout: scripts/ci/term-guard.py
+          sparse-checkout: |
+            scripts/ci/term-guard.py
+            .github/term-guard-allow-paths.txt
           sparse-checkout-cone-mode: false
 
       - name: Mask terms

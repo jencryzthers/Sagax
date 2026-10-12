@@ -17,10 +17,14 @@ diff --git a/ok.txt b/ok.txt
 """
 
 
-def run(env, diff=None):
+def run(env, diff=None, allow=None):
     with tempfile.NamedTemporaryFile("w", delete=False) as f:
         f.write(diff or "")
-    e = {"PATH": os.environ["PATH"], **env}
+    e = {"PATH": os.environ["PATH"], "ALLOW_FILE": "/nonexistent", **env}
+    if allow is not None:
+        with tempfile.NamedTemporaryFile("w", delete=False) as a:
+            a.write(allow)
+        e["ALLOW_FILE"] = a.name
     p = subprocess.run([sys.executable, SCRIPT, f.name], env=e, capture_output=True, text=True)
     os.unlink(f.name)
     return p.returncode, p.stdout
@@ -48,6 +52,27 @@ class T(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("file #1", out)
         self.assertNotIn("widgetco", out.lower())
+
+    def test_path_allowlist_skips_lines_only(self):
+        d = DIFF.replace("a.txt", "src/data/names/list.json")
+        code, out = run({"FORBIDDEN_TERMS": "widgetco"}, d, allow="# names\nsrc/data/names/*.json\n")
+        self.assertEqual(code, 0, out)
+        code, out = run({"FORBIDDEN_TERMS": "widgetco"}, d, allow="other/*\n")
+        self.assertEqual(code, 1)
+        self.assertIn("src/data/names/list.json:2", out)
+
+    def test_allowlist_does_not_cover_title_branch_or_path(self):
+        d = "diff --git a/x/widgetco.json b/x/widgetco.json\n--- /dev/null\n+++ b/x/widgetco.json\n@@ -0,0 +1 @@\n+ok\n"
+        code, out = run({"FORBIDDEN_TERMS": "widgetco", "PR_TITLE": "widgetco"}, d, allow="x/*\n")
+        self.assertEqual(code, 1)
+        self.assertIn("title", out)
+        self.assertIn("file #1 path", out)
+
+    def test_repo_allowlist_has_no_terms(self):
+        allow = os.path.join(HERE, "..", "..", ".github", "term-guard-allow-paths.txt")
+        terms = [t.strip().lower() for t in os.environ.get("FORBIDDEN_TERMS", "").splitlines() if t.strip() and not t.startswith("#")]
+        text = open(allow).read().lower()
+        self.assertFalse(any(t in text for t in terms))
 
 
 if __name__ == "__main__":

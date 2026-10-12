@@ -5,11 +5,33 @@ a forbidden term. Terms come from the FORBIDDEN_TERMS environment variable
 case-insensitively. A hit prints only where it was found (title, branch,
 file:line), never the term itself. No terms configured means failure (fail closed).
 
+Path allowlist: added lines in files matching a glob in ALLOW_FILE (default
+.github/term-guard-allow-paths.txt, one glob per line, '#' comments) are not
+scanned. The allowlist holds paths only, never terms. In CI it is read from the
+BASE branch, so a pull request cannot allowlist its own files. Title, branch
+and changed paths are always checked.
+
 Usage: term-guard.py DIFF_FILE   (PR_TITLE and PR_BRANCH come from the environment)
 """
+import fnmatch
 import os
 import re
 import sys
+
+DEFAULT_ALLOW_FILE = ".github/term-guard-allow-paths.txt"
+
+
+def load_allow(path=None):
+    path = path or os.environ.get("ALLOW_FILE") or DEFAULT_ALLOW_FILE
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return [l.strip() for l in fh if l.strip() and not l.strip().startswith("#")]
+    except FileNotFoundError:
+        return []
+
+
+def allowed(path, globs):
+    return bool(path) and any(fnmatch.fnmatchcase(path, g) for g in globs)
 
 
 def load_terms():
@@ -23,9 +45,9 @@ def hit(text, terms):
     return any(t in low for t in terms)
 
 
-def scan_diff(lines, terms):
+def scan_diff(lines, terms, allow=()):
     found = []
-    path, new_line, index = None, 0, 0
+    path, new_line, index, skip = None, 0, 0, False
     for raw in lines:
         line = raw.rstrip("\n")
         if line.startswith("diff --git "):
@@ -36,6 +58,7 @@ def scan_diff(lines, terms):
             continue
         if line.startswith("+++ "):
             path = line[6:] if line.startswith("+++ b/") else line[4:]
+            skip = allowed(path, allow)
             if hit(path, terms):
                 path = f"file #{index}"
             continue
@@ -50,7 +73,7 @@ def scan_diff(lines, terms):
             new_line = int(m.group(1))
             continue
         if line.startswith("+"):
-            if hit(line[1:], terms):
+            if not skip and hit(line[1:], terms):
                 found.append(f"{path or '?'}:{new_line}")
             new_line += 1
         elif line.startswith(" "):
@@ -70,7 +93,7 @@ def main(argv):
         found.append("branch")
     if len(argv) > 1:
         with open(argv[1], encoding="utf-8", errors="replace") as fh:
-            found += scan_diff(fh, terms)
+            found += scan_diff(fh, terms, load_allow())
     if found:
         for where in found:
             print(f"::error::Forbidden term found in {where}")
