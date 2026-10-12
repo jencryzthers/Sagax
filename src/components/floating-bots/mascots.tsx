@@ -625,12 +625,19 @@ function useCrabClipMove(activity: MascotActivity): FxMoveRequest | null {
   return last.current.request;
 }
 
+/** The desktop crab's share of the mascot box (the pre-0.4.22 crab's footprint). */
+export const CRAB_DESKTOP_SCALE = 0.6;
+
 function CrabRender({ color, look, size, activity, pose, frame, fps, onHitTest }: MascotRenderProps) {
   const own = useCrabClipMove(activity);
   const fx = useClipFx(activity);
   return (
     <Motion25D size={size} frame={frame} fps={fps} onHitTest={onHitTest} transform={shibaMotionTransform}>
-      <CrabMascot skin={look.skins.crab} color={color} size={size * 0.9} mood={bunbuMoodFor(activity, pose)} expression={shapeExpressionForClip(activity)} detail="full" move={own ?? fx} activity={crabHeldFor(activity, pose)} rig label={null} />
+      {/* the 24x16 still fills its box edge to edge: draw it at the old crab's
+          footprint and stand it on the spot's floor, not mid-air */}
+      <span data-crab-desktop className="flex items-end justify-center" style={{ width: size, height: size }}>
+        <CrabMascot skin={look.skins.crab} color={color} size={Math.round(size * CRAB_DESKTOP_SCALE)} mood={bunbuMoodFor(activity, pose)} expression={shapeExpressionForClip(activity)} detail="full" move={own ?? fx} activity={crabHeldFor(activity, pose)} rig label={null} />
+      </span>
     </Motion25D>
   );
 }

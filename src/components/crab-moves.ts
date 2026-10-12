@@ -6,7 +6,7 @@
 // motion never runs it: a move only shows its face (closed eyes for sleep).
 import { clamp01, easeInOut } from "./shape-art";
 import { blinkOpen, blinkSchedule } from "./shape-engine";
-import { CRAB_PIVOTS } from "./crab-art";
+import { CRAB_PIVOTS, CRAB_PX } from "./crab-art";
 
 export interface CrabNumbers {
   x: number;
@@ -428,19 +428,22 @@ function origin(point: readonly [number, number]): string {
 export const CRAB_GROUPS = ["whole", "armL", "armR", "eyes", "eyeL", "eyeR", "leg0", "leg1", "leg2", "leg3", "sparkles"] as const;
 export type CrabGroup = (typeof CRAB_GROUPS)[number];
 
+/** Snap a rig offset to whole sprite cells (crab-art.ts CRAB_PX), so the
+ * pixel crab never shows a part between grid cells. */
+export const crabSnap = (v: number) => {
+  const cells = Math.round(v / CRAB_PX);
+  return cells === 0 ? 0 : cells * CRAB_PX;
+};
+
 export function crabTransforms(pose: CrabPose): Record<CrabGroup, string> {
   const g = origin(CRAB_PIVOTS.ground);
-  const whole = `translate(${pose.x.toFixed(2)} ${pose.y.toFixed(2)}) rotate(${pose.rot.toFixed(2)} ${g}) translate(${g}) scale(${pose.sx.toFixed(3)} ${pose.sy.toFixed(3)}) translate(${-CRAB_PIVOTS.ground[0]} ${-CRAB_PIVOTS.ground[1]})`;
-  const arm = (side: "L" | "R", rot: number) => {
-    const p = CRAB_PIVOTS[`arm${side}`];
-    return `rotate(${rot.toFixed(2)} ${p[0]} ${p[1]})`;
-  };
-  const leg = (i: 0 | 1 | 2 | 3) => {
-    const p = CRAB_PIVOTS.legs[i]!;
-    const rot = pose[`legRot${i}`];
-    const sy = pose[`legSy${i}`];
-    return `translate(0 ${pose[`leg${i}`].toFixed(2)}) rotate(${rot.toFixed(2)} ${p[0]} ${p[1]}) translate(${p[0]} ${p[1]}) scale(1 ${sy.toFixed(3)}) translate(${-p[0]} ${-p[1]})`;
-  };
+  // One rigid sprite: the whole group bobs (whole cells) and tilts on its
+  // ground point, never stretches. Arms and legs never rotate or scale
+  // apart from the body; a leg steps up one cell at most, an arm raises one
+  // cell, so nothing detaches (JC, 2026-10-12).
+  const whole = `translate(${crabSnap(pose.x)} ${crabSnap(pose.y)}) rotate(${Math.max(-4, Math.min(4, pose.rot)).toFixed(2)} ${g})`;
+  const arm = (rot: number) => `translate(0 ${Math.abs(rot) >= 30 ? -CRAB_PX : 0})`;
+  const leg = (i: 0 | 1 | 2 | 3) => `translate(0 ${pose[`leg${i}`] <= -CRAB_PX / 2 ? -CRAB_PX : 0})`;
   const blink = Math.max(0.08, 1 - pose.blink);
   const eye = (side: "L" | "R") => {
     const p = CRAB_PIVOTS[`eye${side}`];
@@ -448,8 +451,8 @@ export function crabTransforms(pose: CrabPose): Record<CrabGroup, string> {
   };
   return {
     whole,
-    armL: arm("L", pose.armLRot),
-    armR: arm("R", pose.armRRot),
+    armL: arm(pose.armLRot),
+    armR: arm(pose.armRRot),
     eyes: `translate(${pose.lookX.toFixed(2)} ${pose.lookY.toFixed(2)})`,
     eyeL: eye("L"),
     eyeR: eye("R"),
