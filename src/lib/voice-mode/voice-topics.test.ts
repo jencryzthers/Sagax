@@ -50,10 +50,13 @@ describe("voice topics", () => {
     );
   });
 
-  it("in-flight tools and running parallel cards are background work", () => {
-    expect(callHasBackgroundWork([{ kind: "activity", tool: { name: "Bash" } }])).toBe(true);
+  it("only a live parallel card is background work, not the call thread's own tool chip", () => {
+    expect(callHasBackgroundWork([{ kind: "activity", tool: { name: "Bash" } }])).toBe(false);
+    expect(callHasBackgroundWork([{ kind: "activity", tool: { name: "Bash", ok: false } }])).toBe(false);
     expect(callHasBackgroundWork([{ kind: "activity", tool: { name: "Bash", ok: true } }])).toBe(false);
     expect(callHasBackgroundWork([{ parallelTask: { role: "card", state: "running" } }])).toBe(true);
+    expect(callHasBackgroundWork([{ parallelTask: { role: "card", state: "queued" } }])).toBe(true);
+    expect(callHasBackgroundWork([{ parallelTask: { role: "card", state: "done" } }])).toBe(false);
     expect(callHasBackgroundWork([{ kind: "text" }])).toBe(false);
   });
 

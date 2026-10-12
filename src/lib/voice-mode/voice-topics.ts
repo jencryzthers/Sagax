@@ -113,7 +113,6 @@ export function callHasBackgroundWork(messages: Array<{
   parallelTask?: { role?: string; state?: string };
 }>): boolean {
   return messages.some((message) => {
-    if (message.kind === "activity" && message.tool && message.tool.ok !== true && message.tool.ok !== false) return true;
     const state = message.parallelTask?.state;
     return message.parallelTask?.role === "card" && (state === "running" || state === "queued");
   });

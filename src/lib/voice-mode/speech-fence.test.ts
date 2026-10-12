@@ -95,4 +95,23 @@ describe("speech fence after barge-in", () => {
     expect(late.speak).toEqual([]);
     expect(late.skip).toEqual(["bA"]);
   });
+
+  it("thinking barge-in with an empty stream ignores a late delta of the cut turn", () => {
+    let fence = interruptBot(createSpeechFence(), "");
+    fence = noteUtteranceSent(fence);
+    const late = streamText(fence, "Once upon a time, there was a llama");
+    expect(late.text).toBeNull();
+    expect(late.fence.dropOldReply).toBe(true);
+  });
+
+  it("thinking barge-in speaks a new stream only after the live buffer has cleared", () => {
+    let fence = interruptBot(createSpeechFence(), "");
+    fence = noteUtteranceSent(fence);
+    expect(streamText(fence, "Once upon a time").text).toBeNull();
+    const cleared = streamText(fence, "");
+    expect(cleared.text).toBeNull();
+    const next = streamText(cleared.fence, "It is sunny.");
+    expect(next.text).toBe("It is sunny.");
+    expect(next.fence.dropOldReply).toBe(false);
+  });
 });

@@ -16,7 +16,7 @@ export interface BargeInState {
 
 /** What speech-start does to the bot's current reply. */
 export function bargeInEffects(state: BargeInState): BargeInEffect {
-  if (state.backgroundWork) return state.botAudible ? "cancel-speech-only" : "none";
+  if (state.duplex && state.backgroundWork) return state.botAudible ? "cancel-speech-only" : "none";
   if (state.botAudible) return state.botBusy ? "cancel-and-interrupt" : "cancel-speech-only";
   if (state.duplex && state.botBusy) return "cancel-and-interrupt";
   return "none";

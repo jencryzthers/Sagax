@@ -9,27 +9,34 @@ export interface SpeechFence {
   generation: number;
   dropOldReply: boolean;
   dropStream: string | null;
+  /** Thinking barge-in has no cut prefix. Ignore live until it goes empty
+   * so a late delta of the cancelled turn is not spoken as the new answer. */
+  waitForClear: boolean;
 }
 
 export function createSpeechFence(): SpeechFence {
-  return { generation: 0, dropOldReply: false, dropStream: null };
+  return { generation: 0, dropOldReply: false, dropStream: null, waitForClear: false };
 }
 
 /** Confirmed barge-in: the rest of that answer is never spoken. */
 export function cancelSpeech(fence: SpeechFence, currentStream?: string | null): SpeechFence {
+  const cut = currentStream ?? "";
   return {
     generation: fence.generation + 1,
     dropOldReply: true,
-    dropStream: currentStream ?? "",
+    dropStream: cut,
+    waitForClear: cut === "",
   };
 }
 
 /** The running turn is being stopped; keep dropping its stream. */
 export function interruptBot(fence: SpeechFence, currentStream?: string | null): SpeechFence {
+  const cut = currentStream ?? fence.dropStream ?? "";
   return {
     ...fence,
     dropOldReply: true,
-    dropStream: currentStream ?? fence.dropStream ?? "",
+    dropStream: cut,
+    waitForClear: cut === "",
   };
 }
 
@@ -40,6 +47,7 @@ export function noteUtteranceSent(fence: SpeechFence): SpeechFence {
     generation: fence.generation + 1,
     dropOldReply: fence.dropOldReply,
     dropStream: fence.dropStream,
+    waitForClear: fence.waitForClear,
   };
 }
 
@@ -51,19 +59,18 @@ function isCutContinuation(live: string, cut: string | null): boolean {
 
 /** Live assistant text to feed the voice, or null to ignore. */
 export function streamText(fence: SpeechFence, live: string | undefined): { text: string | null; fence: SpeechFence } {
-  if (live === undefined || live === "") {
-    // The old stream pausing is not a new answer. Keep the cut prefix.
+  const empty = live === undefined || live === "";
+  if (empty) {
+    if (fence.waitForClear) return { text: null, fence: { ...fence, waitForClear: false } };
     return { text: null, fence };
   }
+  if (fence.waitForClear) return { text: null, fence };
   if (isCutContinuation(live, fence.dropStream)) return { text: null, fence };
   if (fence.dropStream !== null && fence.dropStream !== "") {
-    return { text: live, fence: { ...fence, dropStream: null, dropOldReply: false } };
+    return { text: live, fence: { ...fence, dropStream: null, dropOldReply: false, waitForClear: false } };
   }
   if (fence.dropOldReply) {
-    // Thinking barge-in (no prefix): the first live after the send is the
-    // new answer only when the server has dropped the cancelled turn's
-    // deltas. Accept it and close the drop.
-    return { text: live, fence: { ...fence, dropOldReply: false, dropStream: null } };
+    return { text: live, fence: { ...fence, dropOldReply: false, dropStream: null, waitForClear: false } };
   }
   return { text: live, fence };
 }
@@ -118,7 +125,7 @@ export function settleReplies(
       replyText: reply.text,
     }) === "speak") {
       speak.push({ id: reply.id, text: reply.text });
-      next = { ...next, dropOldReply: false, dropStream: null };
+      next = { ...next, dropOldReply: false, dropStream: null, waitForClear: false };
     } else {
       skip.push(reply.id);
     }

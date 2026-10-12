@@ -38,11 +38,17 @@ describe("duplex barge-in policy", () => {
 
   it("background work: barge-in over speech drops the voice and does not interrupt the task", () => {
     expect(bargeInEffects({ duplex: true, botBusy: true, botAudible: true, backgroundWork: true })).toBe("cancel-speech-only");
-    expect(bargeInEffects({ duplex: false, botBusy: true, botAudible: true, backgroundWork: true })).toBe("cancel-speech-only");
+  });
+
+  it("kill-switch off still interrupts a speaking busy turn even if a tool chip is open", () => {
+    expect(bargeInEffects({ duplex: false, botBusy: true, botAudible: true, backgroundWork: true })).toBe("cancel-and-interrupt");
   });
 
   it("background work: talking while it thinks does not interrupt the task", () => {
     expect(bargeInEffects({ duplex: true, botBusy: true, botAudible: false, backgroundWork: true })).toBe("none");
+  });
+
+  it("kill-switch off while thinking with a tool chip still does not interrupt", () => {
     expect(bargeInEffects({ duplex: false, botBusy: true, botAudible: false, backgroundWork: true })).toBe("none");
   });
 });

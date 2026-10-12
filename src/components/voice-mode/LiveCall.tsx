@@ -163,8 +163,8 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
       }),
       live.on("interrupt-bot", () => {
         const current = botRef.current;
-        // an approval being answered by voice keeps its turn
-        if (askedApproval.current || !current.busy) return;
+        // an approval or option card being answered by voice keeps its turn
+        if (askedApproval.current || askedQuestion.current || !current.busy) return;
         // what the stopped turn still streams is never spoken
         fence.current = interruptBot(fence.current, streamingRef.current);
         dispatch({ type: "interrupt", botId: current.id, threadId: current.threadId });
