@@ -741,6 +741,23 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     expect(t.socket().audioBytes).toBe(bytesReady);
   });
 
+  it("duplex stops feeding STT after a short silence grace so xAI can finalize", async () => {
+    const t = await setup({
+      transcripts: ["How is the weather?"],
+      settings: { fullDuplex: true },
+      finalDelayMs: 200,
+    });
+    await t.feed(0.95, 0.05, 24);
+    t.socket().partial("How is the");
+    await t.settle();
+    const start = t.socket().audioBytes;
+    await t.feed(0.02, 0.001, 4);
+    expect(t.socket().audioBytes).toBeGreaterThan(start);
+    const mid = t.socket().audioBytes;
+    await t.feed(0.02, 0.001, 8);
+    expect(t.socket().audioBytes).toBe(mid);
+  });
+
   it("does not start the LLM on a partial when duplex is off", async () => {
     const t = await setup({
       transcripts: ["What is the weather in Montreal today?"],

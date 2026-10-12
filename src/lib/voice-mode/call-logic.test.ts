@@ -385,6 +385,16 @@ describe("a finished sentence ends sooner (docs/voice-mode-xai.md, Latency)", ()
     feed(open, [{ p: 0.9, n: frames(900) }]);
     open.hint("give me a good prompt");
     expect(feed(open, [{ p: 0.05, n: frames(400) }]).some((event) => event.type === "end")).toBe(false);
+
+    // a speculative start on four stable words ends on completeMs
+    const speculated = new TurnDetector();
+    speculated.setPause("normal");
+    feed(speculated, [{ p: 0.9, n: frames(900) }]);
+    speculated.hint("How is the weather");
+    speculated.markComplete();
+    speculated.hint("How is the weather");
+    const speculatedEnd = feed(speculated, [{ p: 0.05, n: frames(400) }]).find((event) => event.type === "end");
+    expect(speculatedEnd).toMatchObject({ type: "end", early: true, endpointMs: PAUSE_PRESETS.normal.completeMs });
   });
 
   it("inSilence is true only while speaking through the endpoint pause", () => {

@@ -48,6 +48,10 @@ import type { VoiceModeSettings } from "../../../shared/voice-mode";
 const RATE = 16_000;
 const PREROLL_IDLE_FRAMES = 10; // 320 ms before the first voiced frame
 const PREROLL_BARGE_FRAMES = 15; // 480 ms: first syllables over the bot stay in the STT window
+/** Trailing silence still sent to STT so the last word can land, then we
+ * stop so xAI can speech_final. Matches short completeMs. Do not send
+ * `{type:"finalize"}` here: that stuck the listen socket. */
+const STT_SILENCE_GRACE_MS = 160;
 /** A turn that starts this soon after the last one ended, before the bot
  * said anything, continues it: one utterance cut by a pause. */
 export const CONTINUATION_MS = 1_500;
@@ -684,10 +688,12 @@ export class VoiceCall {
     const event = this.turns.feed({ probability, level, botAudible, echo, pitch });
     if (!event) {
       if (this.turns.active) {
-        // Keep sending trailing silence until the partial can start the LLM
-        // (the last word is still landing). Then stop so xAI can speech_final.
+        // Keep sending trailing silence until the partial can start the LLM,
+        // or for a short grace so the last word can land. Then stop so xAI
+        // can speech_final. Do not wait the full endpoint on a 3-word partial.
         const ready = maySpeculate(this.turnPartial, true);
-        if (!this.turns.inSilence || !ready) this.transcriber.push(frame);
+        const silenceMs = this.turns.inSilence ? this.now() - this.lastVoicedAt : 0;
+        if (!this.turns.inSilence || (!ready && silenceMs < STT_SILENCE_GRACE_MS)) this.transcriber.push(frame);
         if (probability > 0.5) {
           this.lastVoicedAt = this.now();
           this.turnLevel.sum += level;
@@ -1024,6 +1030,7 @@ export class VoiceCall {
     const now = this.now();
     this.turn = { stoppedAt: now, endedAt: now, earlyStart: true, sentAt: now, transcribedAt: now, utteranceId };
     this.speculated = text;
+    this.turns.markComplete();
     this.lastSent = { text, endedAt: this.turn.endedAt, botSpoke: false };
     this.reply = null;
     this.replyText = "";

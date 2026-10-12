@@ -268,11 +268,26 @@ export class TurnDetector {
 
   /** The words recognized so far in this turn (the streaming transcript). */
   hint(text: string): void {
-    this.unfinished = this.state === "idle" ? false : incompleteClause(text);
-    this.complete = this.state === "idle" ? false : completeClause(text);
-    this.words = this.state === "idle" ? "" : text;
+    if (this.state === "idle") {
+      this.unfinished = false;
+      this.complete = false;
+      this.words = "";
+      return;
+    }
+    this.unfinished = incompleteClause(text);
+    // A speculative start already marked the words complete: keep that so
+    // the remaining silence uses completeMs, unless they kept talking.
+    this.complete = !this.unfinished && (this.complete || completeClause(text));
+    this.words = text;
     // words that arrive during the silence change what the contour means
     if (this.silenceMs > 0 && this.o.prosody) this.readContour();
+  }
+
+  /** The words so far can start the answer: end this turn on completeMs. */
+  markComplete(): void {
+    if (this.state === "idle") return;
+    this.complete = true;
+    this.unfinished = false;
   }
 
   /** The silence that ends the current turn early, when its words are a
