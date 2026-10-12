@@ -1,6 +1,8 @@
 // Prépare un profil à partir d'une fiche. La création et le dépôt des clés
 // n'ont lieu que lorsque l'approbation est exactement vraie. Une clé ne
-// ressort jamais dans le profil, le journal ou une erreur.
+// ressort jamais dans le profil, le journal ou une erreur. Un second appel
+// avec le même magasin ne dépose pas une clé déjà déposée, et le même
+// registre ne crée pas deux fois le même profil.
 
 export type PermissionEntite = "aucune" | "lecture" | "ecriture-avec-confirmation";
 
@@ -48,6 +50,8 @@ const URL_USERINFO = /[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@/i;
 const ID_SIMPLE = /^[a-z][a-z0-9-]{0,40}$/;
 const NIVEAU = /^(organisation|equipe|personnel):(lecture|proposition|ecriture)$/;
 const NOM_CLE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const depotsFaits = new WeakMap<object, Set<string>>();
+const profilsFaits = new WeakMap<object, Set<string>>();
 
 export function preparerProfilDepuisFiche(fiche: string, demande: DemandeProfil = {}): ResultatProfil {
   const erreurs: ErreurFiche[] = [];
@@ -660,27 +664,40 @@ export function preparerProfilDepuisFiche(fiche: string, demande: DemandeProfil 
       entrees.push({ nom, valeur });
     }
   }
-  if (entrees.length > 0 && !demande.magasin) {
+  const magasin = demande.magasin;
+  const dejaDeposees = magasin ? depotsFaits.get(magasin) : undefined;
+  const aDeposer = dejaDeposees ? entrees.filter((entree) => !dejaDeposees.has(entree.nom)) : entrees;
+  if (aDeposer.length > 0 && !magasin) {
     return refuser("approbation_magasin", "L'approbation avec des clés exige un magasin de secrets. Rien n'a été créé.");
   }
-  if (entrees.length > 0 && demande.magasin) {
+  if (aDeposer.length > 0 && magasin) {
     try {
-      demande.magasin.deposer(entrees);
+      magasin.deposer(aDeposer);
     } catch {
       return refuser("magasin_refuse", "Le magasin de secrets a refusé le dépôt. Rien n'a été créé.");
     }
+    const faits = depotsFaits.get(magasin) ?? new Set<string>();
+    for (const entree of aDeposer) faits.add(entree.nom);
+    depotsFaits.set(magasin, faits);
     ecrire("Clés déposées dans le magasin.");
   }
-  try {
-    demande.registre.creer(profil);
-  } catch {
-    const message =
-      entrees.length > 0
-        ? "Le registre a refusé le profil. Les clés restent dans le magasin. Le profil n'a pas été créé."
-        : "Le registre a refusé le profil. Rien n'a été créé.";
-    ecrire("Le registre a refusé le profil.");
-    return { ok: false, cree: false, profil: null, erreurs: [{ code: "registre_refuse", message }] };
+  const empreinte = JSON.stringify(profil);
+  const dejaCree = profilsFaits.get(demande.registre)?.has(empreinte) === true;
+  if (!dejaCree) {
+    try {
+      demande.registre.creer(profil);
+    } catch {
+      const message =
+        entrees.length > 0
+          ? "Le registre a refusé le profil. Les clés restent dans le magasin. Le profil n'a pas été créé."
+          : "Le registre a refusé le profil. Rien n'a été créé.";
+      ecrire("Le registre a refusé le profil.");
+      return { ok: false, cree: false, profil: null, erreurs: [{ code: "registre_refuse", message }] };
+    }
+    const faits = profilsFaits.get(demande.registre) ?? new Set<string>();
+    faits.add(empreinte);
+    profilsFaits.set(demande.registre, faits);
+    ecrire("Profil créé.");
   }
-  ecrire("Profil créé.");
   return { ok: true, cree: true, profil, erreurs: [] };
 }

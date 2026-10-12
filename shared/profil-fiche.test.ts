@@ -294,6 +294,53 @@ describe("preparerProfilDepuisFiche", () => {
     expect(journal).toContain("Le registre a refusé le profil.");
   });
 
+  it("ne dépose pas les clés une deuxième fois", () => {
+    const journal: string[] = [];
+    const depots: Array<ReadonlyArray<{ nom: string; valeur: string }>> = [];
+    let creations = 0;
+    let refus = true;
+    const magasin = {
+      deposer: (entrees: ReadonlyArray<{ nom: string; valeur: string }>) => {
+        depots.push(entrees);
+      },
+    };
+    const registre = {
+      creer: () => {
+        creations += 1;
+        if (refus) {
+          refus = false;
+          throw new Error("refus");
+        }
+      },
+    };
+    const demande = {
+      approbation: true as const,
+      cles: { "connecteur-exemple": fausseCle },
+      journal: { ecrire: (message: string) => journal.push(message) },
+      magasin,
+      registre,
+    };
+    const premier = preparerProfilDepuisFiche(exemple, demande);
+    expect(premier.ok).toBe(false);
+    expect(premier.cree).toBe(false);
+    expect(depots).toHaveLength(1);
+    expect(creations).toBe(1);
+
+    const second = preparerProfilDepuisFiche(exemple, demande);
+    expect(second.ok).toBe(true);
+    expect(second.cree).toBe(true);
+    expect(depots).toHaveLength(1);
+    expect(creations).toBe(2);
+    expect(journal.filter((ligne) => ligne === "Clés déposées dans le magasin.")).toHaveLength(1);
+
+    const troisieme = preparerProfilDepuisFiche(exemple, demande);
+    expect(troisieme.ok).toBe(true);
+    expect(troisieme.cree).toBe(true);
+    expect(depots).toHaveLength(1);
+    expect(creations).toBe(2);
+    expect(JSON.stringify({ premier, second, troisieme, journal })).not.toContain(fausseCle);
+  });
+
   it("refuse une clé reconstruite par le décodage, un __proto__ et un jeton reconnaissable", () => {
     const morceaux = ["abcd", "efgh"];
     const cleReconstruite = morceaux.join("");
