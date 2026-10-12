@@ -136,10 +136,10 @@ public enum SkinID: String, CaseIterable, Identifiable, Sendable, Codable {
 
     public var palette: SkinPalette { SkinPalette.of(self) }
 
-    /// The skins a picker lists: all public ones, plus the secret ones once
-    /// unlocked (or worn).
+    /// The skins a picker lists on iOS: the public ones. Hibou 98 is a
+    /// desktop-only easter egg, never listed here, even unlocked or worn.
     public static func visible(retroUnlocked: Bool, active: SkinID? = nil) -> [SkinID] {
-        allCases.filter { !$0.secret || retroUnlocked || $0 == active }
+        allCases.filter { !$0.secret }
     }
 }
 

@@ -103,6 +103,7 @@ struct BotAvatarEditor: View {
         .onAppear { draft = CharacterDraft(bot: bot) }
         .onValueChange(of: CharacterDraft(bot: bot)) { server in if !working { draft = server } }
         .task {
+            if session.isDemo { unlocks = .demo }
             config = await session.configStatus()
             if session.surfaceGate.allows(.characterExtras), session.surfaceGate.allows(.achievements),
                let client = session.profileClient {
