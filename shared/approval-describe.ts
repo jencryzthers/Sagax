@@ -496,7 +496,10 @@ export function describeApproval(
   const resource = op === "run"
     ? resourceRaw?.replace(/[/_-]+/g, " ").trim().toLowerCase() || undefined
     : resourcePhrase(resourceRaw, op, words);
-  const action = resource
+  // run_command / exec_shell: "run a command", not "run the command action"
+  const action = op === "run" && resource && RUN_COMMAND_NOUN.test(resource)
+    ? words.t("approval.tool.runCommand")
+    : resource
     ? words.t(`approval.verb.${op}`, { resource })
     : words.t(`approval.verb.${op}.bare`);
   return { action, product, summary, risk, server: parsed.server, argsJson };
@@ -512,6 +515,9 @@ export const RISK_LABEL: Record<ApprovalRisk, string> = {
 // ---------------------------------------------------------------------------
 // The words every surface shows: card title, the line under it, the push
 // notification, the always-allow rule. Same inputs, same words, wherever.
+
+/** A run tool whose object is a shell command (run_command, exec_shell). */
+const RUN_COMMAND_NOUN = /^(?:shell |terminal |bash )?(?:command|commands|cmd|shell|bash|terminal)$/;
 
 /** Built-in tools and ACP tool kinds as verb phrases (never "wants to
  * other"): an ACP driver can send the protocol's kind as the tool. */
@@ -562,7 +568,10 @@ export function approvalAction(tool: string | undefined, input: string | undefin
   const action = described.action && described.verbless && !composio
     ? words.t("approval.verb.use", { name: described.action })
     : described.action ?? composio ?? name.replace(/_+/g, " ");
-  return described.product ? words.t("approval.phrase.inProduct", { action, product: described.product }) : action;
+  // Sagax's own built-in servers (sagax-environment, sagax-computer) are the
+  // bot itself: "run a command", not "run a command in Sagax Environment"
+  const builtinServer = server.startsWith("sagax-");
+  return described.product && !builtinServer ? words.t("approval.phrase.inProduct", { action, product: described.product }) : action;
 }
 
 const capitalize = (text: string) => (text ? text[0]!.toLocaleUpperCase() + text.slice(1) : text);

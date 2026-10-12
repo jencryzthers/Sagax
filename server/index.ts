@@ -252,6 +252,7 @@ import { HOSTED_CONTRACT_HEADER, HOSTED_CONTRACT_METADATA, HOSTED_CONTRACT_VERSI
 import { cliCommandRefusal, describeSpawnFailure, execCli } from "./procs.ts";
 import { blockedTarget, buildSpendNotification, deliverableNotification, quietForCall, summarize, type Notification } from "./notify.ts";
 import { approvalPlain } from "../shared/approval-describe.ts";
+import { serverApprovalWords } from "./approval-words.ts";
 import {
   isModelVariant,
   TurnNotStartedError,
@@ -10702,7 +10703,7 @@ bus.subscribe((event: RuntimeEvent) => {
       const questions = event.questions?.length ? event.questions : undefined;
       // One generator for the card and its push (shared/approval-describe.ts):
       // "Allow Cryptic to run a command?" and one plain line, never a raw id.
-      const plain = permission ? approvalPlain({ botName: asker?.name, tool: event.mcpTool ?? event.tool, toolInput: event.input, detail: event.summary }) : undefined;
+      const plain = permission ? approvalPlain({ botName: asker?.name, tool: event.mcpTool ?? event.tool, toolInput: event.input, detail: event.summary }, serverApprovalWords(cfg.language)) : undefined;
       // An AI client's hidden conversation (#291) is not in anyone's sidebar:
       // its approval still reaches the person, and is declined when nobody
       // answers in time instead of holding the turn forever.
