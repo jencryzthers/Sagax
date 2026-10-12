@@ -149,6 +149,17 @@ describe("achievement filters", () => {
     expect(achievementMatches(secret, 1_700_000_000_000, query({ search: "lightning" }))).toBe(true);
   });
 
+  it("does not match Crab through a locked crab-skin reward", () => {
+    const hello = ACHIEVEMENTS.find((item) => item.id === "hello-bot")!;
+    const locked = { enforced: true, keys: new Set<string>() };
+    expect(achievementMatches(hello, undefined, query({ search: "Crab" }), locked)).toBe(false);
+    expect(achievementMatches(hello, undefined, query({ search: "Pearl" }), locked)).toBe(false);
+    expect(achievementMatches(hello, undefined, query({ search: "Alive" }), locked)).toBe(true);
+    expect(achievementMatches(hello, undefined, query({ search: "surprise" }), locked)).toBe(true);
+    const army = ACHIEVEMENTS.find((item) => item.id === "crab-army")!;
+    expect(achievementMatches(army, undefined, query({ search: "Crab" }), locked)).toBe(true);
+  });
+
   it("combines the reward and the search with unlocked and locked", () => {
     expect(achievementMatches(titled, undefined, query({ status: "locked", reward: "title", search: "first" }))).toBe(true);
     expect(achievementMatches(titled, 5, query({ status: "locked", reward: "title", search: "first" }))).toBe(false);

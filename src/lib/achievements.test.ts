@@ -3,12 +3,13 @@
 // nothing, batched client events, unlock frames feeding the toasts, the
 // reward words, and grandfathering what bots already wear.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ACHIEVEMENTS } from "../../shared/achievements-catalog";
+import { ACHIEVEMENTS, achievementById } from "../../shared/achievements-catalog";
 import { grandfatheredFromBots, type AchievementSnapshot } from "../../shared/achievements";
 import {
   achievementsState,
   appIconLock,
   characterLock,
+  displayReward,
   flushAchievementEvents,
   loadAchievements,
   lockHint,
@@ -181,6 +182,18 @@ describe("words", () => {
     setLocale("fr");
     expect(rewardLabel(night.rewards[0]!)).toBe("Skin débloqué : Galaxie (Hibou)");
     expect(rewardLabel({ kind: "character", character: "trombi" })).toBe("Personnage débloqué : Trombi");
+  });
+
+  it("names a locked crab skin a surprise look and hides unregistered items", () => {
+    const locked = { enforced: true, keys: new Set<string>() };
+    const hello = achievementById("hello-bot")!.rewards.find((reward) => reward.kind === "skin" && reward.character === "crab")!;
+    expect(displayReward(hello, locked)).toBe("a surprise look");
+    expect(displayReward({ kind: "character", character: "crab" }, locked)).toBe("a surprise character");
+    expect(displayReward({ kind: "emote", character: "crab", id: "proud" }, locked)).toBeNull();
+    expect(displayReward({ kind: "character", character: "crab" }, locked, { revealing: true })).toBe("Character unlocked: Crab");
+    const owned = { enforced: true, keys: new Set(["character:crab"]) };
+    expect(displayReward(hello, owned)).toBe("Skin unlocked: Pearl (Crab)");
+    expect(displayReward({ kind: "emote", character: "crab", id: "neutral" }, owned)).toBe("Look unlocked: Neutral");
   });
 });
 

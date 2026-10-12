@@ -157,6 +157,15 @@ describe("unlock toast", () => {
     expect(fr).toContain("Succès débloqué");
     expect(fr).toContain("Personnage débloqué : Trombi");
   });
+
+  it("reveals the crab on the claude-linked toast", () => {
+    resetAchievementsForTests({ status: "ready", snapshot: snapshot() });
+    const html = renderToStaticMarkup(createElement(AchievementToast, { id: "claude-linked", leaving: false, onDismiss: () => {} }));
+    expect(html).toContain("Claude Linked");
+    expect(html).toContain("Character unlocked: Crab");
+    expect(html).toContain("achievement-toast-preview");
+    expect(html).not.toContain("a surprise character");
+  });
 });
 
 describe("achievements page", () => {
@@ -215,6 +224,22 @@ describe("achievements page", () => {
 
   it("has an icon for every achievement", () => {
     for (const item of ACHIEVEMENTS) expect(ACHIEVEMENT_ICONS[item.icon], item.icon).toBeTruthy();
+  });
+
+  it("surprise-words a locked crab character and hides Crab on hello-bot", () => {
+    resetAchievementsForTests({ status: "ready", snapshot: snapshot() });
+    const html = renderToStaticMarkup(createElement(AchievementsPage, { category: "claude" }));
+    const linked = html.slice(html.indexOf('data-achievement="claude-linked"'), html.indexOf("</li>", html.indexOf('data-achievement="claude-linked"')));
+    expect(linked).toContain("a surprise character");
+    expect(linked).not.toContain("Character unlocked: Crab");
+    const all = renderToStaticMarkup(createElement(AchievementsPage, { category: "all" }));
+    const hello = all.slice(all.indexOf('data-achievement="hello-bot"'), all.indexOf("</li>", all.indexOf('data-achievement="hello-bot"')));
+    expect(hello).toContain("a surprise look");
+    expect(hello).not.toContain("Pearl");
+    expect(hello).not.toContain("Crab");
+    const pinch = html.slice(html.indexOf('data-achievement="first-pinch"'), html.indexOf("</li>", html.indexOf('data-achievement="first-pinch"')));
+    expect(pinch).not.toContain("proud");
+    expect(pinch).not.toContain("Look unlocked");
   });
 });
 
