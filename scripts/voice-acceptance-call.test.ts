@@ -9,6 +9,8 @@ import {
   matchAcceptanceLine,
   noteWarmTotal,
   scoreAcceptance,
+  scoreAcceptanceCancel,
+  scoreAcceptanceInterrupt,
   type AcceptanceEvent,
 } from "./voice-acceptance-call.ts";
 
@@ -133,6 +135,15 @@ it("records one warm total per utterance, not every metrics event", () => {
   expect(noteWarmTotal(seen, totals, { utteranceId: "u1", stoppedAt: 100, firstAudioAt: 900 })).toBe(false);
   expect(noteWarmTotal(seen, totals, { utteranceId: "u2", stoppedAt: 2000, firstAudioAt: 2700 })).toBe(true);
   expect(totals).toEqual([800, 700]);
+});
+
+it("a continues interrupt is not scored as barge-in cancelling A", () => {
+  expect(scoreAcceptanceInterrupt("A")).toBeUndefined();
+  expect(scoreAcceptanceInterrupt(undefined)).toBeUndefined();
+  expect(scoreAcceptanceCancel("A")).toBe(false);
+  expect(scoreAcceptanceInterrupt("barge")).toEqual({ kind: "interrupt", id: "barge" });
+  expect(scoreAcceptanceCancel("barge")).toBe(true);
+  expect(scoreAcceptanceCancel("stop")).toBe(true);
 });
 
 it("marks speculative and continues on an acceptance send like LiveCall", () => {

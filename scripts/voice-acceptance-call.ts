@@ -190,6 +190,16 @@ export function acceptanceVoiceCall(
   };
 }
 
+/** Speculative continues also emit interrupt-bot. Score barge/stop only. */
+export function scoreAcceptanceInterrupt(scriptId: string | undefined): Omit<AcceptanceEvent, "t"> | undefined {
+  if (scriptId === "barge") return { kind: "interrupt", id: "barge" };
+  return undefined;
+}
+
+export function scoreAcceptanceCancel(scriptId: string | undefined): boolean {
+  return scriptId === "barge" || scriptId === "stop";
+}
+
 export function matchAcceptanceLine(text: string): AcceptanceLine | undefined {
   const intent = classifyVoiceIntent(text);
   if (intent === "stop") return ACCEPTANCE_SCRIPT.find((row) => row.id === "stop");
@@ -390,6 +400,7 @@ export async function runVoiceAcceptanceCall(outDir?: string): Promise<{
 
     const warmTotals: number[] = [];
     const warmSeen = new Set<string>();
+    let injectedId: string | undefined;
     let metrics: Record<string, number | boolean | undefined> = {};
     call.on("metrics", (turn) => {
       if (!turn) return;
@@ -419,8 +430,11 @@ export async function runVoiceAcceptanceCall(outDir?: string): Promise<{
       });
     });
     call.on("interrupt-bot", (target) => {
-      mark({ kind: "interrupt", id: "barge" });
-      void api("POST", `/api/bots/${bot.id}/interrupt`, benchInterruptBody(threadId, target)).then(() => mark({ kind: "cancelled", id: "A", threadId }));
+      const scored = scoreAcceptanceInterrupt(injectedId);
+      if (scored) mark(scored);
+      void api("POST", `/api/bots/${bot.id}/interrupt`, benchInterruptBody(threadId, target)).then(() => {
+        if (scoreAcceptanceCancel(injectedId)) mark({ kind: "cancelled", id: "A", threadId });
+      });
     });
 
     const eventsAbort = new AbortController();
@@ -507,6 +521,7 @@ export async function runVoiceAcceptanceCall(outDir?: string): Promise<{
       const wait = Math.max(0, item.row.atMs - (performance.now() - t0));
       await sleep(wait);
       log(`inject ${item.row.id}`);
+      injectedId = item.row.id;
       pendingFrames.push(...item.frames);
     }
     const end = performance.now() + 45_000;
