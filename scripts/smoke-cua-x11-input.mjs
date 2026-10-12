@@ -27,15 +27,40 @@ mkdirSync(home, { mode: 0o700 });
 chmodSync(runtime, 0o700);
 chmodSync(home, 0o700);
 
+const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 const title = `Sagax CUA input safety ${process.pid}`;
-// Driver 0.33 refuses a foreground click until a window manager publishes
-// _NET_ACTIVE_WINDOW. xvfb-run does not start one.
-let windowManager;
-try {
-  windowManager = spawn("openbox", [], { env: process.env, stdio: "ignore" });
-  windowManager.on("error", () => {});
-} catch {
-  windowManager = undefined;
+// Driver 0.33 reads _NET_ACTIVE_WINDOW as a WINDOW, which only a window
+// manager publishes. xvfb-run does not start one, and xprop -set stores a
+// CARDINAL the driver ignores. Openbox has to be up before the test window.
+let windowManagerError = "";
+const windowManager = spawn("openbox", [], { env: process.env, stdio: ["ignore", "ignore", "pipe"] });
+windowManager.stderr.setEncoding("utf8");
+windowManager.stderr.on("data", (chunk) => {
+  windowManagerError += chunk;
+});
+windowManager.on("error", (error) => {
+  windowManagerError += String(error);
+});
+{
+  const deadline = Date.now() + 5_000;
+  let ready = false;
+  while (Date.now() < deadline && windowManager.exitCode === null && windowManager.signalCode === null) {
+    try {
+      const { stdout } = await execFileAsync("xprop", ["-root", "_NET_SUPPORTING_WM_CHECK"]);
+      if (/_NET_SUPPORTING_WM_CHECK\(WINDOW\)/.test(stdout)) {
+        ready = true;
+        break;
+      }
+    } catch {
+      // Openbox has not claimed the display yet.
+    }
+    await delay(50);
+  }
+  if (!ready) {
+    windowManager.kill("SIGTERM");
+    rmSync(sandbox, { recursive: true, force: true });
+    throw new Error(`openbox did not claim the display\n${windowManagerError}`);
+  }
 }
 const xev = spawn(
   "xev",
@@ -85,7 +110,6 @@ driverProcess.stderr.on("data", (chunk) => {
 let proxy;
 let proxyError = "";
 
-const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 async function until(probe, description, timeout = 10_000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
@@ -180,20 +204,13 @@ function assertToolResult(result, name) {
 }
 
 async function publishActiveWindow(windowId) {
-  if (windowManager && windowManager.exitCode === null && windowManager.signalCode === null) {
-    await until(async () => {
-      const { stdout } = await execFileAsync("xprop", ["-root", "_NET_SUPPORTING_WM_CHECK"]);
-      return /_NET_SUPPORTING_WM_CHECK\(WINDOW\)/.test(stdout) ? stdout : null;
-    }, "a window manager", 5_000).catch(() => null);
+  await execFileAsync("xdotool", ["windowactivate", "--sync", windowId], { timeout: 3_000 });
+  await execFileAsync("xdotool", ["windowfocus", "--sync", windowId], { timeout: 3_000 });
+  const { stdout } = await execFileAsync("xprop", ["-root", "_NET_ACTIVE_WINDOW"]);
+  const hex = `0x${Number(windowId).toString(16)}`;
+  if (!stdout.includes("(WINDOW)") || !stdout.toLowerCase().includes(hex)) {
+    throw new Error(`the window manager did not focus ${hex}: ${stdout.trim()}`);
   }
-  await execFileAsync("xdotool", ["windowactivate", "--sync", windowId], { timeout: 3_000 }).catch(() => null);
-  await execFileAsync("xdotool", ["windowfocus", "--sync", windowId], { timeout: 3_000 }).catch(() => null);
-  await execFileAsync("xprop", [
-    "-root",
-    "-f", "_NET_ACTIVE_WINDOW", "32x",
-    "-set", "_NET_ACTIVE_WINDOW",
-    `0x${Number(windowId).toString(16)}`,
-  ]);
 }
 
 async function stop(child) {
