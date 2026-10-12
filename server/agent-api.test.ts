@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  AGENT_TOOL_NAMES, AGENT_TOOL_POLICY, COLD_PAGE_SIZE, createAgentApi, decodeCursor, encodeCursor, FIND_LIMIT_MAX,
+  AGENT_TOOL_NAMES, AGENT_TOOL_POLICY, COLD_PAGE_SIZE, createAgentApi, ENTRY_TEXT_MAX, decodeCursor, encodeCursor, FIND_LIMIT_MAX,
   matchScore, SEND_FILES_MAX, signHandle, verifyHandle,
   type AgentApiDeps, type AgentCaller, type AgentScope, type AgentSummary, type AuditEntry, type FileInput, type StoredMessage, type TurnState,
 } from "./agent-api.ts";
@@ -324,6 +324,29 @@ describe("transcripts", () => {
     expect(second.body.next_cursor).toBeNull();
     expect((await w.api.call(c, "read_latest_page", { agent_id: "bot-a", cursor: "nope" })).status).toBe(400);
     expect((await w.api.call(c, "read_latest_page", { agent_id: "bot-a", limit: 0 })).status).toBe(400);
+  });
+
+  it("an answer stays under the byte budget and continues with next_cursor", async () => {
+    const { w, c } = await seeded();
+    const tid = [...w.threads.keys()][0]!;
+    for (let n = 0; n < 70; n++) w.add(tid, { role: "bot", kind: "text", text: `${String(n).padStart(2, "0")}:${"x".repeat(ENTRY_TEXT_MAX + 50)}` });
+    const r = await w.api.call(c, "read_transcript", { agent_id: "bot-a" });
+    expect(Buffer.byteLength(JSON.stringify(r.body))).toBeLessThan(1024 * 1024);
+    expect(r.body.truncated).toBe(true);
+    expect(String(r.body.next)).toContain("next_cursor");
+    const entries = r.body.entries as Array<{ text: string }>;
+    expect(entries.at(-1)!.text.endsWith("\n[...]")).toBe(true);
+    // the rest is reachable page by page, nothing lost or repeated
+    const seen = entries.map((e) => e.text.slice(0, 3));
+    let cursor = r.body.next_cursor as string | null;
+    while (cursor) {
+      const page = await w.api.call(c, "read_transcript_cold", { agent_id: "bot-a", cursor });
+      expect(Buffer.byteLength(JSON.stringify(page.body))).toBeLessThan(1024 * 1024);
+      seen.unshift(...(page.body.entries as Array<{ text: string }>).map((e) => e.text.slice(0, 3)));
+      cursor = page.body.next_cursor as string | null;
+    }
+    expect(seen.length).toBe(6 + 70);
+    expect(new Set(seen.slice(6)).size).toBe(70);
   });
 
   it("read_latest_page_with_threads adds per-thread counts", async () => {

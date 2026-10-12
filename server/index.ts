@@ -25562,7 +25562,9 @@ function agentApiStageFiles(caller: AgentCaller, target: BotRecord, files: FileI
   return written;
 }
 const agentPromptWithFiles = (prompt: string, staged: string[]) =>
-  staged.length ? `${prompt}\n\n[Files sent with this message, now in your workspace: ${staged.join(", ")}]` : prompt;
+  staged.length
+    ? `${prompt}\n\n[Files sent with this message, now in your Sagax workspace folder: ${staged.join(", ")}. Read them with your host file tools; if you work on a VM or cloud computer, they are not there until you copy them over (read here, then write them there).]`
+    : prompt;
 /** A bot's prompt to a peer's hidden conversation: runs now when the peer
  * has a free slot, else waits in its queue; the line records the sender. */
 async function startAgentPrompt(from: BotRecord, target: BotRecord, threadId: string, text: string, sourceThreadId: string, depth: number): Promise<{ messageId: string | null } | Refusal> {

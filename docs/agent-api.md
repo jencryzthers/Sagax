@@ -26,6 +26,11 @@ names, parameters and limits as Grok Bot's agent tools. One core
 | `read_latest_page_with_threads` | read | `agents.read` | the newest page and the conversations it spans, with their status |
 | `read_transcript_cold` | read | `agents.read` | the stored transcript only: pages of 50 by `cursor`; never reads live state, never wakes a computer or sandbox |
 
+Every answer that carries entries stays under 800 KB of JSON. A page that
+would be larger keeps its newest entries and continues with `next_cursor`.
+A truncated `read_transcript` says so in `next`. Each entry's text is capped
+at 16,000 characters, and a reply at 32,000.
+
 Results: `await_turn` and a `blocking` send answer `{finished, reply,
 status}`. An empty `reply` with `finished: true` means the turn ended without
 text. `finished: false` comes with `next`, telling the caller to wait again
@@ -79,3 +84,15 @@ are resolved with realpath and confined to those roots. An AI client sends
 the bytes (`{path, content_base64}`), and the request can be up to 64 MiB.
 The files are copied to the target's workspace under `inbox/<sender>/`, and
 the prompt names them.
+
+**On a computer.** The files land in the Sagax workspace on the host, and
+the prompt says so. A bot that works on a VM, a cloud computer or a shared
+desktop reads them with its host file tools and copies over what it needs.
+Nothing syncs them automatically.
+
+**Size per call.** An AI client's request through Perspicax carries base64,
+which is a third larger than the files themselves. Keep one call under about
+45 MiB of files. For more, send several `send_prompt` calls with `on_busy:
+queue`, each with its share of the files. A bot's own send has no
+request-size limit, beyond 8 files of 25 MiB each.
+

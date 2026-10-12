@@ -78,6 +78,10 @@ export const PAGE_LIMIT_DEFAULT = 20;
 export const COLD_PAGE_SIZE = 50;
 /** read_transcript answers at most this many entries, newest kept, with a cursor for the rest. */
 export const FULL_TRANSCRIPT_MAX = 2_000;
+/** One answer's entries stay under this many bytes (JSON), so an MCP
+ * gateway reading at most 1 MiB always gets it whole. A page that would be
+ * larger keeps its newest entries and continues with next_cursor. */
+export const PAGE_MAX_BYTES = 800_000;
 export const AGENT_NAME_MAX = 80;
 export const AGENT_DESCRIPTION_MAX = 1_000;
 export const ENTRY_TEXT_MAX = 16_000;
@@ -386,7 +390,17 @@ const keyOf = (entry: TranscriptEntry): CursorKey => ({ at: entry.at, threadId: 
  * the cursor of the next older page (null when none is left). */
 function pageBefore(entries: readonly TranscriptEntry[], before: CursorKey | null, limit: number) {
   const eligible = before ? entries.filter((entry) => compareKeys(keyOf(entry), before) < 0) : entries;
-  const page = eligible.slice(Math.max(0, eligible.length - limit));
+  const picked = eligible.slice(Math.max(0, eligible.length - limit));
+  // Newest first until the byte budget is spent; always at least one entry.
+  const page: TranscriptEntry[] = [];
+  let bytes = 0;
+  for (let index = picked.length - 1; index >= 0; index--) {
+    const entry = picked[index]!;
+    const size = Buffer.byteLength(JSON.stringify(entry)) + 1;
+    if (page.length && bytes + size > PAGE_MAX_BYTES) break;
+    page.unshift(entry);
+    bytes += size;
+  }
   const more = eligible.length > page.length;
   return { entries: page, next_cursor: more && page[0] ? page[0].cursor : null };
 }
@@ -662,7 +676,11 @@ export function createAgentApi(deps: AgentApiDeps): AgentApi {
       if (isRefusal(agent)) return agent;
       const all = collectEntries(deps, deps.threads(caller, agentId));
       const page = pageBefore(all, null, FULL_TRANSCRIPT_MAX);
-      return ok({ agent_id: agentId, status: agent.status, entries: page.entries, total: all.length, truncated: all.length > page.entries.length, next_cursor: page.next_cursor });
+      const truncated = all.length > page.entries.length;
+      return ok({
+        agent_id: agentId, status: agent.status, entries: page.entries, total: all.length, truncated, next_cursor: page.next_cursor,
+        ...(truncated ? { next: "Older entries did not fit in one answer: read them with read_latest_page or read_transcript_cold, passing next_cursor as cursor, until next_cursor is null." } : {}),
+      });
     },
 
     async read_transcript_page(caller, args) {
