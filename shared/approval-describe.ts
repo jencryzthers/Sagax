@@ -613,7 +613,8 @@ export function approvalPlain(
     && !(parsed?.server && detail.startsWith(`${parsed.server}__`)) && !detail.startsWith("mcp__")
     ? detail : "";
   const risk = described.risk;
-  const product = described.product;
+  // Sagax's own built-in servers are the bot itself: no "in Sagax Environment"
+  const product = described.server?.startsWith("sagax-") ? undefined : described.product;
   const riskKey = risk ?? "other";
   const fallback = product ? words.t(`approval.line.${riskKey}In`, { product }) : words.t(`approval.line.${riskKey}`);
   const line = described.summary
