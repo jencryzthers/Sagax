@@ -60,9 +60,13 @@ struct ComputerView: View {
     private var cardBackdrop: Color { embeddedWidth == nil ? Theme.bgComputer : Theme.card }
     private var frameBackdrop: Color { embeddedWidth == nil ? Theme.Computer.frameEmpty : Theme.bg }
     private var glassFill: Color { embeddedWidth == nil ? Theme.Computer.glassFill : Theme.cardRaised }
+    private var panelInk: Color { isEmbeddedPanel ? Theme.textPrimary : Theme.Computer.ink }
+    private var panelInkSecondary: Color { isEmbeddedPanel ? Theme.textSecondary : Theme.Computer.inkSecondary }
 
     private var fit: ComputerFit { ComputerFit(rawValue: fitRaw) ?? .fit }
     private var streamFrame: ScreenFrame? { session.state.screens[bot.id] }
+    private var isEmbeddedPanel: Bool { embeddedWidth != nil }
+
     /// The bot as the stream last described it.
     private var current: Bot { session.state.bot(bot.id) ?? bot }
     private var offline: Bool {
@@ -144,8 +148,7 @@ struct ComputerView: View {
                 AnyView(chooser(dark: false))
                 localVmPanel
                     .frame(width: embeddedWidth)
-                    .background(Theme.bgComputer, in: RoundedRectangle(cornerRadius: Theme.Metric.cardRadius, style: .continuous))
-                    .environment(\.colorScheme, .dark)
+                    .background(cardBackdrop, in: RoundedRectangle(cornerRadius: Theme.Metric.cardRadius, style: .continuous))
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("panel-computer")
             }
@@ -180,8 +183,13 @@ struct ComputerView: View {
     /// The Local VM shown: the one picked by name, else the person's current
     /// computer. A new computer starts over (its own status and stills).
     private var localVmPanel: some View {
-        LocalVmComputerPanel(name: current.name, chrome: .phone, desktopId: chosen?.desktopId, computerName: chosen?.name)
-            .id(chosen?.key ?? "current")
+        LocalVmComputerPanel(
+            name: current.name,
+            chrome: isEmbeddedPanel ? .panel : .phone,
+            desktopId: chosen?.desktopId,
+            computerName: chosen?.name
+        )
+        .id(chosen?.key ?? "current")
     }
 
     /// Organization Cloud: the server-environment desktop (SandboxDesktopView).
@@ -311,19 +319,19 @@ struct ComputerView: View {
             HStack(spacing: 8) {
                 Text("\(current.name)'s screen")
                     .font(Theme.Profile.labelFont)
-                    .foregroundStyle(Theme.Computer.inkSecondary)
+                    .foregroundStyle(Theme.textSecondary)
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 GlassCircleButton(
                     systemImage: "questionmark", fill: glassFill, accessibilityLabel: "Gestures",
-                    glyphSize: 20, weight: .regular, glyphColor: Theme.Computer.ink
+                    glyphSize: 20, weight: .regular, glyphColor: Theme.textPrimary
                 ) { showingHelp = true }
                     .accessibilityIdentifier("computer-help")
                 moreMenu
                 if let onFullScreen {
                     GlassCircleButton(
                         systemImage: "arrow.up.left.and.arrow.down.right", fill: glassFill,
-                        accessibilityLabel: "Full screen", glyphSize: 16, weight: .regular, glyphColor: Theme.Computer.ink
+                        accessibilityLabel: "Full screen", glyphSize: 16, weight: .regular, glyphColor: Theme.textPrimary
                     ) { onFullScreen() }
                         .accessibilityIdentifier("computer-full-screen")
                 }
@@ -351,7 +359,6 @@ struct ComputerView: View {
         .frame(width: width)
         .background(cardBackdrop, in: RoundedRectangle(cornerRadius: Theme.Metric.cardRadius, style: .continuous))
         .overlay(alignment: .top) { toast.padding(.top, 4) }
-        .environment(\.colorScheme, .dark)
         .onAppear { controller.frameWidth = inner }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("panel-computer")
@@ -528,7 +535,7 @@ struct ComputerView: View {
         } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(Theme.Computer.ink)
+                .foregroundStyle(panelInk)
                 .frame(width: Theme.Metric.glassLarge, height: Theme.Metric.glassLarge)
                 .contentShape(Circle())
         }
@@ -610,7 +617,7 @@ struct ComputerView: View {
         if let notice = controller.notice ?? (offline ? String(localized: "This computer is offline. Reconnecting…") : nil) {
             Text(notice)
                 .font(Theme.Font.profileLabel)
-                .foregroundStyle(Theme.Computer.inkSecondary)
+                .foregroundStyle(panelInkSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
                 .padding(.top, 12)
@@ -632,7 +639,7 @@ struct ComputerView: View {
                 }
             } label: {
                 ClipboardGlyph()
-                    .fill(Theme.Computer.ink, style: FillStyle(eoFill: true))
+                    .fill(panelInk, style: FillStyle(eoFill: true))
                     .frame(width: ClipboardGlyph.size.width, height: ClipboardGlyph.size.height)
                     .frame(width: Theme.Metric.glassSmall, height: Theme.Metric.glassSmall)
                     .contentShape(Circle())
@@ -650,7 +657,7 @@ struct ComputerView: View {
                 toggleKeyboard()
             } label: {
                 KeyboardDotsGlyph()
-                    .fill(Theme.Computer.ink)
+                    .fill(panelInk)
                     .frame(width: KeyboardDotsGlyph.size.width, height: KeyboardDotsGlyph.size.height)
                     .frame(width: Theme.Metric.glassSmall, height: Theme.Metric.glassSmall)
                     .contentShape(Circle())
@@ -876,6 +883,22 @@ struct LocalVmComputerChrome {
             warning: Theme.warning,
             hairline: Color.white.opacity(0.16),
             control: Color.white.opacity(0.12)
+        )
+    }
+
+    /// The bot panel's Computer tab on iPhone: same navy card as the name
+    /// block and tab bar, not the full-screen black stage.
+    static var panel: LocalVmComputerChrome {
+        LocalVmComputerChrome(
+            ink: Theme.textPrimary,
+            secondary: Theme.textSecondary,
+            frame: Theme.bg,
+            accent: Theme.accent,
+            accentInk: Theme.accentInk,
+            danger: Theme.danger,
+            warning: Theme.warning,
+            hairline: Theme.hairline,
+            control: Theme.cardRaised
         )
     }
 
