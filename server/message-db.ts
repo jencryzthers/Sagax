@@ -246,6 +246,9 @@ export interface FollowupPayload {
   via?: "api" | "call";
   /** Words said on a voice call (Message.voiceCall). */
   voiceCall?: Message["voiceCall"];
+  /** The Live call a "call" line was spoken on (Message.callId). Only with
+   * `via: "call"`; restore and crash recovery drop it from any other row. */
+  callId?: string;
   /** Who queued these words. Absent on the owner's own sends and on every
    * row written before this existed; both read as the profile name. */
   sender?: ResolvedSender;
@@ -514,6 +517,20 @@ export function setActiveLeaf(threadId: string, leafId: string | null): void {
 /** Newest message timestamp per thread. One grouped read, chunked under
  * SQLite's variable limit. Threads with no rows are absent. */
 export function latestMessageAts(threadIds: readonly string[]): Map<string, number> {
+  return newestAts(threadIds, "");
+}
+
+/** Newest line a person sent from an app, per thread: a user line with the
+ * sendId every client send carries (a routine's or a webhook's prompt has
+ * none) that no bot delivered (peerAsk) and no other interface relayed.
+ * Threads without one are absent. */
+export function latestPersonLineAts(threadIds: readonly string[]): Map<string, number> {
+  return newestAts(threadIds, "AND role = 'user' AND kind = 'text' AND json_extract(json, '$.sendId') IS NOT NULL " +
+    "AND json_extract(json, '$.peerAsk') IS NULL AND json_extract(json, '$.relayed') IS NULL");
+}
+
+/** MAX(at) per thread over the rows `where` keeps, as latestMessageAts reads it. */
+function newestAts(threadIds: readonly string[], where: string): Map<string, number> {
   const ids = [...new Set(threadIds.filter((id) => id.length > 0))];
   const out = new Map<string, number>();
   const chunk = 400;
@@ -521,7 +538,7 @@ export function latestMessageAts(threadIds: readonly string[]): Map<string, numb
     const slice = ids.slice(i, i + chunk);
     const placeholders = slice.map(() => "?").join(", ");
     const rows = db()
-      .prepare(`SELECT thread_id, MAX(at) AS at FROM messages WHERE thread_id IN (${placeholders}) GROUP BY thread_id`)
+      .prepare(`SELECT thread_id, MAX(at) AS at FROM messages WHERE thread_id IN (${placeholders}) ${where} GROUP BY thread_id`)
       .all(...slice) as Array<{ thread_id: string; at: number }>;
     for (const row of rows) {
       if (typeof row.at === "number" && Number.isFinite(row.at)) out.set(row.thread_id, row.at);

@@ -43,6 +43,9 @@ posixOnly("mid-turn steering e2e", () => {
     return { status: res.status, body: await res.json() };
   };
   const getBot = async (id: string) => (await api("GET", "/api/bots")).body.bots.find((b: any) => b.id === id);
+  /** When a person last wrote in the thread, as the server keeps it (server/main-thread.ts). */
+  const askedAt = (botId: string, threadId: string) => (JSON.parse(readFileSync(join(home, ".sagax", "bots.json"), "utf8")) as any[])
+    .find((bot) => bot.id === botId).tasks.find((task: any) => task.threadId === threadId).askedAt;
   /** Pair the operator's own second device (a default, admin-scope code, so
    * it carries the operator's principal and sees every room), and send from
    * it. A queue is a delay, never a change of author: its words must still
@@ -202,6 +205,8 @@ posixOnly("mid-turn steering e2e", () => {
       ]);
       const steered = bot.messages.find((m: any) => m.text === "and also this");
       expect(steered.steered).toBe(true);
+      // Steered words are a person writing here, as the words that started the turn were.
+      expect(askedAt(created.id, created.threadId)).toBe(steered.at);
       // one turn, not two: exactly one reply
       expect(bot.messages.filter((m: any) => m.role === "bot" && m.kind === "text" && m.text.startsWith("reply to:"))).toHaveLength(1);
       // the tool chip keeps its command after the result settles it — the
@@ -604,6 +609,8 @@ posixOnly("mid-turn steering e2e", () => {
     // pressing Steer moves the words, it does not re-author them
     expect(folded.sender).toEqual(PAIRED);
     expect(steered.body.messages[0].sender).toEqual(PAIRED);
+    // and the person wrote them here, as if a drained turn had started with them
+    expect(askedAt(created.id, created.threadId)).toBe(folded.at);
 
     await api("POST", `/api/bots/${created.id}/interrupt`);
     await waitFor(async () => (await getBot(created.id)).busy === false, "the queue-steered turn to settle");

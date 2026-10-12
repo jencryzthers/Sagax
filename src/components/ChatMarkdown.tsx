@@ -50,6 +50,7 @@ import { TRANSCRIPT_WINDOW_SIZE } from "../lib/transcript-window";
 import { windowsPathDestinations } from "../../shared/markdown-windows-paths";
 import { githubRefFromProps, remarkGithubRefs } from "@/lib/github-refs";
 import { GITHUB_REF_ICONS, LinkHoverCard } from "@/components/LinkHoverCard";
+import { useThreadLinkMenu } from "@/components/ThreadLinkMenu";
 import { looksLikeThreadRefUrl, parseThreadRefUrl, resolveThreadRefAddress, remarkThreadRefs } from "../lib/thread-refs";
 import { MarkdownImagePreview, MessageFolderFiles, OutsideWorkspaceFile, saveFailureText, useLocalFileSave, type MessageAttachmentContext } from "./AttachmentPreview";
 import { ThreadLink, ThreadRefsContext, threadLinkFromProps, type ThreadRefsValue } from "./ThreadRefs";
@@ -1029,6 +1030,38 @@ export type DeliveredFiles = Readonly<Record<string, string>>;
 
 const fileName = (path: string) => path.split(/[\\/]/).at(-1) ?? path;
 
+// An external link: the hover card, and the thread link menu on a right
+// click (assign the link to the open thread) when one is offered.
+function ExternalLink({ href, github, children }: { href: string; github: ReturnType<typeof githubRefFromProps>; children?: ReactNode }) {
+  const linkMenu = useThreadLinkMenu(href);
+  const Icon = github ? GITHUB_REF_ICONS[github.kind] : null;
+  return (
+    <LinkHoverCard href={href} github={github}>
+      {(hoverAnchor) => {
+        const anchor = linkMenu.onContextMenu ? { ...hoverAnchor, onContextMenu: linkMenu.onContextMenu } : hoverAnchor;
+        return (
+          <>
+            {linkMenu.menu}
+            {Icon ? (
+              // a GitHub reference reads as a small pill. Left to right and
+              // isolated, so "#2547" never turns into "2547#" in a right-to-left
+              // line. The full address is the tooltip.
+              <a {...anchor} href={href} target="_blank" rel="noreferrer" dir="ltr" title={href} data-github-ref={github!.kind} className={GITHUB_REF_CLASS}>
+                <Icon size={13} aria-hidden="true" className="shrink-0 self-center text-ink-tertiary" />
+                <span>{children}</span>
+              </a>
+            ) : (
+              <a {...anchor} href={href} target="_blank" rel="noreferrer" dir="auto" className={LINK_CLASS}>
+                {children}
+              </a>
+            )}
+          </>
+        );
+      }}
+    </LinkHoverCard>
+  );
+}
+
 const LINK_CLASS = "break-words text-accent underline decoration-accent/40 hover:decoration-accent [unicode-bidi:isolate]";
 const GITHUB_REF_CLASS =
   "inline-flex items-baseline gap-1 whitespace-nowrap rounded-full bg-inset px-1.5 align-baseline font-mono text-[0.88em] text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus [unicode-bidi:isolate]";
@@ -1294,24 +1327,7 @@ function ChatMarkdownComponent({ text, message, mentionPeers = NO_MENTION_PEERS,
         }
         // SAFETY: react-markdown hands hast data-* attributes through as string props
         const github = githubRefFromProps(rest as Record<string, unknown>, href);
-        const Icon = github ? GITHUB_REF_ICONS[github.kind] : null;
-        return (
-          <LinkHoverCard href={href} github={github}>
-            {(anchor) => Icon ? (
-              // a GitHub reference reads as a small pill. Left to right and
-              // isolated, so "#2547" never turns into "2547#" in a right-to-left
-              // line. The full address is the tooltip.
-              <a {...anchor} href={href} target="_blank" rel="noreferrer" dir="ltr" title={href} data-github-ref={github!.kind} className={GITHUB_REF_CLASS}>
-                <Icon size={13} aria-hidden="true" className="shrink-0 self-center text-ink-tertiary" />
-                <span>{children}</span>
-              </a>
-            ) : (
-              <a {...anchor} href={href} target="_blank" rel="noreferrer" dir="auto" className={LINK_CLASS}>
-                {children}
-              </a>
-            )}
-          </LinkHoverCard>
-        );
+        return <ExternalLink href={href} github={github}>{children}</ExternalLink>;
       },
       table({ node, children }: BlockProps) {
         const model = tableModelFromMarkdown(children);

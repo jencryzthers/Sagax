@@ -32,7 +32,7 @@ import {
   LayoutGrid,
   UserRoundPen,
 } from "lucide-react";
-import { api, openBotCatalog, useStore, formatTime, visibleMessages, currentTaskBot, type AppState, type Bot, type BotProject, type ConfigStatus, type FolderOwnerKind, type Group, type GroupTaskUpdatePatch, type InstanceInfo, type Message } from "@/state/store";
+import { api, openBotCatalog, useStore, formatTime, visibleMessages, currentTaskBot, botOpensTo, openBot, type AppState, type Bot, type BotProject, type ConfigStatus, type FolderOwnerKind, type Group, type GroupTaskUpdatePatch, type InstanceInfo, type Message } from "@/state/store";
 
 import { peerLine } from "@/lib/peer-message";
 import { viewerMayDeleteGroup, viewerOwnsGroup } from "@/lib/group-owner";
@@ -1117,6 +1117,7 @@ export function BotContextMenu({
   const motion = useHeldMenuMotion(menu);
   const shown = motion.value;
   const { state, dispatch } = useStore();
+  const showThreads = useShowThreads();
   const remoteClient = window.ogb?.remoteClient?.active === true;
   const personal = usePersonalLayout();
   const bot = shown ? state.bots.find((b) => b.id === shown.botId) : undefined;
@@ -1197,6 +1198,12 @@ export function BotContextMenu({
     : visibleBotCount <= 1
       ? t("sidebar.bot.archiveBlockedLast")
       : undefined;
+  // Another bot opens behind its settings as its row would (openBot); the
+  // bot on screen stays on the thread it shows.
+  const openForSettings = () => {
+    if (state.selectedId === bot.id) dispatch({ type: "select", id: bot.id });
+    else openBot(dispatch, bot, showThreads);
+  };
   const item = (
     icon: React.ReactNode,
     label: string,
@@ -1306,8 +1313,8 @@ export function BotContextMenu({
           onMoveToSection?.(bot.id);
         })] : []),
         item(<Pencil size={16} className="text-ink" />, t("sidebar.bot.editProfile"), () => {
-          dispatch({ type: "select", id: bot.id });
-          dispatch({ type: "toggleSettings", open: true });
+          openForSettings();
+          if (!state.settingsOpen) dispatch({ type: "toggleSettings", open: true });
         }),
         item(<ClipboardCopy size={16} className="text-ink" />, t("sidebar.copyConversationId"), () => {
           void copyText(bot.threadId);
@@ -1749,6 +1756,7 @@ export function BotThreadList({ bot, selected, density = "comfortable", query = 
       onArchive: (task: Row, archivedAt: number | null) => patch(task, { archivedAt }),
       onPin: (task: Row, pinned: boolean) => patch(task, { pinned }),
       onSnooze: (task: Row, snoozedUntil: number | null) => patch(task, { snoozedUntil }),
+      onLink: (task: Row, link: string | null) => patch(task, { link }),
       onRefreshPermissions: (task: Row) => {
         const current = latest.current;
         const mode = approvalModeFor(current);
@@ -1884,7 +1892,7 @@ export function BotListItem({
   const avatarSize = iconOnly ? 36 : density === "compact" ? 28 : 36;
   // the visible branch, so a version switch changes the row with the chat
   const visible = useVisibleMessages(bot);
-  const last = visible.at(-1);
+  const last = lastNonReceipt(visible);
   // the role from Bot Settings → Title. A badge or tooltip beside the name
   // (#866, #871) always traded the name's width against the title's; its own
   // line above the name lets both truncate independently instead.
@@ -2005,8 +2013,11 @@ export function BotListItem({
   };
   // Threads off: an untouched extra thread never strands the person; the row
   // lands back on their latest conversation (see thread-home.ts).
+  // With threads hidden a server that names the bot's main thread decides
+  // (openBot, server/main-thread.ts); an older one without it keeps that rule.
   const openConversation = () => {
-    for (const action of openBotConversationActions(bot, showThreads)) dispatch(action);
+    if (showThreads || bot.mainThreadId) openBot(dispatch, bot, showThreads);
+    else for (const action of openBotConversationActions(bot, showThreads)) dispatch(action);
   };
   const onSelect = (event: React.MouseEvent) => {
     if (renaming) return;
@@ -2073,7 +2084,7 @@ export function BotListItem({
         them here and the header button is hidden, never both. Threads off:
         only the activity rows. */}
     {!iconOnly && threadsOpen && hasThreadList && inSidebar && <BotThreadList bot={bot} selected={selected} density={density} query={bot.name.toLowerCase().includes(query.toLowerCase()) || bot.title.toLowerCase().includes(query.toLowerCase()) ? "" : query} />}
-    {!showThreads && <SidebarBotActivity bot={bot} density={density} pendingQueued={pendingQueued} dispatch={dispatch} />}
+    {!showThreads && <SidebarBotActivity bot={bot} rowThreadId={selected ? bot.threadId : botOpensTo(bot, showThreads)} density={density} pendingQueued={pendingQueued} dispatch={dispatch} />}
     </>
   );
 }
@@ -2130,7 +2141,7 @@ export function ArchivedBotRow({
   );
 }
 
-function ArchivedBotsPanel({
+export function ArchivedBotsPanel({
   bots,
   onClose,
   onRestored,
@@ -2140,6 +2151,7 @@ function ArchivedBotsPanel({
   onRestored: (message: string) => void;
 }) {
   const { state, dispatch } = useStore();
+  const showThreads = useShowThreads();
   const dialogRef = useRef<HTMLDivElement>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [restoringAll, setRestoringAll] = useState(false);
@@ -2172,7 +2184,7 @@ function ArchivedBotsPanel({
         body: JSON.stringify({ hidden: false }),
       });
       dispatch({ type: "botPatched", bot: response.bot });
-      dispatch({ type: "select", id: bot.id });
+      openBot(dispatch, response.bot, showThreads);
       onRestored(t("sidebar.archived.restored", { name: bot.name }));
       if (bots.length === 1) onClose();
     } catch (cause) {
@@ -2195,8 +2207,8 @@ function ArchivedBotsPanel({
         ),
       );
       for (const response of responses) dispatch({ type: "botPatched", bot: response.bot });
-      const first = bots[0];
-      if (first) dispatch({ type: "select", id: first.id });
+      const first = responses[0]?.bot;
+      if (first) openBot(dispatch, first, showThreads);
       onRestored(
         bots.length === 1
           ? t("sidebar.archived.restoredOne")
@@ -2641,7 +2653,7 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
       dispatch({ type: "botPatched", bot: response.bot });
       if (state.selectedId === bot.id) {
         const next = activeBots.find((candidate) => candidate.id !== bot.id);
-        if (next) dispatch({ type: "select", id: next.id });
+        if (next) openBot(dispatch, next, showThreads);
       }
       setTeamFeedback({
         error: false,
@@ -2678,7 +2690,7 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
         body: JSON.stringify({ hidden: false }),
       });
       dispatch({ type: "botPatched", bot: response.bot });
-      dispatch({ type: "select", id: bot.id });
+      openBot(dispatch, response.bot, showThreads);
       setTeamFeedback({ error: false, text: t("sidebar.archived.restored", { name: bot.name }) });
     } catch (cause) {
       setTeamFeedback({ error: true, text: cause instanceof Error ? cause.message : String(cause) });

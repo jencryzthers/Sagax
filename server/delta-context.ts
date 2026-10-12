@@ -11,6 +11,7 @@
 // say what the session holds, the turn replays as it would without records.
 
 import type { RuntimeEvent } from "./contracts.ts";
+import type { Message } from "./store.ts";
 
 /** One active-branch message as a provider would read it. */
 export interface ContextMessage {
@@ -25,6 +26,13 @@ export interface ContextMessage {
   steered?: boolean;
   /** a person's words said on a voice call (Message.voiceCall) */
   spoken?: boolean;
+}
+
+/** Active-branch messages a provider reads as conversation context: text,
+ * digests, compaction records and room results. A Live call's row (kind
+ * "call") is a record for people, never context. */
+export function isContextMessage(m: Pick<Message, "kind" | "text" | "digest" | "roomRequest">): boolean {
+  return Boolean((m.kind === "text" && m.text) || (m.kind === "digest" && m.digest) || m.kind === "compaction" || m.roomRequest?.phase === "result");
 }
 
 /** What one native session has been handed on a task. */

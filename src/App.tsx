@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Bot as BotIcon, Loader2, Menu, Plus } from "lucide-react";
 import { setInterfaceModeRole, useAdvancedMode } from "@/lib/interface-mode";
 import { usePerspicaxOrg } from "@/lib/perspicax-org";
-import { openNotificationTarget, StoreProvider, useStore } from "@/state/store";
+import { openBot, openNotificationTarget, StoreProvider, useStore } from "@/state/store";
+import { useShowThreads } from "@/lib/thread-preferences";
 import { useWelcomeViewer, WelcomeGate } from "@/components/onboarding/WelcomeGate";
 import { mainConversation } from "@/lib/main-view";
 import { GuidedTour } from "@/components/onboarding/GuidedTour";
@@ -51,6 +52,7 @@ import { ChatNotice } from "@/components/ChatErrorBanner";
 
 function Shell() {
   const { state, dispatch } = useStore();
+  const showThreads = useShowThreads();
   const { capabilities } = useDesktopCapabilities();
   const captionChrome = useCaptionChrome();
   const unreadCount =
@@ -92,7 +94,7 @@ function Shell() {
     const target = openThreadTarget.current;
     if (!target || !openThreadVisible(target, state)) return;
     openThreadTarget.current = null;
-    openNotificationTarget(dispatch, target, state);
+    openNotificationTarget(dispatch, target, state, showThreads);
   }, [state.bots, state.groups, dispatch]);
   // "Use your Cloud on your phone" opens the Cloud in this window at
   // /?desktop-settings=phone: its own phone pairing, in any window, on any
@@ -190,20 +192,20 @@ function Shell() {
         const target = bots[Number(e.key) - 1];
         if (target) {
           e.preventDefault();
-          dispatch({ type: "select", id: target.id });
+          openBot(dispatch, target, showThreads);
         }
       } else if (e.shiftKey && (e.key === "[" || e.key === "]")) {
         const idx = bots.findIndex((b) => b.id === state.selectedId);
         const next = bots[(idx + (e.key === "]" ? 1 : -1) + bots.length) % bots.length];
         if (next) {
           e.preventDefault();
-          dispatch({ type: "select", id: next.id });
+          openBot(dispatch, next, showThreads);
         }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [state.bots, state.selectedId, state.shortcutsOpen, composeOpen, dispatch]);
+  }, [state.bots, state.selectedId, state.shortcutsOpen, composeOpen, showThreads, dispatch]);
 
   // The Dock / taskbar count: every unread conversation (a person's direct
   // message included), unless this computer turned the badge off.
