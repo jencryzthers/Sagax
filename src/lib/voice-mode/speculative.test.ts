@@ -6,6 +6,7 @@ describe("maySpeculate", () => {
   it("starts the LLM on four stable words, even without end-of-turn punctuation", () => {
     expect(maySpeculate("What is the weather")).toBe(true);
     expect(maySpeculate("Quelle heure est il")).toBe(true);
+    expect(maySpeculate("Say hello in French.")).toBe(true);
   });
 
   it("waits on three words even after endpoint silence, including a trailing plus", () => {
@@ -17,8 +18,11 @@ describe("maySpeculate", () => {
     expect(maySpeculate("What is two plus two")).toBe(true);
   });
 
-  it("starts on a closed clause of two or more words", () => {
-    expect(maySpeculate("What time?")).toBe(true);
+  it("starts on a closed clause only after endpoint silence, not mid-speech", () => {
+    expect(maySpeculate("What time?")).toBe(false);
+    expect(maySpeculate("Say hello.")).toBe(false);
+    expect(maySpeculate("What time?", true)).toBe(true);
+    expect(maySpeculate("Say hello.", true)).toBe(true);
   });
 
   it("waits when the partial is short or still an unfinished clause", () => {

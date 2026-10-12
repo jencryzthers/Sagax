@@ -12,10 +12,11 @@ function wordCount(text: string): number {
   return (text.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[a-z0-9]+/g) ?? []).length;
 }
 
-/** A closed clause, or four stable words. Three words ("What is two",
- * "What is 2 +") is still an unfinished question: wait. */
+/** Four stable words, or a closed clause once the person has paused.
+ * A mid-speech "Say hello." from STT is not the whole question: wait.
+ * Three words ("What is two", "What is 2 +") is still unfinished. */
 export function maySpeculate(text: string, inSilence = false): boolean {
-  if (completeClause(text)) return true;
+  if (inSilence && completeClause(text)) return true;
   const min = inSilence ? MIN_WORDS_SILENCE : MIN_WORDS;
   return wordCount(text) >= min && !incompleteClause(text);
 }

@@ -639,6 +639,22 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     expect(t.utterances[0]!.metrics.earlyStart).toBeUndefined();
   });
 
+  it("duplex does not start the LLM on a two-word punctuated partial mid-speech", async () => {
+    const t = await setup({
+      transcripts: ["Say hello in French."],
+      settings: { fullDuplex: true },
+      finalDelayMs: 200,
+    });
+    await t.feed(0.95, 0.05, 24);
+    t.socket().partial("Say hello.");
+    await t.settle();
+    expect(t.utterances).toHaveLength(0);
+    t.socket().partial("Say hello in French.");
+    await t.settle();
+    expect(t.utterances.map((u) => u.text)).toEqual(["Say hello in French."]);
+    expect(t.interrupts).toHaveLength(0);
+  });
+
   it("duplex starts the LLM on a stable partial before the person stops talking", async () => {
     const t = await setup({
       transcripts: ["What is the weather in Montreal today?"],
