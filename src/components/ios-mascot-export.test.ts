@@ -32,7 +32,7 @@
 //   approved head and shoulders, `ogreParts` in ogre-art.ts) as draw
 //   operations, every face, the skins' fixed colors and palette samples.
 // - ios/Sources/CompanionCore/CrabArt.swift: Crab's pixel rects and skins,
-//   written by hand (Clawd's 16-cell crab: carapace, pincers, feet, 2x2 eyes).
+//   written by hand (Clawd-Still 24x16: stub arms, four legs, 2x2 eyes).
 //   The fixture carries each skin's fill and eyes (`crabPalettes`) which
 //   CrabArt.paint must match.
 //

@@ -102,13 +102,13 @@ describe("Crab's rig", () => {
     expect(over.y).toBe(idle.y);
   });
 
-  it("idles like Shape: a breath, a wandering look, a pinch", () => {
+  it("idles like Claude: a breath, a wandering look, a lean", () => {
     const a = crabIdlePose(0, []);
     const b = crabIdlePose(2.7, []);
     expect(a.y).not.toBeCloseTo(b.y, 2);
     expect(Math.abs(b.lookX) + Math.abs(b.lookY)).toBeGreaterThan(0.2);
-    expect(b.clawL).toBeGreaterThan(0);
-    expect(b.clawR).toBeGreaterThan(0);
+    expect(Math.abs(b.legSy0 - 1) + Math.abs(b.legSy3 - 1)).toBeGreaterThan(0.01);
+    expect(Math.abs(b.legRot0) + Math.abs(b.legRot3)).toBeGreaterThan(0.2);
   });
 
   it("plays a one-shot over a held activity and hands back to the idle life after both", () => {

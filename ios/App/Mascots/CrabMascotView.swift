@@ -1,9 +1,9 @@
 // Crab, the pixel-rect mascot: a port of `src/components/CrabMascot.tsx`
-// drawn from `CrabArt` (the desktop's idle sprite). Under 48 pt it is a bust.
-// While animated it does the desktop's CSS idle (a bob with squash and a
-// sway, a blink, a look-around, pincer pinch, opposite legs ticking, and on
-// happy a Clawd clap with sparkles). Reduce Motion keeps it still, as on
-// the desktop.
+// drawn from `CrabArt` (the desktop's idle sprite, Clawd-Still 24x16). Under
+// 48 pt it is a bust. While animated it does the desktop's CSS idle (a bob
+// with squash and a sway, a blink, a look-around, Codrops lean on the legs
+// clipped at the ground, and on happy a clap with sparkles). Reduce Motion
+// keeps it still, as on the desktop.
 import CompanionCore
 import SwiftUI
 
@@ -85,11 +85,23 @@ enum CrabRenderer {
         (0.74, [2, -1]),
         (1, [0, 0]),
     ])
-    static let pinchL = CSSKeyframes([(0, [0, 0]), (0.5, [-5, -5]), (1, [0, 0])])
-    static let pinchR = CSSKeyframes([(0, [0, 0]), (0.5, [5, -5]), (1, [0, 0])])
     static let armL = CSSKeyframes([(0, [0]), (0.5, [5]), (1, [0])])
     static let armR = CSSKeyframes([(0, [0]), (0.5, [-5]), (1, [0])])
-    static let tick = CSSKeyframes([(0, [0]), (0.5, [-6]), (1, [0])])
+    /// Codrops lean: rotation then scaleY. Outer legs stretch toward the look.
+    static let leanL = CSSKeyframes([
+        (0, [0, 1]),
+        (0.22, [6, 1.08]),
+        (0.48, [-8, 1.28]),
+        (0.74, [4, 1.05]),
+        (1, [0, 1]),
+    ])
+    static let leanR = CSSKeyframes([
+        (0, [0, 1]),
+        (0.22, [8, 1.28]),
+        (0.48, [-6, 1.08]),
+        (0.74, [5, 1.12]),
+        (1, [0, 1]),
+    ])
     static let talk = CSSKeyframes([(0, [0, 0.98]), (1, [-3, 1.03])])
     static let spark = CSSKeyframes([
         (0, [0]),
@@ -167,12 +179,10 @@ enum CrabRenderer {
         }
         let eyeOpen = sleeping ? 0.12 : loop(blink, 3.2, rest: [1])[0]
         let lookXY = sleeping ? [0.0, 0.0] : loop(look, 10.9, rest: [0, 0])
-        let pinchLeft = sleeping ? [0.0, 0.0] : loop(pinchL, 3.6, rest: [0, 0])
-        let pinchRight = sleeping ? [0.0, 0.0] : loop(pinchR, 3.6, rest: [0, 0])
         let rotL = sleeping ? 0 : (happy ? loop(clapL, 1.8, rest: [0])[0] : loop(armL, 2.4, rest: [0])[0])
         let rotR = sleeping ? 0 : (happy ? loop(clapR, 1.8, rest: [0])[0] : loop(armR, 2.4, rest: [0])[0])
-        let tickA = sleeping || bust ? 0 : loop(tick, 0.48, rest: [0])[0]
-        let tickB = sleeping || bust ? 0 : loop(tick, 0.48, delay: 0.24, rest: [0])[0]
+        let leanLeft = sleeping || bust ? [0.0, 1.0] : loop(leanL, 10.9, rest: [0, 1])
+        let leanRight = sleeping || bust ? [0.0, 1.0] : loop(leanR, 10.9, rest: [0, 1])
         let sparkOpacity = happy && !bust ? loop(spark, 1.8, rest: [0])[0] : 0
 
         var whole = ctx
@@ -192,36 +202,31 @@ enum CrabRenderer {
         var leftArm = whole
         leftArm.pivot(CrabArt.armLPivot, rotate: rotL)
         fill(CrabArt.armL, paint.accent, in: leftArm)
-        var leftPincer = leftArm
-        leftPincer.translateBy(x: pinchLeft[0], y: pinchLeft[1])
-        fill(CrabArt.pincerL, paint.accent, in: leftPincer)
 
         var rightArm = whole
         rightArm.pivot(CrabArt.armRPivot, rotate: rotR)
         fill(CrabArt.armR, paint.accent, in: rightArm)
-        var rightPincer = rightArm
-        rightPincer.translateBy(x: pinchRight[0], y: pinchRight[1])
-        fill(CrabArt.pincerR, paint.accent, in: rightPincer)
 
         if !bust {
+            var clipped = whole
+            clipped.clip(to: Path(CGRect(x: -20, y: -50, width: 160, height: 150)))
             for (i, leg) in CrabArt.legs.enumerated() {
-                var limb = whole
-                limb.translateBy(x: 0, y: i % 2 == 0 ? tickA : tickB)
+                var limb = clipped
+                let lean = i < 2 ? leanLeft : leanRight
+                limb.pivot(CrabArt.legPivots[i], rotate: lean[0], scaleX: 1, scaleY: lean[1])
                 fill(leg, paint.fill, in: limb)
-                fill(CrabArt.feet[i], paint.fill, in: limb)
             }
         }
 
         var eyes = whole
         eyes.translateBy(x: lookXY[0], y: lookXY[1])
-        func eye(_ pupil: CrabArt.Rect, _ shine: CrabArt.Rect?, _ pivot: CGPoint) {
+        func eye(_ pupil: CrabArt.Rect, _ pivot: CGPoint) {
             var lid = eyes
             lid.pivot(pivot, scaleX: 1, scaleY: eyeOpen)
             fill(pupil, paint.eyes, in: lid)
-            if let shine { fill(shine, paint.shine, in: lid) }
         }
-        eye(drawn.pupils.0, drawn.shines?.0, CrabArt.eyeLPivot)
-        eye(drawn.pupils.1, drawn.shines?.1, CrabArt.eyeRPivot)
+        eye(drawn.pupils.0, CrabArt.eyeLPivot)
+        eye(drawn.pupils.1, CrabArt.eyeRPivot)
 
         if sparkOpacity > 0.01 {
             for dot in CrabArt.sparkles {
