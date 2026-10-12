@@ -115,6 +115,9 @@ interface RuntimeOptions<Config> {
    * and end the turn without calling a tool. When set, such a reply gets one
    * nudge per turn to act; a question, or anything longer, ends the turn. */
   nudgeAnnouncedAction?: boolean;
+  /** GET /models keep-alive for HTTP grok voice calls. Off for other
+   * OpenAI-compatible hosts: they did not opt into that ping. */
+  warmSession?: boolean;
 }
 
 const usageFrom = (usage: CompletionJson["usage"]): Usage | null =>
@@ -252,12 +255,15 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
 
   const pingModels = async () => {
     try {
-      await fetch(modelsUrl(), {
+      const response = await fetch(modelsUrl(), {
         method: "GET",
         headers: { authorization: `Bearer ${options.apiKey}` },
       });
+      // Drain so undici returns the socket to the keep-alive pool.
+      await response.arrayBuffer().catch(() => undefined);
+      return response.ok;
     } catch {
-      // Keep-alive only. A failed ping must not become a turn error.
+      return false;
     }
   };
 
@@ -516,8 +522,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
     if (!options.apiKey) throw new Error(options.missingKeyError);
     if (turn.warmOnly === true) {
       if (!turn.warmSignal?.aborted) {
-        await pingModels();
-        rememberWarm(turn.threadId);
+        if (await pingModels()) rememberWarm(turn.threadId);
         turn.warmSignal?.addEventListener("abort", () => releaseWarm(turn.threadId), { once: true });
       }
       return { turnId: newId() };
@@ -916,7 +921,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
         guestTurns: "confined",
         // GET /models on warmOnly, then ping while the call thread is warm so
         // the next spoken turn reuses the HTTP pool (no billed completion).
-        warmSession: true },
+        ...(options.warmSession ? { warmSession: true } : {}) },
       sendTurn,
       interruptTurn: async (threadId, turnId) => {
         const turn = active.get(threadId);
