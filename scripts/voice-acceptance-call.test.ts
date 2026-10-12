@@ -16,6 +16,7 @@ import {
   shouldPostAcceptanceUtterance,
   acceptanceInjectWait,
   assignAcceptanceTurnIds,
+  waitForAcceptanceSend,
   type AcceptanceEvent,
 } from "./voice-acceptance-call.ts";
 
@@ -177,6 +178,13 @@ it("records one warm total per utterance, not every metrics event", () => {
   expect(noteWarmTotal(seen, totals, { utteranceId: "u1", stoppedAt: 100, firstAudioAt: 900 })).toBe(false);
   expect(noteWarmTotal(seen, totals, { utteranceId: "u2", stoppedAt: 2000, firstAudioAt: 2700 })).toBe(true);
   expect(totals).toEqual([800, 700]);
+});
+
+it("waitForAcceptanceSend returns once that line has been posted", async () => {
+  const events: AcceptanceEvent[] = [];
+  const pending = waitForAcceptanceSend(events, "C", 1_000);
+  events.push({ t: 1, kind: "send", id: "C" });
+  await expect(pending).resolves.toBe(true);
 });
 
 it("inject waits are counted from post-warmup origin so A and B stay 4s apart", () => {

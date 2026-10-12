@@ -47,20 +47,20 @@ export interface AcceptanceLine {
 
 /** Overlapping topics, barge-in, correction, stop, a queued extra. EN+FR. */
 export const ACCEPTANCE_SCRIPT: AcceptanceLine[] = [
-  { id: "A", lang: "en", atMs: 0, text: "Please wait twenty seconds, then count to twenty, saying each number." },
+  { id: "A", lang: "en", atMs: 0, text: "Please wait twelve seconds, then count to three." },
   { id: "B", lang: "en", atMs: 8_000, text: "Please wait fifteen seconds, then what time is it in Tokyo?" },
-  { id: "C", lang: "fr", atMs: 14_000, text: "Attends huit secondes, puis rédige un court courriel de bonjour." },
-  { id: "D", lang: "en", atMs: 20_000, text: "How far is Quebec City from Montreal?" },
-  { id: "lim", lang: "fr", atMs: 26_000, text: "Prépare aussi le rapport mensuel des billets." },
-  { id: "barge", lang: "en", atMs: 32_000, text: "hey what time is it in Paris" },
-  { id: "corr", lang: "en", atMs: 40_000, text: "no, I meant Toronto" },
+  { id: "C", lang: "fr", atMs: 16_000, text: "Attends huit secondes, puis rédige un court courriel de bonjour." },
+  { id: "D", lang: "en", atMs: 24_000, text: "How far is Quebec City from Montreal?" },
+  { id: "lim", lang: "fr", atMs: 32_000, text: "Prépare aussi le rapport mensuel des billets." },
+  { id: "barge", lang: "en", atMs: 38_000, text: "hey what time is it in Paris" },
+  { id: "corr", lang: "en", atMs: 46_000, text: "no, I meant Toronto" },
 ];
 
 /** Second call: stop while A is thinking and B is a background task. */
 export const ACCEPTANCE_STOP_SCRIPT: AcceptanceLine[] = [
-  { id: "A", lang: "en", atMs: 0, text: "Please wait twenty seconds, then count to twenty, saying each number." },
+  { id: "A", lang: "en", atMs: 0, text: "Please wait twelve seconds, then count to three." },
   { id: "B", lang: "en", atMs: 8_000, text: "Please wait fifteen seconds, then what time is it in Tokyo?" },
-  { id: "stop", lang: "en", atMs: 12_000, text: "stop" },
+  { id: "stop", lang: "en", atMs: 14_000, text: "stop" },
 ];
 
 /** Speculative 4-word prefixes complete as short turns and kill the wait. */
@@ -228,6 +228,24 @@ export function scoreAcceptanceCancel(scriptId: string | undefined): boolean {
 /** Wait before injecting a script line. Origin is after warmup/say, not process start. */
 export function acceptanceInjectWait(originMs: number, atMs: number, nowMs: number): number {
   return Math.max(0, atMs - (nowMs - originMs));
+}
+
+/** Quiet after a scripted line so the next is not a CONTINUATION_MS reissue. */
+export const ACCEPTANCE_TRAIL_SILENCE_MS = 2_000;
+
+export async function waitForAcceptanceSend(
+  events: AcceptanceEvent[],
+  id: string,
+  timeoutMs: number,
+  now: () => number = () => performance.now(),
+  pause: (ms: number) => Promise<void> = sleep,
+): Promise<boolean> {
+  const deadline = now() + timeoutMs;
+  while (now() < deadline) {
+    if (events.some((event) => event.kind === "send" && event.id === id)) return true;
+    await pause(50);
+  }
+  return events.some((event) => event.kind === "send" && event.id === id);
 }
 
 /** Walk events in time: a non-continues send owns later turn events on that thread. */
@@ -535,10 +553,14 @@ async function driveAcceptancePhase(input: {
   };
 
   const injectOrigin = performance.now();
+  const trailQuiet = Math.round(ACCEPTANCE_TRAIL_SILENCE_MS / 32);
   for (const item of spoken) {
     await sleep(acceptanceInjectWait(injectOrigin, item.row.atMs, performance.now()));
     log(`inject ${item.row.id}`);
     pendingFrames.push(...item.frames.map((frame) => ({ id: item.row.id, frame })));
+    for (let i = 0; i < trailQuiet; i++) pendingFrames.push({ id: item.row.id, frame: quietFrame() });
+    const posted = await waitForAcceptanceSend(events, item.row.id, 15_000);
+    log(`${posted ? "sent" : "no-send"} ${item.row.id}`);
   }
   const end = performance.now() + tailMs;
   while (performance.now() < end) {
