@@ -7,6 +7,7 @@ describe("serverApprovalWords", () => {
     const words = serverApprovalWords("fr", {});
     const plain = approvalPlain({ botName: "Cryptic", tool: "sagax-environment__run_command", toolInput: "{\"command\":\"echo hi\"}", detail: "sagax-environment__run_command {\"command\":\"echo hi\"}" }, words);
     expect(plain.title).toBe("Autoriser Cryptic à exécuter une commande ?");
+    expect(plain.line).not.toMatch(/Sagax Environment/);
   });
   it("env overrides the setting; unknown or empty is English", () => {
     expect(serverApprovalWords("en", { SAGAX_APPROVAL_LOCALE: "fr-CA" }).locale).toBe("fr-ca");
