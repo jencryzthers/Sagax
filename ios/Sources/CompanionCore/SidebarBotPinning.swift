@@ -22,4 +22,16 @@ public enum SidebarBotPinning: Sendable {
     public static func clampedOffset(_ translation: Double) -> Double {
         min(0, max(translation, -revealDistance))
     }
+
+    /// The Pin / Unpin action exists only while the row is swiped open.
+    /// At rest nothing is drawn: rows with clear backgrounds would otherwise
+    /// show the button through them (TestFlight 26 home bug).
+    public static func actionVisible(offset: Double) -> Bool {
+        offset < 0
+    }
+
+    /// Width of the revealed action, tracking the swipe.
+    public static func actionWidth(offset: Double) -> Double {
+        min(revealDistance, max(0, -offset))
+    }
 }
