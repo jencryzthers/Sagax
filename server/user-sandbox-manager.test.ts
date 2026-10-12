@@ -170,4 +170,19 @@ describe("UserSandboxManager", () => {
       .toMatchObject({ url: "http://sagax-sandboxd:8791", graceMs: 24 * HOUR, instance: "default" });
     expect(() => userSandboxSettingsFromEnv({ SAGAX_SANDBOXD_URL: "http://x:1", SAGAX_SANDBOX_DELETE_GRACE_HOURS: "-1" })).toThrow();
   });
+
+  it("the console's inventory: each existing environment with its status, commands and usage; a slow one is unavailable", async () => {
+    const m = manager();
+    await m.exec(ALICE, { argv: ["true"] });
+    const found = await m.inventory([ALICE, BOB]);
+    expect([...found.keys()]).toEqual([ALICE]);
+    expect(found.get(ALICE)).toMatchObject({ view: { state: "running", pendingDeletionAt: null }, busy: 0, stats: { image: "sagax-sandbox:test" } });
+    expect(await m.provisioner()).toMatchObject({ maxRunning: expect.any(Number), idleMinutes: expect.any(Number) });
+    const slow = new UserSandboxManager({
+      client: { ...inProcessClient(), status: () => new Promise(() => {}), info: () => Promise.reject(new Error("down")) },
+      instance: "default", stateFile: join(dir, "slow.json"), now: () => now,
+    });
+    expect((await slow.inventory([ALICE], 20)).get(ALICE)).toMatchObject({ view: { state: "unavailable" }, stats: null });
+    expect(await slow.provisioner()).toBeNull();
+  });
 });

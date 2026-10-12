@@ -513,7 +513,7 @@ import { redactSecretsInText } from "./redact.ts";
 import * as vps from "./vps-computer.ts";
 import { runAsOptions, runAsRefusal, type RunAsChooser, type RunAsPerson } from "./routine-run-as.ts";
 import { parseRoutineScopeQuery, routineRunClearable, routineScopeRefusal, scopedRoutineListing, type RoutineScopeCaller, type RoutineScopeDeps, type RoutineScopeFacts } from "./routine-scope.ts";
-import { RoutineManager, setRoutineTimeZone, type Routine, type RoutineAdmission, type RoutineMemoryHint, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger, type RoutineSuspendReason } from "./routines.ts";
+import { nextOccurrence, RoutineManager, setRoutineTimeZone, type Routine, type RoutineAdmission, type RoutineMemoryHint, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger, type RoutineSuspendReason } from "./routines.ts";
 import { RoutineConsents, routineRenewMs, type RoutineConsentEnd } from "./org-routine-consent.ts";
 import { CalendarCallManager, type CalendarCall } from "./calendar-calls.ts";
 import { BUILT_IN_BROWSER_SYSTEM_PROMPT } from "./browser-engine.ts";
@@ -812,7 +812,8 @@ import { ADMIN_ACTIVITY_CATEGORIES } from "./admin-activity.ts";
 import { createOrgMemberRoutes, type MemberPerson, type MemberRequest } from "./org-member-routes.ts";
 import { createOrgLinkRoutes, DirectoryRefreshScheduler } from "./org-link-routes.ts";
 import { MemberLiveText } from "./member-live-text.ts";
-import { createOrgAdminRoutes, type AccessKind, type AdminApproval, type AdminEngine, type AdminBot, type AdminBotReach, type AdminPerson, type ApprovalAnswer, type ApprovalType, type OrgAdminViewer } from "./org-admin-routes.ts";
+import { computersRoutes, type ComputersDeps } from "./org-admin-computers.ts";
+import { createOrgAdminRoutes, wireAuditRow, type AccessKind, type AdminApproval, type AdminEngine, type AdminBot, type AdminBotReach, type AdminPerson, type ApprovalAnswer, type ApprovalType, type OrgAdminViewer } from "./org-admin-routes.ts";
 import { RevocationQueue } from "./idp-revocations.ts";
 import { IDP_REFRESH_WAIT_MS, IDP_SWEEP_INTERVAL_MS, IdpGrantVault, IdpSessionManager, refreshAfterMs, resolveIdpVaultKey, settledWithin } from "./idp-session.ts";
 import { acceptOpenInvitesForEmail, createPublicInviteRoutes, createSoloOrgRoutes, inviteMailMessage, PUBLIC_INVITE_PATH, type OrgState } from "./org-routes.ts";
@@ -828,9 +829,11 @@ import { createOrgBotForceRoutes } from "./org-bot-force.ts";
 import { createOrgPersonConnectionRoutes, orgConnectionListing, revokeOrgConnections, type OrgPersonConnectionsDeps } from "./org-person-connections.ts";
 import { peopleRoutes, type EngineVia, type PeopleDeps } from "./org-admin-people.ts";
 import { botsRoutes, type BotsDeps } from "./org-admin-bots.ts";
+import { botLook, botPersona, readBotAvatar } from "./org-admin-look.ts";
 import { ConsoleRefusal } from "./org-admin-console.ts";
 import { routineScheduleLabel } from "./org-admin-schedule.ts";
 import { routinesRoutes, type RoutinesDeps } from "./org-admin-routines.ts";
+import { routineRunsRoutes, type RoutineRunsDeps } from "./org-admin-runs.ts";
 import { opsRoutes, type ConnectionsView, type OpsDeps, type TestResult } from "./org-admin-ops.ts";
 import { createOrgImportRoute } from "./org-import-routes.ts";
 import { readSandboxdKey } from "./sandboxd-auth.ts";
@@ -5252,16 +5255,18 @@ if (userSandbox) {
     else userSandbox.personBack(person.id);
   });
 }
+/** A bot turn works in this person's server environment right now. */
+function userSandboxTurnRunning(principalId: string): boolean {
+  const person = principalId.trim().toLowerCase();
+  for (const workplace of turnWorkplaces.values()) {
+    if (workplace.decision.target === "user-sandbox" && workplace.decision.principal === person) return true;
+  }
+  return false;
+}
 ROUTES.push(createUserSandboxRoutes({
   manager: () => userSandbox,
   organization: IDENTITY.kind === "perspicax",
-  turnRunning: (principalId) => {
-    const person = principalId.trim().toLowerCase();
-    for (const workplace of turnWorkplaces.values()) {
-      if (workplace.decision.target === "user-sandbox" && workplace.decision.principal === person) return true;
-    }
-    return false;
-  },
+  turnRunning: userSandboxTurnRunning,
 }));
 // ── a person's own connections (organization mode) ─────────────────────
 // Their own MCP servers and GitHub account (server/person-connections.ts),
@@ -24306,6 +24311,8 @@ function orgAdminBots(): Array<{ bot: AdminBot; reach: AdminBotReach }> {
         status: bot.hidden ? "archived" : "active",
         label: sectionName || null,
         threads: botThreadIds(bot).length,
+        look: botLook(bot, attachmentExists),
+        persona: botPersona(bot),
       },
       reach: orgBotReach(bot),
     };
@@ -24531,6 +24538,10 @@ async function importPackageFor(raw: unknown, ownerPrincipalId: string): Promise
 /** The console's Bots (server/org-admin-bots.ts). */
 const orgBotsDeps: BotsDeps = {
   bots: () => orgAdminBots(),
+  avatar: (botId) => {
+    const bot = store.bot(botId);
+    return bot ? readBotAvatar(bot, ATTACHMENTS_DIR) : null;
+  },
   detail: (botId) => {
     const bot = store.bot(botId);
     if (!bot) return null;
@@ -24896,6 +24907,53 @@ const orgRoutinesDeps: RoutinesDeps = {
     if (actor.kind === "worker") return { principalId: "", sub: null, name: "A local worker" };
     if (actor.userId && isPrincipalId(actor.userId) && principals.byId(actor.userId)) return adminPerson(actor.userId);
     return { principalId: "", sub: null, name: actor.label.includes("@") ? "Signed-in user" : actor.label };
+  },
+};
+
+/** The console's routines calendar (server/org-admin-runs.ts): every run
+ * in a window, past and planned, with the Automations scope rules. */
+const orgRoutineRunsDeps: RoutineRunsDeps = {
+  routines: () => routines?.listRoutines() ?? [],
+  runs: (from, to) => routines?.listRuns(from, to) ?? [],
+  bot: orgRoutinesDeps.bot,
+  runAs: (value) => effectiveRunAs(value) ?? null,
+  person: adminPerson,
+  teams: (value) => routineScopeFacts(value).teamIds.slice(),
+  permissions: (principalId) => {
+    const effective = principalPermissions(principalId);
+    return { viewTeam: can(effective, "routines.viewTeam"), viewAll: can(effective, "routines.viewAll") };
+  },
+  next: (schedule, after) => nextOccurrence(schedule, after),
+};
+
+/** The console's Computers (server/org-admin-computers.ts): every
+ * person's server environment, and every connected desktop, read only. */
+const orgComputersDeps: ComputersDeps = {
+  people: () => orgConsolePeople(),
+  person: adminPerson,
+  environments: userSandbox ? {
+    provisioner: () => userSandbox.provisioner(),
+    inventory: (principalIds, timeoutMs) => userSandbox.inventory(principalIds, timeoutMs),
+    power: (principalId, action) => userSandbox.power(principalId, action),
+    update: (principalId) => userSandbox.update(principalId),
+    reset: (principalId) => userSandbox.reset(principalId),
+    remove: (principalId) => userSandbox.removeNow(principalId),
+  } : null,
+  turnRunning: userSandboxTurnRunning,
+  desktops: () => IDENTITY.kind !== "perspicax" ? [] : desktopBridges.inventory().flatMap((desktop) => {
+    const person = principals.byId(desktop.person);
+    return person ? [{ principalId: person.id, desktopId: desktop.id, name: desktop.name, platform: desktop.platform, online: desktop.online, lastSeenAt: desktop.lastSeenAt, localVm: desktop.localVm, version: desktop.version }] : [];
+  }),
+  bots: () => store.bots.map((bot) => ({ id: bot.id, name: bot.name, ownerPrincipalId: effectiveBotOwner(bot), computer: bot.computer ?? null })),
+  activity: ({ computerId, principalId, kind, limit }) => {
+    // The console's own actions on it, and the bots' switches to and from
+    // it on behalf of its person (`computer.switch`, Auto's computer).
+    const surfaces = kind === "server-environment" ? ["cloud"] : ["this_computer", "local_vm"];
+    const own = readOrgAuditPage(DATA_DIR, { categories: ["computer"], target: computerId, limit }).rows;
+    const switches = readOrgAuditPage(DATA_DIR, { categories: ["computer"], limit: 500, from: Date.now() - 30 * 24 * 60 * 60_000 }).rows.filter((row) =>
+      row.action === "computer.switch" && row.actor.kind === "person" && row.actor.principalId === principalId
+      && (surfaces.includes(String(row.after?.computer)) || surfaces.includes(String(row.before?.computer))));
+    return [...own, ...switches].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, limit).map((row) => wireAuditRow(row, adminPerson));
   },
 };
 
@@ -25300,8 +25358,10 @@ const orgAdmin = createOrgAdminRoutes({
     ...overviewRoutes(orgOverviewDeps),
     ...peopleRoutes(orgPeopleDeps),
     ...botsRoutes(orgBotsDeps),
+    ...routineRunsRoutes(orgRoutineRunsDeps),
     ...routinesRoutes(orgRoutinesDeps),
     ...opsRoutes(orgOpsDeps),
+    ...computersRoutes(orgComputersDeps),
   ],
   // The console's file browser (Perspicax 2026-10-08, slice 1: read only).
   files: {

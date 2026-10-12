@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import { peopleRoutes, usageByPerson, type PeopleDeps, type PersonFacts } from "./org-admin-people.ts";
+import { botLook, botPersona } from "./org-admin-look.ts";
 import type { AdminBot } from "./org-admin-routes.ts";
 import { routeNames } from "./org-admin-console.ts";
 import { fakeConsole } from "./testing/console-context.ts";
@@ -17,6 +18,7 @@ const bot = (id: string, owner: string): { bot: AdminBot; reach: { ownerPrincipa
   bot: {
     id, name: id, owner: { principalId: owner, sub: null, name: owner }, ownerRole: "member", engine: { instanceId: "claude", driverKind: "claudeAgent", installed: true },
     model: null, access: "org-key", mcpProfiles: [], grants: [], sections: [], routines: 0, createdAt: null, lastActivityAt: null, status: "active", label: null, threads: 1,
+    look: botLook({ name: id, color: "green" }, () => false), persona: botPersona({ name: id }),
   },
   reach: { ownerPrincipalId: owner, grantTargets: [], sectionMemberTargets: [] },
 });

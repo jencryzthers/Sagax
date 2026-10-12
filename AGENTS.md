@@ -1638,6 +1638,32 @@ each covered by `server/org-admin-files.test.ts` or
 - Each read and download is a `bot.files.read` or `bot.files.download` row
   of the admin activity log (category `bot`, actor the console person).
 
+## Computers, bot looks and the routines calendar for the Perspicax console (2026-10-11)
+
+The organization admin API (`docs/org-admin-api.md`) also serves the
+console's bots gallery, routines calendar and computers. Keep these rules:
+
+- `look` (`server/org-admin-look.ts`) resolves a bot's appearance as
+  `src/components/Avatar.tsx` does (a picture only when its crop is not
+  `mascot`); `shared/mascot-catalog.ts` names each character's family and
+  skins for `GET capabilities`, and
+  `src/components/floating-bots/mascot-catalog.test.ts` fails when it
+  disagrees with the registry: a new character is an entry in both.
+  `GET bots/{id}/avatar` never names a file and opens it with O_NOFOLLOW.
+- `GET routines/runs` (`server/org-admin-runs.ts`) joins the console reach
+  with the Automations scope (`routines.viewTeam`, `routines.viewAll`); a
+  run outside the caller's reach comes `redacted`, without its thread.
+- `computers` (`server/org-admin-computers.ts`): a server environment is
+  acted on only through `UserSandboxManager` (start, stop, pause, resume,
+  update, reset, delete; reset and delete need `confirm: true`, stop,
+  pause and update need it while a bot works there), each action one
+  `computer` row of the admin activity log. A person's desktop is listed
+  read only (name, platform, presence, last contact, `localVm`) through
+  `DesktopBridges.inventory()`; no route acts on it, reads its files, its
+  system facts or its Local VM. Tests: `server/org-admin-*.test.ts`,
+  `server/org-admin-computers.e2e.test.ts`, C6 and C7 of
+  `server/org-admin-console.e2e.test.ts`.
+
 ## A person's own connections, plugins and skills (organization mode, 2026-10-02)
 
 Owner report: on GOX nobody could add the GitHub MCP, log into GitHub or

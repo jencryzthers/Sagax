@@ -119,6 +119,57 @@ export class UserSandboxManager {
     }
   }
 
+  /** The provisioner's own facts (its limit, idle stop and egress), null
+   * when it does not answer. */
+  async provisioner(): Promise<SandboxdInfo | null> {
+    try {
+      return await this.options.client.info();
+    } catch {
+      return null;
+    }
+  }
+
+  /** The console's Computers (2026-10-11): each of these people's
+   * environments that exists, with its status, the commands running there
+   * and its usage sample. Eight people at a time, each call bounded by
+   * `timeoutMs`; an environment that does not answer in time reads
+   * `unavailable`. Starts nothing. */
+  async inventory(principalIds: readonly string[], timeoutMs = 3_000): Promise<Map<string, { view: UserSandboxView; busy: number; stats: SandboxStats | null }>> {
+    const info = await this.provisionerInfo();
+    const queue = [...new Set(principalIds)];
+    const out = new Map<string, { view: UserSandboxView; busy: number; stats: SandboxStats | null }>();
+    const bounded = async <T>(call: () => Promise<T>): Promise<T | null> => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([call(), new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), timeoutMs); })]);
+      } catch {
+        return null;
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+    const worker = async () => {
+      for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+        const key = this.keyFor(id);
+        const pendingDeletionAt = this.pendingDeletionAt(id);
+        const status = await bounded(() => this.options.client.status(key));
+        if (!status) {
+          out.set(id, { view: { state: "unavailable", lastUsedAt: null, workspaceBytes: null, overQuota: false, limits: null, idleMinutes: info?.idleMinutes ?? null, pendingDeletionAt, error: "unreachable" }, busy: 0, stats: null });
+          continue;
+        }
+        if (status.state === "missing") continue;
+        const stats = await bounded(() => this.options.client.stats(key));
+        out.set(id, {
+          view: { state: status.state, lastUsedAt: status.lastUsedAt, workspaceBytes: status.workspaceBytes, overQuota: status.overQuota, limits: status.limits, idleMinutes: info?.idleMinutes ?? null, pendingDeletionAt },
+          busy: status.busy,
+          stats,
+        });
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(8, queue.length) }, worker));
+    return out;
+  }
+
   /** The console's Overview (2026-10-08): how many of these people's
    * environments are running, and the provisioner's limit. Eight status
    * calls at a time, each bounded by `timeoutMs`; one that fails or times
