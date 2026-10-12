@@ -4500,5 +4500,6 @@
   "settings.toolAccess.form.adminDays": "L'accès admin doit avoir une date de fin, dans 30 jours au plus.",
   "settings.toolAccess.tier.read": "Lecture",
   "settings.toolAccess.tier.write": "Écriture",
-  "settings.toolAccess.tier.admin": "Admin"
+  "settings.toolAccess.tier.admin": "Admin",
+  "browser.idle.help": "Le navigateur de {name} s’ouvre en plein écran quand vous prenez le contrôle. Rien n’est diffusé avant."
 }

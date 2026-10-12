@@ -218,8 +218,10 @@ struct DesktopSidebarRow: View {
                 if hovered || showsTouchRowActions, !menu.isEmpty { hoverActions(menu: menu) }
             }
         }
+        // Unfolded, the selected thread below carries the one highlight
+        // (the web's Sidebar.tsx rule): no second stacked block on the bot.
         .background(
-            selected ? theme.sidebarSelected : (hovered ? theme.sidebarHover : .clear),
+            selected && !(showThreads && threadsOpen) ? theme.sidebarSelected : (hovered ? theme.sidebarHover : .clear),
             in: RoundedRectangle(cornerRadius: theme.radiusLg, style: .continuous)
         )
         .onHover { inside in
@@ -647,7 +649,7 @@ struct DesktopThreadRow: View {
         }
         .background(
             current ? theme.sidebarSelected : (hovering ? theme.sidebarHover : .clear),
-            in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+            in: RoundedRectangle(cornerRadius: theme.radiusLg, style: .continuous)
         )
         .onHover { hovering = $0 }
         .threadMenu(task, owner: .bot(bot), actions: actions, session: session)

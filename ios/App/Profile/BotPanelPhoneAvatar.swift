@@ -129,7 +129,7 @@ struct PhoneBotAvatarSheet: View {
                 metrics: .createSheet,
                 showsPhotoRow: false,
                 showsReset: false,
-                unlocks: session.surfaceGate.allows(.characterExtras) ? unlocks : .nothingLocked
+                unlocks: session.isDemo ? .demo : session.surfaceGate.allows(.characterExtras) ? unlocks : .nothingLocked
             )
         }
         .frame(maxWidth: .infinity)

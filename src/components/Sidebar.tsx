@@ -151,7 +151,7 @@ import { SidebarSectionHeader } from "./SidebarSectionHeader";
 import { useShowThreads, useThreadsLocationChoice } from "@/lib/thread-preferences";
 import { openBotConversationActions } from "./thread-home";
 import { useShowSidebarLogo } from "@/lib/sidebar-logo-preferences";
-import { botShowsUnread } from "@/lib/bot-unread";
+import { botShowsUnread, isInterBotThread } from "@/lib/bot-unread";
 import { SidebarBotActivity, sidebarBotActivityTasks } from "./SidebarBotActivity";
 import { citationPreviewText } from "@/lib/citations";
 import { groupMemberBots } from "@/lib/group-members";
@@ -1675,7 +1675,8 @@ export function BotThreadList({ bot, selected, density = "comfortable", query = 
 }) {
   const { state, dispatch } = useStore();
   const tasks = (bot.tasks ?? [{ threadId: bot.threadId, title: t("task.newShort"), createdAt: 0 }])
-    .filter((task) => !task.routineRunId)
+    // bot-to-bot threads never show (the selected one stays reachable)
+    .filter((task) => !task.routineRunId && (task.threadId === bot.threadId || !isInterBotThread(bot.id, task)))
     .map((task) => ({ ...task, queued: Boolean(state.pendingQueued[task.threadId]?.length) }));
   const [permissionRefresh, setPermissionRefresh] = useState<{ threadId: string; kind: "full" | "local-auto" } | null>(null);
   // the same live verb the chat pane derives from the visible tail
@@ -1817,7 +1818,7 @@ export function BotListItem({
   useEffect(() => { if (revealHere && inSidebar) setThreadsOpen(true); }, [reveal, revealHere, inSidebar]);
   // one thread is the bot itself; the disclosure only earns its place once
   // there is a list (a second thread or a folder) to open
-  const hasThreadList = (bot.tasks?.filter((task) => !task.routineRunId).length ?? 1) > 1 || (bot.projects?.length ?? 0) > 0 || Boolean(query);
+  const hasThreadList = (bot.tasks?.filter((task) => !task.routineRunId && !isInterBotThread(bot.id, task)).length ?? 1) > 1 || (bot.projects?.length ?? 0) > 0 || Boolean(query);
   const deleting = state.deletingBots[bot.id] === true;
   const mascotMotion = selected && state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
   const pendingQueued = state.pendingQueued;
@@ -1848,7 +1849,11 @@ export function BotListItem({
     // The Primary Bot is called out by the star on its avatar, not by
     // tinting the whole row: an accent border and fill read as "selected"
     // even when another bot was active.
-    selected ? "bg-sidebar-selected" : "hover:bg-sidebar-hover",
+    // Unfolded, the selected thread below carries the one highlight; the
+    // bot row keeps only a subtle state (no second stacked block), as the
+    // group rows above do.
+    selected && !expanded ? "bg-sidebar-selected" : "hover:bg-sidebar-hover",
+    selected && expanded && "text-sidebar-ink",
   );
   const activityTasks = sidebarBotActivityTasks(bot, pendingQueued);
   const waiting = bot.activity === "waiting-on-you" || activityTasks.some((task) => task.activity === "waiting-on-you");

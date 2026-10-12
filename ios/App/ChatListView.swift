@@ -15,6 +15,7 @@ struct ChatListView: View {
     @State private var query = ""
     @AppStorage(PrefKey.activityDetail) private var activityDetail = ActivityDetail.full.rawValue
     @AppStorage(PrefKey.rosterDensity) private var rosterDensity = RosterDensity.default.rawValue
+    @AppStorage(PrefKey.updatesButton) var showUpdatesButton = false
     /// Driven so that making a bot can open it. Value-based navigation alone
     /// cannot push without a tap, and a new bot appearing silently at the
     /// bottom of the roster is a poor answer to pressing +.
@@ -803,7 +804,7 @@ struct ChatListView: View {
     private var activity: ActivityDetail { ActivityDetail(rawValue: activityDetail) ?? .full }
 
     /// How much each row says, from Settings.
-    private var density: RosterDensity { RosterDensity(stored: rosterDensity) }
+    private var density: RosterDensity { RosterDensity.shown(stored: rosterDensity) }
 
     private var chats: [ChatSummary] {
         let all = session.state.chatSummaries(activity: activity)
@@ -1340,6 +1341,7 @@ extension ChatListView {
             }
             AnyView(standardHeader)
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) { AnyView(standardBottomBar) }
         .overlay(alignment: .top) {
             if CompanionLayout.supportsIslandPresentation {
                 NeedsYouIsland(
@@ -1355,18 +1357,30 @@ extension ChatListView {
         HStack(spacing: Theme.Metric.controlGap) {
             HomeAccountButton(select: selectAccount)
             Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Theme.Metric.screenEdge)
+        .padding(.top, HomeMetrics.headerTop)
+    }
+
+    /// Search and + sit at the bottom, within thumb's reach; with the
+    /// Personalization switch on, the large Updates button (the comfortable
+    /// home's pill) leads the row.
+    private var standardBottomBar: some View {
+        HStack(spacing: Theme.Metric.controlGap) {
+            if showUpdatesButton {
+                updatesButton
+                    .frame(maxWidth: .infinity)
+            } else {
+                Spacer(minLength: 0)
+            }
             GlassCircleButton(systemImage: "magnifyingglass", accessibilityLabel: "Search") {
                 showingSearch = true
             }
             .accessibilityIdentifier("home-search")
-            GlassCircleButton(systemImage: "plus", accessibilityLabel: "Create") {
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) { showingPlusMenu = true }
-            }
-            .opacity(showingPlusMenu ? 0 : 1)
-            .accessibilityIdentifier("home-plus")
+            newMenuButton
         }
         .padding(.horizontal, Theme.Metric.screenEdge)
-        .padding(.top, HomeMetrics.headerTop)
+        .padding(.bottom, 8)
     }
 
     // MARK: Pinned

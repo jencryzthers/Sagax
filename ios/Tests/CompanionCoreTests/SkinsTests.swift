@@ -124,11 +124,12 @@ final class SkinsTests: XCTestCase {
         XCTAssertEqual(ComputerAppearance.preferences(skin: .retro98, font: .skin, retroUnlocked: true)["omb.retro98.on"], "1")
     }
 
-    func testSecretSkinIsHiddenUntilUnlocked() {
+    func testHibou98IsNeverListedOnIOS() {
+        // a desktop-only easter egg: hidden even unlocked or worn
         XCTAssertFalse(SkinID.visible(retroUnlocked: false).contains(.retro98))
-        XCTAssertTrue(SkinID.visible(retroUnlocked: false, active: .retro98).contains(.retro98))
-        XCTAssertTrue(SkinID.visible(retroUnlocked: true).contains(.retro98))
-        XCTAssertEqual(SkinID.visible(retroUnlocked: true).count, 13)
+        XCTAssertFalse(SkinID.visible(retroUnlocked: false, active: .retro98).contains(.retro98))
+        XCTAssertFalse(SkinID.visible(retroUnlocked: true).contains(.retro98))
+        XCTAssertEqual(SkinID.visible(retroUnlocked: true).count, 12)
     }
 
     func testSharedDefaults() throws {

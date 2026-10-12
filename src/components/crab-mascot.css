@@ -28,7 +28,7 @@
 .crab-live:not(.crab-rig) .crab-leg-3 { animation: crab-lean-r 10.9s ease-in-out infinite; }
 .crab-live:not(.crab-rig) .crab-sparkles { opacity: 0; }
 .crab-live:not(.crab-rig).crab-mood-speaking .crab-whole { animation: crab-talk 0.42s ease-in-out infinite alternate; }
-.crab-live:not(.crab-rig).crab-mood-listening .crab-whole { animation: none; transform: rotate(-4deg); transition: transform 0.35s ease-out; }
+.crab-live:not(.crab-rig).crab-mood-listening .crab-whole { animation: none; transform: rotate(-3deg); transition: transform 0.35s ease-out; }
 .crab-live:not(.crab-rig).crab-mood-sleeping .crab-eye { animation: none; transform: scaleY(0.12); }
 .crab-live:not(.crab-rig).crab-mood-sleeping .crab-whole { animation-duration: 3.6s; }
 .crab-live:not(.crab-rig).crab-mood-sleeping .crab-leg,
@@ -38,11 +38,10 @@
 .crab-live:not(.crab-rig).crab-mood-happy .crab-arm-l { animation: crab-clap-l 1.8s ease-in-out infinite; }
 .crab-live:not(.crab-rig).crab-mood-happy .crab-arm-r { animation: crab-clap-r 1.8s ease-in-out infinite; }
 
+/* rigid pixel sprite: the whole group steps up one cell, no stretch */
 @keyframes crab-bob {
-  0%, 100% { transform: translateY(0) scale(1, 1) rotate(0deg); }
-  25% { transform: translateY(-2%) scale(1.015, 0.99) rotate(1.5deg); }
-  50% { transform: translateY(-4%) scale(1.03, 0.97) rotate(0deg); }
-  75% { transform: translateY(-2%) scale(1.015, 0.99) rotate(-1.5deg); }
+  0%, 40%, 100% { transform: translateY(0); }
+  50%, 90% { transform: translateY(-4px); }
 }
 @keyframes crab-blink {
   0%, 42%, 58%, 100% { transform: scaleY(1); }
@@ -55,29 +54,21 @@
   74% { transform: translate(2px, -1px); }
 }
 @keyframes crab-arm-l {
-  0%, 100% { transform: rotate(0deg); }
-  50% { transform: rotate(5deg); }
+  0%, 100% { transform: none; }
 }
 @keyframes crab-arm-r {
-  0%, 100% { transform: rotate(0deg); }
-  50% { transform: rotate(-5deg); }
+  0%, 100% { transform: none; }
 }
-/* Codrops lean: outer legs stretch more toward the look. Ground clip cuts overflow. */
+/* legs stay on the grid: no lean rotation or stretch */
 @keyframes crab-lean-l {
-  0%, 100% { transform: rotate(0deg) scaleY(1); }
-  22% { transform: rotate(6deg) scaleY(1.08); }
-  48% { transform: rotate(-8deg) scaleY(1.28); }
-  74% { transform: rotate(4deg) scaleY(1.05); }
+  0%, 100% { transform: none; }
 }
 @keyframes crab-lean-r {
-  0%, 100% { transform: rotate(0deg) scaleY(1); }
-  22% { transform: rotate(8deg) scaleY(1.28); }
-  48% { transform: rotate(-6deg) scaleY(1.08); }
-  74% { transform: rotate(5deg) scaleY(1.12); }
+  0%, 100% { transform: none; }
 }
 @keyframes crab-talk {
-  from { transform: translateY(0) scaleY(0.98); }
-  to { transform: translateY(-3%) scaleY(1.03); }
+  from { transform: translateY(0); }
+  to { transform: translateY(-4px); }
 }
 @keyframes crab-spark {
   0%, 100% { opacity: 0; }
@@ -85,14 +76,12 @@
   34%, 62% { opacity: 0.3; }
 }
 @keyframes crab-clap-l {
-  0%, 100% { transform: rotate(0deg); }
-  20%, 48%, 76% { transform: rotate(-72deg); }
-  34%, 62% { transform: rotate(-24deg); }
+  0%, 100% { transform: none; }
+  20%, 48%, 76% { transform: translateY(-4px); }
 }
 @keyframes crab-clap-r {
-  0%, 100% { transform: rotate(0deg); }
-  20%, 48%, 76% { transform: rotate(72deg); }
-  34%, 62% { transform: rotate(24deg); }
+  0%, 100% { transform: none; }
+  20%, 48%, 76% { transform: translateY(-4px); }
 }
 
 @media (prefers-reduced-motion: reduce) {

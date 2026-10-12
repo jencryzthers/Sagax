@@ -1389,3 +1389,105 @@ html[data-floating-bot] #root {
     animation: none;
   }
 }
+
+/* The mascot's reply, drawn like a voice-mode reply (ReplyBubble.tsx): a
+   speech bubble over its head that fades by itself, and an input pill under
+   its feet. */
+.fb-root .fb-reply {
+  position: relative;
+  z-index: 2;
+  width: 288px;
+  max-width: calc(100vw - 16px);
+  transition: opacity var(--fb-fade-ms, 600ms) ease, translate var(--fb-fade-ms, 600ms) ease;
+  animation: fb-caption-in 0.24s ease-out both;
+}
+.fb-root .fb-reply[data-faded],
+.fb-root .fb-reply[data-closing] {
+  opacity: 0;
+  translate: 0 -6px;
+  pointer-events: none;
+}
+.fb-root .fb-reply-text {
+  max-height: min(45vh, 260px);
+  overflow-y: auto;
+  padding: 8px 12px;
+  border: 1px solid var(--color-hairline-weak, rgba(127, 127, 127, 0.25));
+  border-radius: 16px;
+  background: var(--color-elevated);
+  color: var(--color-ink);
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.26);
+  outline: none;
+}
+.fb-root .fb-reply-text .fb-asked {
+  margin: 0 0 4px;
+  color: var(--color-ink-tertiary);
+  font-size: 11.5px;
+}
+.fb-root .fb-reply-tail {
+  position: absolute;
+  left: calc(50% - 7px);
+  bottom: -6px;
+  width: 14px;
+  height: 14px;
+  rotate: 45deg;
+  background: var(--color-elevated);
+  border-right: 1px solid var(--color-hairline-weak, rgba(127, 127, 127, 0.25));
+  border-bottom: 1px solid var(--color-hairline-weak, rgba(127, 127, 127, 0.25));
+}
+.fb-root .fb-reply[data-below] .fb-reply-tail {
+  bottom: auto;
+  top: -6px;
+  rotate: 225deg;
+}
+.fb-root .fb-reply-pill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 4px 0 12px;
+  border: 1px solid var(--color-hairline-weak, rgba(127, 127, 127, 0.25));
+  border-radius: 999px;
+  background: var(--color-elevated);
+  color: var(--color-ink);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  animation: fb-pop 0.16s ease-out both;
+}
+.fb-root .fb-reply-field {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 12.5px;
+  outline: none;
+}
+.fb-root .fb-reply-btn {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--color-raised);
+  color: var(--color-ink-secondary);
+}
+.fb-root .fb-reply-btn:hover {
+  color: var(--color-ink);
+}
+.fb-root .fb-reply-send:not(:disabled) {
+  background: var(--fb-owl, var(--color-accent));
+  color: #fff;
+}
+.fb-root .fb-reply-call {
+  width: min(240px, 100%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .fb-root .fb-reply,
+  .fb-root .fb-reply-pill {
+    animation: none;
+    transition: none;
+  }
+}

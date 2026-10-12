@@ -438,3 +438,13 @@ final class RosterDensityTests: XCTestCase {
         )
     }
 }
+
+final class RosterDensitySelectableTests: XCTestCase {
+    func testOnlyTheStandardDisplayIsSelectable() {
+        XCTAssertEqual(RosterDensity.selectable, [.standard])
+        XCTAssertEqual(RosterDensity.shown(stored: "comfortable"), .standard)
+        XCTAssertEqual(RosterDensity.shown(stored: "compact"), .standard)
+        XCTAssertEqual(RosterDensity.shown(stored: nil), .standard)
+        XCTAssertEqual(RosterDensity.shown(stored: "standard"), .standard)
+    }
+}

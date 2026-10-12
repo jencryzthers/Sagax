@@ -65,7 +65,89 @@ final class BrowserLiveModel: ObservableObject {
     }
 }
 
+/// The Computer tab's browser mode, like its VM mode: an idle card, never a
+/// live stream inline. Take control opens the browser full screen, and only
+/// then does the stream start; leaving full screen closes it.
 struct BrowserLiveView: View {
+    let bot: Bot
+    let secondary: Color
+    let track: Color
+    @State private var fullScreen = false
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ZStack {
+                Color.black
+                VStack(spacing: 12) {
+                    Image(systemName: "globe")
+                        .font(.system(size: 22))
+                        .foregroundStyle(Color.white.opacity(0.7))
+                    Text("\(bot.name)'s browser opens in full screen when you take control.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.white.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
+                    Button {
+                        fullScreen = true
+                    } label: {
+                        Label("Take control", systemImage: "hand.raised")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 16)
+                            .frame(minHeight: 44)
+                            .background(Color.white.opacity(0.18), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("browser-take-control")
+                }
+            }
+            .aspectRatio(16.0 / 10.0, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("browser-idle")
+            Text("\(bot.name)'s browser")
+                .font(.system(size: 13))
+                .foregroundStyle(secondary)
+                .frame(maxWidth: .infinity)
+        }
+        .fullScreenCover(isPresented: $fullScreen) {
+            BrowserFullScreen(bot: bot) { fullScreen = false }
+        }
+    }
+}
+
+/// Take control: the live browser over the whole screen. The stream lives
+/// only while this is shown (BrowserLiveContent starts it on appear and
+/// stops it on disappear).
+struct BrowserFullScreen: View {
+    let bot: Bot
+    let onClose: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+            BrowserLiveContent(bot: bot, secondary: Color.white.opacity(0.7), track: Color.white.opacity(0.12))
+                .padding(.horizontal, 8)
+                .padding(.top, 52)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            Button(action: onClose) {
+                Label("Exit full screen", systemImage: "xmark")
+                    .labelStyle(.iconOnly)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(Color.white.opacity(0.18), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .padding(12)
+            .accessibilityIdentifier("browser-exit-fullscreen")
+        }
+        .statusBarHidden(true)
+        .persistentSystemOverlays(.hidden)
+    }
+}
+
+struct BrowserLiveContent: View {
     @EnvironmentObject private var session: Session
     @Environment(\.scenePhase) private var scenePhase
     let bot: Bot

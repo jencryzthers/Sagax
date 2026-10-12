@@ -6,15 +6,41 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { AdminActionRow } from "./admin-activity.ts";
-import { planHiddenAgentThreads } from "./agent-threads.ts";
+import { parseHideList, planHiddenAgentThreads, planHiddenBotThreads } from "./agent-threads.ts";
 import { DATA_DIR } from "./config.ts";
 import type { ModelSelection } from "./contracts.ts";
-import { Store, taskHiddenFromPerson, type BotRecord } from "./store.ts";
+import { isInterBotThread, Store, taskHiddenFromPerson, type BotRecord } from "./store.ts";
 import { viewerThread } from "./thread-privacy.ts";
 
 const selection = (): ModelSelection => ({ instanceId: "claude", model: "default" });
 const savedBots = (): BotRecord[] => JSON.parse(readFileSync(join(DATA_DIR, "bots.json"), "utf8"));
 const JC = "pr_00000000-0000-4000-8000-000000000001";
+
+describe("bot-to-bot threads are never shown to the person", () => {
+  beforeEach(() => rmSync(DATA_DIR, { recursive: true, force: true }));
+
+  it("an unread thread another bot opened never lights the bot's dot; the bot still finds it", () => {
+    const store = new Store(selection);
+    const cryptic = store.createBot({}, { seedMessages: false });
+    const agreements = store.createBot({}, { seedMessages: false });
+    const task = store.createTask(agreements.id, "@Cryptic · work", false, undefined, { botId: cryptic.id, name: "Cryptic", at: 1, kind: "work" })!;
+    expect(isInterBotThread(agreements.id, task)).toBe(true);
+    store.patchTask(agreements.id, task.threadId, { unread: true });
+    expect(store.bot(agreements.id)!.unread).toBe(false);
+    // bots keep using it: it is stored, not hidden
+    expect(store.taskByThread(agreements.id, task.threadId)?.hidden).toBeUndefined();
+    store.patchTask(agreements.id, agreements.threadId, { unread: true });
+    expect(store.bot(agreements.id)!.unread).toBe(true);
+  });
+
+  it("a bot's own thread (opened by itself, e.g. incidents) is not bot-to-bot", () => {
+    const store = new Store(selection);
+    const chief = store.createBot({}, { seedMessages: false });
+    const task = store.createTask(chief.id, "Incidents", false, undefined, { botId: chief.id, name: "Chief", at: 1 })!;
+    expect(isInterBotThread(chief.id, task)).toBe(false);
+    expect(isInterBotThread(chief.id, { title: "x" } as never)).toBe(false);
+  });
+});
 
 describe("a hidden conversation in the store", () => {
   beforeEach(() => rmSync(DATA_DIR, { recursive: true, force: true }));
@@ -94,5 +120,28 @@ describe("hiding the threads an AI client opened before #291", () => {
       row({ runId: "r1" }, { action: "client.routine_run", target: { kind: "routine", id: "r1" } }),
     ], (_botId, threadId) => stored.get(threadId));
     expect(plan).toEqual([{ botId: "b1", threadId: "t-new" }]);
+  });
+});
+
+describe("the second sweep (agent-threads-hidden.v2)", () => {
+  it("hides bot-to-bot threads and the listed AI-client threads, nothing else", () => {
+    const plan = planHiddenBotThreads(
+      [
+        { id: "agreements", threadId: "own", tasks: [
+          { threadId: "own" },
+          { threadId: "work", openedBy: { botId: "cryptic" } },
+          { threadId: "self", openedBy: { botId: "agreements" } },
+          { threadId: "done", hidden: true, openedBy: { botId: "cryptic" } },
+          { threadId: "grok" },
+          { threadId: "person" },
+        ] },
+      ],
+      parseHideList("# fan-out 2026-10-11\nagreements grok\n\n"),
+    );
+    expect(plan).toEqual([{ botId: "agreements", threadId: "work" }, { botId: "agreements", threadId: "grok" }]);
+  });
+
+  it("keeps the bot's current thread even when another bot opened it", () => {
+    expect(planHiddenBotThreads([{ id: "a", threadId: "t", tasks: [{ threadId: "t", openedBy: { botId: "b" } }] }])).toEqual([]);
   });
 });

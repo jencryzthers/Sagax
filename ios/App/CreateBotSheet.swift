@@ -190,7 +190,7 @@ struct CreateBotSheet: View {
             GeometryReader { box in
                 ScrollView {
                     VStack(spacing: 0) {
-                        CharacterEditor(draft: $draft, metrics: .createSheet)
+                        CharacterEditor(draft: $draft, metrics: .createSheet, unlocks: session.isDemo ? .demo : .nothingLocked)
                             .padding(.bottom, 12)
                             .frame(minHeight: box.size.height, alignment: .top)
                         moreOptionsRow
