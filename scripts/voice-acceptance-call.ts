@@ -47,14 +47,14 @@ export interface AcceptanceLine {
 
 /** Overlapping topics, barge-in, correction, stop, a queued extra. EN+FR. */
 export const ACCEPTANCE_SCRIPT: AcceptanceLine[] = [
-  { id: "A", lang: "en", atMs: 0, text: "Tell me a long four paragraph story about Montreal weather. Take your time." },
-  { id: "B", lang: "en", atMs: 4_000, text: "What time is it in Tokyo?" },
-  { id: "C", lang: "fr", atMs: 6_000, text: "Rédige un court courriel de bonjour." },
-  { id: "D", lang: "en", atMs: 7_500, text: "How far is Quebec City from Montreal?" },
-  { id: "lim", lang: "fr", atMs: 8_000, text: "Prépare aussi le rapport mensuel des billets." },
-  { id: "barge", lang: "en", atMs: 16_000, text: "hey what time is it in Paris" },
-  { id: "corr", lang: "en", atMs: 24_000, text: "no, I meant Toronto" },
-  { id: "stop", lang: "en", atMs: 32_000, text: "stop" },
+  { id: "A", lang: "en", atMs: 0, text: "Count to two hundred please, saying each number." },
+  { id: "B", lang: "en", atMs: 5_000, text: "What time is it in Tokyo?" },
+  { id: "C", lang: "fr", atMs: 9_000, text: "Rédige un court courriel de bonjour." },
+  { id: "D", lang: "en", atMs: 13_000, text: "How far is Quebec City from Montreal?" },
+  { id: "lim", lang: "fr", atMs: 15_000, text: "Prépare aussi le rapport mensuel des billets." },
+  { id: "barge", lang: "en", atMs: 24_000, text: "hey what time is it in Paris" },
+  { id: "corr", lang: "en", atMs: 32_000, text: "no, I meant Toronto" },
+  { id: "stop", lang: "en", atMs: 40_000, text: "stop" },
 ];
 
 export type AcceptanceEvent = {
@@ -72,6 +72,7 @@ export type AcceptanceEvent = {
   threadId?: string;
   parallel?: "running" | "queued";
   intent?: "stop" | "correction" | "new_topic";
+  continues?: boolean;
 };
 
 export type AcceptanceScenario = "a" | "b" | "c" | "d" | "e" | "f" | "latency";
@@ -156,7 +157,7 @@ const HINT: Record<string, RegExp> = {
   C: /\b(courriel|bonjour|email)\b/i,
   B: /\btokyo\b/i,
   D: /\b(quebec|québec|how far)\b/i,
-  A: /\b(montreal|montréal|story|weather|histoire)\b/i,
+  A: /\b(count|two hundred|montreal|montréal|story|weather|histoire)\b/i,
 };
 
 /** One warm EOS->first-audio sample per utterance. Metrics events repeat. */
@@ -205,16 +206,17 @@ export function acceptanceInjectWait(originMs: number, atMs: number, nowMs: numb
   return Math.max(0, atMs - (nowMs - originMs));
 }
 
-/** First send on a thread owns later turn-started/completed on that thread.
- * Continues of A must not relabel the thread as the last spoken line. */
-export function firstSendIdByThread(events: AcceptanceEvent[]): Map<string, string> {
+/** Walk events in time: a non-continues send owns later turn events on that thread. */
+export function assignAcceptanceTurnIds(events: AcceptanceEvent[]): void {
   const map = new Map<string, string>();
   for (const event of events) {
-    if (event.kind === "send" && event.id && event.threadId && !map.has(event.threadId)) {
+    if (event.kind === "send" && event.id && event.threadId && !event.continues) {
       map.set(event.threadId, event.id);
     }
+    if ((event.kind === "turn-started" || event.kind === "turn-completed") && event.threadId && !event.id) {
+      event.id = map.get(event.threadId);
+    }
   }
-  return map;
 }
 
 export function matchAcceptanceLine(text: string): AcceptanceLine | undefined {
@@ -397,6 +399,26 @@ export async function runVoiceAcceptanceCall(outDir?: string): Promise<{
       }) as unknown as AudioContext,
     });
 
+    const innerPlayer = { ...player.events };
+    let speaking = false;
+    player.events = {
+      ...innerPlayer,
+      onSentenceStart: (text, info) => {
+        if (!speaking) {
+          speaking = true;
+          mark({ kind: "bot-speak-start", id: injectedId ?? matchAcceptanceLine(text)?.id ?? "reply" });
+        }
+        innerPlayer.onSentenceStart?.(text, info);
+      },
+      onIdle: () => {
+        if (speaking) {
+          speaking = false;
+          mark({ kind: "bot-speak-end", id: "reply" });
+        }
+        innerPlayer.onIdle?.();
+      },
+    };
+
     const pendingSpeak: Array<SpeakItem & { text: string }> = [];
     const drainSpeak = () => {
       const slot = nextSpeakSlot({
@@ -408,9 +430,8 @@ export async function runVoiceAcceptanceCall(outDir?: string): Promise<{
       const item = pendingSpeak.find((row) => row.id === slot.id);
       if (!item) return;
       pendingSpeak.splice(pendingSpeak.indexOf(item), 1);
-      mark({ kind: "bot-speak-start", id: item.id });
+      if (item.id === "queued-notice") injectedId = "queued-notice";
       void Promise.resolve(item.id === "queued-notice" ? call.say(item.text) : call.replyDone(item.text)).finally(() => {
-        mark({ kind: "bot-speak-end", id: item.id });
         drainSpeak();
       });
     };
@@ -441,6 +462,7 @@ export async function runVoiceAcceptanceCall(outDir?: string): Promise<{
           threadId: parallel?.threadId ?? threadId,
           parallel: parallel?.state === "queued" || parallel?.state === "running" ? parallel.state : undefined,
           intent: classifyVoiceIntent(text),
+          continues: turn.continues === true,
         });
         if (stopped) mark({ kind: "cancelled", id: "A", threadId });
         log(`send ${line?.id ?? "?"} status=${sent.status} parallel=${parallel?.state ?? "none"}`);
@@ -554,10 +576,10 @@ export async function runVoiceAcceptanceCall(outDir?: string): Promise<{
     eventsAbort.abort();
     call.end();
 
-    const byThread = firstSendIdByThread(events);
+    assignAcceptanceTurnIds(events);
     for (const event of events) {
-      if ((event.kind === "turn-started" || event.kind === "turn-completed") && event.threadId && !event.id) {
-        event.id = byThread.get(event.threadId) ?? (event.threadId === threadId ? "A" : event.id);
+      if ((event.kind === "turn-started" || event.kind === "turn-completed") && event.threadId === threadId && !event.id) {
+        event.id = "A";
       }
     }
 

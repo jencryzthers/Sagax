@@ -12,11 +12,12 @@ import {
   scoreAcceptanceCancel,
   scoreAcceptanceInterrupt,
   acceptanceInjectWait,
-  firstSendIdByThread,
+  assignAcceptanceTurnIds,
   type AcceptanceEvent,
 } from "./voice-acceptance-call.ts";
 
 it("matches spoken lines to script ids, including stop and correction", () => {
+  expect(matchAcceptanceLine("Count to two hundred please")?.id).toBe("A");
   expect(matchAcceptanceLine("What time is it in Tokyo?")?.id).toBe("B");
   expect(matchAcceptanceLine("stop")?.id).toBe("stop");
   expect(matchAcceptanceLine("no, I meant Toronto")?.id).toBe("corr");
@@ -147,15 +148,19 @@ it("inject waits are counted from post-warmup origin so A and B stay 4s apart", 
   expect(acceptanceInjectWait(0, 4_000, 14_000)).toBe(0);
 });
 
-it("the first send on a thread keeps its id through continues", () => {
-  const map = firstSendIdByThread([
+it("a continues send does not relabel later completions; a new topic on the same thread does", () => {
+  const events: AcceptanceEvent[] = [
     { t: 0, kind: "send", id: "A", threadId: "main" },
-    { t: 100, kind: "send", id: "A", threadId: "main" },
+    { t: 50, kind: "turn-started", threadId: "main" },
+    { t: 80, kind: "send", id: "A", threadId: "main", continues: true },
+    { t: 100, kind: "turn-completed", threadId: "main" },
     { t: 200, kind: "send", id: "B", threadId: "b" },
+    { t: 250, kind: "turn-completed", threadId: "b" },
     { t: 300, kind: "send", id: "corr", threadId: "main" },
-  ]);
-  expect(map.get("main")).toBe("A");
-  expect(map.get("b")).toBe("B");
+    { t: 350, kind: "turn-completed", threadId: "main" },
+  ];
+  assignAcceptanceTurnIds(events);
+  expect(events.filter((event) => event.kind === "turn-completed").map((event) => event.id)).toEqual(["A", "B", "corr"]);
 });
 
 it("a continues interrupt is not scored as barge-in cancelling A", () => {
