@@ -29,4 +29,13 @@ describe("verify-linux-package cloudflared pin", () => {
     expect(src).toContain('"Name=Pulsatrix Sagax"');
     expect(src).not.toContain('"Name=Sagax"');
   });
+
+  it("points the CI installed-browser smoke at /opt/<productName>/resources", () => {
+    const yml = readFileSync(`${root}/electron-builder.yml`, "utf8");
+    const productName = yml.match(/^productName:\s*(.+)$/m)?.[1]?.trim();
+    expect(productName).toBeTruthy();
+    const ci = readFileSync(`${root}/.github/workflows/ci.yml`, "utf8");
+    expect(ci).toContain(`node scripts/smoke-browser-bundle.mjs --resources "/opt/${productName}/resources"`);
+    expect(ci).not.toContain('"/opt/Pulsa Bot/resources"');
+  });
 });
