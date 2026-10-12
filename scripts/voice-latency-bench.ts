@@ -568,7 +568,7 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
     let currentLang: "en" | "fr" = "en";
     live.on("utterance", (text, turnMetrics, turn) => {
       metrics = { ...metrics, ...turnMetrics } as never;
-      current.sentAt = performance.now();
+      current.sentAt ??= performance.now();
       diag.utterances.push(text);
       const utteranceId = (turn as { utteranceId?: string }).utteranceId ?? `bench-${Math.random().toString(36).slice(2, 12)}`;
       void api("POST", `/api/bots/${bot.id}/messages`, {
