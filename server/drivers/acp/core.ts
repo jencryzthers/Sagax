@@ -1014,6 +1014,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               tool: "other",
               summary: `${mcpTool}${preview}`.slice(0, 200),
               mcpTool,
+              sagaxGate: true,
               approvalScope: current.controlsHost ? "local-computer" : undefined,
               // never a session-wide grant: every call is its own card
             });
