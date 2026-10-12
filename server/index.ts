@@ -12498,6 +12498,7 @@ async function startDuplexCallTurn(
     backgroundWork,
     newTopic: intent === "new_topic",
     intent,
+    continues: voiceCall?.continues === true,
     speculative: voiceCall?.speculative === true,
   });
   if (admit.action === "defer") {

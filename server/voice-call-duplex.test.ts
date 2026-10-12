@@ -79,6 +79,12 @@ describe("admitDuplexSend", () => {
     })).toEqual({ action: "replace", interrupt: true, discardQueue: true });
   });
 
+  it("a continues reissue replaces the speculative turn, it does not fork", () => {
+    expect(admitDuplexSend({
+      duplex: true, botBusy: true, stopping: false, queued: false, newTopic: true, continues: true,
+    })).toEqual({ action: "replace", interrupt: true, discardQueue: true });
+  });
+
   it("a speculative send while background work runs is admitted, not deferred", () => {
     expect(admitDuplexSend({
       duplex: true, botBusy: true, stopping: false, queued: false, backgroundWork: true, newTopic: true, speculative: true,

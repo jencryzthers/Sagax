@@ -20,6 +20,7 @@ export function admitDuplexSend(input: {
   newTopic?: boolean;
   speculative?: boolean;
   intent?: "stop" | "correction" | "new_topic";
+  continues?: boolean;
 }): DuplexAdmit {
   if (!input.duplex) {
     return input.botBusy || input.stopping || input.queued ? { action: "steer" } : { action: "start" };
@@ -28,6 +29,11 @@ export function admitDuplexSend(input: {
   // A correction still replaces. A new topic forks even while thinking.
   if (input.intent === "stop" && (input.botBusy || input.stopping)) {
     return { action: "stop", interrupt: true, discardQueue: true };
+  }
+  // STT reissue of the same utterance (continues) is a correction of the
+  // words, not a sibling topic.
+  if (input.continues && (input.botBusy || input.stopping || input.queued)) {
+    return { action: "replace", interrupt: input.botBusy || input.stopping, discardQueue: true };
   }
   if (input.newTopic && input.botBusy && !input.stopping) {
     return { action: "background" };

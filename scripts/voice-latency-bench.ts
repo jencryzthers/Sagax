@@ -135,7 +135,14 @@ export type BenchReplyState = { sentAt?: number; firstToken?: number; ttsFirstBy
 
 /** One POST per bench turn. A reissued STT of the same question would
  * otherwise fork a sibling under Phase 6 admit (new topic while thinking). */
-export function shouldSendBenchUtterance(state: { posted?: boolean }): boolean {
+export function shouldSendBenchUtterance(
+  state: { posted?: boolean },
+  turn?: { continues?: boolean; interrupted?: boolean },
+): boolean {
+  if (turn?.continues || turn?.interrupted) {
+    state.posted = true;
+    return true;
+  }
   if (state.posted) return false;
   state.posted = true;
   return true;
@@ -625,7 +632,7 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
       metrics = mergeBenchMetrics(metrics, { ...metrics, ...turnMetrics } as never);
       current.sentAt ??= performance.now();
       diag.utterances.push(text);
-      if (!shouldSendBenchUtterance(current)) {
+      if (!shouldSendBenchUtterance(current, turn)) {
         benchLog("send skipped reissue");
         return;
       }

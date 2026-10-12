@@ -100,10 +100,11 @@ it("plays a sentence enqueued after cancel while the previous pump is still fini
   expect(started).toEqual(["new"]);
 });
 
-it("drops a reissued utterance on the same bench turn so admit does not fork a sibling", () => {
+it("drops a duplicate utterance on the same bench turn so admit does not fork a sibling", () => {
   const turn: BenchReplyState = { text: "" };
   expect(shouldSendBenchUtterance(turn)).toBe(true);
   expect(shouldSendBenchUtterance(turn)).toBe(false);
+  expect(shouldSendBenchUtterance(turn, { continues: true })).toBe(true);
   expect(shouldSendBenchUtterance({ text: "" })).toBe(true);
 });
 
