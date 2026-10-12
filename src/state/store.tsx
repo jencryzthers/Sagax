@@ -137,6 +137,8 @@ export interface OptionCardData {
   expiresAt?: number;
   /** the narrow grant "always allow" remembers, e.g. "Bash:git" */
   allowKey?: string;
+  /** the Allow rule saved when this card was answered (server/index.ts) */
+  alwaysAllowed?: string;
   allowSession?: boolean;
   /** A permission ask's full arguments as redacted JSON, shown only in
    * the card's collapsed technical details. */

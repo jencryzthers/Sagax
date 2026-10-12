@@ -6,13 +6,13 @@
 // own behavior instead of being matched by their label text.
 import { useState } from "react";
 import { Check, ShieldCheck, Undo2, X } from "lucide-react";
-import { api, ApiError, type Bot, type Message, type OptionCardData } from "@/state/store";
+import { api, ApiError, useStore, type Bot, type Message, type OptionCardData } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { t, tFromServer } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
 import { SkillRequestPreview } from "@/components/SkillRequestPreview";
 import { ApprovalHeading, TechnicalDetails } from "@/components/ApprovalParts";
-import { approvalPlain, describeApproval, isTechnicalText, parseToolId, type ApprovalRisk, type ToolHints } from "@/lib/approval-describe";
+import { approvalPlain, describeAllowRule, describeApproval, isTechnicalText, parseToolId, type ApprovalRisk, type ToolHints } from "@/lib/approval-describe";
 import { composioActionPhrase, outboundSummary } from "@/lib/approval-summary";
 import { niceDate, niceTime, scheduleLabel } from "@/lib/schedule-label";
 import { cronScheduleLabel } from "../../shared/cron-label";
@@ -107,12 +107,32 @@ export function approvalCardStaysInChat(
 }
 
 /** The status pill of a settled tool approval, as Grok Bot shows it. */
-export function approvalPill(card: Pick<OptionCardData, "answered" | "expired" | "undone">): { label: string; tone: "success" | "danger" | "neutral" } | undefined {
+export function approvalPill(card: Pick<OptionCardData, "answered" | "expired" | "undone" | "alwaysAllowed">): { label: string; tone: "success" | "danger" | "neutral" } | undefined {
   if (card.expired === true) return { label: t("approval.pill.expired"), tone: "neutral" };
   if (!card.answered) return undefined;
   if (card.undone === true) return { label: t("approval.status.undone"), tone: "neutral" };
+  if (card.answered === "allow" && card.alwaysAllowed) return { label: t("approval.pill.alwaysAllowed"), tone: "success" };
   if (card.answered === "allow") return { label: t("approval.pill.allowedOnce"), tone: "success" };
   return { label: t("approval.pill.declined"), tone: "danger" };
+}
+
+/** "Added to your Allow rules" with the rule in plain words and Edit rule,
+ * under a card the person answered with Always allow. */
+function AllowRuleInset({ rule }: { rule: string }) {
+  const { dispatch } = useStore();
+  return (
+    <div data-allow-rule className="mt-2 rounded-lg bg-inset px-3 py-2 text-[12.5px] text-ink-secondary">
+      <div className="font-medium text-ink">{t("approval.rule.added")}</div>
+      <div className="mt-0.5">« {describeAllowRule(rule)} »</div>
+      <button
+        type="button"
+        className="mt-1 text-accent hover:underline"
+        onClick={() => dispatch({ type: "toggleSettings", open: true, section: "access" })}
+      >
+        {t("approval.rule.edit")}
+      </button>
+    </div>
+  );
 }
 
 function StatusPill({ card }: { card: OptionCardData }) {
@@ -459,6 +479,8 @@ export function ApprovalCard({
           {heldNote}
         </div>
       )}
+
+      {card.answered === "allow" && card.alwaysAllowed && <AllowRuleInset rule={card.alwaysAllowed} />}
 
       {/* The decision lives in the composer (one place to answer, and it
           can't be scrolled past); here we only record what happened. The
