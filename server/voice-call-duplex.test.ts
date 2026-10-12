@@ -64,10 +64,13 @@ describe("admitDuplexSend", () => {
     })).toEqual({ action: "replace", interrupt: true, discardQueue: true });
   });
 
-  it("does not park a speculative send as a background sibling task", () => {
+  it("a speculative send while background work runs is admitted, not deferred", () => {
     expect(admitDuplexSend({
       duplex: true, botBusy: true, stopping: false, queued: false, backgroundWork: true, newTopic: true, speculative: true,
-    })).toEqual({ action: "defer" });
+    })).toEqual({ action: "background" });
+    expect(admitDuplexSend({
+      duplex: true, botBusy: false, stopping: false, queued: false, backgroundWork: true, newTopic: true, speculative: true,
+    })).toEqual({ action: "start" });
   });
 });
 

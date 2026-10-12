@@ -22,10 +22,9 @@ export function admitDuplexSend(input: {
   if (!input.duplex) {
     return input.botBusy || input.stopping || input.queued ? { action: "steer" } : { action: "start" };
   }
-  if (input.speculative && input.backgroundWork) return { action: "defer" };
   // A new topic forks even while this thread is only thinking. Stop and
-  // correction keep replace (newTopic false). Speculative+background still
-  // defers until the client may start a guess during a parallel card.
+  // correction keep replace (newTopic false). A speculative guess during
+  // a parallel card is admitted the same way (start or background).
   if (input.newTopic && input.botBusy && !input.stopping) {
     return { action: "background" };
   }

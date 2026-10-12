@@ -759,9 +759,9 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     expect(t.utterances.at(-1)?.text).toMatch(/Toronto/);
   });
 
-  it("duplex does not speculate a send while background work is running", async () => {
+  it("duplex speculates a send while background work is running, and dropping the guess interrupts only that utterance", async () => {
     const t = await setup({
-      transcripts: ["What is the weather in Montreal today?"],
+      transcripts: ["What is the weather in Toronto today?"],
       settings: { fullDuplex: true },
       finalDelayMs: 80,
     });
@@ -769,12 +769,12 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     await t.feed(0.95, 0.05, 24);
     t.socket().partial("What is the weather");
     await t.settle();
-    expect(t.utterances).toHaveLength(0);
-    expect(t.interrupts).toHaveLength(0);
+    expect(t.utterances.map((u) => u.text)).toEqual(["What is the weather"]);
+    expect(t.utterances[0]!.metrics.earlyStart).toBe(true);
     t.socket().partial("What is the weather in Toronto");
     await t.settle();
-    expect(t.utterances).toHaveLength(0);
-    expect(t.interrupts).toHaveLength(0);
+    expect(t.interrupts).toHaveLength(1);
+    expect(t.interrupts[0]!.utteranceId).toBe(t.utterances[0]!.utteranceId);
   });
 
   it("duplex sequential turns each get their own first-audio mark", async () => {

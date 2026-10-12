@@ -1077,7 +1077,7 @@ export class VoiceCall {
   /** Duplex: start the LLM on a stable partial while the person is still
    * talking. Stay in hearing so speech-end still finalizes STT. */
   private considerSpeculation(text: string): void {
-    if (!this.o.settings().fullDuplex || !this.turns.active || this.closed || this.state.backgroundWork) return;
+    if (!this.o.settings().fullDuplex || !this.turns.active || this.closed) return;
     const trimmed = text.trim();
     if (this.speculated) {
       if (!discardSpeculation(this.speculated, trimmed)) return;
@@ -1089,10 +1089,8 @@ export class VoiceCall {
 
   private dropSpeculation(): void {
     if (!this.speculated) return;
-    if (!this.state.backgroundWork) {
-      const utteranceId = this.turn?.utteranceId;
-      this.emit("interrupt-bot", utteranceId ? { utteranceId } : undefined);
-    }
+    const utteranceId = this.turn?.utteranceId;
+    this.emit("interrupt-bot", utteranceId ? { utteranceId } : undefined);
     this.speculated = null;
     this.endpointConfirmed = true;
     this.dropHeldPlayback();
