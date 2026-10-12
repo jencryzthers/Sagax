@@ -1,4 +1,4 @@
-import os, subprocess, sys, tempfile, unittest
+import json, os, subprocess, sys, tempfile, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "term-guard.py")
@@ -17,15 +17,20 @@ diff --git a/ok.txt b/ok.txt
 """
 
 
-def run(env, diff=None, allow=None):
+def run(env, diff=None, allow=None, commits=None):
     with tempfile.NamedTemporaryFile("w", delete=False) as f:
         f.write(diff or "")
     e = {"PATH": os.environ["PATH"], "ALLOW_FILE": "/nonexistent", **env}
+    extra = []
+    if commits is not None:
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json") as c:
+            json.dump(commits, c)
+        extra = ["--commits", c.name]
     if allow is not None:
         with tempfile.NamedTemporaryFile("w", delete=False) as a:
             a.write(allow)
         e["ALLOW_FILE"] = a.name
-    p = subprocess.run([sys.executable, SCRIPT, f.name], env=e, capture_output=True, text=True)
+    p = subprocess.run([sys.executable, SCRIPT, *extra, f.name], env=e, capture_output=True, text=True)
     os.unlink(f.name)
     return p.returncode, p.stdout
 
@@ -67,6 +72,49 @@ class T(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("title", out)
         self.assertIn("file #1 path", out)
+
+    def commit(self, email="1+dev@users.noreply.github.com", committer=None, message="fix"):
+        return {"sha": "abcdef1234567", "commit": {"message": message,
+                "author": {"name": "Dev", "email": email},
+                "committer": {"name": "Dev", "email": committer or email}}}
+
+    def test_commit_author_and_committer_email(self):
+        code, out = run({"FORBIDDEN_TERMS": "example-corp.test"}, "",
+                        commits=[self.commit(email="me@Example-Corp.test", committer="noreply@github.com")])
+        self.assertEqual(code, 1)
+        self.assertIn("commit abcdef123 author email", out)
+        self.assertNotIn("committer email", out)
+        self.assertNotIn("example-corp", out.lower())
+        code, out = run({"FORBIDDEN_TERMS": "example-corp.test"}, "",
+                        commits=[self.commit(committer="me@example-corp.test")])
+        self.assertEqual(code, 1)
+        self.assertIn("commit abcdef123 committer email", out)
+
+    def test_commit_message_and_clean_commits(self):
+        code, out = run({"FORBIDDEN_TERMS": "widgetco"}, "", commits=[self.commit(message="Co-authored-by: x <a@widgetco.io>")])
+        self.assertEqual(code, 1)
+        self.assertIn("commit abcdef123 message", out)
+        self.assertEqual(run({"FORBIDDEN_TERMS": "widgetco"}, "", commits=[self.commit()])[0], 0)
+
+    def test_commits_as_json_lines(self):
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".jsonl") as c:
+            c.write(json.dumps(self.commit()) + "\n" + json.dumps(self.commit(email="x@widgetco.io")) + "\n")
+        with tempfile.NamedTemporaryFile("w", delete=False) as f:
+            f.write("")
+        p = subprocess.run([sys.executable, SCRIPT, "--commits", c.name, f.name],
+                           env={"PATH": os.environ["PATH"], "ALLOW_FILE": "/nonexistent", "FORBIDDEN_TERMS": "widgetco"},
+                           capture_output=True, text=True)
+        self.assertEqual(p.returncode, 1, p.stdout)
+        self.assertIn("author email", p.stdout)
+
+    def test_regex_term_matches_email_and_domain(self):
+        terms = "re:[a-z.]+@example-corp\\.test\nre:\\bexample-corp\\.test\\b"
+        d = "diff --git a/c.md b/c.md\n--- a/c.md\n+++ b/c.md\n@@ -0,0 +1 @@\n+mail j.doe@example-corp.test\n"
+        code, out = run({"FORBIDDEN_TERMS": terms}, d, commits=[self.commit(email="j.doe@EXAMPLE-CORP.test")])
+        self.assertEqual(code, 1, out)
+        self.assertIn("c.md:1", out)
+        self.assertIn("author email", out)
+        self.assertEqual(run({"FORBIDDEN_TERMS": terms}, "", commits=[self.commit()])[0], 0)
 
     def test_repo_allowlist_has_no_terms(self):
         allow = os.path.join(HERE, "..", "..", ".github", "term-guard-allow-paths.txt")
