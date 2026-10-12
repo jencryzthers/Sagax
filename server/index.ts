@@ -846,6 +846,7 @@ import { routinesRoutes, type RoutinesDeps } from "./org-admin-routines.ts";
 import { opsRoutes, type ConnectionsView, type OpsDeps, type TestResult } from "./org-admin-ops.ts";
 import { createOrgImportRoute } from "./org-import-routes.ts";
 import { readSandboxdKey } from "./sandboxd-auth.ts";
+import { sandboxBackendFor, sandboxRouteFromEnv } from "./sandbox-route.ts";
 import { sandboxdClient } from "./user-sandbox-client.ts";
 import { UserSandboxManager, UserSandboxUnavailable, userSandboxSettingsFromEnv } from "./user-sandbox-manager.ts";
 import { createUserSandboxRoutes } from "./user-sandbox-routes.ts";
@@ -4277,14 +4278,14 @@ async function stagePendingAttachments(threadId: string, generation: string): Pr
               : `printf %s ${pieces} | base64 -d >> "$SAGAX_PATH"`],
             env,
             timeoutSec: 30,
-          });
+          }, workplace.botId);
           if (result.exitCode !== 0) throw new Error(result.stderr.trim() || "copy failed");
         }
         const argv = isArchiveAttachment(file.file) && storedArchiveManifest(file.file)?.status === "ok"
           ? sandboxArchiveArgv(path, `${SANDBOX_ATTACHMENTS_DIR}/${extractedFolderName(stagedName(file))}`)
           : null;
         if (argv) {
-          const result = await userSandbox.exec(person, { argv, timeoutSec: 300 });
+          const result = await userSandbox.exec(person, { argv, timeoutSec: 300 }, workplace.botId);
           const outcome = parseArchiveOutcome(result.stdout);
           if (result.exitCode !== 0 || !outcome?.extracted) throw new Error(`unpack failed: ${outcome?.reason ?? (result.stderr.trim().slice(0, 200) || "no result")}`);
         }
@@ -5199,8 +5200,14 @@ const userSandbox: UserSandboxManager | null = (() => {
   const settings = userSandboxSettingsFromEnv();
   if (!settings) return null;
   let cachedKey = "";
+  const sandboxdKey = () => (cachedKey ||= readSandboxdKey(settings.keyFile));
+  const kubernetes = settings.kubernetesUrl && settings.tlsCaFile
+    ? sandboxdClient(settings.kubernetesUrl, sandboxdKey, fetch, { ca: readFileSync(settings.tlsCaFile) })
+    : undefined;
   const manager = new UserSandboxManager({
-    client: sandboxdClient(settings.url, () => (cachedKey ||= readSandboxdKey(settings.keyFile))),
+    client: sandboxdClient(settings.url, sandboxdKey),
+    ...(kubernetes ? { kubernetes } : {}),
+    backendFor: (principalId, botId) => sandboxBackendFor(sandboxRouteFromEnv(), principalId, botId),
     instance: settings.instance,
     stateFile: join(DATA_DIR, "user-sandbox-deletions.json"),
     graceMs: settings.graceMs,
@@ -5264,11 +5271,11 @@ function githubClientId(): string | undefined {
 }
 /** Put a person's GitHub connection where gh and git read it in their
  * server environment (or take it out). Best effort: a turn re-applies it. */
-async function syncGithubToSandbox(principalId: string, connection: { token: string; login: string } | null): Promise<boolean> {
+async function syncGithubToSandbox(principalId: string, connection: { token: string; login: string } | null, botId?: string): Promise<boolean> {
   if (!userSandbox) return false;
   try {
     const { argv, env } = githubSandboxArgv(connection);
-    const result = await userSandbox.exec(principalId, { argv, env, timeoutSec: 30, maxOutputBytes: 4096 });
+    const result = await userSandbox.exec(principalId, { argv, env, timeoutSec: 30, maxOutputBytes: 4096 }, botId);
     return result.exitCode === 0;
   } catch (error) {
     console.warn(`[github] server environment not updated: ${error instanceof Error ? error.message : String(error)}`);
@@ -5278,7 +5285,7 @@ async function syncGithubToSandbox(principalId: string, connection: { token: str
 /** Once per turn: the turn's person's GitHub connection in their server
  * environment (it may have been reset since they connected). */
 const githubSyncedGenerations = new Set<string>();
-async function syncGithubForTurn(principalId: string, generation: string): Promise<void> {
+async function syncGithubForTurn(principalId: string, generation: string, botId?: string): Promise<void> {
   const key = `${principalId}\n${generation}`;
   if (githubSyncedGenerations.has(key)) return;
   githubSyncedGenerations.add(key);
@@ -5286,11 +5293,11 @@ async function syncGithubForTurn(principalId: string, generation: string): Promi
   // Off: take the token out of the environment once per turn. The saved
   // connection stays, so turning the cap back on puts it back.
   if (personIntegrationsOff(principalId)) {
-    await syncGithubToSandbox(principalId, null);
+    await syncGithubToSandbox(principalId, null, botId);
     return;
   }
   const connection = personGithub(principalId);
-  if (connection) await syncGithubToSandbox(principalId, connection);
+  if (connection) await syncGithubToSandbox(principalId, connection, botId);
 }
 const githubConnect = new GithubConnect({
   clientId: githubClientId,
@@ -5353,9 +5360,9 @@ const botPlugins = new BotPlugins({
   }
 }
 const stdioRelay = new SandboxStdioRelay({
-  open: (principalId, spec) => {
+  open: (principalId, spec, botId) => {
     if (!userSandbox) throw new StdioRelayError("This server has no server environments.", "unavailable");
-    return userSandbox.stdioStream(principalId, spec);
+    return userSandbox.stdioStream(principalId, spec, botId);
   },
 });
 /** Names Sagax mounts itself: a personal server never takes one. */
@@ -23981,7 +23988,7 @@ ROUTES.push(createVoiceModeRoutes({
         const person = sandboxPrincipalForTurn({
           botOwnerPrincipalId: effectiveBotOwner(bot), routine: false, speakerPrincipalId: orgSpeakerPrincipal(bot, speakerFor(auth)),
         })?.trim().toLowerCase();
-        if (person) void userSandbox.markUsed(person);
+        if (person) void userSandbox.markUsed(person, bot.id);
       }
       voiceWarmup.begin(target.threadId, callId, (signal) => new Promise<void>((resolve) => {
         void startTurn(bot.id, "", {
@@ -27131,7 +27138,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         try {
           if (rpcMethod === "tools/call") await stagePendingAttachments(internalCapability.threadId, internalCapability.generation);
           // Their GitHub connection, where gh and git read it (once per turn).
-          if (rpcMethod === "tools/call") await syncGithubForTurn(ownerId, internalCapability.generation);
+          if (rpcMethod === "tools/call") await syncGithubForTurn(ownerId, internalCapability.generation, internalCapability.botId);
           // The bot's own "no computer" setting holds on the environment's desktop too.
           const toolName = (frame?.params as { name?: unknown } | undefined)?.name;
           if (rpcMethod === "tools/call" && (toolName === "computer_use" || toolName === "computer_list_tools") && store.bot(internalCapability.botId)?.computer === "off") {
@@ -27145,8 +27152,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           const autoRefusal = autoState && autoComputerToolRefusal(autoState.selected, USER_SANDBOX_MCP_NAME, String(toolName ?? ""));
           if (autoRefusal) return json(res, 200, { result: { content: [{ type: "text", text: autoRefusal }], isError: true } });
           const result = await handleUserSandboxMcp(rpcMethod, frame?.params, {
-            exec: (input) => userSandbox.exec(ownerId, input),
-            overQuota: () => userSandbox.workspaceOverQuota(ownerId),
+            exec: (input) => userSandbox.exec(ownerId, input, internalCapability.botId),
+            overQuota: () => userSandbox.workspaceOverQuota(ownerId, internalCapability.botId),
             // An admin manages this person's plugins and MCP servers: the
             // engines' own plugin and MCP commands do not run for them.
             commandRefusal: (command) => enginePluginCommandRefusal(personIntegrationsOff(ownerId), command),
@@ -27179,14 +27186,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         // and stop the child that already has the credential.
         if (personIntegrationsOff(person)) {
           stdioRelay.closePerson(person, name);
-          await syncGithubForTurn(person, internalCapability.generation);
+          await syncGithubForTurn(person, internalCapability.generation, internalCapability.botId);
           return json(res, 200, answerError("This MCP server is paused. An administrator turned this person's own connections off."));
         }
         let server: PersonalMcpServer | undefined;
         try { server = personConnections.servers(person)[name]; } catch { server = undefined; }
         if (!server || server.kind !== "stdio" || !server.enabled) return json(res, 200, answerError("This MCP server was removed or turned off in Settings > Mes connexions."));
         try {
-          if (frame?.method === "tools/call") await syncGithubForTurn(person, internalCapability.generation);
+          if (frame?.method === "tools/call") await syncGithubForTurn(person, internalCapability.generation, internalCapability.botId);
           const answer = await stdioRelay.relay({
             principalId: person, botId: internalCapability.botId, threadId: internalCapability.threadId, server: name,
             spec: { argv: [server.command, ...server.args], env: server.env }, frame,

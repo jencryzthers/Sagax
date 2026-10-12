@@ -356,7 +356,7 @@ export function sandboxNetworkPolicy(k8s: K8sSandboxConfig, key: string, subnet:
 
 /** Namespace backstop: any Pod that lost its own policy still has no ingress
  * and no egress. This selects the provisioner too. The operator applies
- * deploy/sandbox/k8s/networkpolicy-provisioner.yaml first so that pod keeps
+ * deploy/k8s/provisioner/networkpolicy-provisioner.yaml first so that pod keeps
  * egress to the API (443 and 6443) and ingress on 8791. */
 export function defaultDenyNetworkPolicy(namespace: string, instance: string): Obj {
   return {

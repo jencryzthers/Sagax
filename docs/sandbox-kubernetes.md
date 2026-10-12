@@ -36,7 +36,7 @@ so the deny list can include the cluster CIDR. An address inside the deny
 list is refused at startup.
 
 The namespace default deny also selects the provisioner. Apply
-`deploy/sandbox/k8s/networkpolicy-provisioner.yaml` first. That policy is
+`deploy/k8s/provisioner/networkpolicy-provisioner.yaml` first. That policy is
 only the provisioner label: TCP 443 and 6443 out, TCP 8791 in. Set
 `SAGAX_SANDBOX_K8S_API` to `https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT`
 so the provisioner does not need cluster DNS. Point
@@ -64,7 +64,11 @@ emptyDir, because that policy allows no other egress.
 | `SAGAX_SANDBOX_AUDIT_LOG` | no | default `/var/log/sagax/sandbox-audit.jsonl` |
 | `SAGAX_SANDBOX_AUDIT_SHIP_URL` | no | https collector; credentials in the URL are refused |
 | `SAGAX_SANDBOXD_TLS_CERT` / `SAGAX_SANDBOXD_TLS_KEY` | yes | provisioner certificate; `SAGAX_SANDBOXD_TLS_INSECURE=1` is a lab bypass and is audited |
-| `SAGAX_SANDBOXD_TLS_CA` | client | Sagax server trusts this CA for an https provisioner URL |
+| `SAGAX_SANDBOXD_TLS_CA` | client | Sagax server trusts this CA for `SAGAX_SANDBOXD_K8S_URL` (https only) |
+| `SAGAX_SANDBOXD_K8S_URL` | client | Kubernetes provisioner. Docker stays `SAGAX_SANDBOXD_URL` |
+| `SAGAX_SANDBOX_CANARY_PEOPLE` | client | principal ids sent to Kubernetes |
+| `SAGAX_SANDBOX_CANARY_BOTS` | client | bot ids whose turns are sent to Kubernetes |
+| `SAGAX_SANDBOX_ROUTE` | client | `kubernetes` sends everyone; `docker` sends everyone back |
 
 `latest`, a bare name (`sagax-sandbox:local`) and a registry outside the
 prefix are refused. `ghcr.io/org` does not admit `ghcr.io/org-evil/...`.
@@ -136,7 +140,7 @@ workflow are not evidence.
 
 | Change | Criteria | What this repo can show | What it does not show |
 |---|---|---|---|
-| ServiceAccount `sagax-sandboxd` with a namespace Role; sandbox Pods use `sagax-sandbox-workload` with no Role and no token; no `docker.sock`; no `cluster-admin` | CC6.1, CC6.3 least privilege; CC6.2 no shared admin credential for the workload | `deploy/sandbox/k8s/rbac.yaml`, the Pod security context in `podFromDockerSpec` | The kind kubeconfig is cluster-admin and must not be the production credential. An admin who applies the manifests still exists outside this Role. |
+| ServiceAccount `sagax-sandboxd` with a namespace Role; sandbox Pods use `sagax-sandbox-workload` with no Role and no token; no `docker.sock`; no `cluster-admin` | CC6.1, CC6.3 least privilege; CC6.2 no shared admin credential for the workload | `deploy/k8s/provisioner/rbac.yaml`, the Pod security context in `podFromDockerSpec` | The kind kubeconfig is cluster-admin and must not be the production credential. An admin who applies the manifests still exists outside this Role. |
 | Provisioner TLS required; the Sagax client accepts https only with `SAGAX_SANDBOXD_TLS_CA` | CC6.6, CC6.7 transmission restricted to an authenticated channel | `startKubernetesProvisioner` refuses to listen without the cert unless `SAGAX_SANDBOXD_TLS_INSECURE=1`, and that bypass is an audit line; `validSandboxdUrl` | The insecure flag is a lab switch. Traffic from kubelet to the runtime is the cluster's. |
 | Per-sandbox NetworkPolicy (public IPv4 only, no ingress, no IPv6) and a namespace default deny; provisioner limited to 443, 6443 and 8791 | CC6.6 boundary protection | `sandboxNetworkPolicy`, `defaultDenyNetworkPolicy`, `networkpolicy-provisioner.yaml` | Enforcement is the attestation `SAGAX_SANDBOX_K8S_NETWORK_POLICY=enforced`. The API cannot show that the CNI implements the objects. k3s flannel and kindnet do not. |
 | Registry prefix plus digest pin; tag `latest` refused | CC6.8 unauthorized software | `imageAdmissionProblems` | A digest is not a signature. This change does not sign an image. |

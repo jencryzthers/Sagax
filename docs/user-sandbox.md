@@ -286,11 +286,22 @@ api.githubcopilot.com are reachable; only private destinations are dropped.
 | `SAGAX_DOCKER_GID` | 999 | group of `/var/run/docker.sock` on the host |
 
 `SANDBOX_BACKEND` defaults to `docker` and leaves this table in force. Set it
-to `kubernetes` to run the same provisioner API on a cluster instead of
-`docker.sock`. That path, its variables, and which SOC 2 controls the
-manifests can evidence are in [sandbox-kubernetes.md](sandbox-kubernetes.md).
-A Kubernetes pause drops the Pod (the memory is released) and still holds the
-capacity slot; a Docker pause keeps the memory.
+to `kubernetes` on the provisioner that should call the Kubernetes API
+(`server/sandboxd-k8s.ts`). The compose provisioner stays `docker`. Sagax
+runs both and sends a person to Kubernetes only when
+`SAGAX_SANDBOX_CANARY_PEOPLE`, `SAGAX_SANDBOX_CANARY_BOTS` or
+`SAGAX_SANDBOX_ROUTE=kubernetes` says so. `SAGAX_SANDBOX_ROUTE=docker` sends
+everyone back to Docker. The https URL is `SAGAX_SANDBOXD_K8S_URL` and the
+CA file is `SAGAX_SANDBOXD_TLS_CA`. Images must sit under
+`SAGAX_SANDBOX_K8S_REGISTRY` and, by default, carry a digest. The manifests
+are one tree, `deploy/k8s/` (`provisioner/`, `sandboxes/`, `helm/`, `tofu/`).
+The cutover is [ops/sandboxes/cutover-rollback.md](ops/sandboxes/cutover-rollback.md).
+Variables and the SOC 2 map for the provisioner are in
+[sandbox-kubernetes.md](sandbox-kubernetes.md). A Kubernetes pause drops the
+Pod (the memory is released) and still holds the capacity slot; a Docker
+pause keeps the memory. Copy one person's Docker volume to their PVC, or
+back, with `scripts/sandbox-workspace-migrate.ts`. The source is left in
+place and a second run with the same checksums writes nothing.
 
 ## Deploy
 

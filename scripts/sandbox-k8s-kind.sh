@@ -17,10 +17,10 @@ cleanup() { kind delete cluster --name "$name" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 kind create cluster --name "$name"
 kind export kubeconfig --name "$name"
-kubectl apply -f deploy/sandbox/k8s/namespace.yaml
-kubectl apply -f deploy/sandbox/k8s/rbac.yaml
-kubectl apply -f deploy/sandbox/k8s/networkpolicy-provisioner.yaml
-kubectl apply -f deploy/sandbox/k8s/resourcequota.yaml
+kubectl apply -f deploy/k8s/provisioner/namespace.yaml
+kubectl apply -f deploy/k8s/provisioner/rbac.yaml
+kubectl apply -f deploy/k8s/provisioner/networkpolicy-provisioner.yaml
+kubectl apply -f deploy/k8s/provisioner/resourcequota.yaml
 docker pull debian:bookworm-slim
 docker tag debian:bookworm-slim ghcr.io/pulsatrixtechnologies/sagax-sandbox:kind
 kind load docker-image ghcr.io/pulsatrixtechnologies/sagax-sandbox:kind --name "$name"

@@ -204,19 +204,19 @@ describe("image scripts and manifests", () => {
   });
 
   it("keeps the provisioner off cluster-admin and off the docker socket", () => {
-    const rbac = readFileSync(new URL("../deploy/sandbox/k8s/rbac.yaml", import.meta.url), "utf8");
+    const rbac = readFileSync(new URL("../deploy/k8s/provisioner/rbac.yaml", import.meta.url), "utf8");
     expect(rbac).not.toContain("cluster-admin");
     expect(rbac).toContain("storageclasses");
     expect(rbac).toContain("sagax-sandbox-workload");
     expect(rbac).toMatch(/resources: \["events"\]\n\s+verbs: \["create"\]/);
     expect(rbac).toMatch(/resources: \["resourcequotas", "limitranges"\]\n\s+verbs: \["get", "list"\]/);
-    const deployment = readFileSync(new URL("../deploy/sandbox/k8s/sandboxd-deployment.yaml", import.meta.url), "utf8");
+    const deployment = readFileSync(new URL("../deploy/k8s/provisioner/sandboxd-deployment.yaml", import.meta.url), "utf8");
     expect(deployment).not.toContain("docker.sock");
     expect(deployment).toContain("example.invalid/sagax:must-set");
     expect(deployment).toContain("type: ClusterIP");
-    const namespace = readFileSync(new URL("../deploy/sandbox/k8s/namespace.yaml", import.meta.url), "utf8");
+    const namespace = readFileSync(new URL("../deploy/k8s/provisioner/namespace.yaml", import.meta.url), "utf8");
     expect(namespace).toContain("restricted");
-    const allow = readFileSync(new URL("../deploy/sandbox/k8s/networkpolicy-provisioner.yaml", import.meta.url), "utf8");
+    const allow = readFileSync(new URL("../deploy/k8s/provisioner/networkpolicy-provisioner.yaml", import.meta.url), "utf8");
     expect(allow).toContain("app: sagax-sandboxd");
     expect(allow).toContain("6443");
   });

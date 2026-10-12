@@ -1,6 +1,10 @@
 # sagax-sandboxd on Kubernetes
 
-Cloud-agnostic manifests for the provisioner. Applying them creates no load
+Cloud-agnostic manifests for the provisioner. The kind script and the
+unit tests apply this directory. The production cutover scales the
+Deployment in `deploy/k8s/sandboxes/base/sandboxd.yaml` instead. Both
+name `sagax-sandboxd` in `sagax-sandboxes`; apply one Deployment, not both.
+Applying them creates no load
 balancer and pulls no image (`example.invalid/sagax:must-set`). The design,
 the environment variables, and the SOC 2 mapping are in
 [`docs/sandbox-kubernetes.md`](../../../docs/sandbox-kubernetes.md).
@@ -12,12 +16,12 @@ attestations (`SAGAX_SANDBOX_K8S_SECRETS_ENCRYPTED`,
 `SAGAX_SANDBOX_K8S_NETWORK_POLICY`).
 
 ```bash
-kubectl apply -f deploy/sandbox/k8s/namespace.yaml
-kubectl apply -f deploy/sandbox/k8s/rbac.yaml
-kubectl apply -f deploy/sandbox/k8s/networkpolicy-provisioner.yaml
-kubectl apply -f deploy/sandbox/k8s/resourcequota.yaml
-kubectl apply -f deploy/sandbox/k8s/limitrange.yaml
-kubectl apply -f deploy/sandbox/k8s/sandboxd-deployment.yaml
+kubectl apply -f deploy/k8s/provisioner/namespace.yaml
+kubectl apply -f deploy/k8s/provisioner/rbac.yaml
+kubectl apply -f deploy/k8s/provisioner/networkpolicy-provisioner.yaml
+kubectl apply -f deploy/k8s/provisioner/resourcequota.yaml
+kubectl apply -f deploy/k8s/provisioner/limitrange.yaml
+kubectl apply -f deploy/k8s/provisioner/sandboxd-deployment.yaml
 ```
 
 `networkpolicy-default-deny.yaml` matches the object the provisioner creates
