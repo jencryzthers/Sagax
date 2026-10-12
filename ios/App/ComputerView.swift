@@ -235,7 +235,7 @@ struct ComputerView: View {
         let items = ComputerChooser.items(bridge: choices.bridge, organization: session.surfaceGate.organization,
                                           worksOnLocal: showsLocalVm, browser: browserOffered)
         if items.count > 1 {
-            VStack(spacing: 6) {
+            VStack(alignment: dark ? .center : .leading, spacing: 6) {
                 ComputerChooser(
                     items: items,
                     chosen: ComputerChooser.selectedKey(showsBrowser: showsBrowser, chosen: chosen),
@@ -251,6 +251,11 @@ struct ComputerView: View {
                     secondary: dark ? Theme.Computer.ink.opacity(0.6) : Theme.textSecondary
                 )
             }
+            // Embedded in the profile sheet, the picker's horizontal scroll
+            // view would take the sheet's full width and start at its edge;
+            // it takes the screen's own width, which the sheet already
+            // insets by `Theme.Profile.cardMargin`.
+            .frame(width: dark ? nil : embeddedWidth, alignment: .leading)
         }
     }
 

@@ -656,6 +656,7 @@ private struct PhoneBotPanelContent: View {
         case .profileLinks: libraryStart = .links; tab = .library
         case .profileMedia: libraryStart = .files(.image); tab = .library
         case .profileFiles: tab = .library
+        case .profileComputer: tab = .computer
         case .profileInfoScrolled, .profileMoreMenu:
             try? await Task.sleep(nanoseconds: 600_000_000)
             scrollToRoutines += 1
