@@ -41,6 +41,25 @@ it("the script covers overlapping topics, barge-in, correction, stop, three para
   const a = ACCEPTANCE_SCRIPT.find((row) => row.id === "A")!;
   expect(b.atMs).toBeGreaterThan(a.atMs);
   expect(b.atMs).toBeLessThan(10_000);
+  const spaced = ["A", "B", "C", "D", "lim"] as const;
+  for (let i = 1; i < spaced.length; i++) {
+    const prev = ACCEPTANCE_SCRIPT.find((row) => row.id === spaced[i - 1])!;
+    const next = ACCEPTANCE_SCRIPT.find((row) => row.id === spaced[i])!;
+    expect(next.atMs - prev.atMs, `${spaced[i]} after ${spaced[i - 1]}`).toBeGreaterThanOrEqual(4_000);
+  }
+  const stopB = ACCEPTANCE_STOP_SCRIPT.find((row) => row.id === "B")!;
+  expect(stopB.atMs).toBeGreaterThanOrEqual(8_000);
+});
+
+it("a continues first POST that forks still counts as a live fork", () => {
+  const events: AcceptanceEvent[] = [
+    { t: 0, kind: "send", id: "A", threadId: "main" },
+    { t: 100, kind: "turn-started", id: "A", threadId: "main" },
+    { t: 400, kind: "send", id: "B", threadId: "b", parallel: "running", continues: true },
+    { t: 900, kind: "turn-completed", id: "B", threadId: "b" },
+    { t: 2_000, kind: "turn-completed", id: "A", threadId: "main" },
+  ];
+  expect(scoreAcceptance(events).find((s) => s.scenario === "a")!.pass).toBe(true);
 });
 
 it("a) B while A is thinking: both complete and A is not cancelled", () => {

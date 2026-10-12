@@ -21,6 +21,8 @@ export function admitDuplexSend(input: {
   speculative?: boolean;
   intent?: "stop" | "correction" | "new_topic";
   continues?: boolean;
+  /** STT reissue of the utterance already on this thread. Absent: treat as same. */
+  sameUtterance?: boolean;
 }): DuplexAdmit {
   if (!input.duplex) {
     return input.botBusy || input.stopping || input.queued ? { action: "steer" } : { action: "start" };
@@ -31,8 +33,13 @@ export function admitDuplexSend(input: {
     return { action: "stop", interrupt: true, discardQueue: true };
   }
   // STT reissue of the same utterance (continues) is a correction of the
-  // words, not a sibling topic.
+  // words, not a sibling topic. A continues flag on a different utterance
+  // (skipped speculative, or a new topic's final after a fork) must not
+  // replace the live turn.
   if (input.continues && (input.botBusy || input.stopping || input.queued)) {
+    if (input.sameUtterance === false && input.newTopic && !input.stopping) {
+      return { action: "background" };
+    }
     return { action: "replace", interrupt: input.botBusy || input.stopping, discardQueue: true };
   }
   if (input.newTopic && input.botBusy && !input.stopping) {
@@ -48,6 +55,37 @@ export function admitDuplexSend(input: {
  * starting the new one. Idle wait and thread_busy retry share this budget
  * after the abort is acknowledged. */
 export const DUPLEX_INTERRUPT_WAIT_MS = 300;
+
+function voiceWords(text: string | undefined): string[] {
+  return (text ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[a-z0-9]+/g) ?? [];
+}
+
+/** True when `next` is the same spoken utterance as `previous` (STT grew). */
+export function continuesSameUtterance(previous: string | undefined, next: string): boolean {
+  const before = voiceWords(previous);
+  const after = voiceWords(next);
+  if (!before.length || !after.length) return false;
+  const [shorter, longer] = before.length <= after.length ? [before, after] : [after, before];
+  return shorter.every((word, i) => word === longer[i]);
+}
+
+/** Last person line that belongs to this thread, not a parallel request card. */
+export function lastOwnUserVoiceText(
+  messages: Array<{ role?: string; text?: string; parallelTask?: unknown }>,
+): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]!;
+    if (message.role === "user" && message.text?.trim() && !message.parallelTask) return message.text;
+  }
+}
+
+/** Parallel sibling whose last ask is this continues text. */
+export function matchingVoiceSibling(
+  siblings: Array<{ threadId: string; text: string }>,
+  text: string,
+): string | undefined {
+  return siblings.find((row) => continuesSameUtterance(row.text, text))?.threadId;
+}
 
 /** One increasing token per thread: only the latest duplex replace starts. */
 export function duplexEpoch(): { claim: () => number; isLatest: (token: number) => boolean } {

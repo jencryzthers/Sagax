@@ -132,6 +132,25 @@ posixOnly("voice call true concurrency e2e", () => {
     expect(aReply?.text).not.toContain("cancelled");
   }, 60_000);
 
+  it("a continues reissue of a new topic forks, it does not replace A", async () => {
+    const bot = await busyCall("contA");
+    const b = await api("POST", `/api/bots/${bot.id}/messages`, {
+      threadId: bot.threadId,
+      text: "[gate:contB] what time is it in Tokyo",
+      voiceCall: { callId: CALL_ID, duplex: true, utteranceId: "utt-contB", continues: true },
+    });
+    expect(b.status, JSON.stringify(b.body)).toBe(202);
+    expect(b.body.parallel?.state).toBe("running");
+    const bThread = b.body.parallel.threadId as string;
+    await waitFor(async () => (await tasks(bot.id)).filter((task) => task.busy).length >= 2, "A and B both running");
+    expect((await tasks(bot.id)).find((task) => task.threadId === bot.threadId)?.busy).toBe(true);
+    open("contB");
+    await waitFor(async () => (await messages(bot.threadId)).some((m) => m.parallelTask?.role === "result" && m.parallelTask.threadId === bThread), "B result");
+    expect((await tasks(bot.id)).find((task) => task.threadId === bot.threadId)?.busy).toBe(true);
+    open("contA");
+    await waitFor(async () => (await tasks(bot.id)).every((task) => !task.busy), "both settled");
+  }, 60_000);
+
   it("b) three overlapping voice topics all complete", async () => {
     const bot = await busyCall("threeA");
     const b = await api("POST", `/api/bots/${bot.id}/messages`, {

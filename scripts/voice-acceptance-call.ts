@@ -47,20 +47,20 @@ export interface AcceptanceLine {
 
 /** Overlapping topics, barge-in, correction, stop, a queued extra. EN+FR. */
 export const ACCEPTANCE_SCRIPT: AcceptanceLine[] = [
-  { id: "A", lang: "en", atMs: 0, text: "Please wait twelve seconds, then count to two hundred, saying each number." },
+  { id: "A", lang: "en", atMs: 0, text: "Please wait twenty seconds, then count to twenty, saying each number." },
   { id: "B", lang: "en", atMs: 8_000, text: "Please wait fifteen seconds, then what time is it in Tokyo?" },
-  { id: "C", lang: "fr", atMs: 12_000, text: "Attends huit secondes, puis rédige un court courriel de bonjour." },
-  { id: "D", lang: "en", atMs: 16_000, text: "How far is Quebec City from Montreal?" },
-  { id: "lim", lang: "fr", atMs: 18_000, text: "Prépare aussi le rapport mensuel des billets." },
-  { id: "barge", lang: "en", atMs: 22_000, text: "hey what time is it in Paris" },
-  { id: "corr", lang: "en", atMs: 30_000, text: "no, I meant Toronto" },
+  { id: "C", lang: "fr", atMs: 14_000, text: "Attends huit secondes, puis rédige un court courriel de bonjour." },
+  { id: "D", lang: "en", atMs: 20_000, text: "How far is Quebec City from Montreal?" },
+  { id: "lim", lang: "fr", atMs: 26_000, text: "Prépare aussi le rapport mensuel des billets." },
+  { id: "barge", lang: "en", atMs: 32_000, text: "hey what time is it in Paris" },
+  { id: "corr", lang: "en", atMs: 40_000, text: "no, I meant Toronto" },
 ];
 
 /** Second call: stop while A is thinking and B is a background task. */
 export const ACCEPTANCE_STOP_SCRIPT: AcceptanceLine[] = [
-  { id: "A", lang: "en", atMs: 0, text: "Please wait twenty seconds, then count to two hundred, saying each number." },
-  { id: "B", lang: "en", atMs: 6_000, text: "Please wait fifteen seconds, then what time is it in Tokyo?" },
-  { id: "stop", lang: "en", atMs: 10_000, text: "stop" },
+  { id: "A", lang: "en", atMs: 0, text: "Please wait twenty seconds, then count to twenty, saying each number." },
+  { id: "B", lang: "en", atMs: 8_000, text: "Please wait fifteen seconds, then what time is it in Tokyo?" },
+  { id: "stop", lang: "en", atMs: 12_000, text: "stop" },
 ];
 
 /** Speculative 4-word prefixes complete as short turns and kill the wait. */
@@ -105,7 +105,7 @@ const done = (events: AcceptanceEvent[], id: string) =>
 const killed = (events: AcceptanceEvent[], id: string) =>
   events.some((event) => event.kind === "cancelled" && event.id === id);
 const forked = (events: AcceptanceEvent[], id: string) =>
-  events.some((event) => event.kind === "send" && event.id === id && !event.continues && event.parallel === "running");
+  events.some((event) => event.kind === "send" && event.id === id && event.parallel === "running");
 function cancelledBeforeComplete(events: AcceptanceEvent[], id: string): boolean {
   const doneAt = events.find((event) => event.kind === "turn-completed" && event.id === id)?.t;
   return events.some((event) => event.kind === "cancelled" && event.id === id && (doneAt === undefined || event.t < doneAt));
@@ -649,8 +649,8 @@ export async function runVoiceAcceptanceCall(outDir?: string): Promise<{
     const phase = {
       api, origin, headers, player, t0,
     };
-    const fork = await driveAcceptancePhase({ ...phase, bot, script: ACCEPTANCE_SCRIPT, tailMs: 35_000 });
-    const stop = await driveAcceptancePhase({ ...phase, bot: stopBot, script: ACCEPTANCE_STOP_SCRIPT, tailMs: 25_000 });
+    const fork = await driveAcceptancePhase({ ...phase, bot, script: ACCEPTANCE_SCRIPT, tailMs: 45_000 });
+    const stop = await driveAcceptancePhase({ ...phase, bot: stopBot, script: ACCEPTANCE_STOP_SCRIPT, tailMs: 30_000 });
     const events = [...fork.events, ...stop.events];
     const warmTotals = [...fork.warmTotals, ...stop.warmTotals];
     const scores = mergeAcceptanceScores(

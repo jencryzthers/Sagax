@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   admitDuplexSend,
+  continuesSameUtterance,
   dropCancelledVoiceEvent,
   DUPLEX_INTERRUPT_WAIT_MS,
   duplexEpoch,
   isStaleAssistantOutput,
   isThreadBusyError,
+  lastOwnUserVoiceText,
+  matchingVoiceSibling,
   pinVoiceInterrupt,
   waitForThreadIdle,
 } from "./voice-call-duplex.ts";
@@ -83,6 +86,15 @@ describe("admitDuplexSend", () => {
     expect(admitDuplexSend({
       duplex: true, botBusy: true, stopping: false, queued: false, newTopic: true, continues: true,
     })).toEqual({ action: "replace", interrupt: true, discardQueue: true });
+    expect(admitDuplexSend({
+      duplex: true, botBusy: true, stopping: false, queued: false, newTopic: true, continues: true, sameUtterance: true,
+    })).toEqual({ action: "replace", interrupt: true, discardQueue: true });
+  });
+
+  it("a continues send of a different utterance forks, it does not replace A", () => {
+    expect(admitDuplexSend({
+      duplex: true, botBusy: true, stopping: false, queued: false, newTopic: true, continues: true, sameUtterance: false,
+    })).toEqual({ action: "background" });
   });
 
   it("a speculative send while background work runs is admitted, not deferred", () => {
@@ -92,6 +104,38 @@ describe("admitDuplexSend", () => {
     expect(admitDuplexSend({
       duplex: true, botBusy: false, stopping: false, queued: false, backgroundWork: true, newTopic: true, speculative: true,
     })).toEqual({ action: "start" });
+  });
+});
+
+describe("continuesSameUtterance", () => {
+  it("a longer STT final of the same words is the same utterance", () => {
+    expect(continuesSameUtterance("Please wait twelve seconds", "Please wait twelve seconds, then count to two hundred")).toBe(true);
+    expect(continuesSameUtterance("what time is it in Tokyo", "what time is it in Tokyo right now")).toBe(true);
+  });
+
+  it("a new topic is not a continuation of the live turn", () => {
+    expect(continuesSameUtterance(
+      "Please wait twelve seconds, then count to two hundred, saying each number.",
+      "Please wait fifteen seconds, then what time is it in Tokyo?",
+    )).toBe(false);
+  });
+
+  it("last own user line skips parallel request cards", () => {
+    expect(lastOwnUserVoiceText([
+      { role: "user", text: "wait twelve seconds" },
+      { role: "user", text: "what time is it in Tokyo", parallelTask: { threadId: "b" } },
+    ])).toBe("wait twelve seconds");
+  });
+
+  it("a continues of a forked speculative finds that sibling", () => {
+    expect(matchingVoiceSibling(
+      [{ threadId: "b", text: "what time is it in Tokyo" }],
+      "what time is it in Tokyo right now",
+    )).toBe("b");
+    expect(matchingVoiceSibling(
+      [{ threadId: "b", text: "what time is it in Tokyo" }],
+      "How far is Quebec City from Montreal?",
+    )).toBeUndefined();
   });
 });
 

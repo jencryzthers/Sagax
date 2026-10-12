@@ -631,11 +631,14 @@ import { createVoiceModeRoutes } from "./voice-mode.ts";
 import { parseVoiceCallMeta, voiceCallSection, voiceCallSteerPrompt, voiceCallTurnPrompt } from "./voice-call-prompt.ts";
 import {
   admitDuplexSend,
+  continuesSameUtterance,
   dropCancelledVoiceEvent,
   duplexEpoch,
   DUPLEX_INTERRUPT_WAIT_MS,
   isStaleAssistantOutput,
   isThreadBusyError,
+  lastOwnUserVoiceText,
+  matchingVoiceSibling,
   pinVoiceInterrupt,
   waitForThreadIdle,
 } from "./voice-call-duplex.ts";
@@ -12487,9 +12490,23 @@ async function startDuplexCallTurn(
 ) {
   const current = store.projectBotForTask(botId, threadId);
   if (!current) throw Object.assign(new Error("no such bot"), { status: 404 });
-  const backgroundWork = callHasParkableWork(store.messagesFor(threadId))
+  const threadMessages = store.messagesFor(threadId);
+  if (voiceCall?.continues === true) {
+    const sibling = matchingVoiceSibling(
+      threadMessages
+        .filter((message) => message.role === "user" && message.parallelTask?.threadId && message.text)
+        .map((message) => ({ threadId: message.parallelTask!.threadId, text: message.text! })),
+      text,
+    );
+    const sameOwn = continuesSameUtterance(lastOwnUserVoiceText(threadMessages), text);
+    if (!sameOwn && sibling && sibling !== threadId) {
+      return startDuplexCallTurn(botId, sibling, text, replyTo, sendId, sender, trigger, speaker, voiceCall);
+    }
+  }
+  const backgroundWork = callHasParkableWork(threadMessages)
     || store.tasks(current.id).some((task) => task.parallelOf?.threadId === threadId && parallelPending(task));
   const intent = classifyVoiceIntent(text);
+  const sameUtterance = continuesSameUtterance(lastOwnUserVoiceText(threadMessages), text);
   const admit = admitDuplexSend({
     duplex: true,
     botBusy: Boolean(current.busy) || threadBusy(botId, threadId),
@@ -12500,6 +12517,7 @@ async function startDuplexCallTurn(
     intent,
     continues: voiceCall?.continues === true,
     speculative: voiceCall?.speculative === true,
+    sameUtterance,
   });
   if (admit.action === "defer") {
     return { ok: true as const, threadId, deferred: true as const };
