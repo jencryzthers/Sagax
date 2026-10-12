@@ -1,5 +1,5 @@
 // Cursor Cloud Agents API v1 (https://cursor.com/docs/cloud-agent/api/endpoints).
-import type { CloudAgentFollowUpInput, CloudAgentLaunchInput, CloudAgentRecord } from "../../../shared/cloud-agents.ts";
+import type { CloudAgentFollowUpInput } from "../../../shared/cloud-agents.ts";
 import { normalizeCloudAgentStatus } from "../../../shared/cloud-agents.ts";
 import { cursorJson, type ProviderHttpError } from "./http.ts";
 import type { CloudAgentProviderAdapter, HttpFetch, ProviderLaunchResult, ProviderRunSnapshot } from "./types.ts";
@@ -48,7 +48,6 @@ export function createCursorProvider(fetchImpl: HttpFetch, baseUrl = DEFAULT_BAS
       );
       let runStatus = "";
       let result: string | undefined;
-      let error: string | undefined;
       const latestRunId = agent.latestRunId ? String(agent.latestRunId) : record.latestRunId;
       if (latestRunId) {
         try {
@@ -84,7 +83,6 @@ export function createCursorProvider(fetchImpl: HttpFetch, baseUrl = DEFAULT_BAS
       return {
         status: runStatus || String(agent.status ?? record.status),
         result,
-        error,
         latestRunId,
       } satisfies ProviderRunSnapshot;
     },

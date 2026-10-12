@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { writeFileAtomic } from "../atomic.ts";
-import type { CloudAgentRecord, CloudAgentRepoRef, CloudAgentGitBranch, CloudAgentProviderId, CloudAgentStatus } from "../../shared/cloud-agents.ts";
+import type { CloudAgentRecord, CloudAgentRepoRef, CloudAgentProviderId, CloudAgentStatus } from "../../shared/cloud-agents.ts";
 
 const repoSchema = z.object({
   url: z.string().min(1).max(2_048),

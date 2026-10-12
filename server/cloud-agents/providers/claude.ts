@@ -1,6 +1,6 @@
 // Claude Code background / cloud agents (pluggable HTTP surface). The exact
 // upstream paths may evolve; tests mock this adapter.
-import type { CloudAgentLaunchInput, CloudAgentRecord } from "../../../shared/cloud-agents.ts";
+import type { CloudAgentLaunchInput } from "../../../shared/cloud-agents.ts";
 import { providerJson } from "./http.ts";
 import type { CloudAgentProviderAdapter, HttpFetch, ProviderLaunchResult, ProviderRunSnapshot } from "./types.ts";
 

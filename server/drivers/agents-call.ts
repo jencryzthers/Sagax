@@ -1376,7 +1376,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     if (!CLOUD_AGENT_READ_TOOLS.has(name) && !CLOUD_AGENT_WRITE_TOOLS.has(name)) {
       return { text: `Unknown cloud agent tool: ${name}`, isError: true };
     }
-    const payload: Json = { ...(args ?? {}) };
+    const payload: Json = { ...args };
     if (name === "launch_cloud_agent") {
       const repoUrl = typeof args.repo_url === "string" ? args.repo_url.trim() : "";
       const ref = typeof args.ref === "string" ? args.ref.trim() : "";
