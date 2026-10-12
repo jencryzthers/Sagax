@@ -11,6 +11,14 @@ export function createClaudeCloudProvider(fetchImpl: HttpFetch, baseUrl = DEFAUL
     id: "claude",
     label: "Claude Code (cloud)",
 
+    async testToken(token) {
+      await providerJson(
+        fetchImpl,
+        `${baseUrl}/v1/code_agents?limit=1`,
+        { method: "GET", token },
+      );
+    },
+
     async launch(token, input: CloudAgentLaunchInput) {
       const repo = input.repos?.[0];
       const answer = await providerJson<{ id: string; name?: string; status?: string; run_id?: string; url?: string }>(

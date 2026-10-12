@@ -9,13 +9,14 @@ import { ProviderHttpError } from "../cloud-agents/providers/http.ts";
 export interface CloudAgentRouteDeps {
   manager: CloudAgentManager;
   credentials: CloudAgentCredentialStore;
+  providerLabel: (id: CloudAgentProviderId) => string;
   botVisible: (auth: RequestAuth, botId: string) => boolean;
   principalId: (auth: RequestAuth) => string | null;
   botName: (botId: string) => string | undefined;
 }
 
 const BOT_PATH = /^\/api\/bots\/([\w-]+)\/cloud-agents(?:\/([\w-]+)(?:\/(follow-up|cancel|archive|artifacts|transcript))?)?$/;
-const CREDS_PATH = /^\/api\/me\/cloud-agent-providers(?:\/(cursor|claude|codex))?$/;
+const CREDS_PATH = /^\/api\/me\/cloud-agent-providers(?:\/(cursor|claude|codex)(?:\/test)?)?$/;
 
 function providerError(res: import("node:http").ServerResponse, json: typeof import("../harness/http.ts").json, e: unknown) {
   if (e instanceof ProviderHttpError) {
@@ -31,9 +32,27 @@ export function createCloudAgentRoutes(deps: CloudAgentRouteDeps): RouteHandler 
       const principalId = deps.principalId(auth);
       if (!principalId) return json(res, 401, { error: "Unauthorized" });
       const provider = credMatch[1] as CloudAgentProviderId | undefined;
+      const testing = path.endsWith("/test");
       if (!provider) {
         if (method !== "GET") return PASS;
-        return json(res, 200, { providers: deps.credentials.list(principalId) });
+        const providers = deps.credentials.list(principalId).map((row) => ({
+          ...row,
+          label: deps.providerLabel(row.provider),
+        }));
+        return json(res, 200, { providers });
+      }
+      if (testing) {
+        if (method !== "POST") return PASS;
+        const body = await readBody(req).catch(() => undefined);
+        const token = body && typeof body === "object" && typeof (body as { token?: unknown }).token === "string"
+          ? (body as { token: string }).token
+          : undefined;
+        try {
+          await deps.manager.testCredential(principalId, provider, token);
+          return json(res, 200, { ok: true });
+        } catch (e) {
+          return providerError(res, json, e);
+        }
       }
       if (method === "PUT") {
         const body = await readBody(req).catch(() => undefined);

@@ -130,6 +130,21 @@ export class CloudAgentManager {
     }
   }
 
+  /** Poll every active cloud agent (all bots). */
+  async syncActive(): Promise<void> {
+    for (const record of this.deps.store.listAll()) {
+      if (!record.archived && (cloudAgentStatusActive(record.status) || record.pendingFollowUp)) {
+        await this.syncOne(record.id);
+      }
+    }
+  }
+
+  async testCredential(principalId: string, provider: CloudAgentProviderId, token?: string): Promise<void> {
+    const value = token?.trim() || this.deps.credentials.token(principalId, provider);
+    if (!value) throw new ProviderHttpError(401, "not_configured", `No API key configured for ${provider}.`);
+    await this.provider(provider).testToken(value);
+  }
+
   private applySnapshot(id: string, snap: { status: string; result?: string; error?: string; latestRunId?: string; gitBranches?: CloudAgentRecord["gitBranches"] }, extra?: { clearPending?: boolean }) {
     const status = normalizeCloudAgentStatus(snap.status);
     const ended = TERMINAL.has(status);

@@ -29,4 +29,15 @@ describe("cursor cloud agent provider", () => {
     expect(body.repos[0]).toMatchObject({ url: "https://github.com/acme/repo", startingRef: "main" });
     expect(body.model).toEqual({ id: "claude-sonnet" });
   });
+
+  it("tests credentials with a list call", async () => {
+    let url = "";
+    const fetchImpl: HttpFetch = async (u) => {
+      url = String(u);
+      return new Response(JSON.stringify({ items: [] }), { status: 200 });
+    };
+    const adapter = createCursorProvider(fetchImpl, "https://api.example");
+    await adapter.testToken("secret-key");
+    expect(url).toBe("https://api.example/v1/agents?limit=1");
+  });
 });

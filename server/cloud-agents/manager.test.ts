@@ -18,6 +18,7 @@ function stubProvider(overrides: Partial<CloudAgentProviderAdapter> = {}): Cloud
   return {
     id: "cursor",
     label: "Cursor",
+    testToken: vi.fn(async () => {}),
     launch: vi.fn(async () => ({
       externalId: "bc-1",
       name: "Job",

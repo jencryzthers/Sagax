@@ -11,6 +11,14 @@ export function createCursorProvider(fetchImpl: HttpFetch, baseUrl = DEFAULT_BAS
     id: "cursor",
     label: "Cursor Cloud Agents",
 
+    async testToken(apiKey) {
+      await cursorJson<{ items?: unknown[] }>(
+        fetchImpl,
+        `${baseUrl}/v1/agents?limit=1`,
+        { method: "GET", apiKey },
+      );
+    },
+
     async launch(apiKey, input) {
       const repos = (input.repos ?? []).map((r) => ({
         url: r.url,

@@ -93,6 +93,18 @@ export interface CloudAgentProviderListing {
   provider: CloudAgentProviderId;
   label: string;
   configured: boolean;
+  last4?: string;
+}
+
+/** Live SSE payload (no secrets). */
+export interface CloudAgentWireItem {
+  id: string;
+  botId: string;
+  provider: CloudAgentProviderId;
+  name: string;
+  status: CloudAgentStatus;
+  updatedAt: number;
+  threadId: string;
 }
 
 export const CLOUD_AGENT_WRITE_TOOLS = new Set([

@@ -1,5 +1,17 @@
 import type { BotActivityItem, BotActivityStatus } from "../../shared/bot-activity.ts";
-import { cloudAgentStatusActive, type CloudAgentRecord } from "../../shared/cloud-agents.ts";
+import { cloudAgentStatusActive, type CloudAgentRecord, type CloudAgentWireItem } from "../../shared/cloud-agents.ts";
+
+export function cloudAgentWireItem(record: CloudAgentRecord): CloudAgentWireItem {
+  return {
+    id: record.id,
+    botId: record.botId,
+    provider: record.provider,
+    name: record.name,
+    status: record.status,
+    updatedAt: record.updatedAt,
+    threadId: record.threadId,
+  };
+}
 
 function mapStatus(status: CloudAgentRecord["status"]): BotActivityStatus {
   if (status === "creating") return "queued";

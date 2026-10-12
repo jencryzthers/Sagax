@@ -77,6 +77,10 @@ export class CloudAgentStore {
     return this.load().agents.filter((a) => a.botId === botId);
   }
 
+  listAll(): CloudAgentRecord[] {
+    return this.load().agents;
+  }
+
   get(id: string): CloudAgentRecord | null {
     return this.load().agents.find((a) => a.id === id) ?? null;
   }

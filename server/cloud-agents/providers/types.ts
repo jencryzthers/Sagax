@@ -26,6 +26,8 @@ export interface ProviderRunSnapshot {
 export interface CloudAgentProviderAdapter {
   id: CloudAgentProviderId;
   label: string;
+  /** Verify an API key without launching an agent. */
+  testToken(token: string): Promise<void>;
   launch(token: string, input: CloudAgentLaunchInput): Promise<ProviderLaunchResult>;
   refresh(token: string, record: CloudAgentRecord): Promise<ProviderRunSnapshot>;
   followUp(token: string, record: CloudAgentRecord, input: CloudAgentFollowUpInput): Promise<ProviderRunSnapshot>;
