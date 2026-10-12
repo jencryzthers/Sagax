@@ -11,6 +11,7 @@ import { copyText } from "@/lib/copy-text";
 import { DEVICE_SIGN_IN_COPY, DeviceSignIn, deviceSignInProvider } from "./DeviceSignIn";
 import { ClaudeSignIn } from "./ClaudeSignIn";
 import { keyRowForEngine, openProviderKeyDialog } from "./settings/ProviderKeys";
+import { EngineApiKeyField } from "./EngineApiKeyField";
 
 type Platform = "darwin" | "win32" | "linux";
 
@@ -484,6 +485,7 @@ function ApiKeyEngineSetup({ instance, className, unframed, configured = false }
       {needsSignIn(instance) && (
         <p role="alert" className="mt-2 text-[12px] leading-relaxed text-danger">{t("engineSetup.apiKey.rejected")}</p>
       )}
+      <EngineApiKeyField instanceId={instance.instanceId} />
       {!remote && (
         <button
           type="button"
@@ -636,6 +638,10 @@ export function EngineSetup({
               : [<code key="npm" className="font-mono">npm</code>, part],
           )}
         </p>
+      )}
+
+      {!signInOnly && install.apiKey && instance.snapshot.state !== "available" && (
+        <EngineApiKeyField instanceId={instance.instanceId} />
       )}
 
       {install.docsUrl && (

@@ -6758,5 +6758,13 @@
   "settings.toolAccess.tier.admin": "Admin",
   "browser.idle.help": "{name}’s browser opens in full screen when you take control. Nothing is streamed until then.",
   "model.effort.ultracode": "Ultracode",
-  "model.effort.ultracodeHint": "Deep coding workflow on Claude; maximum effort on other providers."
+  "model.effort.ultracodeHint": "Deep coding workflow on Claude; maximum effort on other providers.",
+  "engineSetup.apiKey.clear": "Clear",
+  "engineSetup.apiKey.cleared": "The key was cleared.",
+  "engineSetup.apiKey.field": "Access key",
+  "engineSetup.apiKey.placeholder": "Paste the key here",
+  "engineSetup.apiKey.save": "Save",
+  "engineSetup.apiKey.saveFailed": "The key could not be saved.",
+  "engineSetup.apiKey.saved": "The key is saved.",
+  "engineSetup.apiKey.saving": "Saving…"
 }

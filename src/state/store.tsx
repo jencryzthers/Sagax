@@ -1002,6 +1002,8 @@ export interface EngineInstall {
   server?: { package: string };
   /** configured with a key in Settings → API keys, not in a terminal */
   settings?: "connections";
+  /** the setup card takes a masked access key */
+  apiKey?: boolean;
 }
 
 /** One row of GET /api/instances — the model picker's data. */
