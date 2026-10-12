@@ -139,3 +139,33 @@ export function entryName(path: string): string {
   const parts = path.split("/");
   return parts[parts.length - 1] ?? path;
 }
+
+/** Parent folder of a workspace path, or null at the tree root. */
+export function entryParent(path: string): string | null {
+  const slash = path.lastIndexOf("/");
+  return slash === -1 ? null : path.slice(0, slash);
+}
+
+/** Directories above `path`, root first. */
+export function entryAncestors(path: string): string[] {
+  const out: string[] = [];
+  let parent = entryParent(path);
+  while (parent) {
+    out.unshift(parent);
+    parent = entryParent(parent);
+  }
+  return out;
+}
+
+/** A row shows when every listed ancestor folder is expanded. Folders
+ * start collapsed, like a file manager. An ancestor the listing did not
+ * emit as a dir is treated as open, so a file still appears once the
+ * parent that does exist is expanded. */
+export function entryVisible(path: string, expanded: ReadonlySet<string>, listedDirs: ReadonlySet<string>): boolean {
+  let parent = entryParent(path);
+  while (parent) {
+    if (listedDirs.has(parent) && !expanded.has(parent)) return false;
+    parent = entryParent(parent);
+  }
+  return true;
+}

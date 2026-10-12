@@ -356,6 +356,16 @@ const definitions = [
       fr: "Faire signe à une personne de l'organisation depuis un client relié à Perspicax, comme le bouton Faire signe de Sagax.",
     },
   },
+  // 2026-10-11: create_agent of the agent-to-agent API (server/agent-api.ts).
+  // Off by default: a new bot is lasting, and only the owner deletes it.
+  {
+    key: "clients.agentsCreate", group: "clients", memberDefault: false, adminOnly: false,
+    label: { en: "Create bots from an AI client", fr: "Créer des bots depuis un client IA" },
+    description: {
+      en: "Create a new bot of their own from a client attached to Perspicax (create_agent), one per call, only when they ask. Only they can delete it, in Sagax.",
+      fr: "Créer un nouveau bot à eux depuis un client relié à Perspicax (create_agent), un par appel, seulement à leur demande. Eux seuls peuvent le supprimer, dans Sagax.",
+    },
+  },
 ] as const satisfies readonly PermissionDefinition[];
 
 export type PermissionKey = (typeof definitions)[number]["key"];

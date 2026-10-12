@@ -140,7 +140,7 @@ export function TechnicalDetails({
         className="inline-flex items-center gap-1 rounded-md py-0.5 text-[12.5px] text-ink-secondary hover:text-ink"
       >
         <ChevronDown size={13} aria-hidden="true" className={cn("transition-transform", open ? "rotate-0" : "-rotate-90")} />
-        {open ? t("approval.details.hide") : t("approval.details.show")}
+        {open ? t("approval.details.hideFull") : t("approval.details.viewFull")}
       </button>
       {open && (
         <div className="mt-1.5 rounded-xl border border-hairline/40 bg-inset px-3 py-2">

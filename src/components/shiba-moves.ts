@@ -19,6 +19,8 @@
 import { clamp01, easeInOut, lerp } from "./shape-art";
 import { blinkOpen, blinkSchedule } from "./shape-engine";
 import { SHIBA_HIPS, SHIBA_LEGS, SHIBA_PIVOTS, type MouthKind, type ShibaExpression, type ShibaLeg, type ShibaStance } from "./shiba-art";
+import { CLIP_MS, clipPose } from "./floating-bots/clips";
+import { FLAT_MIN_WIDTH, flatTurn } from "./floating-bots/flat-turn";
 
 export interface LegPose {
   angle: number;
@@ -176,8 +178,20 @@ export const SHIBA_BARKS = [0.08, 0.46, 0.84] as const;
 const BARK_LENGTH = 0.24;
 /** The spins of the turn in circles, and when it sits after them, s. */
 export const SHIBA_SPINS = { count: 2, each: 1, sitAt: 2 } as const;
+/**
+ * Two circles are four of the owl's 180° turns (`CLIP_MS.turn` each), then it
+ * sits. A flat drawing never spins in depth (Owl25D.flatTurn): each half-turn
+ * is that hop plus a quick squash-mirror.
+ */
+export const SHIBA_TURN_HOP = CLIP_MS.turn / 1000;
 
 const TAU = Math.PI * 2;
+/** Owl25D UNIT: clip `y` (owl units) to owl-art viewBox. */
+const OWL_UNIT = 80;
+/** owl-art is about 200 tall; Shiba's box is 100, so a hop of the same on-screen size. */
+const OWL_TO_SHIBA = 100 / 200;
+/** behavior.ts SMOOTH_MS: the 2D facing swap is this quick, not spread over the hop. */
+const OWL_FACE_MS = 110;
 /** 0 at the ends, 1 in the middle (a hop, a burst). */
 const bump = (p: number) => (p <= 0 || p >= 1 ? 0 : Math.sin(Math.PI * p));
 /** Eases in over `a` and out over the last `b` of a span of `d`: a held pose. */
@@ -198,6 +212,23 @@ function gait(phi: number, reach: number, bob: number): ShibaPosePart {
     earR: -2 + 5 * Math.sin(2 * phi - 1.6),
     tail: 16 * Math.sin(2 * phi + 0.6),
     mouth: "pant",
+  };
+}
+
+/**
+ * One of the owl's in-place turns (clips.ts `turn` + Owl25D.flatTurn): a small
+ * hop and a quick squash-mirror, never edge-on. `fromFace` is 1 or -1 at the
+ * start of the hop; it faces the other way by the end.
+ */
+function owlTurnHop(elapsedS: number, fromFace: number): ShibaPosePart {
+  const owl = clipPose("turn", { elapsed: elapsedS * 1000, now: 0, moveMs: CLIP_MS.turn, variant: 0, reduced: false });
+  const k = easeInOut(clamp01((elapsedS * 1000) / OWL_FACE_MS));
+  const facing = flatTurn(fromFace * (1 - 2 * k));
+  return {
+    stance: "stand",
+    turn: facing.sx,
+    sy: (owl.squash ?? 1) * facing.sy,
+    y: -((owl.y ?? 0) * OWL_UNIT + facing.lift * OWL_UNIT * 0.5) * OWL_TO_SHIBA,
   };
 }
 
@@ -268,15 +299,13 @@ export function shibaMoveAt(move: ShibaMove, at: number): ShibaPosePart {
       };
     }
     case "turnCircles": {
-      const { each, sitAt } = SHIBA_SPINS;
+      const { sitAt } = SHIBA_SPINS;
       if (u < sitAt) {
-        const s = u / each;
-        const legs = gait((TAU * u) / 0.32, 30, 1.2);
-        // a flat dog turning: its width passes through its edge, it walks a small circle, smaller while it is away
-        const away = 0.5 - 0.5 * Math.cos(TAU * s);
-        const c = Math.cos(TAU * s);
-        // never edge-on for long: past a third of its width it flips, like a cartoon turning
-        return { ...legs, turn: Math.sign(c || 1) * (0.3 + 0.7 * Math.abs(c)), x: 7 * Math.sin(TAU * s), sx: 1 - 0.05 * away, sy: 1 - 0.05 * away, tail: 20 * Math.sin(TAU * 4 * u), expression: "excited" };
+        const hops = Math.round(sitAt / SHIBA_TURN_HOP);
+        const i = Math.min(Math.floor(u / SHIBA_TURN_HOP), hops - 1);
+        const local = u - i * SHIBA_TURN_HOP;
+        const from = i % 2 === 0 ? 1 : -1;
+        return { ...owlTurnHop(local, from), tail: 20 * Math.sin(TAU * 4 * u), expression: "excited" };
       }
       const p = (u - sitAt) / (d - sitAt);
       return { stance: "sit", y: -3 * bump(p / 0.5), sy: 1 - 0.07 * bump((p - 0.4) / 0.4), tail: 14 * Math.sin(TAU * 3 * u), expression: "happy" };
@@ -496,8 +525,8 @@ export const turnAbout = (angle: number, [x, y]: readonly [number, number], dx =
 /** The whole drawing's transform: move, lean about the ground, then squash and the facing about it. */
 export function wholeTransform(pose: ShibaPose, ground: readonly [number, number]): string {
   const [gx, gy] = ground;
-  // a flat turn never reaches zero width: it passes its edge as a sliver
-  const turn = Math.sign(pose.turn || 1) * Math.max(0.06, Math.abs(pose.turn));
+  // same as Owl25D.flatTurn: a flat drawing never turns in depth, never thinner than FLAT_MIN_WIDTH
+  const turn = Math.sign(pose.turn || 1) * Math.max(FLAT_MIN_WIDTH, Math.abs(pose.turn));
   return `translate(${f(pose.x)} ${f(pose.y)}) translate(${gx} ${gy}) rotate(${f(pose.rot)}) scale(${f(turn * pose.sx)} ${f(pose.sy)}) translate(${-gx} ${-gy})`;
 }
 
@@ -540,6 +569,7 @@ export const SHIBA_CLIP_MOVES: Readonly<Record<string, ShibaMove>> = {
   lookBack: "look",
   headSpin: "shake",
   tilt: "headTilt",
+  turn: "bounce",
   spin: "turnCircles",
   backflip: "turnCircles",
   hop: "bounce",

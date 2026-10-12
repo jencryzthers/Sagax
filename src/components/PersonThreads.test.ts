@@ -146,6 +146,55 @@ describe("the header picker on a person", () => {
 });
 
 describe("the sidebar tree on a person", () => {
+  it("lists folders and chats straight, with no My conversations or Threads heading", async () => {
+    fixture.location = "sidebar";
+    await render(createElement(PersonThreadList, { group: person, name: "Bob", selected: true }));
+    const text = host.textContent ?? "";
+    expect(text).toContain("Finance");
+    expect(text).toContain("General");
+    expect(text).not.toContain("Budget");
+    expect(text).not.toContain("My conversations");
+    expect(text).not.toContain("No threads yet");
+    expect(host.querySelector("[data-sidebar-my-threads]")).toBeNull();
+    expect([...host.querySelectorAll("div")].some((node) => node.textContent === "Threads" && node.children.length === 0)).toBe(false);
+    expect(host.querySelector('[data-sidebar-thread-row="general"]')?.parentElement?.getAttribute("draggable")).toBe("true");
+    expect(host.querySelector('[data-sidebar-folder-row="f1"] button[aria-expanded="false"]')).not.toBeNull();
+    await click(button("Expand Finance threads"));
+    expect(host.querySelector('[data-sidebar-thread-row="budget"]')).not.toBeNull();
+  });
+
+  it("files a chat into a folder and back out by dropping", async () => {
+    fixture.location = "sidebar";
+    await render(createElement(PersonThreadList, { group: person, name: "Bob", selected: true }));
+    const transfer = (threadId: string) => {
+      const payload = JSON.stringify({ ownerId: "dm", threadId });
+      return {
+        types: ["application/x-openmausbot-thread"],
+        dropEffect: "move",
+        effectAllowed: "move",
+        getData: (type: string) => type === "application/x-openmausbot-thread" ? payload : "",
+        setData: () => undefined,
+      };
+    };
+    const fire = (el: Element, type: string, data: ReturnType<typeof transfer>) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "dataTransfer", { value: data });
+      el.dispatchEvent(event);
+    };
+    const folder = host.querySelector('[data-sidebar-folder-row="f1"]')!;
+    await act(async () => {
+      fire(folder, "dragover", transfer("general"));
+      fire(folder, "drop", transfer("general"));
+    });
+    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "updateGroupTask", groupId: "dm", threadId: "general", patch: { projectId: "f1" } });
+    const list = host.querySelector('[aria-label="Bob threads"]')!;
+    await act(async () => {
+      fire(list, "dragover", transfer("budget"));
+      fire(list, "drop", transfer("budget"));
+    });
+    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "updateGroupTask", groupId: "dm", threadId: "budget", patch: { projectId: null } });
+  });
+
   it("creates a thread in a folder and a folder from the list and folder context menus", async () => {
     fixture.location = "sidebar";
     await render(createElement(PersonThreadList, { group: person, name: "Bob", selected: true }));

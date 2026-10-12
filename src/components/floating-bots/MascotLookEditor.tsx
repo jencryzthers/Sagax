@@ -43,7 +43,7 @@ import { MAUS_COLORS, swatchStyle, type MausColor, type MausMotion } from "@/lib
 import { BotAvatar, MausAvatar } from "@/components/Avatar";
 import { MASCOT_SKIN_IDS, OWL_SKIN_TIER, botMascotSkin, type MascotSkinId } from "../../../shared/mascot-skins";
 import type { MascotColorGroup } from "../../../shared/mascot-colors";
-import { BUNBU_SKIN_TIER, BUNBU_SKINS, completeMascotLook, FROG_SKIN_TIER, FROG_SKINS, GRUMP_SKIN_TIER, GRUMP_SKINS, OGRE_SKIN_TIER, OGRE_SKINS, SHIBA_SKIN_TIER, SHIBA_SKINS, SHAPE_SKIN_TIER, SHAPE_SKINS, TROMBI_SKIN_TIER, TROMBI_SKINS, type MascotCharacter, type MascotLook, type MascotShape, type ShapeSkin, type SkinTier } from "../../../shared/mascot-look";
+import { BUNBU_SKIN_TIER, BUNBU_SKINS, completeMascotLook, CRAB_SKIN_TIER, CRAB_SKINS, FROG_SKIN_TIER, FROG_SKINS, GRUMP_SKIN_TIER, GRUMP_SKINS, OGRE_SKIN_TIER, OGRE_SKINS, SHIBA_SKIN_TIER, SHIBA_SKINS, SHAPE_SKIN_TIER, SHAPE_SKINS, TROMBI_SKIN_TIER, TROMBI_SKINS, type MascotCharacter, type MascotLook, type MascotShape, type ShapeSkin, type SkinTier } from "../../../shared/mascot-look";
 import { ShapeMascot } from "@/components/ShapeMascot";
 import { SkinnedTrombi } from "@/components/skin-fx/SkinnedTrombi";
 import { BunbuMascot } from "@/components/BunbuMascot";
@@ -51,6 +51,7 @@ import { ShibaMascot } from "@/components/ShibaMascot";
 import { GrumpMascot } from "@/components/GrumpMascot";
 import { OgreMascot } from "@/components/OgreMascot";
 import { FrogMascot } from "@/components/FrogMascot";
+import { CrabMascot } from "@/components/CrabMascot";
 import type { FxMoveRequest } from "@/components/skin-fx/skin-fx";
 import "@/components/skin-fx/skin-fx.css";
 import { colorGroupsFor, colorTabFor, colorTabs, nextTab, skinTabFor, skinTierTabs } from "./editor-tabs";
@@ -81,6 +82,7 @@ export const CHARACTER_LABEL = {
   grump: "floatingBots.mascot.grump",
   ogre: "floatingBots.mascot.ogre",
   frog: "floatingBots.mascot.frog",
+  crab: "floatingBots.mascot.crab",
 } satisfies Record<MascotCharacter, LocaleKey>;
 
 export const SHAPE_LABEL = {
@@ -201,6 +203,23 @@ export const FROG_SKIN_LABEL = {
   holo: "mascot.frogSkin.holo",
   molten: "mascot.frogSkin.molten",
 } satisfies Record<(typeof FROG_SKINS)[number], LocaleKey>;
+
+export const CRAB_SKIN_LABEL = {
+  plain: "mascot.crabSkin.plain",
+  coral: "mascot.crabSkin.coral",
+  sand: "mascot.crabSkin.sand",
+  ink: "mascot.crabSkin.ink",
+  mint: "mascot.crabSkin.mint",
+  gold: "mascot.crabSkin.gold",
+  pearl: "mascot.crabSkin.pearl",
+  neon: "mascot.crabSkin.neon",
+  chrome: "mascot.crabSkin.chrome",
+  crystal: "mascot.crabSkin.crystal",
+  circuit: "mascot.crabSkin.circuit",
+  holo: "mascot.crabSkin.holo",
+  molten: "mascot.crabSkin.molten",
+  galaxy: "mascot.crabSkin.galaxy",
+} satisfies Record<(typeof CRAB_SKINS)[number], LocaleKey>;
 
 export const SKIN_TIER_LABEL = {
   common: "mascot.tier.common",
@@ -878,6 +897,21 @@ export default function MascotLookEditor({ bot, disabled, onPatch: savePatch, on
               onSelect={(skin) => setLook({ skins: { ...look.skins, frog: skin } })}
               lockOf={(skin) => skinLock(unlocks, "frog", skin)}
               preview={(skin) => <FrogMascot skin={skin} color={bot.color} size={32} detail="full" label={null} />}
+            />
+          )}
+          {shown === "crab" && (
+            <SkinPicker
+              key="crab"
+              skins={CRAB_SKINS}
+              tierOf={CRAB_SKIN_TIER}
+              selected={look.skins.crab}
+              labelOf={(skin) => t(CRAB_SKIN_LABEL[skin])}
+              idPrefix="crab-skin"
+              dataKey="data-crab-skin-option"
+              disabled={optionsOff}
+              onSelect={(skin) => setLook({ skins: { ...look.skins, crab: skin } })}
+              lockOf={(skin) => skinLock(unlocks, "crab", skin)}
+              preview={(skin) => <CrabMascot skin={skin} color={bot.color} size={32} detail="full" label={null} />}
             />
           )}
 

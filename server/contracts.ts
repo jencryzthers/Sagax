@@ -138,6 +138,9 @@ export interface SendTurnInput {
    * collide with another bot's live session or broker (see #1017). */
   botId?: string;
   text: string;
+  /** When the person's message behind this turn was stored (epoch ms), for
+   * the driver's per-turn latency line (drivers/acp/turn-latency.ts). */
+  receivedAt?: number;
   /** Organization server (slice 4, server/engine-credentials.ts): which
    * credentials this one turn runs with. Absent in solo mode: the instance's
    * own configuration, as always. */
@@ -196,6 +199,9 @@ export interface SendTurnInput {
    * prefix stays byte-identical. */
   systemStable?: string;
   systemVolatile?: string;
+  /** systemVolatile by section (id and text, in prompt order). A session
+   * driver re-sends only the sections that changed (prompt-split.ts). */
+  systemVolatileSections?: Array<{ id: string; text: string }>;
   /** True when this turn's user message tags teammates: the mentions part of
    * systemVolatile describes this turn even when its text is unchanged from
    * the previous turn, so digest-based delivery must not suppress the note. */

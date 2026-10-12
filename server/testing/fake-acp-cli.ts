@@ -15,7 +15,7 @@
 //                       session, so its load succeeds.
 //   FAKE_ACP_CACHED_LIVE_LOAD  acknowledge session/load of a live session but
 //                       keep its original MCP credentials, matching Qwen.
-//   FAKE_ACP_MODE   happy (default) | image | empty-reply | reasoning-only | exit-early | fail-after-text | hang | hang-initialize | stall-after-text | unkeyed-tool | no-auth | auth-required | permission | question
+//   FAKE_ACP_MODE   happy (default) | image | empty-reply | reasoning-only | exit-early | fail-after-text | hang | hang-initialize | stall-after-text | stall-first-prompt | unkeyed-tool | no-auth | auth-required | permission | question
 //                   | ask-question-unsupported (send a cursor/ask_question server→client
 //                     request mid-prompt; the driver must answer -32601 method
 //                     not found, and the prompt completes only after that
@@ -70,6 +70,12 @@
 //                     with grok 1.0.25's initialize (FAKE_ACP_MCP_HANDSHAKE JSON
 //                     overrides it), list its tools, and reply one line per
 //                     server: "<name>: <tool>,<tool>" or "<name> failed: <why>")
+//                   | mcp-call (FAKE_ACP_MCP_CALLS="server:tool,server:tool"; FAKE_ACP_ASK_BEFORE_MCP=use_tool asks first like grok's use_tool:
+//                     call each tool once, in order, on that stdio server from
+//                     session/new's mcpServers, as the agent's own MCP client
+//                     would with no permission check of its own (Grok's
+//                     default mode), and reply one line per call:
+//                     "server:tool -> <first text block>" or "-> error <why>")
 //                   | lend-question (call list_shared_computers through the
 //                     injected agents MCP, ask a question card, call it again
 //                     once the card is answered, and reply
@@ -129,6 +135,9 @@
 //   FAKE_ACP_USAGE_UPDATES_FILE  JSON array of numbers, re-read on every
 //                        session/prompt; each is sent as a usage_update
 //                        { used: n, size: 200000 } before the result
+//   FAKE_ACP_ROUND_USAGE  send those numbers the way Grok does instead: as
+//                        `_x.ai/session_notification` response_completed with
+//                        usage { input_tokens: n - cached, cache_read_input_tokens }
 //   FAKE_ACP_MODE_ACK_FILE  path of a file read on every mode switch: while it
 //                        exists, "empty" answers without configOptions (the
 //                        switch cannot be confirmed) and "error" refuses it,
@@ -500,6 +509,8 @@ let onAskQuestionAnswered: (() => void) | null = null;
 // session/cancel resolves it cancelled (the ACP spec's cancel contract)
 // and drops the keep-alive
 let hangingPromptId: unknown = null;
+// stall-first-prompt mode: how many prompts this process has received
+let stallPrompts = 0;
 let hangKeepAlive: ReturnType<typeof setInterval> | null = null;
 
 // ask-peer mode: the "agents" MCP server entry from session/new's mcpServers
@@ -564,7 +575,12 @@ function emitUsageUpdates(): void {
     try {
       for (const used of JSON.parse(readFileSync(usageFile, "utf8")) as unknown[]) {
         if (typeof used === "number") {
-          out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "usage_update", used, size: 200000 } } });
+          if (process.env.FAKE_ACP_ROUND_USAGE) {
+            const cached = Math.floor(used * 0.9);
+            out({ jsonrpc: "2.0", method: "_x.ai/session_notification", params: { sessionId: liveSession, update: { sessionUpdate: "response_completed", usage: { input_tokens: used - cached, cache_read_input_tokens: cached, output_tokens: 7 } } } });
+          } else {
+            out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "usage_update", used, size: 200000 } } });
+          }
         }
       }
     } catch {}
@@ -950,6 +966,14 @@ function handle(msg: any) {
         writeFileSync(`${process.env.FAKE_ACP_DUMP}.prompt.json`, JSON.stringify(msg.params?.prompt ?? null, null, 2));
       }
       if (failRpc(msg)) return;
+      if (mode === "stall-first-prompt" && ++stallPrompts === 1) {
+        // The first prompt gets nothing at all back (a provider that never
+        // sends its first token); session/cancel resolves it cancelled and
+        // every later prompt answers normally.
+        hangingPromptId = msg.id;
+        hangKeepAlive = setInterval(() => {}, 1_000);
+        return;
+      }
       if (mode === "hang") {
         // never resolve the prompt on our own — lets tests exercise interrupt
         hangingPromptId = msg.id;
@@ -1156,6 +1180,42 @@ function handle(msg: any) {
             out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: `delegate error: ${message}` } } } });
             complete();
           });
+        return;
+      }
+      if (mode === "mcp-call") {
+        const calls = (process.env.FAKE_ACP_MCP_CALLS ?? "").split(",").map((entry) => entry.trim()).filter(Boolean);
+        void (async () => {
+          const results: string[] = [];
+          for (const call of calls) {
+            const [server, tool] = call.split(":");
+            const entry = sessionMcp.find((candidate) => candidate.name === server);
+            if (!entry?.command || !tool) { results.push(`${call} -> error not mounted`); continue; }
+            // FAKE_ACP_ASK_BEFORE_MCP=use_tool: ask first the way grok 1.0.46
+            // does in default mode when its MCP tools sit behind use_tool
+            if (process.env.FAKE_ACP_ASK_BEFORE_MCP === "use_tool") {
+              const allowed = await new Promise<boolean>((resolve) => {
+                pendingPermissionId = 9200 + results.length;
+                onPermissionAnswered = resolve;
+                out({ jsonrpc: "2.0", id: pendingPermissionId, method: "session/request_permission", params: {
+                  toolCall: {
+                    toolCallId: `call-fake-${results.length}`, kind: "other", title: `${server}__${tool}`,
+                    rawInput: { variant: "UseTool", tool_name: `${server}__${tool}`, tool_input: { note: "fake" } },
+                    _meta: { "x.ai/tool": { version: 1, name: "use_tool", kind: "use_tool", namespace: "grok_build", label: "Use Tool", read_only: false } },
+                  },
+                  options: [{ optionId: "always-allow", kind: "allow_always" }, { optionId: "allow-once", kind: "allow_once" }, { optionId: "reject-once", kind: "reject_once" }],
+                } });
+              });
+              if (!allowed) { results.push(`${call} -> refused at the agent's prompt`); continue; }
+            }
+            try {
+              results.push(`${call} -> ${await driveMcp({ command: entry.command, args: entry.args, env: entry.env }, [{ name: tool, args: () => ({ note: "fake" }) }])}`);
+            } catch (error) {
+              results.push(`${call} -> error ${(error as Error).message}`);
+            }
+          }
+          out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: results.join("\n") } } } });
+          complete();
+        })();
         return;
       }
       if (mode === "mcp-tools") {

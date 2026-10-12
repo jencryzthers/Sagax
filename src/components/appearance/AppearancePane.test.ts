@@ -104,9 +104,9 @@ describe("the Mascot gallery", () => {
     expect(markup).toContain("inset 0 0 0 1.5px");
   });
 
-  it("searches eight mascots, filters by chip, and shows each tile with its name and family", () => {
+  it("searches nine mascots, filters by chip, and shows each tile with its name and family", () => {
     const html = renderEditor(makeBot());
-    expect(html).toContain('placeholder="Search 8 mascots"');
+    expect(html).toContain('placeholder="Search 9 mascots"');
     expect([...html.matchAll(/data-mascot-filter="([\w:]+)"/g)].map((match) => match[1])).toEqual(["all", "owned", "locked", "family:classics", "family:shapes", "family:animals"]);
     expect(html).toMatch(/aria-pressed="true" data-mascot-filter="all"/);
     expect(html).toContain(">Classics<");
@@ -114,7 +114,7 @@ describe("the Mascot gallery", () => {
     // nothing locked: every character is the bot's to wear, the owl in use and shown
     expect(html).toContain('data-mascot-shelf="yours"');
     expect(html).not.toContain('data-mascot-shelf="locked"');
-    expect(html).toContain('>8 of 8<');
+    expect(html).toContain('>9 of 9<');
     expect(html).toMatch(/data-character-option="owl" data-in-use="" aria-pressed="true" aria-label="Owl, in use"/);
     expect(html).toContain('data-mascot-action="in-use"');
     expect(html).toContain(">In use<");
@@ -183,7 +183,7 @@ describe("picking in the gallery", () => {
     // Trombi's secret keeps it out while locked
     expect(shown()).toEqual(["owl"]);
     await act(async () => host.querySelector<HTMLButtonElement>('[data-mascot-filter="owned"]')!.click());
-    expect(shown()).toEqual(["owl"]);
+    expect(shown()).toEqual(["owl", "crab"]);
     await act(async () => host.querySelector<HTMLButtonElement>('[data-mascot-filter="all"]')!.click());
     const search = host.querySelector<HTMLInputElement>("[data-mascot-search]")!;
     await act(async () => {

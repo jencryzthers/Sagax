@@ -46,7 +46,7 @@ describe("ApprovalCard decided by voice", () => {
 
   it("says a card was decided by voice on a Live call", () => {
     expect(renderToStaticMarkup(createElement(ApprovalCard, { message: bash("allow", "call") }))).toMatch(/Allowed.*by voice/);
-    expect(renderToStaticMarkup(createElement(ApprovalCard, { message: bash("deny", "call") }))).toMatch(/Denied.*by voice/);
+    expect(renderToStaticMarkup(createElement(ApprovalCard, { message: bash("deny", "call") }))).toMatch(/Declined.*by voice/);
   });
 
   it("says nothing extra for a tap", () => {
@@ -403,7 +403,7 @@ describe("ApprovalCard tool-call kinds", () => {
 
   it("speaks a verb phrase when the driver only knows the ACP kind", () => {
     const html = renderToStaticMarkup(createElement(ApprovalCard, { bot, message: kindMessage("other") }));
-    expect(html).toContain("Scout wants to take an action");
+    expect(html).toContain("Allow Scout to take an action?");
     expect(html).not.toContain("wants to other");
   });
 
@@ -417,18 +417,18 @@ describe("ApprovalCard tool-call kinds", () => {
       ["think", "think"],
       ["other", "take an action"],
       ["tool", "use a tool"],
-      ["mcp__ogb__computer_batch", "computer batch"],
+      ["mcp__ogb__computer_batch", "use computer batch"],
     ];
     for (const [tool, phrase] of cases) {
       const html = renderToStaticMarkup(createElement(ApprovalCard, { bot, message: kindMessage(tool) }));
-      expect(html).toContain(`Scout wants to ${phrase}`);
+      expect(html).toContain(`Allow Scout to ${phrase}?`);
     }
   });
 
   it("reads grammatically when no tool is known", () => {
     const html = renderToStaticMarkup(createElement(ApprovalCard, { message: kindMessage(undefined) }));
-    expect(html).toContain("Wants to take an action");
-    expect(html).not.toContain("Wants to an action");
+    expect(html).toContain("Allow this bot to take an action?");
+    expect(html).not.toContain("Allow this bot to an action");
   });
 
   it("speaks a verb phrase in the voice prompt too", () => {
@@ -549,7 +549,7 @@ describe("ApprovalCard outbound holds", () => {
     message.card!.outboundRequest = undefined;
     message.card!.tool = "mcp__composio__LINEAR_CREATE_LINEAR_COMMENT";
     const html = renderToStaticMarkup(createElement(ApprovalCard, { bot, message }));
-    expect(html).toContain("Kiwi wants to create linear comment");
+    expect(html).toContain("Allow Kiwi to create linear comment?");
   });
 });
 

@@ -144,6 +144,12 @@ export interface WireTask {
   projectId?: string;
   /** Detached routine execution, reachable through its visible results card. */
   routineRunId?: string;
+  /** A hidden conversation: an AI client (the Perspicax MCP `sagax_send`,
+   * the member API) works with the bot here on the person's behalf, the way
+   * Grok Bot keeps its subagents' conversations out of the chat (#291). Never
+   * in the sidebar, previews, typing dots, unread or notifications; reached
+   * from the bot's Activity panel or a thread link. Only `true` is stored. */
+  hidden?: true;
   /** Set when a bot, not a person, opened this thread. */
   openedBy?: TaskOpenedBy;
   /** A parallel task: the conversation and request it answers. */
@@ -688,8 +694,21 @@ export interface OptionCardData {
   expired?: boolean;
   /** Catalog key for held when it is one of the fixed notes. */
   heldCode?: string;
+  /** A permission card in plain words, made by shared/approval-describe.ts
+   * (the same generator writes the push): "Allow Cryptic to run a
+   * command?" and one line under it. Clients without a catalog show these. */
+  plain?: { title: string; line: string; risk?: "read" | "write" | "destructive" | "execute" };
+  /** The engine's own `<server>__<tool>` name when `tool` is a kind (ACP
+   * "other") or a bare name. */
+  mcpTool?: string;
+  /** When nobody answers by then, the server declines it and marks it
+   * expired (an AI client's hidden conversation, server/index.ts). */
+  expiresAt?: number;
   /** the narrow grant "always allow" remembers for a harness-native card. */
   allowKey?: string;
+  /** the Allow rule (an allowKey) the person saved when answering this card:
+   * the pill reads Always allowed and the card shows the rule + Edit rule. */
+  alwaysAllowed?: string;
   /** the provider can remember an allow for the rest of its session. */
   allowSession?: boolean;
   /** A permission ask's full arguments as redacted JSON, shown only in
@@ -999,6 +1018,8 @@ export type ServerFrame =
   | { kind: "bot"; bot: WireBot }
   | { kind: "group"; group: WireGroup }
   | { kind: "notify"; notification: Notification }
+  /** An approval was answered or expired: take its notification down. */
+  | { kind: "notify-withdraw"; threadId: string; requestId: string }
   | { kind: "group.deleted"; groupId: string }
   | { kind: "routine"; routine: Routine }
   | { kind: "routine.deleted"; routineId: string }

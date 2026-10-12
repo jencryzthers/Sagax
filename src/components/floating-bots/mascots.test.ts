@@ -64,13 +64,13 @@ describe("a bot's character and its look", () => {
     expect(botMascotLook(undefined)).toEqual({ character: "owl" });
     expect(botMascotLook({ character: "shape", shape: "rocket" })).toEqual({ character: "owl" });
     expect(botMascotLook({ character: "trombi", skins: { trombi: "gold" } })).toEqual({ character: "trombi", skins: { trombi: "gold" } });
-    expect(completeMascotLook({ character: "shape" })).toEqual({ character: "shape", style: "2d", shape: "circle", skins: { shape: "plain", trombi: "classic", bunbu: "plain", shiba: "plain", grump: "plain", ogre: "plain", frog: "plain" } });
+    expect(completeMascotLook({ character: "shape" })).toEqual({ character: "shape", style: "2d", shape: "circle", skins: { shape: "plain", trombi: "classic", bunbu: "plain", shiba: "plain", grump: "plain", ogre: "plain", frog: "plain", crab: "plain" } });
   });
 
   it("keeps each character's own skin when switching and back", () => {
     const look = completeMascotLook({ character: "shape", skins: { shape: "neon", trombi: "retro98" } });
     const trombi = { ...look, character: "trombi" as const };
-    expect(completeMascotLook({ ...trombi, character: "shape" }).skins).toEqual({ shape: "neon", trombi: "retro98", bunbu: "plain", shiba: "plain", grump: "plain", ogre: "plain", frog: "plain" });
+    expect(completeMascotLook({ ...trombi, character: "shape" }).skins).toEqual({ shape: "neon", trombi: "retro98", bunbu: "plain", shiba: "plain", grump: "plain", ogre: "plain", frog: "plain", crab: "plain" });
   });
 
   it("draws every shape, with every skin, with two eyes cut through the body", () => {
@@ -146,7 +146,7 @@ describe("a bot's character and its look", () => {
 
 describe("the mascot registry", () => {
   it("lists each character once, with a renderer, a thumbnail and its capabilities", () => {
-    expect(MASCOTS.map((entry) => entry.id)).toEqual(["owl", "shape", "trombi", "bunbu", "shiba", "grump", "ogre", "frog"]);
+    expect(MASCOTS.map((entry) => entry.id)).toEqual(["owl", "crab", "shape", "trombi", "bunbu", "shiba", "grump", "ogre", "frog"]);
     for (const entry of MASCOTS) {
       expect(typeof entry.Render).toBe("function");
       expect(typeof entry.Thumb).toBe("function");
@@ -208,7 +208,7 @@ describe("the Appearance gallery", () => {
     // Trombi's achievement is a secret: the easter egg stays out until earned
     expect(locked).not.toContain('data-character-option="trombi"');
     // the owl the bot wears is on Yours; every other character waits on To unlock, previewable (never disabled)
-    expect(lockedIds(locked)).toEqual(MASCOTS.filter((option) => option.id !== "owl" && option.id !== "trombi").map((option) => option.id));
+    expect(lockedIds(locked)).toEqual(MASCOTS.filter((option) => option.id !== "owl" && option.id !== "trombi" && option.id !== "crab").map((option) => option.id));
     expect(shelf(locked, "yours")).toContain('data-character-option="owl"');
     expect(shelf(locked, "locked")).toContain('data-character-option="ogre"');
     expect(locked).toMatch(/data-character-option="ogre" data-locked="" data-unlock-achievement="conductor"/);

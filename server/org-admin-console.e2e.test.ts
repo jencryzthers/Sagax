@@ -215,7 +215,7 @@ posixOnly("Perspicax console: the Sagax admin routes", () => {
     expect(caps.headers.get("x-sagax-admin-api")).toBe("1");
     const pkg = JSON.parse(readFileSync(join(SERVER_DIR, "..", "package.json"), "utf8")) as { forkVersion: string };
     expect(caps.body).toMatchObject({ version: pkg.forkVersion, api: 5, permissionsVersion: 1 });
-    expect(caps.body.mascots.map((entry: { id: string }) => entry.id)).toEqual(["owl", "shape", "trombi", "bunbu", "shiba", "grump", "ogre", "frog"]);
+    expect(caps.body.mascots.map((entry: { id: string }) => entry.id)).toEqual(["owl", "crab", "shape", "trombi", "bunbu", "shiba", "grump", "ogre", "frog"]);
     expect(caps.body.permissions.length).toBeGreaterThan(20);
     // api 4: every engine with its Cloud or Local group and how people get access
     expect(caps.body.engines.length).toBeGreaterThan(0);

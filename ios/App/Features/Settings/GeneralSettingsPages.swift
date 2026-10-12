@@ -175,8 +175,8 @@ struct ExperimentalSettingsView: View {
                             : "Off by default. Enable it to let supported bots use a browser tab you can watch and take over.",
                         on: config?.features?.browser == true)
                 CardHairline(leadingInset: SettingsMetrics.rowInset)
-                feature("templates", title: "Templates",
-                        detail: "Off by default. Shows Templates in the sidebar menu, to install a ready-made team of bots.",
+                feature("templates", title: "Browse Bots",
+                        detail: "Off by default. Shows Browse Bots in the sidebar menu, to find and add ready-made bots and teams.",
                         on: config?.features?.templates == true)
                 CardHairline(leadingInset: SettingsMetrics.rowInset)
                 feature("connectedApps", title: "Connected apps",
@@ -211,6 +211,7 @@ struct ExperimentalSettingsView: View {
             defer { saving = false }
             do {
                 config = try await client.updateDesktopSettings(.feature(key, on))
+                DesktopSidebarFlags.shared.apply(config)
                 error = nil
             } catch {
                 self.error = error.localizedDescription

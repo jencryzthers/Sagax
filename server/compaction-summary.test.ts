@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { deterministicSummary, draftSummary, foldPoint, summaryPrompt } from "./compaction-summary.ts";
+import { deterministicSummary, draftSummary, foldPoint, keyFacts, summaryPrompt } from "./compaction-summary.ts";
 import type { ReplayEntry } from "./context-rebuild.ts";
 
 const history: ReplayEntry[] = [
@@ -68,4 +68,37 @@ it("bounds model output without losing the latest source correction", async () =
   expect(Buffer.byteLength(result)).toBeLessThanOrEqual(6_000);
   expect(result).toContain("may be incomplete");
   expect(result).toContain("Cancel deployment");
+});
+
+it("keeps old decisions, open tasks, identifiers and pending approvals when the excerpts no longer reach them", () => {
+  const old: ReplayEntry[] = [
+    { id: "a", role: "user", text: "Please look at ticket #48213 for Acme. We decided to renew agreement AGR-2291 at the 2025 price." },
+    { id: "b", role: "assistant", text: "Done. Open task: invoice 1009876 still needs the PO number from Marie. Approval pending: refund of 412 $ on ticket #48213, waiting for your OK." },
+    { id: "c", role: "user", text: "Prochaine étape : relancer le fournisseur lundi. Thread 3f2b9c1e-8d4a-4c55-9a1e-0b7c6d5e4f3a reste ouvert." },
+  ];
+  const filler: ReplayEntry[] = Array.from({ length: 40 }, (_, i) => ({ id: `f${i}`, role: i % 2 ? "assistant" : "user", text: "routine chatter about the weather ".repeat(30) }));
+  const summary = deterministicSummary([...old, ...filler]);
+  expect(Buffer.byteLength(summary)).toBeLessThanOrEqual(6_000);
+  // the verbatim excerpts only reach the newest filler...
+  expect(summary).toContain("earlier excerpts omitted");
+  expect(summary).not.toContain("Please look at ticket");
+  // ...but the facts from the old turns are still there, quoted
+  for (const kept of ["#48213", "AGR-2291", "1009876", "3f2b9c1e-8d4a-4c55-9a1e-0b7c6d5e4f3a",
+    "We decided to renew agreement AGR-2291", "Open task: invoice 1009876", "Approval pending: refund of 412 $",
+    "Prochaine étape : relancer le fournisseur lundi."]) expect(summary).toContain(kept);
+  expect(summary).toContain("Assistant/record");
+});
+
+it("adds no key-facts block when nothing qualifies and stays inside a small budget when much does", () => {
+  expect(keyFacts([{ id: "1", role: "user", text: "hello there" }], 2_000)).toBe("");
+  const many: ReplayEntry[] = Array.from({ length: 200 }, (_, i) => ({ id: `${i}`, role: "user", text: `We decided item ${i} is pending for ticket #${10_000 + i}.` }));
+  expect(Buffer.byteLength(keyFacts(many, 1_000))).toBeLessThanOrEqual(1_000);
+  expect(Buffer.byteLength(deterministicSummary(many, 1_024))).toBeLessThanOrEqual(1_024);
+  // newest first: the latest decision survives the cut
+  expect(keyFacts(many, 1_000)).toContain("item 199");
+});
+
+it("asks a model helper for decisions, open tasks, identifiers and pending approvals", () => {
+  const prompt = summaryPrompt(history);
+  for (const asked of ["decisions", "exact identifiers", "open tasks", "pending"]) expect(prompt).toContain(asked);
 });

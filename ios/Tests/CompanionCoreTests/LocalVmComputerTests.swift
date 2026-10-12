@@ -234,6 +234,7 @@ final class ComputerChoiceTests: XCTestCase {
     func testListsCloudThenEachOnlineComputerByName() throws {
         let b = try bridge(#"{"connected":true,"desktops":[{"id":"d1","name":"JeanChrophesMBP","platform":"darwin","online":true,"lastSeenAt":1,"capabilities":{"localVm":true}},{"id":"d2","name":"GOX-PC-07","platform":"win32","online":true,"lastSeenAt":5,"capabilities":{"localVm":true}},{"id":"d3","name":"Old","platform":"linux","online":false,"lastSeenAt":9,"capabilities":{"localVm":true}},{"id":"d4","name":"NoVm","online":true,"lastSeenAt":3,"capabilities":{"localVm":false}},{"platform":"darwin","online":true,"lastSeenAt":2,"capabilities":{"localVm":true}}]}"#)
         XCTAssertEqual(b.computerChoices().map(\.key), ["server", "desktop:d2", "desktop:d1"])
+        XCTAssertTrue(b.iosChooserHasVMs())
         XCTAssertEqual(b.computerChoices()[1].name, "GOX-PC-07")
         XCTAssertEqual(b.chosen(worksOnLocal: false, picked: nil), .cloud)
         XCTAssertEqual(b.chosen(worksOnLocal: true, picked: nil)?.key, "desktop:d2")
@@ -247,6 +248,7 @@ final class ComputerChoiceTests: XCTestCase {
     func testAnOlderServerWithoutIdsKeepsTheCurrentComputer() throws {
         let b = try bridge(#"{"connected":true,"desktops":[{"platform":"darwin","online":true,"lastSeenAt":1,"capabilities":{"localVm":true}}]}"#)
         XCTAssertEqual(b.computerChoices(), [.cloud])
+        XCTAssertFalse(b.iosChooserHasVMs())
         XCTAssertTrue(b.localVmDesktop().connected)
         XCTAssertNil(b.chosen(worksOnLocal: true, picked: nil))
     }

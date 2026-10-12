@@ -45,6 +45,9 @@ targets:
       - path: App
       - path: AppShared
       - path: Shared
+      # Shared with the Notification Service Extension: INSendMessageIntent
+      # so a local banner can name the bot the same way a push does.
+      - path: NotificationService/CommunicationNotification.swift
       # Release notes in the app (#184): docs/releases/*.md, read offline
       - path: ../docs/releases
         type: folder
@@ -52,13 +55,15 @@ targets:
     dependencies:
       - package: CompanionCore
         product: CompanionCore
+      - sdk: Intents.framework
       - target: SagaxWidgetExtension
       - target: SagaxShareExtension
+      - target: SagaxNotificationService
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ca.pulsatrix.sagax
-        MARKETING_VERSION: "0.4.18"
-        CURRENT_PROJECT_VERSION: "17"
+        MARKETING_VERSION: "0.4.22"
+        CURRENT_PROJECT_VERSION: "25"
         SWIFT_VERSION: "5.9"
         TARGETED_DEVICE_FAMILY: "1,2"
         # The catalog lives in App/, which is already a source path.
@@ -72,6 +77,12 @@ targets:
         # The App ID needs the Push Notifications capability. The widget and
         # share extensions get no pushes and keep their own entitlements.
         aps-environment: development
+        # Communication Notifications: the banner names the bot (or person)
+        # and shows their avatar instead of the Sagax app icon. The App ID
+        # `ca.pulsatrix.sagax` needs this capability in the Apple Developer
+        # portal; automatic signing then puts it in the profile
+        # (docs/ios-push.md).
+        com.apple.developer.usernotifications.communication: true
         com.apple.security.application-groups:
           - group.ca.pulsatrix.sagax
         keychain-access-groups:
@@ -138,6 +149,9 @@ targets:
           - audio
           # a push wakes the app for a moment to recount the icon badge
           - remote-notification
+        # Required for communication notifications (INSendMessageIntent).
+        NSUserActivityTypes:
+          - INSendMessageIntent
         NSSpeechRecognitionUsageDescription: >-
           Sagax converts your speech into text so you can send it
           to a bot. Recognition runs on this phone when it can.
@@ -197,8 +211,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ca.pulsatrix.sagax.share
-        MARKETING_VERSION: "0.4.18"
-        CURRENT_PROJECT_VERSION: "17"
+        MARKETING_VERSION: "0.4.22"
+        CURRENT_PROJECT_VERSION: "25"
         SWIFT_VERSION: "5.9"
         TARGETED_DEVICE_FAMILY: "1,2"
         APPLICATION_EXTENSION_API_ONLY: YES
@@ -238,6 +252,56 @@ targets:
               NSExtensionActivationSupportsFileWithMaxCount: 4
               NSExtensionActivationSupportsAttachmentsWithMaxCount: 4
 
+  # A push with `mutable-content` runs here while the app is closed: it
+  # downloads the bot's avatar and donates INSendMessageIntent so the
+  # banner shows the bot's name and face (docs/ios-push.md).
+  SagaxNotificationService:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: NotificationService
+      - path: AppShared
+    dependencies:
+      - package: CompanionCore
+        product: CompanionCore
+      - sdk: Intents.framework
+      - sdk: UserNotifications.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ca.pulsatrix.sagax.notification
+        MARKETING_VERSION: "0.4.22"
+        CURRENT_PROJECT_VERSION: "25"
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: true
+    entitlements:
+      path: NotificationService/SagaxNotificationService.entitlements
+      properties:
+        com.apple.developer.usernotifications.communication: true
+        com.apple.security.application-groups:
+          - group.ca.pulsatrix.sagax
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)group.ca.pulsatrix.sagax
+    info:
+      path: NotificationService/Info.plist
+      properties:
+        CFBundleDisplayName: Sagax
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        SagaxKeychainAccessGroup: $(AppIdentifierPrefix)group.ca.pulsatrix.sagax
+        NSUserActivityTypes:
+          - INSendMessageIntent
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+          NSExceptionDomains:
+            ts.net:
+              NSIncludesSubdomains: true
+              NSExceptionAllowsInsecureHTTPLoads: true
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+
   # The Live Activity lives in a widget extension, alongside the home-screen
   # widgets. It shares the mascot's drawing and data with the app, and the
   # activity contract in Shared/.
@@ -270,6 +334,7 @@ targets:
       - path: App/Mascots/GrumpMascotView.swift
       - path: App/Mascots/OgreMascotView.swift
       - path: App/Mascots/FrogMascotView.swift
+      - path: App/Mascots/CrabMascotView.swift
       # MascotState resolves the face for the post-answer refresh a widget
       # performs; it is self-contained above Core, so it rides along.
       - path: App/MascotState.swift
@@ -282,8 +347,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ca.pulsatrix.sagax.widgets
-        MARKETING_VERSION: "0.4.18"
-        CURRENT_PROJECT_VERSION: "17"
+        MARKETING_VERSION: "0.4.22"
+        CURRENT_PROJECT_VERSION: "25"
         SWIFT_VERSION: "5.9"
         TARGETED_DEVICE_FAMILY: "1,2"
         APPLICATION_EXTENSION_API_ONLY: YES

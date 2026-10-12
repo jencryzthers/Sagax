@@ -8,10 +8,20 @@
 // RICH_OUTPUT_PROMPT) and the renderer recognizes:
 //   ```email   To/Cc/Bcc/Subject header lines, a blank line, then the body
 //   ```widget  a self-contained HTML/CSS/JS snippet, run in a sandboxed iframe
+//   ```artifact  HTML (same as widget) or JSON {title, url} for a published page
 //   ```chart   a JSON spec or CSV rows, drawn as an SVG chart without scripts
 //   ```csv / ```tsv  a data table with sort, filter and copy
+// Claude harness <antArtifact> tags are rewritten by liftClaudeChatBlocks.
 
 export type RichFenceKind = "email" | "widget" | "chart" | "csv";
+
+export {
+  formatArtifactFence,
+  liftClaudeChatBlocks,
+  parseArtifactPage,
+  parseArtifactPublish,
+  type ArtifactPage,
+} from "../../shared/claude-chat-blocks.ts";
 
 const FENCE_KINDS: Readonly<Record<string, RichFenceKind>> = {
   email: "email",
@@ -596,11 +606,12 @@ export function unclosedFenceOffset(text: string): number {
 
 const WIDE_FENCE = /(^|\n) {0,3}(?:`{3,}|~{3,})[ \t]*(?:email|mail|eml|widget|html-widget|artifact|chart|csv|tsv|mermaid)\b/i;
 const TABLE_RULE = /(^|\n)\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*(\n|$)/;
+const ANT_ARTIFACT = /<antArtifact\b/i;
 
 /** A bot message holding a table, a diagram or one of the rich fences gets
  * the wide bubble; prose keeps the narrow reading measure. */
 export function prefersWideBubble(text: string): boolean {
-  return WIDE_FENCE.test(text) || TABLE_RULE.test(text);
+  return WIDE_FENCE.test(text) || TABLE_RULE.test(text) || ANT_ARTIFACT.test(text);
 }
 
 /** Raster data: URLs are safe to show inline (no network, no script); SVG

@@ -391,6 +391,20 @@ struct DesktopExperimentalSettings: View {
                 disabled: saving || (!browser && engine?.kind == "unavailable" && engine?.installable != true),
                 divided: true
             ) { Task { _ = await model.apply(.feature("browser", !browser), key: "browser") } }
+            let browseBots = config?.features?.templates == true
+            DesktopFeatureRow(
+                title: Text("Browse Bots"),
+                detail: Text("Off by default. Shows Browse Bots in the sidebar menu, to find and add ready-made bots and teams."),
+                isOn: browseBots, label: Text("Show Browse Bots in the sidebar"), identifier: "desktop-settings.browse-bots",
+                disabled: saving, divided: true
+            ) { Task { _ = await model.apply(.feature("templates", !browseBots), key: "templates") } }
+            let connectedApps = config?.features?.connectedApps == true
+            DesktopFeatureRow(
+                title: Text("Connected apps"),
+                detail: Text("Gmail, Slack, GitHub and more through your Composio project: the entry at the foot of the sidebar and the card in Settings > API keys. While off, your Claude account's connectors show in Settings > Model providers."),
+                isOn: connectedApps, label: Text("Turn on Connected apps"), identifier: "desktop-settings.connected-apps",
+                disabled: saving, divided: true
+            ) { Task { _ = await model.apply(.feature("connectedApps", !connectedApps), key: "connectedApps") } }
         }
     }
 }

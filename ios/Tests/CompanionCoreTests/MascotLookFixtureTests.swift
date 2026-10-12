@@ -28,6 +28,7 @@ final class MascotLookFixtureTests: XCTestCase {
         var grumpSkins: [String]
         var ogreSkins: [String]
         var frogSkins: [String]
+        var crabSkins: [String]
         var owlSkins: [String]
         var colorGroups: [String: [String]]
         var colors: [String: String]
@@ -35,6 +36,13 @@ final class MascotLookFixtureTests: XCTestCase {
         var owlSkinCases: [SkinCase]
         var shibaPalettes: [ShibaPaletteCase]
         var frogPalettes: [ShibaPaletteCase]
+        var crabPalettes: [CrabPaletteCase]
+    }
+    struct CrabPaletteCase: Decodable {
+        var skin: String
+        var color: String
+        var fill: String
+        var eyes: String
     }
     struct ShibaPaletteCase: Decodable {
         var skin: String
@@ -105,6 +113,7 @@ final class MascotLookFixtureTests: XCTestCase {
         XCTAssertEqual(GrumpSkin.allCases.map(\.rawValue), f.grumpSkins)
         XCTAssertEqual(OgreSkin.allCases.map(\.rawValue), f.ogreSkins)
         XCTAssertEqual(FrogSkin.allCases.map(\.rawValue), f.frogSkins)
+        XCTAssertEqual(CrabSkin.allCases.map(\.rawValue), f.crabSkins)
         XCTAssertEqual(MascotSkin.allCases.map(\.rawValue), f.owlSkins)
     }
 
@@ -278,5 +287,41 @@ final class MascotLookFixtureTests: XCTestCase {
         XCTAssertEqual(MascotUnlocks.tier(.frog, skin: "plain"), .common)
         XCTAssertEqual(MascotUnlocks.tier(.frog, skin: "tree"), .rare)
         XCTAssertEqual(MascotUnlocks.tier(.frog, skin: "molten"), .legendary)
+    }
+
+    /// Crab's fill and eyes for every skin are the desktop's (`crabSkinPaint`).
+    func testCrabPalettesMatchTheDesktop() throws {
+        let f = try fixture()
+        XCTAssertEqual(f.crabPalettes.count, CrabSkin.allCases.count * 6)
+        for c in f.crabPalettes {
+            let skin = try XCTUnwrap(CrabSkin(rawValue: c.skin))
+            let hex = try XCTUnwrap(MausColors.hex(for: c.color))
+            let paint = CrabArt.paint(skin, hex: hex)
+            XCTAssertEqual(paint.fill.uppercased(), c.fill.uppercased(), "\(c.skin) on \(c.color) fill")
+            XCTAssertEqual(paint.eyes.uppercased(), c.eyes.uppercased(), "\(c.skin) on \(c.color) eyes")
+        }
+        XCTAssertEqual(CompleteMascotLook(character: .crab).fallbackColor, "orange")
+        XCTAssertEqual(MascotUnlocks.tier(.crab, skin: "plain"), .common)
+        XCTAssertEqual(MascotUnlocks.tier(.crab, skin: "mint"), .common)
+        XCTAssertEqual(MascotUnlocks.tier(.crab, skin: "gold"), .rare)
+        XCTAssertEqual(MascotUnlocks.tier(.crab, skin: "neon"), .epic)
+        XCTAssertEqual(MascotUnlocks.tier(.crab, skin: "galaxy"), .legendary)
+        XCTAssertTrue(MascotUnlocks.defaultCharacters.contains(.crab))
+        XCTAssertEqual(CrabArt.grid, 24)
+        XCTAssertEqual(CrabArt.gridH, 16)
+        XCTAssertEqual(CrabArt.ox, 2)
+        XCTAssertEqual(CrabArt.oy, 36)
+        XCTAssertEqual(CrabArt.eyeL.w, 8)
+        XCTAssertEqual(CrabArt.eyeL.h, 8)
+        XCTAssertEqual(CrabArt.legs.count, 4)
+        XCTAssertEqual(CrabArt.body.w, 64)
+        XCTAssertEqual(CrabArt.body.h, 48)
+        XCTAssertEqual(CrabArt.eyes("happy").pupils.0.h, 4)
+        XCTAssertNil(CrabArt.eyes("happy").shines)
+        XCTAssertNotEqual(CrabArt.eyes("sleepy").pupils.0.y, CrabArt.eyes("happy").pupils.0.y)
+        XCTAssertNil(CrabArt.eyes("excited").shines)
+        XCTAssertNil(CrabArt.eyes(nil).shines)
+        XCTAssertEqual(CrabArt.paint(.plain, hex: "#377FE6").shine.uppercased(), "#F8F4EE")
+        XCTAssertEqual(CrabArt.paint(.ink, hex: "#377FE6").shine.uppercased(), "#1A1816")
     }
 }

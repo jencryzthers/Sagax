@@ -74,16 +74,26 @@ final class NavigationMenusTests: XCTestCase {
         XCTAssertFalse(theirs.items.contains(.makePrimary))
     }
 
-    func testThePrimaryBotIsNotPinnedAndCannotBeArchived() throws {
+    func testThePrimaryBotCanBePinnedAndCannotBeArchived() throws {
         let plan = NavigationMenus.bot(try bot("star", primary: true), context(admin))
-        XCTAssertFalse(plan.items.contains(.pin))
+        XCTAssertEqual(plan.items.first, .pin)
         XCTAssertEqual(plan.groups.last, [.replacePrimary])
         XCTAssertEqual(plan.archiveBlock, .primary)
         XCTAssertFalse(plan.enables(.archive))
         XCTAssertTrue(plan.enables(.delete))
 
+        let pinned = NavigationMenus.bot(try bot("star", primary: true, pinned: true), context(admin))
+        XCTAssertEqual(pinned.items.first, .unpin)
+
         let last = NavigationMenus.bot(try bot("only"), context(admin, active: 1))
         XCTAssertEqual(last.archiveBlock, .lastActive)
+    }
+
+    func testTheSidecarBotMenuStillOffersPin() throws {
+        let plan = NavigationMenus.bot(try bot("ara"), context(sidecar))
+        XCTAssertEqual(plan.items.first, .pin)
+        let primary = NavigationMenus.bot(try bot("star", primary: true), context(sidecar))
+        XCTAssertEqual(primary.items.first, .pin)
     }
 
     func testAnUnknownViewerKeepsThePrimaryEntriesOut() throws {

@@ -96,14 +96,35 @@ struct DesktopSidebar: View {
 
 /// The head (`SIDEBAR_TITLE_ROW`, `h-12 pr-4`): the round Search and New
 /// buttons, 36 pt circles 8 apart ending 16 pt from the edge. The desktop
-/// draws no logo by default (Settings > Appearance > Sidebar logo), so the
-/// iPad draws none. There is no search field and no
+/// draws no logo unless Settings > Appearance > Sidebar logo turns it on,
+/// and the iPad follows the same switch. There is no search field and no
 /// collapse button any more: the palette opens from the round button (⌘K)
 /// and the sidebar's edge collapses it (drag, double tap, ⌘\).
 struct DesktopSidebarHead: View {
+    @Environment(\.desktopTheme) private var theme
+    @AppStorage(SidebarLogoPreference.key) private var showSidebarLogo = SidebarLogoPreference.defaultEnabled
+
     var body: some View {
         HStack(spacing: 0) {
-            Spacer(minLength: 16)
+            if SidebarLogoRuntime.isBrandVisible(showSidebarLogo) {
+                HStack(spacing: 0) {
+                    Image(theme.sidebarIsDark ? "PulsatrixMark-dark" : "PulsatrixMark-light")
+                        .resizable()
+                        .renderingMode(.original)
+                        .scaledToFit()
+                        .frame(width: 22, height: 17)
+                        .padding(.leading, 16)
+                        .accessibilityHidden(true)
+                    DesktopLineText(text: "Sagax", size: 16, weight: .semibold, color: theme.sidebarInk, lineHeight: 20, tracking: -0.16)
+                        .padding(.leading, 8)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(Text("Sagax"))
+                .accessibilityIdentifier("desktop-sidebar-brand")
+                Spacer(minLength: 8)
+            } else {
+                Spacer(minLength: 16)
+            }
             DesktopSearchButton()
             DesktopNewButton()
                 .padding(.leading, 8)
@@ -255,9 +276,7 @@ struct DesktopSidebarList: View {
     /// pinned, the Primary Bot included; a pinned group stays in its
     /// section), in the roster's order. The sections leave them out.
     private var pinnedChats: [Chat] {
-        let chiefs = ([layout.unsectionedChief].compactMap { $0 } + layout.sections.flatMap(\.chiefs)).filter { $0.pinned == true }
-        let pinned = Set((layout.pinnedBots + chiefs).map(\.id))
-        return session.state.bots.filter { pinned.contains($0.id) }.map(Chat.bot)
+        layout.pinnedBots.map(Chat.bot)
     }
 
     private func previewMap() -> [String: String] {
@@ -610,6 +629,17 @@ final class DesktopSidebarFlags: ObservableObject {
         guard session.connection?.id == id else { return }
         features = config.features
         viewerId = PrimaryBotRules.viewerId(config: config)
+    }
+
+    /// After Settings > Experimental PATCH, so Connected apps and Browse Bots
+    /// hide at once like the desktop store's `configStatus`.
+    func apply(_ features: ServerFeatures?) {
+        self.features = features
+    }
+
+    func apply(_ config: DesktopSettingsConfig?) {
+        guard let features = config?.features else { return }
+        self.features = ServerFeatures(browser: features.browser, connectedApps: features.connectedApps, templates: features.templates)
     }
 }
 

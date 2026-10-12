@@ -26,6 +26,7 @@ import {
   isBrowserControlAccess,
   isCloudDesktopAccess,
   isMessageFileDownload,
+  isSandboxViewerAccess,
 } from "./routes.ts";
 import { CompanionViewerRelay } from "./viewer-relay.ts";
 import { createSseScrubber, isJson, scrub } from "./wire.ts";
@@ -770,6 +771,71 @@ export function createProxyHandler(options: ProxyOptions) {
     }
     const token = bearerToken(req.headers.authorization);
     const device = options.authenticate(token);
+    const path = (req.url ?? "/").split("?")[0];
+    if (isSandboxViewerAccess("GET", path)) {
+      if (!device) {
+        socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+        return;
+      }
+      if (!device.cloudDesktopAccess) {
+        socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+        return;
+      }
+      const mutationToken = options.mutationToken?.();
+      if (options.mutationToken && !mutationToken) {
+        socket.end("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n");
+        return;
+      }
+      if (req.method !== "GET" || String(req.headers.upgrade ?? "").toLowerCase() !== "websocket") {
+        socket.destroy();
+        return;
+      }
+      const headers: Record<string, string> = {
+        connection: "Upgrade",
+        upgrade: "websocket",
+        ...companionIdentityHeaders(device.id, mutationToken ?? undefined),
+      };
+      for (const name of ["sec-websocket-key", "sec-websocket-version", "sec-websocket-protocol", "sec-websocket-extensions"]) {
+        const value = req.headers[name];
+        if (typeof value === "string") headers[name] = value;
+      }
+      const upstream = httpRequest({
+        hostname: "127.0.0.1",
+        port: options.harnessPort,
+        path: req.url,
+        method: "GET",
+        headers,
+      });
+      upstream.setTimeout(30_000, () => upstream.destroy(new Error("sandbox viewer upgrade timed out")));
+      upstream.once("upgrade", (response, remote, remoteHead) => {
+        upstream.setTimeout(0);
+        remote.setTimeout(0);
+        if (socket.destroyed) {
+          remote.destroy();
+          return;
+        }
+        const out: string[] = [];
+        for (const name of ["upgrade", "connection", "sec-websocket-accept", "sec-websocket-protocol", "sec-websocket-extensions"]) {
+          const value = response.headers[name];
+          if (typeof value === "string") out.push(`${name}: ${value}`);
+        }
+        socket.write(
+          `HTTP/1.1 ${response.statusCode ?? 101} ${response.statusMessage ?? "Switching Protocols"}\r\n`
+            + `${out.join("\r\n")}\r\n\r\n`,
+        );
+        if (head.length) remote.write(head);
+        if (remoteHead.length) socket.write(remoteHead);
+        socket.pipe(remote).pipe(socket);
+      });
+      upstream.once("response", (response) => {
+        response.resume();
+        socket.destroy();
+      });
+      upstream.once("error", () => socket.destroy());
+      socket.once("close", () => upstream.destroy());
+      upstream.end();
+      return;
+    }
     viewers.handleUpgrade(req, socket, head, device);
   };
   handle.disconnectDevice = (deviceId: string): void => {

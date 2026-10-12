@@ -17,8 +17,11 @@
 //   M6  lot C.3: a streamed send stops at a card, the AI client answers it
 //       (recorded `via: ai-client` with the person's name), the watch then
 //       ends with the structured summary
+//   M7  the agent-to-agent tools (agents/{tool}): a person's AI client lists,
+//       sends (blocking and async + await_turn) and reads pages; scopes hold
 import { spawn, type ChildProcess } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { request } from "node:http";
 import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -64,6 +67,25 @@ const api = async (method: string, path: string, auth?: Auth, body?: unknown): P
   return { status: res.status, body: parsed, text, headers: res.headers };
 };
 const cookiePair = (setCookie: string) => setCookie.split(";")[0]!;
+/** An open /api/events stream: everything it received so far. */
+async function openStream(auth: Auth): Promise<{ text: () => string; close: () => void }> {
+  const { body } = await api("POST", "/api/auth/stream-ticket", auth);
+  return new Promise((resolve, reject) => {
+    let received = "";
+    const req = request(`${BASE}/api/events?ticket=${encodeURIComponent(body.ticket)}`, { headers: { accept: "text/event-stream" } }, (res) => {
+      res.setEncoding("utf8");
+      res.on("data", (chunk: string) => { received += chunk; });
+      resolve({ text: () => received, close: () => req.destroy() });
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+/** The threads a stream's notifications named. */
+const notifiedThreads = (text: string): string[] => text.split("\n")
+  .filter((line) => line.startsWith("data: "))
+  .flatMap((line) => { try { return [JSON.parse(line.slice(6)) as { kind?: string; notification?: { threadId?: string } }]; } catch { return []; } })
+  .flatMap((frame) => (frame.kind === "notify" && frame.notification?.threadId ? [frame.notification.threadId] : []));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function signIn(user: FakeOidcUser): Promise<Auth> {
@@ -203,6 +225,7 @@ posixOnly("Perspicax AI clients: the Sagax member API", () => {
     // Alice's private bot is not Bob's to see
     expect((listed.body.bots as Array<any>).some((bot) => bot.id === bots.atlas!.id)).toBe(false);
 
+    const events = await openStream(bob);
     const sent = await member("POST", `bots/${bots.orion!.id}/messages`, BOB, { text: "count the open tickets", wait: 30 });
     expect(sent.status, sent.text).toBe(200);
     expect(sent.body).toMatchObject({ botId: bots.orion!.id, status: "done", pending: false, reply: expect.stringContaining("count the open tickets") });
@@ -211,6 +234,23 @@ posixOnly("Perspicax AI clients: the Sagax member API", () => {
     const thread = await api("GET", `/api/threads/${sent.body.threadId}/messages?limit=50`, bob);
     const mine = (thread.body.messages as Array<any>).find((m) => m.id === sent.body.messageId);
     expect(mine).toMatchObject({ role: "user", text: "count the open tickets" });
+    // #291: an AI client works in a hidden conversation. Bob's chat with
+    // Orion did not move to it, his bot list does not list it, it left no
+    // unread dot, and the client's next send continues it.
+    const after = await api("GET", "/api/bots?messages=0", bob);
+    const orion2 = (after.body.bots as Array<any>).find((bot) => bot.id === bots.orion!.id);
+    expect(orion2.threadId).not.toBe(sent.body.threadId);
+    expect((orion2.tasks as Array<any>).some((task) => task.threadId === sent.body.threadId)).toBe(false);
+    expect(orion2.unread).toBe(false);
+    const again = await member("POST", `bots/${bots.orion!.id}/messages`, BOB, { text: "and the closed ones", wait: 30 });
+    expect(again.status, again.text).toBe(200);
+    expect(again.body.threadId).toBe(sent.body.threadId);
+    // and it never buzzed Bob, while his own chat with Orion still does
+    const own = await api("POST", `/api/bots/${bots.orion!.id}/messages`, bob, { text: "my own question", threadId: orion2.threadId });
+    expect(own.status, own.text).toBeLessThan(300);
+    await waitFor(async () => notifiedThreads(events.text()).includes(orion2.threadId), 30_000);
+    expect(notifiedThreads(events.text())).not.toContain(sent.body.threadId);
+    events.close();
   }, 60_000);
 
   it("M2: a long job answers pending with the thread id, and the thread read gives the reply later", async () => {
@@ -333,5 +373,60 @@ posixOnly("Perspicax AI clients: the Sagax member API", () => {
     });
     const audit = await api("GET", "/api/org/admin/audit?category=client", { bearer: idp.consoleAssertion({ sub: ALICE.sub, aud: BASE, role: "admin" }) });
     expect((audit.body.rows as Array<any>).find((row) => row.action === "client.approval")).toMatchObject({ actor: { kind: "person", name: "Alice", via: "perspicax-mcp" } });
+  }, 90_000);
+
+  it("M7: agents/{tool}: list, send blocking and async, await_turn, read pages; scopes refuse", async () => {
+    const listed = await member("POST", "agents/list_agents", BOB, {});
+    expect(listed.status, listed.text).toBe(200);
+    const listedIds = (listed.body.agents as Array<any>).map((agent) => agent.id);
+    expect(listedIds).toContain(bots.orion!.id);
+    expect(listedIds).not.toContain(bots.atlas!.id);
+    const found = await member("POST", "agents/find_agents", BOB, { query: "orion", limit: 64 });
+    expect((found.body.agents as Array<any>).map((agent) => agent.id)).toEqual([bots.orion!.id]);
+    expect((await member("POST", "agents/find_agents", BOB, { query: "orion", limit: 65 })).status).toBe(400);
+
+    const blocking = await member("POST", "agents/send_prompt", BOB, {
+      agent_id: bots.orion!.id, prompt: "sum the invoices", mode: "blocking", timeout_ms: 30_000,
+      files: [{ path: "notes/invoices.txt", content_base64: Buffer.from("42\n").toString("base64") }],
+    });
+    expect(blocking.status, blocking.text).toBe(200);
+    expect(blocking.body).toMatchObject({ finished: true, reply: expect.stringContaining("sum the invoices") });
+    expect(String(blocking.body.handle)).toMatch(/^turn_/);
+    const threadId = blocking.body.thread_id as string;
+
+    const sent = await member("POST", "agents/send_prompt", BOB, { agent_id: bots.orion!.id, prompt: "[gate:a2a] and the credits", mode: "async" });
+    expect(sent.status, sent.text).toBe(200);
+    expect(sent.body).toMatchObject({ accepted: true, thread_id: threadId });
+    const early = await member("POST", "agents/await_turn", BOB, { agent_id: bots.orion!.id, handle: sent.body.handle, timeout_ms: 1_000 });
+    expect(early.body).toMatchObject({ finished: false });
+    expect(String(early.body.next)).toContain("never send the prompt again");
+    writeFileSync(join(gates, "a2a"), "");
+    const awaited = await member("POST", "agents/await_turn", BOB, { agent_id: bots.orion!.id, handle: sent.body.handle, timeout_ms: 30_000 });
+    expect(awaited.status, awaited.text).toBe(200);
+    expect(awaited.body.finished).toBe(true);
+    // a forged handle is refused
+    expect((await member("POST", "agents/await_turn", BOB, { agent_id: bots.orion!.id, handle: `${sent.body.handle}x` })).status).toBe(400);
+
+    const latest = await member("POST", "agents/read_latest_page", BOB, { agent_id: bots.orion!.id, limit: 12 });
+    expect(latest.status, latest.text).toBe(200);
+    const texts = (latest.body.entries as Array<any>).map((entry) => entry.text as string);
+    expect(texts.some((text) => text.startsWith("sum the invoices") && text.includes("inbox/bob/invoices.txt")), JSON.stringify(latest.body)).toBe(true);
+    expect(readFileSync(join(home, ".sagax", "workspaces", bots.orion!.id, "inbox", "bob", "invoices.txt"), "utf8")).toBe("42\n");
+    const cold = await member("POST", "agents/read_transcript_cold", BOB, { agent_id: bots.orion!.id });
+    expect(cold.status, cold.text).toBe(200);
+    // the AI client's conversation stays hidden (#302)
+    const after = await api("GET", "/api/bots?messages=0", bob);
+    const orion = (after.body.bots as Array<any>).find((bot) => bot.id === bots.orion!.id);
+    expect(orion.threadId).not.toBe(threadId);
+
+    // scopes: create needs clients.agentsCreate (off for members); Zoe holds no client key
+    expect((await member("POST", "agents/create_agent", BOB, { name: "Nova" })).body).toMatchObject({ code: "forbidden_scope", scope: "agents.create" });
+    expect((await member("POST", "agents/list_agents", ZOE, {})).body).toMatchObject({ code: "forbidden_scope" });
+    expect((await member("POST", "agents/delete_agent", BOB, {})).status).toBe(404);
+
+    const audit = await api("GET", "/api/org/admin/audit?category=client", { bearer: idp.consoleAssertion({ sub: ALICE.sub, aud: BASE, role: "admin" }) });
+    const rows = (audit.body.rows as Array<any>).filter((row) => String(row.action).startsWith("agents."));
+    expect(rows.find((row) => row.action === "agents.send_prompt")).toMatchObject({ actor: { kind: "person", name: "Bob" } });
+    expect(JSON.stringify(rows)).not.toContain("sum the invoices");
   }, 90_000);
 });

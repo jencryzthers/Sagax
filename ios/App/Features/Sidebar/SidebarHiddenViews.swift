@@ -61,6 +61,7 @@ struct SidebarAppearanceSettings: View {
     @ObservedObject private var prefs = SidebarPrefsModel.shared
     /// iPad I2: the desktop sidebar's density, on this device.
     @AppStorage(PrefKey.desktopSidebarDensity) private var desktopDensity = DesktopSidebarDensity.comfortable.rawValue
+    @AppStorage(SidebarLogoPreference.key) private var showSidebarLogo = SidebarLogoPreference.defaultEnabled
 
     var body: some View {
         let rows = prefs.layout(session).hiddenRows
@@ -72,6 +73,16 @@ struct SidebarAppearanceSettings: View {
                 densityRow("Compact", .compact, subtitle: "One line per bot.")
                 CardHairline(leadingInset: SettingsMetrics.rowInset)
                 densityRow("Avatars only", .icons, subtitle: "The sidebar folds to a rail of avatars.")
+            }
+            if SidebarLogoRuntime.showsSetting {
+                SettingsCard {
+                    SettingsRow(
+                        title: "Sidebar logo",
+                        subtitle: "Show the Sagax logo and name at the top of the sidebar.",
+                        accessory: .toggle($showSidebarLogo),
+                        identifier: "settings.sidebarLogo"
+                    )
+                }
             }
         }
         SettingsSectionLabel(text: "Threads")
