@@ -32,7 +32,6 @@ async function callFixture(env: Record<string, string> = {}) {
     expect(response.status, `${method} ${path}: ${JSON.stringify(result)}`).toBe(status);
     return result;
   };
-  const receivedPath = join(dataDir, "received.jsonl");
   const dumpPath = join(dataDir, "fake-claude-dump.json");
   const gates = join(dataDir, "gates");
   mkdirSync(gates, { recursive: true });

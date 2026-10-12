@@ -52,19 +52,19 @@ export type VoiceCapture = {
 type CaptureNode = {
   port?: { onmessage: ((event: MessageEvent) => void) | null };
   onaudioprocess?: ((event: { inputBuffer: { getChannelData: (n: number) => Float32Array } }) => void) | null;
-  connect: (dest?: unknown) => void;
-  disconnect: () => void;
+  connect(dest?: unknown): unknown;
+  disconnect(): void;
 };
 
 export type CaptureContext = {
   sampleRate: number;
   destination: unknown;
-  audioWorklet?: { addModule: (url: string) => Promise<void> };
-  createScriptProcessor?: (bufferSize: number, inputChannels: number, outputChannels: number) => CaptureNode;
-  createGain?: () => { gain: { value: number }; connect: (dest?: unknown) => void; disconnect: () => void };
+  audioWorklet?: { addModule(url: string): Promise<void> };
+  createScriptProcessor?(bufferSize: number, inputChannels: number, outputChannels: number): CaptureNode;
+  createGain?(): { gain: { value: number }; connect(dest?: unknown): unknown; disconnect(): void };
 };
 
-export type CaptureSource = { connect: (node: unknown) => void };
+export type CaptureSource = { connect(node: unknown): unknown };
 
 export type AttachVoiceCaptureOptions = {
   bufferSize?: number;
@@ -101,7 +101,9 @@ async function tryWorklet(
   } finally {
     if (url.startsWith("blob:") && typeof URL.revokeObjectURL === "function") URL.revokeObjectURL(url);
   }
-  const Ctor = WorkletNode ?? (typeof AudioWorkletNode === "function" ? AudioWorkletNode : undefined);
+  const Ctor = WorkletNode ?? (typeof AudioWorkletNode === "function"
+    ? AudioWorkletNode as unknown as NonNullable<AttachVoiceCaptureOptions["WorkletNode"]>
+    : undefined);
   if (!Ctor) return null;
   try {
     const node = new Ctor(context, CAPTURE_WORKLET_NAME, {

@@ -52,7 +52,7 @@ describe("voice topics", () => {
     expect(callHasBackgroundWork([{ kind: "activity", tool: { name: "Bash" } }])).toBe(true);
     expect(callHasBackgroundWork([{ kind: "activity", tool: { name: "Bash", ok: true } }])).toBe(false);
     expect(callHasBackgroundWork([{ parallelTask: { role: "card", state: "running" } }])).toBe(true);
-    expect(callHasBackgroundWork([{ kind: "text", text: "hi" }])).toBe(false);
+    expect(callHasBackgroundWork([{ kind: "text" }])).toBe(false);
   });
 
   it("a result for an older topic is announced; the latest is spoken in full", () => {

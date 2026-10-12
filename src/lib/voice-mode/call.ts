@@ -37,7 +37,7 @@ import { SpeechSocket } from "./speech-stream";
 import { estimatePitch } from "./prosody";
 import { spokenPart } from "./spoken";
 import { judge, readVoiceprint, saveVoiceprint, SpeakerEmbedder, voiceprintOf, type Voiceprint } from "./speaker-id";
-import { attachVoiceCapture, type VoiceCapture } from "./capture-worklet";
+import { attachVoiceCapture, type CaptureContext, type CaptureSource, type VoiceCapture } from "./capture-worklet";
 import { LiveTranscriber } from "./stt-stream";
 import { completeClause, CONTOUR_CONTINUATION_MS, FRAME_MS, incompleteClause, TurnDetector } from "./turns";
 import { formatTimeline, materiallyDifferent, normalizedWords, type TurnMetrics } from "./latency";
@@ -587,7 +587,7 @@ export class VoiceCall {
     analyser.fftSize = 1024;
     const size = context.sampleRate === RATE ? VAD_FRAME : 2048;
     source.connect(analyser);
-    const captureNode = await attachVoiceCapture(context, source, (samples) => this.onAudio(samples), { bufferSize: size, frameSize: size });
+    const captureNode = await attachVoiceCapture(context as CaptureContext, source as CaptureSource, (samples) => this.onAudio(samples), { bufferSize: size, frameSize: size });
     if (this.closed) {
       captureNode.disconnect();
       source.disconnect();
