@@ -157,7 +157,11 @@ export type AchievementReward =
   | { kind: "character"; character: Exclude<RewardCharacter, "owl"> }
   | { kind: "skin"; character: RewardCharacter; skin: string }
   | { kind: "appIcon"; id: string }
-  | { kind: "title"; id: string; name: Localized };
+  | { kind: "title"; id: string; name: Localized }
+  | { kind: "emote"; character: RewardCharacter; id: string }
+  | { kind: "move"; character: RewardCharacter; id: string }
+  | { kind: "accessory"; id: string }
+  | { kind: "effect"; id: string };
 
 export interface Localized {
   en: string;
@@ -414,6 +418,46 @@ export function rewardKey(reward: AchievementReward): string {
       return `appIcon:${reward.id}`;
     case "title":
       return `title:${reward.id}`;
+    case "emote":
+      return `emote:${reward.character}:${reward.id}`;
+    case "move":
+      return `move:${reward.character}:${reward.id}`;
+    case "accessory":
+      return `accessory:${reward.id}`;
+    case "effect":
+      return `effect:${reward.id}`;
+  }
+}
+
+export type RewardRegistry = {
+  emotes: Readonly<Partial<Record<RewardCharacter, readonly string[]>>>;
+  moves: Readonly<Partial<Record<RewardCharacter, readonly string[]>>>;
+  accessories: readonly string[];
+  effects: readonly string[];
+};
+
+export const REWARD_REGISTRY: RewardRegistry = {
+  emotes: { crab: ["neutral", "happy", "curious", "sleepy"] },
+  moves: {},
+  accessories: [],
+  effects: [],
+};
+
+export function rewardLineVisible(reward: AchievementReward): boolean {
+  switch (reward.kind) {
+    case "character":
+    case "skin":
+    case "appIcon":
+    case "title":
+      return true;
+    case "emote":
+      return (REWARD_REGISTRY.emotes[reward.character] ?? []).includes(reward.id);
+    case "move":
+      return (REWARD_REGISTRY.moves[reward.character] ?? []).includes(reward.id);
+    case "accessory":
+      return (REWARD_REGISTRY.accessories as readonly string[]).includes(reward.id);
+    case "effect":
+      return (REWARD_REGISTRY.effects as readonly string[]).includes(reward.id);
   }
 }
 
