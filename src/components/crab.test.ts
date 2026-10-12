@@ -1,5 +1,5 @@
 // Crab, the pixel-rect mascot: only axis-aligned rectangles, a coral fill,
-// 2x2 eyes with a shine, pincer claws and four legs with feet. Free with the owl.
+// Clawd-Still 24x16, 2x2 square eyes, stub arms, four legs. Free with the owl.
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -27,8 +27,10 @@ import { CrabMascot, crabExpressionForMood, crabHexOf } from "./CrabMascot";
 import { crabSkinId, crabSkinMarks, crabSkinPaint } from "./skin-fx/crab-skins";
 import {
   CRAB_BUST_MAX,
+  CRAB_CLIP_RECTS,
   CRAB_CORAL,
   CRAB_GRID,
+  CRAB_IDLE_RECTS,
   CRAB_INK,
   CRAB_OX,
   CRAB_OY,
@@ -43,36 +45,40 @@ const draw = (props: Partial<Parameters<typeof CrabMascot>[0]> = {}) =>
   renderToStaticMarkup(createElement(CrabMascot, { color: "orange", ...props }));
 
 describe("Crab's art", () => {
-  it("sits on a 16-cell pixel grid mapped into the 0..100 box", () => {
-    expect(CRAB_PX).toBe(6);
-    expect(CRAB_GRID).toBe(16);
+  it("sits on the Clawd-Still 24x16 grid mapped into the 0..100 box", () => {
+    expect(CRAB_PX).toBe(4);
+    expect(CRAB_GRID).toBe(24);
     expect(CRAB_OX).toBe(2);
-    expect(CRAB_OY).toBe(4);
-    expect(CRAB_PARTS.body).toEqual({ x: 20, y: 46, w: 60, h: 36 });
+    expect(CRAB_OY).toBe(36);
+    expect(CRAB_PARTS.body).toEqual({ x: 18, y: 36, w: 64, h: 48 });
+    expect(CRAB_PARTS.armL).toEqual({ x: 2, y: 52, w: 16, h: 16 });
+    expect(CRAB_PARTS.armR).toEqual({ x: 82, y: 52, w: 16, h: 16 });
     expect(CRAB_PARTS.legs).toHaveLength(4);
-    expect(CRAB_PARTS.feet).toHaveLength(4);
-    expect(CRAB_PARTS.eyeL.w).toBe(CRAB_PX * 2);
-    expect(CRAB_PARTS.eyeR.h).toBe(CRAB_PX * 2);
-    expect(CRAB_PARTS.shineL.w).toBe(CRAB_PX);
+    expect(CRAB_PARTS.legs[0]).toEqual({ x: 18, y: 84, w: 8, h: 16 });
+    expect(CRAB_PARTS.eyeL).toEqual({ x: 26, y: 44, w: 8, h: 8 });
+    expect(CRAB_PARTS.eyeR).toEqual({ x: 66, y: 44, w: 8, h: 8 });
+    expect("feet" in CRAB_PARTS).toBe(false);
+    expect("shineL" in CRAB_PARTS).toBe(false);
+    expect("pincerL" in CRAB_PARTS).toBe(false);
   });
 
   it("crops to the bust under 48 px", () => {
-    expect(crabViewBox(32)).toBe("2 36 96 58");
-    expect(crabViewBox(CRAB_BUST_MAX)).toBe("2 36 96 58");
+    expect(crabViewBox(32)).toBe("0 32 100 56");
+    expect(crabViewBox(CRAB_BUST_MAX)).toBe("0 32 100 56");
     expect(crabViewBox(49)).toBe("0 0 100 100");
   });
 
-  it("opens 2x2 eyes with a shine, and squints on happy like Clawd's clap", () => {
+  it("opens 2x2 solid eyes, and squints on happy like the flag waver", () => {
     const open = crabEyeDraw("neutral");
     expect(open.pupils[0]).toEqual(CRAB_PARTS.eyeL);
-    expect(open.shines?.[0]).toEqual(CRAB_PARTS.shineL);
+    expect(open.shines).toBeNull();
     const happy = crabEyeDraw("happy");
     expect(happy.pupils[0].h).toBe(CRAB_PX);
     expect(happy.shines).toBeNull();
     const sleepy = crabEyeDraw("sleepy");
     expect(sleepy.pupils[0].h).toBe(CRAB_PX);
     expect(sleepy.pupils[0].y).not.toBe(happy.pupils[0].y);
-    expect(crabEyeDraw("excited").shines?.[0]).toEqual(CRAB_PARTS.shineL);
+    expect(crabEyeDraw("excited").shines).toBeNull();
   });
 
   it("tints the coral with the bot colour on Plain, and stays a crab", () => {
@@ -189,10 +195,11 @@ describe("Crab's drawing", () => {
         expect(html).toContain("crispEdges");
         expect(html).toContain(`data-skin-tier="${CRAB_SKIN_TIER[skin]}"`);
         expect(html).not.toMatch(/<path[\s>]/);
-        expect(html.match(/<rect /g)?.length, `${skin}@${size}`).toBe(20 + extra);
+        expect(html.match(/<rect /g)?.length, `${skin}@${size}`).toBe(CRAB_IDLE_RECTS + CRAB_CLIP_RECTS + extra);
+        expect(html, `${skin}@${size}`).not.toMatch(/crab-pincer|crab-foot|crab-shine/);
       }
     }
-    expect(draw({ size: 32 })).toContain('viewBox="2 36 96 58"');
+    expect(draw({ size: 32 })).toContain('viewBox="0 32 100 56"');
     expect(draw({ size: 96 })).toContain('viewBox="0 0 100 100"');
     expect(draw({ skin: "gold", size: 96 })).toContain("skin-fx-live");
     expect(draw({ skin: "plain", size: 96 })).not.toContain("skin-fx-live");

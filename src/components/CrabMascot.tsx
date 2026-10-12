@@ -1,8 +1,7 @@
-// Crab, the pixel-rect mascot (crab-art.ts): one coral fill, 2x2 eyes with a
-// shine, pincer claws and four legs with feet. Small avatars draw a still
-// frame (the bust under 48 px). Larger ones bob, look, pinch and blink in
-// CSS (crab-mascot.css). A move or a held activity runs the rig of
-// crab-moves.ts instead.
+// Crab, the pixel-rect mascot (crab-art.ts): Clawd-Still 24x16, one coral fill,
+// 2x2 square eyes, stub arms, four legs. Small avatars draw a still frame
+// (the bust under 48 px). Larger ones bob, look and blink in CSS
+// (crab-mascot.css). A move or a held activity runs the rig of crab-moves.ts.
 import "./crab-mascot.css";
 import "./skin-fx/skin-fx.css";
 import { memo, useEffect, useId, useMemo, useRef, useState, type Ref, type RefObject } from "react";
@@ -85,47 +84,47 @@ export interface CrabDrawingProps {
 }
 
 const Drawing = memo(function CrabDrawing({ fill, eyes, shine, accent, marks, size, face, groups, pose, svgRef, svgClass }: CrabDrawingProps) {
+  const clip = `crab-ground-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const own = (key: CrabGroup) => (node: SVGGElement | null) => {
     if (groups) groups.current[key] = node;
   };
   const t = pose ? crabTransforms(pose) : null;
   const drawn = crabEyeDraw(face ?? pose?.expression);
   const spark = pose?.spark ?? 0;
+  void shine;
   return (
     <svg ref={svgRef} viewBox={crabViewBox(size)} width={size} height={size} shapeRendering="crispEdges" className={svgClass} aria-hidden>
+      <defs>
+        <clipPath id={clip}>
+          <rect x="-20" y="-50" width="160" height="150" />
+        </clipPath>
+      </defs>
       <g className="crab-whole" ref={own("whole")} transform={t?.whole} style={{ transformOrigin: `${CRAB_PIVOTS.ground[0]}px ${CRAB_PIVOTS.ground[1]}px` }}>
         <Marks items={marks.under} />
         <Pixel r={CRAB_PARTS.body} fill={fill} />
         <Marks items={marks.inner} />
         <g className="crab-arm crab-arm-l" ref={own("armL")} transform={t?.armL} style={{ transformOrigin: `${CRAB_PIVOTS.armL[0]}px ${CRAB_PIVOTS.armL[1]}px` }}>
           <Pixel r={CRAB_PARTS.armL} fill={accent} />
-          <g className="crab-pincer crab-pincer-l" ref={own("pincerL")} transform={t?.pincerL}>
-            <Pixel r={CRAB_PARTS.pincerL} fill={accent} />
-          </g>
         </g>
         <g className="crab-arm crab-arm-r" ref={own("armR")} transform={t?.armR} style={{ transformOrigin: `${CRAB_PIVOTS.armR[0]}px ${CRAB_PIVOTS.armR[1]}px` }}>
           <Pixel r={CRAB_PARTS.armR} fill={accent} />
-          <g className="crab-pincer crab-pincer-r" ref={own("pincerR")} transform={t?.pincerR}>
-            <Pixel r={CRAB_PARTS.pincerR} fill={accent} />
-          </g>
         </g>
-        {CRAB_PARTS.legs.map((leg, i) => {
-          const key = `leg${i}` as "leg0" | "leg1" | "leg2" | "leg3";
-          return (
-            <g key={key} className={`crab-leg crab-leg-${i}`} ref={own(key)} transform={t?.[key]} style={{ transformOrigin: `${CRAB_PIVOTS.legs[i]![0]}px ${CRAB_PIVOTS.legs[i]![1]}px` }}>
-              <Pixel r={leg} fill={fill} />
-              <Pixel r={CRAB_PARTS.feet[i]!} fill={fill} />
-            </g>
-          );
-        })}
+        <g clipPath={`url(#${clip})`}>
+          {CRAB_PARTS.legs.map((leg, i) => {
+            const key = `leg${i}` as "leg0" | "leg1" | "leg2" | "leg3";
+            return (
+              <g key={key} className={`crab-leg crab-leg-${i}`} ref={own(key)} transform={t?.[key]} style={{ transformOrigin: `${CRAB_PIVOTS.legs[i]![0]}px ${CRAB_PIVOTS.legs[i]![1]}px` }}>
+                <Pixel r={leg} fill={fill} />
+              </g>
+            );
+          })}
+        </g>
         <g className="crab-eyes" ref={own("eyes")} transform={t?.eyes}>
           <g className="crab-eye crab-eye-l" ref={own("eyeL")} transform={t?.eyeL} style={{ transformOrigin: `${CRAB_PIVOTS.eyeL[0]}px ${CRAB_PIVOTS.eyeL[1]}px` }}>
             <Pixel r={drawn.pupils[0]} fill={eyes} />
-            {drawn.shines ? <Pixel r={drawn.shines[0]} fill={shine} /> : null}
           </g>
           <g className="crab-eye crab-eye-r" ref={own("eyeR")} transform={t?.eyeR} style={{ transformOrigin: `${CRAB_PIVOTS.eyeR[0]}px ${CRAB_PIVOTS.eyeR[1]}px` }}>
             <Pixel r={drawn.pupils[1]} fill={eyes} />
-            {drawn.shines ? <Pixel r={drawn.shines[1]} fill={shine} /> : null}
           </g>
         </g>
         <g className="crab-sparkles" ref={own("sparkles")} transform={t?.sparkles} opacity={spark} style={{ opacity: spark }}>
