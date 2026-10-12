@@ -180,7 +180,7 @@ public enum CallMachine {
             }
         case .speechStart:
             if state.muted || state.phase == .held || state.phase == .connecting { return same }
-            if state.backgroundWork {
+            if state.duplex && state.backgroundWork {
                 // barge-in cancels the spoken reply, not background tools
                 if state.botAudible {
                     effects += [.cancelSpeech, .earcon(.interrupted)]

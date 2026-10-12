@@ -65,6 +65,8 @@ public struct CallConversation: Sendable {
     private var dropOldReply = false
     /// the streamed block that was cut: ignored until the stream starts over
     private var dropStream: String?
+    /// thinking barge-in has no cut prefix: ignore live until it goes empty
+    private var waitForClear = false
     /// answers cut by the person (the transcript marks them)
     public private(set) var interrupted: Set<String> = []
     /// the cut answers' words the person never heard, by reply id
@@ -79,10 +81,10 @@ public struct CallConversation: Sendable {
         self.room = room
     }
 
-    /// In-flight tools or a sibling parallel card: barge-in drops speech, not the work.
+    /// A sibling parallel card: barge-in drops speech, not that work. The
+    /// call thread's own tool chip is the current turn and still cancels.
     public static func hasBackgroundWork(_ messages: [Message]) -> Bool {
         messages.contains { message in
-            if message.kind == .activity, let tool = message.tool, tool.ok == nil { return true }
             if let task = message.parallelTask, task.isCard, task.state == "running" || task.state == "queued" { return true }
             return false
         }
@@ -120,8 +122,8 @@ public struct CallConversation: Sendable {
         }
     }
 
-    /// An approval being answered by voice keeps its turn: no interrupt then.
-    public func mayInterruptBot(busy: Bool) -> Bool { askedApproval == nil && busy }
+    /// An approval or option card being answered by voice keeps its turn.
+    public func mayInterruptBot(busy: Bool) -> Bool { askedApproval == nil && askedQuestion == nil && busy }
 
     public var awaitingDecision: Bool { askedApproval != nil || askedQuestion != nil }
 
@@ -130,17 +132,24 @@ public struct CallConversation: Sendable {
     /// The live text to feed the call's reply, or nil (cut, or nothing).
     public mutating func stream(_ live: String?) -> String? {
         guard !room else { return nil }
-        guard let live, !live.isEmpty else { return nil }
+        if live == nil || live?.isEmpty == true {
+            if waitForClear { waitForClear = false }
+            return nil
+        }
+        let live = live!
+        if waitForClear { return nil }
         // the cut block keeps streaming until the server stops it: not spoken
         if let cut = dropStream, !cut.isEmpty {
             if live.count >= min(cut.count, 16) && live.hasPrefix(String(cut.prefix(16))) { return nil }
             dropStream = nil
             dropOldReply = false
+            waitForClear = false
             return live
         }
         if dropOldReply {
             dropOldReply = false
             dropStream = nil
+            waitForClear = false
             return live
         }
         return live
@@ -151,6 +160,7 @@ public struct CallConversation: Sendable {
         if let unheard = cut?.unheard, !unheard.isEmpty { lastCutUnheard = unheard }
         dropOldReply = true
         dropStream = currentStream ?? ""
+        waitForClear = (dropStream ?? "").isEmpty
     }
 
     /// The bot's running turn is being stopped: what it still streams is
@@ -158,6 +168,7 @@ public struct CallConversation: Sendable {
     public mutating func botInterrupted(currentStream: String?) {
         dropOldReply = true
         dropStream = currentStream ?? dropStream ?? ""
+        waitForClear = (dropStream ?? "").isEmpty
     }
 
     // MARK: - What the person said

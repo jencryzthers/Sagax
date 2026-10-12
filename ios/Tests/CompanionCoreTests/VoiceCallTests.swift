@@ -88,6 +88,16 @@ final class CallMachineTests: XCTestCase {
         XCTAssertEqual(barged.state.phase, .interrupted)
     }
 
+    func testKillSwitchOffStillInterruptsASpeakingBusyTurnWithAToolChip() {
+        var speaking = CallMachine.step(CallMachine.step(.initial, .connected).state, .botBusy(true)).state
+        speaking = CallMachine.step(speaking, .botAudioStart).state
+        speaking.duplex = false
+        speaking.backgroundWork = true
+        let barged = CallMachine.step(speaking, .speechStart)
+        XCTAssertTrue(barged.effects.contains(.interruptBot))
+        XCTAssertEqual(barged.state.phase, .interrupted)
+    }
+
     func testTheInterruptButtonStopsTheVoiceButNotTheTurn() {
         let (state, effects) = run([.connected, .botBusy(true), .botAudioStart, .interrupt])
         XCTAssertEqual(state.phase, .thinking)
@@ -632,12 +642,23 @@ final class CallConversationTests: XCTestCase {
         XCTAssertEqual(out, [.announce("For look up the weather in Montreal: It is 12 and sunny in Montreal.", speakerId: nil)])
     }
 
-    func testInFlightToolsAreBackgroundWork() {
+    func testOnlyALiveParallelCardIsBackgroundWork() {
         var chip = Message(id: "t", role: .bot, kind: .activity, at: 0)
         chip.tool = ToolActivity(name: "Bash")
-        XCTAssertTrue(CallConversation.hasBackgroundWork([chip]))
+        XCTAssertFalse(CallConversation.hasBackgroundWork([chip]))
         chip.tool = ToolActivity(name: "Bash", ok: true)
         XCTAssertFalse(CallConversation.hasBackgroundWork([chip]))
+        var card = Message(id: "c", role: .bot, kind: .text, at: 0)
+        card.parallelTask = ParallelTaskRef(threadId: "p", title: "weather", requestMessageId: "uA", role: "card", state: "running")
+        XCTAssertTrue(CallConversation.hasBackgroundWork([card]))
+    }
+
+    func testThinkingBargeInIgnoresALateDeltaUntilTheStreamClears() {
+        var conversation = CallConversation(existing: [])
+        conversation.botInterrupted(currentStream: "")
+        XCTAssertNil(conversation.stream("Once upon a time, there was a llama"))
+        XCTAssertNil(conversation.stream(""))
+        XCTAssertEqual(conversation.stream("It is sunny."), "It is sunny.")
     }
 
     func testDuplexNarratesAToolChipWhileTheCuePlays() {
