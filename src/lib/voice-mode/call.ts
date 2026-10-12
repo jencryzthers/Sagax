@@ -1082,6 +1082,9 @@ export class VoiceCall {
     if (this.speculated) {
       if (!discardSpeculation(this.speculated, trimmed)) return;
       this.dropSpeculation();
+      if (!maySpeculate(trimmed, this.turns.inSilence) || isNoiseFragment(trimmed)) return;
+      this.sendSpeculative(trimmed, true);
+      return;
     }
     if (!maySpeculate(trimmed, this.turns.inSilence) || isNoiseFragment(trimmed)) return;
     this.sendSpeculative(trimmed);
@@ -1096,7 +1099,7 @@ export class VoiceCall {
     this.dropHeldPlayback();
   }
 
-  private sendSpeculative(text: string): void {
+  private sendSpeculative(text: string, continues = false): void {
     const utteranceId = this.newId();
     const now = this.now();
     this.turn = { stoppedAt: now, endedAt: now, earlyStart: true, sentAt: now, transcribedAt: now, utteranceId };
@@ -1109,7 +1112,12 @@ export class VoiceCall {
     this.leadSent = null;
     this.player.resetLedger();
     this.armCue(this.turn);
-    this.emit("utterance", text, this.turn, { interrupted: this.cutBot, utteranceId, speculative: true });
+    this.emit("utterance", text, this.turn, {
+      interrupted: this.cutBot,
+      utteranceId,
+      speculative: true,
+      ...(continues ? { continues: true } : {}),
+    });
     this.emit("metrics", this.turn, this.bargeIn);
     this.cutBot = false;
   }

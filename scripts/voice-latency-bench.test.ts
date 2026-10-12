@@ -17,6 +17,7 @@ import {
   shouldSendBenchUtterance,
   mergeBenchMetrics,
   stampClockPlayback,
+  benchInterruptBody,
   defaultBenchTurns,
   realVoiceBench,
   runVoiceLatencyBench,
@@ -106,6 +107,42 @@ it("drops a duplicate utterance on the same bench turn so admit does not fork a 
   expect(shouldSendBenchUtterance(turn)).toBe(false);
   expect(shouldSendBenchUtterance(turn, { continues: true })).toBe(true);
   expect(shouldSendBenchUtterance({ text: "" })).toBe(true);
+});
+
+it("pins a bench interrupt to the cancelled utterance so a replacement send is not killed", () => {
+  expect(benchInterruptBody("th-1", { utteranceId: "utt-1" })).toEqual({ threadId: "th-1", expectedUtteranceId: "utt-1" });
+  expect(benchInterruptBody("th-1")).toEqual({ threadId: "th-1" });
+});
+
+it("a new turn.started drops leftover firstToken from the cancelled guess", () => {
+  const state: BenchReplyState = { text: "old", firstToken: 10, sentAt: 1 };
+  const busy: boolean[] = [];
+  const progress: string[] = [];
+  const sink = {
+    progress: (text: string) => progress.push(text),
+    done: () => {},
+    setBusy: (value: boolean) => busy.push(value),
+  };
+  expect(applyBenchRuntimeEvent({ type: "turn.started", threadId: "t" }, "t", state, sink)).toBe(true);
+  expect(state.firstToken).toBeUndefined();
+  expect(state.text).toBe("");
+  expect(busy).toEqual([true]);
+  applyBenchRuntimeEvent({ type: "content.delta", streamKind: "assistant_text", delta: "Hi", threadId: "t" }, "t", state, sink, () => 50);
+  expect(state.firstToken).toBe(50);
+  expect(progress).toEqual(["Hi"]);
+});
+
+it("an interrupted turn.completed does not speak the cancelled guess", () => {
+  const state: BenchReplyState = { text: "old guess", sentAt: 1, discard: true };
+  const done: string[] = [];
+  const sink = {
+    progress: () => {},
+    done: (text: string) => done.push(text),
+    setBusy: () => {},
+  };
+  applyBenchRuntimeEvent({ type: "turn.completed", threadId: "t" }, "t", state, sink);
+  expect(done).toEqual([]);
+  expect(state.text).toBe("");
 });
 
 it("keeps a stamped firstAudio when a later metrics event omits it", () => {

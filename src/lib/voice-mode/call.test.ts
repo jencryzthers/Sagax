@@ -759,6 +759,25 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     expect(t.utterances.at(-1)?.text).toMatch(/Toronto/);
   });
 
+  it("revising a speculative partial re-sends as continues so the guess is replaced, not forked", async () => {
+    const t = await setup({
+      transcripts: ["What is the weather in Toronto today?"],
+      settings: { fullDuplex: true },
+      finalDelayMs: 80,
+    });
+    await t.feed(0.95, 0.05, 24);
+    t.socket().partial("What is the weather");
+    await t.settle();
+    t.socket().partial("What is the weather in Toronto");
+    await t.settle();
+    expect(t.utterances.map((u) => [u.text, u.continues])).toEqual([
+      ["What is the weather", undefined],
+      ["What is the weather in Toronto", true],
+    ]);
+    expect(t.interrupts).toHaveLength(1);
+    expect(t.interrupts[0]!.utteranceId).toBe(t.utterances[0]!.utteranceId);
+  });
+
   it("duplex speculates a send while background work is running, and dropping the guess interrupts only that utterance", async () => {
     const t = await setup({
       transcripts: ["What is the weather in Toronto today?"],

@@ -131,7 +131,13 @@ export function voiceCallMarkLanguage(lang: string): "en" | "fr" {
   return lang === "fr" ? "fr" : "en";
 }
 
-export type BenchReplyState = { sentAt?: number; firstToken?: number; ttsFirstByte?: number; text: string; posted?: boolean };
+export type BenchReplyState = { sentAt?: number; firstToken?: number; ttsFirstByte?: number; text: string; posted?: boolean; discard?: boolean };
+
+/** LiveCall pins /interrupt to the cancelled utterance so a replacement
+ * send is not killed. The bench must do the same. */
+export function benchInterruptBody(threadId: string, target?: { utteranceId: string }): { threadId: string; expectedUtteranceId?: string } {
+  return { threadId, ...(target?.utteranceId ? { expectedUtteranceId: target.utteranceId } : {}) };
+}
 
 /** One POST per bench turn. A reissued STT of the same question would
  * otherwise fork a sibling under Phase 6 admit (new topic while thinking). */
@@ -184,14 +190,18 @@ export function applyBenchRuntimeEvent(
     return true;
   }
   if (event.type === "turn.started") {
+    state.discard = false;
+    state.text = "";
+    state.firstToken = undefined;
+    state.ttsFirstByte = undefined;
     sink.setBusy(true);
     return true;
   }
   if (event.type === "turn.completed") {
     const text = state.text;
     state.text = "";
-    if (text) sink.done(text);
-    sink.setBusy(false);
+    if (text && !state.discard) sink.done(text);
+    if (!state.discard) sink.setBusy(false);
     return true;
   }
   return true;
@@ -632,6 +642,12 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
       metrics = mergeBenchMetrics(metrics, { ...metrics, ...turnMetrics } as never);
       current.sentAt ??= performance.now();
       diag.utterances.push(text);
+      if (turn.continues) {
+        current.firstToken = undefined;
+        current.ttsFirstByte = undefined;
+        current.text = "";
+        current.discard = true;
+      }
       if (!shouldSendBenchUtterance(current, turn)) {
         benchLog("send skipped reissue");
         return;
@@ -645,7 +661,10 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
         benchLog(`send status=${sent.status} ok=${sent.ok}`);
       });
     });
-    live.on("interrupt-bot", () => void api("POST", `/api/bots/${bot.id}/interrupt`, { threadId }));
+    live.on("interrupt-bot", (target) => {
+      current.discard = true;
+      void api("POST", `/api/bots/${bot.id}/interrupt`, benchInterruptBody(threadId, target));
+    });
 
     // spawnSync(`say`) blocks the event loop. Generate PCM first so the
     // SSE reader is not starved (real11: 202s, content.delta on disk,
