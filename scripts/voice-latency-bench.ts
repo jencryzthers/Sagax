@@ -131,6 +131,57 @@ export function voiceCallMarkLanguage(lang: string): "en" | "fr" {
   return lang === "fr" ? "fr" : "en";
 }
 
+export type BenchReplyState = { sentAt?: number; firstToken?: number; ttsFirstByte?: number; text: string };
+
+export type BenchReplySink = {
+  progress(text: string): void;
+  done(text: string): void;
+  setBusy(busy: boolean): void;
+};
+
+/** Drive VoiceCall from one /api/events runtime frame. item.completed is
+ * the LiveCall settle path: if content.delta was missed, still speak. */
+export function applyBenchRuntimeEvent(
+  event: {
+    type?: string;
+    threadId?: string;
+    streamKind?: string;
+    delta?: string;
+    itemType?: string;
+    text?: string;
+  } | null | undefined,
+  threadId: string,
+  state: BenchReplyState,
+  sink: BenchReplySink,
+  now: () => number = () => performance.now(),
+): boolean {
+  if (!event || event.threadId !== threadId) return false;
+  if (event.type === "content.delta" && event.streamKind === "assistant_text" && typeof event.delta === "string") {
+    if (state.sentAt !== undefined && state.firstToken === undefined) state.firstToken = now();
+    state.text += event.delta;
+    sink.progress(state.text);
+    return true;
+  }
+  if (event.type === "item.completed" && event.itemType === "assistant_text" && typeof event.text === "string" && event.text && !state.text) {
+    if (state.sentAt !== undefined && state.firstToken === undefined) state.firstToken = now();
+    state.text = event.text;
+    sink.progress(state.text);
+    return true;
+  }
+  if (event.type === "turn.started") {
+    sink.setBusy(true);
+    return true;
+  }
+  if (event.type === "turn.completed") {
+    const text = state.text;
+    state.text = "";
+    if (text) sink.done(text);
+    sink.setBusy(false);
+    return true;
+  }
+  return true;
+}
+
 /** Local spoken audio of `text` at 16 kHz, for real STT (macOS `say`). */
 export function spokenPcm(text: string, voice?: string): Float32Array {
   const dir = mkdtempSync(join(tmpdir(), "voice-bench-say-"));
@@ -224,7 +275,12 @@ class ClockPlayer {
     try {
       while (this.queue.length && mine === this.generation) {
         const sentence = this.queue.shift()!;
-        const audio = await sentence.audio.catch(() => null);
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const audio = await Promise.race([
+          sentence.audio.catch(() => null),
+          new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), 15_000); }),
+        ]);
+        if (timer) clearTimeout(timer);
         if (!audio) continue;
         const reader = audio.body.getReader();
         let first = true;
@@ -442,7 +498,7 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
     await api("POST", `/api/bots/${bot.id}/voice/call`, { threadId, callId, state: "start", language: callLanguage });
 
     // what this bench sees of each turn
-    let current: { sentAt?: number; firstToken?: number; ttsFirstByte?: number; text: string } = { text: "" };
+    let current: BenchReplyState = { text: "" };
     const transcriber = new LiveTranscriber({
       botId: bot.id,
       language: () => callLanguage,
@@ -523,15 +579,40 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
     });
     live.on("interrupt-bot", () => void api("POST", `/api/bots/${bot.id}/interrupt`, { threadId }));
 
-    // the answer as the page gets it: the live events' streamed text
+    // spawnSync(`say`) blocks the event loop. Generate PCM first so the
+    // SSE reader is not starved (real11: 202s, content.delta on disk,
+    // firstAudio always false).
+    const spoken = real ? transcripts.map((q, i) => {
+      benchLog(`say ${i + 1}/${transcripts.length} ${q.lang}`);
+      return pcmFrames(spokenPcm(q.text, q.lang === "fr" ? BENCH_SAY_VOICE_FR : undefined));
+    }) : [];
+
+    const replySink: BenchReplySink = {
+      progress: (text) => live.replyProgress(text),
+      done: (text) => { void live.replyDone(text); },
+      setBusy: (busy) => live.setBotBusy(busy),
+    };
+    let eventsReady: (ok: boolean) => void = () => {};
+    const eventsOpened = new Promise<boolean>((resolve) => { eventsReady = resolve; });
     void (async () => {
       const response = await fetch(`${origin}/api/events`, { headers: { origin }, signal: events.signal });
-      const reader = response.body!.getReader();
+      if (!response.ok || !response.body) {
+        diag.errors.push(`events ${response.status}`);
+        benchLog(`events failed status=${response.status}`);
+        eventsReady(false);
+        return;
+      }
+      benchLog("events open");
+      eventsReady(true);
+      const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
       for (;;) {
         const { done, value } = await reader.read();
-        if (done) return;
+        if (done) {
+          benchLog(`events closed sse=${diag.sse}`);
+          return;
+        }
         buffer += decoder.decode(value, { stream: true });
         let cut;
         while ((cut = buffer.indexOf("\n\n")) >= 0) {
@@ -542,28 +623,19 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
           let frame: any;
           try { frame = JSON.parse(data); } catch { continue; }
           const event = frame?.kind === "runtime" ? frame.event : null;
-          if (!event || event.threadId !== threadId) continue;
+          if (!applyBenchRuntimeEvent(event, threadId, current, replySink)) continue;
           diag.sse += 1;
-          if (event.type === "content.delta" && event.streamKind === "assistant_text") {
-            if (current.sentAt !== undefined && current.firstToken === undefined) current.firstToken = performance.now();
-            current.text += event.delta;
-            live.replyProgress(current.text);
-          } else if (event.type === "turn.started") {
-            live.setBotBusy(true);
-          } else if (event.type === "turn.completed") {
-            const text = current.text;
-            current.text = "";
-            if (text) void live.replyDone(text);
-            live.setBotBusy(false);
-          }
         }
       }
-    })().catch(() => {});
+    })().catch((error) => {
+      const message = error instanceof Error ? error.message : "events failed";
+      diag.errors.push(message);
+      benchLog(`events error ${message}`);
+      eventsReady(false);
+    });
+    const opened = await Promise.race([eventsOpened, sleep(5_000).then(() => false)]);
+    if (!opened) benchLog("events not open yet");
 
-    const spoken = real ? transcripts.map((q, i) => {
-      benchLog(`say ${i + 1}/${transcripts.length} ${q.lang}`);
-      return pcmFrames(spokenPcm(q.text, q.lang === "fr" ? BENCH_SAY_VOICE_FR : undefined));
-    }) : [];
     const started = performance.now();
     await live.start();
     diag.startMs = Math.round(performance.now() - started);
@@ -609,7 +681,7 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
       }
       const deadline = performance.now() + (real ? 45_000 : 20_000);
       while (metrics.firstAudioAt === undefined && performance.now() < deadline) await sleep(20);
-      benchLog(`turn ${turn} firstAudio=${metrics.firstAudioAt !== undefined} utterances=${diag.utterances.length}`);
+      benchLog(`turn ${turn} firstAudio=${metrics.firstAudioAt !== undefined} utterances=${diag.utterances.length} sse=${diag.sse} firstToken=${current.firstToken !== undefined} firstSentence=${metrics.firstSentenceAt !== undefined}`);
       const m = metrics as Record<string, number | undefined> & { earlyEnd?: boolean; contourEnd?: boolean; streamed?: boolean; earlyStart?: boolean; reissued?: boolean };
       // over the socket, the call's own first-bytes mark (the POST wrapper above sees nothing)
       current.ttsFirstByte ??= m.ttsFirstByteAt;

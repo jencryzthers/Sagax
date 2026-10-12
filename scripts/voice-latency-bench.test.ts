@@ -3,19 +3,22 @@
 // time per engine). Runs each engine of BENCH_ENGINES (claude,grok) and
 // writes the turns and their p50/p90 to BENCH_OUT, with Grok's ACP session
 // establishments per turn.
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 
 import { parseVoiceCallMeta } from "../server/voice-call-prompt.ts";
 import {
   BENCH_SAY_VOICE_FR,
   REAL_QUESTIONS,
+  applyBenchRuntimeEvent,
   defaultBenchTurns,
   realVoiceBench,
   runVoiceLatencyBench,
   summarize,
   voiceCallMarkLanguage,
   type BenchEngine,
+  type BenchReplyState,
 } from "./voice-latency-bench.ts";
 
 it("real bench is 20 turns mixing English and Québec French, short and long", () => {
@@ -42,6 +45,40 @@ it("voice-call marks use en or fr, never auto (parseVoiceCallMeta rejects auto)"
     expect(language === "en" || language === "fr").toBe(true);
     expect(parseVoiceCallMeta({ callId: "call-0123456789", language })).toMatchObject({ language });
   }
+});
+
+it("opens /api/events after spoken PCM so say spawnSync cannot starve the SSE reader", () => {
+  const src = readFileSync(fileURLToPath(new URL("./voice-latency-bench.ts", import.meta.url)), "utf8");
+  const spoken = src.indexOf("pcmFrames(spokenPcm(");
+  const events = src.indexOf("fetch(`${origin}/api/events`");
+  expect(spoken).toBeGreaterThan(-1);
+  expect(events).toBeGreaterThan(spoken);
+});
+
+it("speaks item.completed when content.delta was missed, and does not replace deltas", () => {
+  const progress: string[] = [];
+  const done: string[] = [];
+  let busy = false;
+  const sink = {
+    progress: (text: string) => progress.push(text),
+    done: (text: string) => done.push(text),
+    setBusy: (value: boolean) => { busy = value; },
+  };
+  const missed: BenchReplyState = { text: "", sentAt: 1 };
+  applyBenchRuntimeEvent({ type: "turn.started", threadId: "t1" }, "t1", missed, sink);
+  expect(busy).toBe(true);
+  applyBenchRuntimeEvent({ type: "item.completed", itemType: "assistant_text", text: "Two plus two is four.", threadId: "t1" }, "t1", missed, sink);
+  expect(progress.at(-1)).toBe("Two plus two is four.");
+  applyBenchRuntimeEvent({ type: "turn.completed", threadId: "t1" }, "t1", missed, sink);
+  expect(done).toEqual(["Two plus two is four."]);
+  expect(busy).toBe(false);
+
+  const streamed: BenchReplyState = { text: "", sentAt: 1 };
+  applyBenchRuntimeEvent({ type: "content.delta", streamKind: "assistant_text", delta: "Two ", threadId: "t1" }, "t1", streamed, sink);
+  applyBenchRuntimeEvent({ type: "content.delta", streamKind: "assistant_text", delta: "plus two.", threadId: "t1" }, "t1", streamed, sink);
+  applyBenchRuntimeEvent({ type: "item.completed", itemType: "assistant_text", text: "Two plus two is four.", threadId: "t1" }, "t1", streamed, sink);
+  expect(streamed.text).toBe("Two plus two.");
+  expect(streamed.firstToken).toBeTypeOf("number");
 });
 
 const real = realVoiceBench();
