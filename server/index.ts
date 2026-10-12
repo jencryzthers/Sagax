@@ -5969,14 +5969,18 @@ function handleDesktopTrustedApprovalMessage(raw: unknown): boolean {
       threadCanReceiveGrant(bot) &&
       grantSupported(bot, mode)
     ) {
-      if (bot.approvalGrant.allThreads && mode === "full") {
+      // Read the grant first: setAllThreadApprovalMode clears approvalGrant on
+      // this same record, and reading it afterwards threw, so the commit was
+      // applied without its consent record, audit row or reply.
+      const grant = bot.approvalGrant;
+      const committedThread = grant.threadId;
+      if (grant.allThreads && mode === "full") {
         store.setAllThreadApprovalMode(botId, mode);
-      } else if (bot.approvalGrant.refreshPermissions && bot.approvalGrant.threadId) {
-        store.refreshTaskPermissions(botId, bot.approvalGrant.threadId);
-      } else if (bot.approvalGrant.threadId) {
-        store.patchTask(botId, bot.approvalGrant.threadId, { approvalMode: mode, autoApprove: false });
+      } else if (grant.refreshPermissions && grant.threadId) {
+        store.refreshTaskPermissions(botId, grant.threadId);
+      } else if (grant.threadId) {
+        store.patchTask(botId, grant.threadId, { approvalMode: mode, autoApprove: false });
       }
-      const committedThread = bot.approvalGrant.threadId;
       // The person confirmed the warning in the desktop app: remember it for
       // this bot, so the next grant asks no more (org-full-access.ts).
       store.patchBot(botId, { approvalGrant: undefined,
