@@ -25,6 +25,14 @@ So when one of your clients is connected (presence), the push waits 8
 seconds and is dropped if one of them marked that conversation read; when
 none is connected it goes at once (`server/push/decide.ts`).
 
+Once a conversation that buzzed the phones is read on any device, the server
+sends each phone one silent push (`kind: "read"`, `content-available`,
+priority 5, `buildReadSyncRequest`): the phone withdraws that conversation's
+banner and recounts its badge. Whenever its unread count drops (or it
+loads the fleet), the phone also withdraws banners older than 10 seconds for
+bot conversations that are no longer unread or waiting on the person
+(`ios/Sources/CompanionCore/DeliveredNotifications.swift`).
+
 Each push follows:
 
 - the phone's Settings > Notifications (notification sounds, nudge sound),

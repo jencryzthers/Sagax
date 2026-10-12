@@ -81,6 +81,9 @@ public enum PushKind: String, Sendable {
     case approval
     case achievement
     case routine
+    /// Silent: the conversation was read on another device; withdraw its
+    /// banner and recount the badge.
+    case read
 }
 
 /// One conversation, one notification: the server's `apns-collapse-id`

@@ -19,6 +19,7 @@
 //       ends with the structured summary
 import { spawn, type ChildProcess } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { request } from "node:http";
 import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -64,6 +65,25 @@ const api = async (method: string, path: string, auth?: Auth, body?: unknown): P
   return { status: res.status, body: parsed, text, headers: res.headers };
 };
 const cookiePair = (setCookie: string) => setCookie.split(";")[0]!;
+/** An open /api/events stream: everything it received so far. */
+async function openStream(auth: Auth): Promise<{ text: () => string; close: () => void }> {
+  const { body } = await api("POST", "/api/auth/stream-ticket", auth);
+  return new Promise((resolve, reject) => {
+    let received = "";
+    const req = request(`${BASE}/api/events?ticket=${encodeURIComponent(body.ticket)}`, { headers: { accept: "text/event-stream" } }, (res) => {
+      res.setEncoding("utf8");
+      res.on("data", (chunk: string) => { received += chunk; });
+      resolve({ text: () => received, close: () => req.destroy() });
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+/** The threads a stream's notifications named. */
+const notifiedThreads = (text: string): string[] => text.split("\n")
+  .filter((line) => line.startsWith("data: "))
+  .flatMap((line) => { try { return [JSON.parse(line.slice(6)) as { kind?: string; notification?: { threadId?: string } }]; } catch { return []; } })
+  .flatMap((frame) => (frame.kind === "notify" && frame.notification?.threadId ? [frame.notification.threadId] : []));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function signIn(user: FakeOidcUser): Promise<Auth> {
@@ -203,6 +223,7 @@ posixOnly("Perspicax AI clients: the Sagax member API", () => {
     // Alice's private bot is not Bob's to see
     expect((listed.body.bots as Array<any>).some((bot) => bot.id === bots.atlas!.id)).toBe(false);
 
+    const events = await openStream(bob);
     const sent = await member("POST", `bots/${bots.orion!.id}/messages`, BOB, { text: "count the open tickets", wait: 30 });
     expect(sent.status, sent.text).toBe(200);
     expect(sent.body).toMatchObject({ botId: bots.orion!.id, status: "done", pending: false, reply: expect.stringContaining("count the open tickets") });
@@ -211,6 +232,23 @@ posixOnly("Perspicax AI clients: the Sagax member API", () => {
     const thread = await api("GET", `/api/threads/${sent.body.threadId}/messages?limit=50`, bob);
     const mine = (thread.body.messages as Array<any>).find((m) => m.id === sent.body.messageId);
     expect(mine).toMatchObject({ role: "user", text: "count the open tickets" });
+    // #291: an AI client works in a hidden conversation. Bob's chat with
+    // Orion did not move to it, his bot list does not list it, it left no
+    // unread dot, and the client's next send continues it.
+    const after = await api("GET", "/api/bots?messages=0", bob);
+    const orion2 = (after.body.bots as Array<any>).find((bot) => bot.id === bots.orion!.id);
+    expect(orion2.threadId).not.toBe(sent.body.threadId);
+    expect((orion2.tasks as Array<any>).some((task) => task.threadId === sent.body.threadId)).toBe(false);
+    expect(orion2.unread).toBe(false);
+    const again = await member("POST", `bots/${bots.orion!.id}/messages`, BOB, { text: "and the closed ones", wait: 30 });
+    expect(again.status, again.text).toBe(200);
+    expect(again.body.threadId).toBe(sent.body.threadId);
+    // and it never buzzed Bob, while his own chat with Orion still does
+    const own = await api("POST", `/api/bots/${bots.orion!.id}/messages`, bob, { text: "my own question", threadId: orion2.threadId });
+    expect(own.status, own.text).toBeLessThan(300);
+    await waitFor(async () => notifiedThreads(events.text()).includes(orion2.threadId), 30_000);
+    expect(notifiedThreads(events.text())).not.toContain(sent.body.threadId);
+    events.close();
   }, 60_000);
 
   it("M2: a long job answers pending with the thread id, and the thread read gives the reply later", async () => {
