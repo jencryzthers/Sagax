@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { openSpeechStream, type HeaderWebSocket } from "./grok.ts";
+import { openSpeechStream, SPEECH_PING_MS, type HeaderWebSocket } from "./grok.ts";
 
 class FakeSocket {
   static last: FakeSocket | null = null;
   sent: Record<string, unknown>[] = [];
+  pings = 0;
   readyState = 1;
   binaryType = "arraybuffer";
   private listeners: Record<string, Array<() => void>> = {};
@@ -17,6 +18,9 @@ class FakeSocket {
   }
   send(data: string) {
     this.sent.push(JSON.parse(data) as Record<string, unknown>);
+  }
+  ping() {
+    this.pings += 1;
   }
   close() {
     this.readyState = 3;
@@ -44,4 +48,24 @@ describe("openSpeechStream", () => {
     expect(FakeSocket.last!.sent.at(-2)).toEqual({ type: "text.delta", delta: "A finished clause." });
     expect(FakeSocket.last!.sent.at(-1)).toEqual({ type: "text.done" });
   });
+
+  it("pings while idle so the next clause does not pay reconnect", async () => {
+    vi.useFakeTimers();
+    const handlers = { onAudio() {}, onDone() {}, onCleared() {}, onError() {}, onClose() {} };
+    const stream = openSpeechStream("fixture-voice-key", { voice: "ara" }, handlers, FakeSocket as unknown as HeaderWebSocket);
+    await stream.ready;
+    expect(FakeSocket.last!.pings).toBe(0);
+    await vi.advanceTimersByTimeAsync(SPEECH_PING_MS);
+    expect(FakeSocket.last!.pings).toBe(1);
+    await vi.advanceTimersByTimeAsync(SPEECH_PING_MS);
+    expect(FakeSocket.last!.pings).toBe(2);
+    const socket = FakeSocket.last!;
+    stream.speak("Warm.");
+    expect(socket.sent.at(-1)).toEqual({ type: "text.done" });
+    stream.close();
+    await vi.advanceTimersByTimeAsync(SPEECH_PING_MS);
+    expect(socket.pings).toBe(2);
+  });
 });
+
+afterEach(() => vi.useRealTimers());
