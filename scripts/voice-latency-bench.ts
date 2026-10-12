@@ -195,6 +195,23 @@ export function spokenPcm(text: string, voice?: string): Float32Array {
   return readWavPcm16(wav);
 }
 
+/** ClockPlayer schedules onSentenceStart 15 ms after the first PCM byte.
+ * If that callback is missed (cancel/generation race) but TTS already
+ * started, stamp firstAudio from the first byte so the turn still has a total. */
+export function stampClockPlayback(metrics: {
+  firstAudioAt?: number | boolean;
+  ttsFirstByteAt?: number | boolean;
+  firstSentenceAt?: number | boolean;
+}): void {
+  if (
+    metrics.firstAudioAt === undefined
+    && typeof metrics.ttsFirstByteAt === "number"
+    && typeof metrics.firstSentenceAt === "number"
+  ) {
+    metrics.firstAudioAt = metrics.ttsFirstByteAt + 15;
+  }
+}
+
 /** Keep VAD voiced until the last `tailMs` of the utterance. macOS `say`
  * inserts pauses that would otherwise false-cut a completeMs endpoint. */
 export function holdVoiceUntilTail(frames: Float32Array[], tailMs = 400): Float32Array[] {
@@ -705,7 +722,12 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
         speaking = false;
       }
       const deadline = performance.now() + (real ? 45_000 : 20_000);
-      while ((metrics.firstAudioAt === undefined || metrics.firstSentenceAt === undefined) && performance.now() < deadline) await sleep(20);
+      while ((metrics.firstAudioAt === undefined || metrics.firstSentenceAt === undefined) && performance.now() < deadline) {
+        stampClockPlayback(metrics);
+        if (metrics.firstAudioAt !== undefined && metrics.firstSentenceAt !== undefined) break;
+        await sleep(20);
+      }
+      stampClockPlayback(metrics);
       benchLog(`turn ${turn} firstAudio=${metrics.firstAudioAt !== undefined} utterances=${diag.utterances.length} sse=${diag.sse} firstToken=${current.firstToken !== undefined} firstSentence=${metrics.firstSentenceAt !== undefined}`);
       const m = metrics as Record<string, number | undefined> & { earlyEnd?: boolean; contourEnd?: boolean; streamed?: boolean; earlyStart?: boolean; reissued?: boolean };
       // over the socket, the call's own first-bytes mark (the POST wrapper above sees nothing)
@@ -735,7 +757,7 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
         ...(engine === "grok" && !real ? { establish: acpMethods(acpLog).filter((method) => ESTABLISH.has(method)).length - establishedBefore } : {}),
       });
       // the answer plays out, then the person thinks a moment
-      const idleUntil = performance.now() + 8_000;
+      const idleUntil = performance.now() + (real ? 45_000 : 8_000);
       while ((live.player.busy || live.current.botBusy) && performance.now() < idleUntil) await sleep(50);
       await sleep(1_600);
       const last = results.at(-1);

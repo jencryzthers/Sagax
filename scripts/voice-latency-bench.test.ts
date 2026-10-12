@@ -14,6 +14,7 @@ import {
   ClockPlayer,
   applyBenchRuntimeEvent,
   holdVoiceUntilTail,
+  stampClockPlayback,
   defaultBenchTurns,
   realVoiceBench,
   runVoiceLatencyBench,
@@ -95,6 +96,18 @@ it("plays a sentence enqueued after cancel while the previous pump is still fini
   closeOld!();
   for (let i = 0; i < 40 && started.length === 0; i++) await new Promise((r) => setTimeout(r, 5));
   expect(started).toEqual(["new"]);
+});
+
+it("stamps ClockPlayer firstAudio 15 ms after TTS first byte when the player missed the start", () => {
+  const missed = { ttsFirstByteAt: 1000, firstSentenceAt: 900 };
+  stampClockPlayback(missed);
+  expect(missed.firstAudioAt).toBe(1015);
+  const kept = { ttsFirstByteAt: 1000, firstSentenceAt: 900, firstAudioAt: 1080 };
+  stampClockPlayback(kept);
+  expect(kept.firstAudioAt).toBe(1080);
+  const silent = { firstSentenceAt: 900 };
+  stampClockPlayback(silent);
+  expect(silent.firstAudioAt).toBeUndefined();
 });
 
 it("ClockPlayer ignores a scheduled sentence start after cancel", async () => {
