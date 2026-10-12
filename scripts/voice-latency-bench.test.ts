@@ -11,6 +11,7 @@ import { parseVoiceCallMeta } from "../server/voice-call-prompt.ts";
 import {
   BENCH_SAY_VOICE_FR,
   REAL_QUESTIONS,
+  ClockPlayer,
   applyBenchRuntimeEvent,
   defaultBenchTurns,
   realVoiceBench,
@@ -20,6 +21,7 @@ import {
   type BenchEngine,
   type BenchReplyState,
 } from "./voice-latency-bench.ts";
+import type { Sentence } from "../src/lib/voice-mode/player.ts";
 
 it("real bench is 20 turns mixing English and Québec French, short and long", () => {
   expect(defaultBenchTurns(true)).toBe(20);
@@ -45,6 +47,31 @@ it("voice-call marks use en or fr, never auto (parseVoiceCallMeta rejects auto)"
     expect(language === "en" || language === "fr").toBe(true);
     expect(parseVoiceCallMeta({ callId: "call-0123456789", language })).toMatchObject({ language });
   }
+});
+
+it("ClockPlayer ignores a scheduled sentence start after cancel", async () => {
+  const player = new ClockPlayer();
+  const started: string[] = [];
+  player.events.onSentenceStart = (text) => started.push(text);
+  let send: ((chunk: Uint8Array) => void) | undefined;
+  const audio = new ReadableStream<Uint8Array>({
+    start(controller) {
+      send = (chunk) => controller.enqueue(chunk);
+    },
+  });
+  player.enqueue({
+    text: "old",
+    audio: Promise.resolve({ body: audio, sampleRate: 24_000 }),
+    abort() {},
+  });
+  for (let i = 0; i < 20 && !send; i++) await new Promise((r) => setTimeout(r, 5));
+  expect(send).toBeTypeOf("function");
+  send!(new Uint8Array(2 * 240));
+  await new Promise((r) => setTimeout(r, 5));
+  expect(started, "start must still be pending when we cancel").toEqual([]);
+  await player.cancel();
+  await new Promise((r) => setTimeout(r, 40));
+  expect(started).toEqual([]);
 });
 
 it("opens /api/events after spoken PCM so say spawnSync cannot starve the SSE reader", () => {

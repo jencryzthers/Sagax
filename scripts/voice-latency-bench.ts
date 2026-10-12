@@ -243,7 +243,7 @@ const benchLog = (line: string) => {
 
 /** A player with a clock instead of a sound card: a sentence plays from its
  * first chunk (15 ms scheduling, as PcmPlayer) for as long as its PCM lasts. */
-class ClockPlayer {
+export class ClockPlayer {
   events: PcmPlayer["events"] = {};
   private queue: Sentence[] = [];
   private pumping = false;
@@ -252,7 +252,7 @@ class ClockPlayer {
   open() { return {} as AudioContext; }
   get output() { return null; }
   get busy() { return this.queue.length > 0 || this.pumping || performance.now() < this.nextTime; }
-  level() { return 0; }
+  level() { return this.busy ? 0.1 : 0; }
   enqueue(sentence: Sentence) {
     this.queue.push(sentence);
     if (!this.pumping) void this.pump();
@@ -292,7 +292,9 @@ class ClockPlayer {
           this.nextTime = start + (value.byteLength / 2 / audio.sampleRate) * 1000;
           if (first) {
             first = false;
-            setTimeout(() => this.events.onSentenceStart?.(sentence.text), start - now);
+            setTimeout(() => {
+              if (mine === this.generation) this.events.onSentenceStart?.(sentence.text);
+            }, start - now);
           }
         }
       }
@@ -662,6 +664,7 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
       const q = transcripts[turn - 1]!;
       currentLang = q.lang;
       benchLog(`turn ${turn}/${turns} ${q.lang} begin`);
+      await live.player.cancel();
       const establishedBefore = acpMethods(acpLog).filter((method) => ESTABLISH.has(method)).length;
       if (real) {
         pendingFrames = [...spoken[turn - 1]!];

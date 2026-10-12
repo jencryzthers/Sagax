@@ -260,7 +260,7 @@ export class VoiceCall {
     this.transcriber = options.transcriber ?? new LiveTranscriber({ botId: options.botId, language: () => options.voice().language, threadId: options.threadId });
     this.player.events = {
       onSentenceStart: (text, info) => {
-        if (this.turn && this.turn.firstAudioAt === undefined && this.turn.sentAt !== undefined && !info?.filler) {
+        if (this.turn && this.turn.firstAudioAt === undefined && this.turn.sentAt !== undefined && this.turn.firstSentenceAt !== undefined && !info?.filler) {
           this.turn.firstAudioAt = this.now();
           this.disarmCue();
           this.emit("metrics", this.turn, this.bargeIn);

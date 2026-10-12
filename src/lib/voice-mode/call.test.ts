@@ -690,6 +690,26 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     expect(t.player.queued.some((s) => /snowing|Toronto|Sure/.test(s.text))).toBe(true);
   });
 
+  it("a leftover sentence start does not stamp firstAudioAt on a new speculative turn", async () => {
+    const t = await setup({
+      transcripts: ["What is the weather in Montreal today?"],
+      settings: { fullDuplex: true },
+      finalDelayMs: 200,
+    });
+    await t.feed(0.95, 0.05, 24);
+    t.socket().partial("What is the weather");
+    await t.settle();
+    expect(t.utterances).toHaveLength(1);
+    expect(t.utterances[0]!.metrics.firstSentenceAt).toBeUndefined();
+    t.player.events.onSentenceStart?.("Sure. From the last answer.");
+    await t.settle();
+    expect(t.metrics.some((row) => row.turn?.firstAudioAt !== undefined)).toBe(false);
+    t.call.replyProgress("Sure. It is four.");
+    await t.feed(0.02, 0.001, 12);
+    await t.settle();
+    expect(t.metrics.some((row) => row.turn?.firstAudioAt !== undefined)).toBe(true);
+  });
+
   it("duplex speculative speech-end emits metrics so endpoint is visible before first audio", async () => {
     const t = await setup({
       transcripts: ["What is the weather in Montreal today?"],
