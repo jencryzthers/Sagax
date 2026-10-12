@@ -3,12 +3,13 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
-import type { AchievementDefinition, AchievementSnapshot } from "../../../shared/achievements";
+import { NOTHING_LOCKED, type AchievementDefinition, type AchievementSnapshot, type Unlocks } from "../../../shared/achievements";
 import { ACHIEVEMENTS } from "../../../shared/achievements-catalog";
+import { MASCOT_CHARACTERS } from "../../../shared/mascot-look";
 import { resetAchievementsForTests } from "@/lib/achievements";
 import { setLocale } from "@/lib/i18n";
 import { AchievementsPage } from "./AchievementsPage";
-import { achievementMatches, achievementRewardFilterLabel, type AchievementListQuery } from "./achievement-filters";
+import { achievementMatches, achievementRewardFilterLabel, achievementRewardFilters, type AchievementListQuery } from "./achievement-filters";
 
 function achievement(overrides: Partial<AchievementDefinition> & Pick<AchievementDefinition, "id" | "rewards">): AchievementDefinition {
   return {
@@ -165,6 +166,13 @@ describe("achievement filters", () => {
 });
 
 describe("achievements page reward controls", () => {
+  it("lists owl plus unlocked characters in the reward filter", () => {
+    const empty: Unlocks = { enforced: true, keys: new Set() };
+    expect(achievementRewardFilters(empty)).toEqual(["all", "title", "owl"]);
+    expect(achievementRewardFilters({ enforced: true, keys: new Set(["character:crab", "character:shape"]) })).toEqual(["all", "title", "owl", "crab", "shape"]);
+    expect(achievementRewardFilters(NOTHING_LOCKED)).toEqual(["all", "title", ...MASCOT_CHARACTERS]);
+  });
+
   it("puts search and the reward select on the filter row, with the mascot names the app already uses", () => {
     resetAchievementsForTests({ status: "ready", snapshot: snapshot() });
     const html = renderToStaticMarkup(createElement(AchievementsPage));
@@ -176,9 +184,10 @@ describe("achievements page reward controls", () => {
     expect(html).toContain(">All rewards</option>");
     expect(html).toContain(">Gives a title</option>");
     expect(html).toContain(">Owl</option>");
-    expect(html).toContain(">Shapes</option>");
-    expect(html).toContain(">Trombi</option>");
-    expect(html).toContain(">Bunbu</option>");
+    expect(html).not.toContain(">Shapes</option>");
+    expect(html).not.toContain(">Trombi</option>");
+    expect(html).not.toContain(">Bunbu</option>");
+    expect(html).not.toContain(">Crab</option>");
     expect(html).toContain('aria-label="Show"');
     expect(html).toContain(">Unlocked</option>");
     expect(html).toContain(">Locked</option>");
@@ -190,9 +199,9 @@ describe("achievements page reward controls", () => {
     expect(french).toContain(">Toutes les récompenses</option>");
     expect(french).toContain(">Donne un titre</option>");
     expect(french).toContain(">Hibou</option>");
-    expect(french).toContain(">Formes</option>");
-    expect(french).toContain(">Trombi</option>");
-    expect(french).toContain(">Bunbu</option>");
+    expect(french).not.toContain(">Formes</option>");
+    expect(french).not.toContain(">Trombi</option>");
+    expect(french).not.toContain(">Bunbu</option>");
   });
 });
 

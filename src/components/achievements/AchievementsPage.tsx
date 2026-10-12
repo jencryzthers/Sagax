@@ -11,7 +11,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Flame, Lock, Trophy } from "lucide-react";
 import { ACHIEVEMENTS } from "../../../shared/achievements-catalog";
 import { rarityForPoints, type AchievementCategory, type AchievementDefinition, type AchievementItemState, type AchievementReward } from "../../../shared/achievements";
-import { loadAchievements, localized, reportAchievement, rewardLabel, saveAchievementSettings, useAchievements } from "@/lib/achievements";
+import { loadAchievements, localized, reportAchievement, rewardLabel, saveAchievementSettings, unlocksFromSnapshot, useAchievements } from "@/lib/achievements";
 import { forgetPublicAchievements } from "@/lib/public-achievements";
 import { requestNotificationPermission } from "@/lib/notify";
 import { activeLocale, t } from "@/lib/i18n";
@@ -19,7 +19,7 @@ import { cn } from "@/lib/cn";
 import type { LocaleKey } from "@/locales";
 import { SettingRow, Switch } from "../SettingsPrimitives";
 import { achievementIcon } from "./icons";
-import { ACHIEVEMENT_REWARD_FILTERS, achievementMatches, achievementRewardFilterLabel, type AchievementRewardFilter, type AchievementStatusFilter } from "./achievement-filters";
+import { achievementMatches, achievementRewardFilterLabel, achievementRewardFilters, type AchievementRewardFilter, type AchievementStatusFilter } from "./achievement-filters";
 import "./achievements.css";
 
 const RewardPreview = lazy(() => import("./RewardPreview"));
@@ -253,7 +253,7 @@ export function AchievementsPage({ category = "all" }: { category?: AchievementC
             onChange={(event) => setReward(event.target.value as AchievementRewardFilter)}
             className="rounded-lg border border-border bg-ink/[0.03] px-2 py-1 text-[12px] text-ink"
           >
-            {ACHIEVEMENT_REWARD_FILTERS.map((id) => <option key={id} value={id}>{achievementRewardFilterLabel(id)}</option>)}
+            {achievementRewardFilters(unlocksFromSnapshot(snapshot)).map((id) => <option key={id} value={id}>{achievementRewardFilterLabel(id)}</option>)}
           </select>
           <select
             value={filter}

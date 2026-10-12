@@ -2,7 +2,7 @@
 // list together (AND). A locked secret matches only the words already on
 // its card, never its real name, description or reward.
 import { MASCOT_CHARACTERS } from "../../../shared/mascot-look";
-import type { AchievementCategory, AchievementDefinition } from "../../../shared/achievements";
+import { characterUnlocked, type AchievementCategory, type AchievementDefinition, type Unlocks } from "../../../shared/achievements";
 import { characterName, localized, rewardLabel } from "@/lib/achievements";
 import { t } from "@/lib/i18n";
 
@@ -10,6 +10,11 @@ export type AchievementStatusFilter = "all" | "unlocked" | "locked";
 
 export const ACHIEVEMENT_REWARD_FILTERS = ["all", "title", ...MASCOT_CHARACTERS] as const;
 export type AchievementRewardFilter = (typeof ACHIEVEMENT_REWARD_FILTERS)[number];
+
+export function achievementRewardFilters(unlocks: Unlocks): AchievementRewardFilter[] {
+  const characters = MASCOT_CHARACTERS.filter((id) => id === "owl" || characterUnlocked(unlocks, id));
+  return ["all", "title", ...characters];
+}
 
 export interface AchievementListQuery {
   category: AchievementCategory | "all";
