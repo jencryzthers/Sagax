@@ -12,6 +12,8 @@
 //   POST /api/org/member/approvals/{id}        allow or deny a card
 //   POST /api/org/member/people/{id}/nudge     nudge a person
 //   GET  /api/org/member/threads/{id}/stream   watch a running turn (NDJSON)
+//   POST /api/org/member/agents/{tool}          the agent-to-agent API
+//                                               (server/agent-api.ts, docs/agent-api.md)
 //
 // Lot C.3 (the subagent experience): `POST bots/{id}/messages` with
 // `stream: true`, and `GET threads/{id}/stream`, answer NDJSON: progress at
@@ -62,6 +64,9 @@ export const MEMBER_PARTIAL_MAX = 600;
 /** The most tool calls and files a turn summary lists. */
 export const MEMBER_SUMMARY_LIST_MAX = 50;
 const MAX_BODY_BYTES = 64 * 1024;
+/** send_prompt carries files (base64): up to 8 of 25 MiB each is checked by
+ * the tool; one request is capped here. */
+const AGENT_SEND_BODY_BYTES = 64 * 1024 * 1024;
 const MAX_TOKEN_CHARS = 8_192;
 const SEND_ID = /^[A-Za-z0-9_-]{8,80}$/;
 const THREAD_ID = /^[\w-]{1,160}$/;
@@ -130,6 +135,10 @@ export interface OrgMemberRouteDeps {
   hiddenThreadOf?(botId: string, principalId: string): string | null;
   /** One admin activity row, category `client`, actor the person. */
   record(person: MemberPerson, entry: { action: string; target: { kind: string; id?: string; name?: string }; after?: Record<string, unknown> }): void;
+  /** The agent-to-agent API (server/agent-api.ts) for this person: the
+   * tool checks its scope (from the person's clients.* keys), its rate and
+   * audits every call itself. */
+  agentApi?(person: MemberPerson, tool: string, args: unknown, signal?: AbortSignal): Promise<{ status: number; body: Record<string, unknown> }>;
   version?(): string;
   now?(): number;
   sleep?(ms: number): Promise<void>;
@@ -173,6 +182,8 @@ interface MemberContext {
   params: Record<string, string>;
   url: URL;
   body: unknown;
+  /** Aborted when the client goes away. */
+  signal?: AbortSignal;
 }
 
 interface MemberRoute {
@@ -788,6 +799,17 @@ function memberRoutes(deps: OrgMemberRouteDeps): MemberRoute[] {
       },
     },
     {
+      // The agent-to-agent API. No route-level key: each tool needs its own
+      // scope (read: clients.botsRead, send_prompt: clients.botsMessage,
+      // create_agent: clients.agentsCreate), checked and audited by the tool.
+      method: "POST", path: "agents/{tool}",
+      async handle({ person, params, body, signal }) {
+        if (!deps.agentApi) return fail(404, "not_found", "This server does not offer the agent API.");
+        const reply = await deps.agentApi(person, params.tool!, body ?? {}, signal);
+        return answer(reply.body, reply.status);
+      },
+    },
+    {
       method: "POST", path: "people/{id}/nudge", permission: "clients.peopleNudge",
       async handle({ person, params }) {
         const principalId = deps.resolvePerson(params.id!);
@@ -907,13 +929,16 @@ export function createOrgMemberRoutes(deps: OrgMemberRouteDeps): (req: IncomingM
     }
     let body: unknown = null;
     if (method === "POST") {
+      const max = sub === "agents/send_prompt" ? AGENT_SEND_BODY_BYTES : MAX_BODY_BYTES;
       const declared = Number(req.headers["content-length"] ?? 0);
-      if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return refuse(413, "too_large", `The body is larger than ${MAX_BODY_BYTES} bytes.`);
-      body = await readSmallJson(req);
-      if (body === undefined) return refuse(400, "bad_request", `The body is not JSON, or larger than ${MAX_BODY_BYTES} bytes.`);
+      if (Number.isFinite(declared) && declared > max) return refuse(413, "too_large", `The body is larger than ${max} bytes.`);
+      body = await readSmallJson(req, max);
+      if (body === undefined) return refuse(400, "bad_request", `The body is not JSON, or larger than ${max} bytes.`);
     }
     try {
-      const reply = await route.handle({ person, params: hit.params, url, body });
+      const aborted = new AbortController();
+      res.on("close", () => aborted.abort());
+      const reply = await route.handle({ person, params: hit.params, url, body, signal: aborted.signal });
       if ("stream" in reply) {
         await streamAnswer(res, reply);
         return true;
