@@ -25,10 +25,12 @@
 // session/update notifications, so updates are double-gated: nothing emits
 // before the prompt is sent, and `_meta.isReplay` updates are dropped. Session
 // configuration is the exception: its live updates apply before prompting too.
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
+import { chmodSync } from "node:fs";
+import { createServer as createNetServer, type Server as NetServer, type Socket } from "node:net";
 import { lstat, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
-import { createHash } from "node:crypto";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { createHash, randomBytes } from "node:crypto";
 
 import { PROVIDER_CREDENTIAL_ENV, stripControlPlaneEnv, WORKSPACE_CREDENTIAL_ENV } from "../../config.ts";
 import { openStartupModelCatalog, writeStartupModelCache } from "../../startup-model-catalog.ts";
@@ -60,6 +62,7 @@ import type {
   DriverCreateInput,
   EffortLevel,
   EngineInstall,
+  McpServerSpec,
   ProviderDriver,
   ProviderInstance,
   ProviderSnapshot,
@@ -89,6 +92,7 @@ import { sessionIdlePolicy } from "../session-idle.ts";
 import { classifyError } from "../retry.ts";
 import { canUseMcpServer, narrowsNativeTools, parseToolScope } from "../../../shared/tool-scope.ts";
 import { gateServer, mcpStdioServer } from "../../mcp-gate-config.ts";
+import type { GateAnswer, GateAsk } from "../../mcp-gate-approval.ts";
 import { TURN_TOKEN_ENV, warmCommsEnv } from "../spawn-contract.ts";
 import { acpHostToolRequest } from "../host-tools.ts";
 
@@ -312,7 +316,14 @@ export interface AcpSupport {
    * own evidence (device-auth.ts). */
   deviceSignIn?: DeviceSignIn;
   /** CLI argv AFTER the binary name to enter ACP stdio mode. */
-  spawnArgs(config: AcpConfig, turn: SendTurnInput): string[];
+  spawnArgs(config: AcpConfig, turn: SendTurnInput, launch?: { approvalGate: boolean }): string[];
+  /** Sagax gates this turn's MCP calls itself (mcp-gate-approval.ts): every
+   * MCP server is mounted through the gate with an approval socket, and
+   * only `approvalReadOnly` tools run unasked. Decided once per turn; the
+   * same decision reaches spawnArgs as `launch.approvalGate`. */
+  approvalGate?(config: AcpConfig, turn: SendTurnInput): boolean;
+  /** The reviewed read-only tools of one mounted server (upstream names). */
+  approvalReadOnly?(server: { name: string; builtin: boolean; spec?: McpServerSpec }): string[];
   /** Provider credential variables this ACP child is allowed to inherit. */
   credentialEnv?: readonly string[];
   /** Select the model through a session config option instead of argv, for
@@ -911,6 +922,114 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         createdAt: new Date().toISOString(),
       });
 
+      // Sagax's approval gate for MCP calls (mcp-gate-approval.ts). One
+      // socket per driver instance; each thread's gates carry that thread's
+      // secret token, so a gate can only ever open a card on its own thread's
+      // running turn. Every failure answers deny.
+      const gateTokens = new Map<string, string>();
+      const gateThreads = new Map<string, string>();
+      let gateBroker: { path: string; server: NetServer } | undefined;
+      const gateToken = (threadId: string): string => {
+        let token = gateTokens.get(threadId);
+        if (!token) {
+          token = randomBytes(24).toString("hex");
+          gateTokens.set(threadId, token);
+          gateThreads.set(token, threadId);
+        }
+        return token;
+      };
+      const handleGateConnection = (conn: Socket) => {
+        conn.setEncoding("utf8");
+        const open = new Set<() => void>();
+        const answer = (id: string, behavior: "allow" | "deny") => {
+          if (conn.destroyed) return;
+          const message: GateAnswer = { t: "answer", id, behavior };
+          conn.write(`${JSON.stringify(message)}\n`);
+        };
+        let buf = "";
+        conn.on("data", (chunk: string) => {
+          buf += chunk;
+          if (buf.length > 1_000_000) { conn.destroy(); return; }
+          let nl;
+          while ((nl = buf.indexOf("\n")) !== -1) {
+            const line = buf.slice(0, nl);
+            buf = buf.slice(nl + 1);
+            let ask: Partial<GateAsk> | undefined;
+            try { ask = JSON.parse(line); } catch { continue; }
+            if (ask?.t !== "ask" || typeof ask.id !== "string" || !ask.id) continue;
+            const askId = ask.id;
+            const threadId = typeof ask.token === "string" ? gateThreads.get(ask.token) : undefined;
+            const current = threadId ? sessions.get(threadId)?.current : undefined;
+            if (!threadId || !current || current.state.settled || current.state.stopped
+              || typeof ask.server !== "string" || typeof ask.tool !== "string" || !ask.server || !ask.tool) {
+              answer(askId, "deny");
+              continue;
+            }
+            current.flushAssistantText();
+            const mcpTool = `${ask.server}__${ask.tool}`;
+            const preview = typeof ask.summary === "string" && ask.summary ? ` ${ask.summary}` : "";
+            const requestId = newId();
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            const finish: AcpAskFinish = (behavior, source = "user") => {
+              if (!current.asks.delete(requestId)) return "unavailable";
+              if (timer) clearTimeout(timer);
+              open.delete(onClose);
+              // only an explicit "allow" from a person runs the call
+              const allow = behavior === "allow" && source === "user";
+              answer(askId, allow ? "allow" : "deny");
+              emit({
+                ...base(threadId, current.turnId),
+                type: "request.resolved",
+                requestId,
+                behavior: allow ? "allow" : "deny",
+                source,
+                approvalScope: current.controlsHost ? "local-computer" : undefined,
+              });
+              return allow ? "allowed-once" : "rejected";
+            };
+            const onClose = () => { finish("deny", "system"); };
+            open.add(onClose);
+            timer = setTimeout(() => {
+              emit({ ...base(threadId, current.turnId), type: "runtime.error", message: DENY_TIMEOUT_NOTE });
+              finish("deny", "timeout");
+            }, 15 * 60_000);
+            timer.unref?.();
+            current.asks.set(requestId, finish);
+            emit({
+              ...base(threadId, current.turnId),
+              type: "request.opened",
+              requestId,
+              requestType: "permission",
+              tool: "other",
+              summary: `${mcpTool}${preview}`.slice(0, 200),
+              mcpTool,
+              approvalScope: current.controlsHost ? "local-computer" : undefined,
+              // never a session-wide grant: every call is its own card
+            });
+          }
+        });
+        const closeAll = () => { for (const onClose of Array.from(open)) onClose(); };
+        conn.on("close", closeAll);
+        conn.on("error", closeAll);
+      };
+      const gateSocket = (): string => {
+        if (gateBroker) return gateBroker.path;
+        const name = `sgx-gate-${process.pid}-${randomBytes(6).toString("hex")}`;
+        const path = process.platform === "win32" ? `\\\\.\\pipe\\${name}` : join(tmpdir(), `${name}.sock`);
+        const server = createNetServer(handleGateConnection);
+        server.on("error", (error) => {
+          console.error(`[acp] approval gate socket failed: ${String(error)}; gated MCP calls are declined`);
+        });
+        server.listen(path, () => {
+          if (process.platform !== "win32") {
+            try { chmodSync(path, 0o600); } catch { /* the token still guards it */ }
+          }
+        });
+        server.unref();
+        gateBroker = { path, server };
+        return path;
+      };
+
       // ACP session mcpServers: stdio is the baseline every ACP agent
       // supports (mcpCapabilities.http/.sse only add EXTRA transports), so
       // an injected stdio proxy — e.g. the peer-agent comms tool — attaches
@@ -926,7 +1045,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
       // server named before every tool came back "Tool not found"). The
       // catalog passes through whole: the agent searches tools itself.
       type AcpMcpServer = { name: string; command: string; args: string[]; env: Array<{ name: string; value: string }> };
-      const acpMcpServers = (turn: SendTurnInput) => {
+      const acpMcpServers = (turn: SendTurnInput, approvalGated = false) => {
         const servers: AcpMcpServer[] = [];
         const acpEnv = (env: Record<string, string>) =>
           Object.entries(env).map(([name, value]) => ({ name, value: String(value) }));
@@ -974,18 +1093,31 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           servers.push({ name, command: stdio.command, args: stdio.args ?? [], env: acpEnv(stdio.env ?? {}) });
           custom.add(name);
         }
+        // Approval gate: EVERY server rides the gate, built-in or not, and
+        // only its reviewed read-only tools pass unasked.
+        const customSpecs = turn.integrations?.custom ?? {};
+        const approvalFor = (server: AcpMcpServer) => ({
+          socket: gateSocket(),
+          token: gateToken(turn.threadId),
+          readOnly: support.approvalReadOnly?.({
+            name: server.name,
+            builtin: !custom.has(server.name),
+            ...(custom.has(server.name) ? { spec: customSpecs[server.name] } : {}),
+          }) ?? [],
+        });
         // Sagax's own servers (agents, composio, browser, computer) name their
         // tools admissibly; connectors (Perspicax profiles, URL and stdio
         // servers) can name them anything, so those ride the gate.
         const toolNames = support.mcpToolNames;
         const renames = (server: AcpMcpServer) => Boolean(toolNames) && custom.has(server.name);
-        if (turn.toolScope === undefined && !servers.some(renames)) return servers;
+        if (turn.toolScope === undefined && !servers.some(renames) && !approvalGated) return servers;
         return servers.filter((server) => turn.toolScope === undefined || canUseMcpServer(turn.toolScope, server.name)).map((server) => {
-          if (turn.toolScope === undefined && !renames(server)) return server;
+          if (turn.toolScope === undefined && !renames(server) && !approvalGated) return server;
           const original = { command: server.command, args: server.args, env: Object.fromEntries(server.env.map(({ name, value }) => [name, value])) };
           const gated = gateServer({ name: server.name, server: original, threadId: turn.threadId, budget: 0,
-            toolScope: turn.toolScope, nodeEnv: { ELECTRON_RUN_AS_NODE: "1" }, ...(toolNames && renames(server) ? { toolNames } : {}) });
-          if (!gated) throw new Error(turn.toolScope === undefined ? "Tool names require an MCP gate." : "Tool selection requires an MCP gate.");
+            toolScope: turn.toolScope, nodeEnv: { ELECTRON_RUN_AS_NODE: "1" }, ...(toolNames && renames(server) ? { toolNames } : {}),
+            ...(approvalGated ? { approval: approvalFor(server) } : {}) });
+          if (!gated) throw new Error(turn.toolScope === undefined && !approvalGated ? "Tool names require an MCP gate." : "Tool selection requires an MCP gate.");
           return { name: server.name, command: gated.command, args: gated.args, env: acpEnv(gated.env) };
         });
       };
@@ -1737,12 +1869,15 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         const withAgentsEnv = (agentsEnv: Record<string, string>): SendTurnInput =>
           ({ ...turn, integrations: { ...turn.integrations, agents: { ...callAgents!, env: agentsEnv } } });
         const callAgentsEnv = callAgents ? warmCommsEnv(threadId, turn.botId, callAgents.env) : undefined;
-        const mcpServers = acpMcpServers(callAgentsEnv ? withAgentsEnv(callAgentsEnv) : turn);
+        // One decision per turn, shared by the MCP mounts and spawnArgs: a
+        // turn can never get the ungated mode with ungated servers.
+        const approvalGated = support.approvalGate?.(turnConfig, cliTurn) === true;
+        const mcpServers = acpMcpServers(callAgentsEnv ? withAgentsEnv(callAgentsEnv) : turn, approvalGated);
         const sessionServersKey = callAgentsEnv
           ? acpMcpServers(withAgentsEnv({
             ...callAgentsEnv,
             ...Object.fromEntries(TURN_TOKEN_ENV.filter((key) => key in callAgentsEnv).map((key) => [key, "(turn token)"])),
-          }))
+          }), approvalGated)
           : mcpServers;
         let launch: { command: string; args?: string[]; env?: Record<string, string | undefined> };
         try {
@@ -1776,7 +1911,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         // The env the spawned child actually receives is part of the
         // contract too, and arrives hashed as envFingerprint for the same
         // reason.
-        const spawnArgs = support.spawnArgs(turnConfig, cliTurn);
+        const spawnArgs = support.spawnArgs(turnConfig, cliTurn, { approvalGate: approvalGated });
         const spawnEnv = launch.env ?? env;
         // Env is part of the spawn contract: a turn that changes auth env
         // (FACTORY_API_KEY placeholder, a fresh login file) must not keep

@@ -16,6 +16,8 @@
 //
 // stdout is the MCP transport. Never log there.
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { connect, type Socket } from "node:net";
 import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -26,6 +28,7 @@ import { directoryCallTarget, isDirectoryTool } from "./mcp-directory.ts";
 import { DEFAULT_RESULT_BUDGET, trimResultText, trimStructured } from "./mcp-trim.ts";
 import { ToolNameAliases } from "./mcp-tool-names.ts";
 import { killCliTree } from "./procs.ts";
+import { gateArgsSummary, gateDeclinedText, type GateAnswer, type GateAsk } from "./mcp-gate-approval.ts";
 
 type Json = Record<string, unknown>;
 
@@ -46,7 +49,7 @@ function gateEnvironment(): NodeJS.ProcessEnv {
   }
 }
 /** The gate's own settings never reach the upstream server's environment. */
-const GATE_ENV_KEYS = ["SAGAX_GATE_NAME", "SAGAX_GATE_SPILL_DIR", "SAGAX_GATE_BUDGET", "SAGAX_GATE_UPSTREAM", "SAGAX_GATE_SPILL_HINT", "SAGAX_GATE_TOOL_SCOPE", "SAGAX_GATE_DIRECTORY", "SAGAX_GATE_TOOL_NAMES", "SAGAX_GATE_REPORT_DIR"];
+const GATE_ENV_KEYS = ["SAGAX_GATE_NAME", "SAGAX_GATE_SPILL_DIR", "SAGAX_GATE_BUDGET", "SAGAX_GATE_UPSTREAM", "SAGAX_GATE_SPILL_HINT", "SAGAX_GATE_TOOL_SCOPE", "SAGAX_GATE_DIRECTORY", "SAGAX_GATE_TOOL_NAMES", "SAGAX_GATE_REPORT_DIR", "SAGAX_GATE_APPROVAL_SOCKET", "SAGAX_GATE_APPROVAL_TOKEN", "SAGAX_GATE_READ_ONLY"];
 const gateEnv = gateEnvironment();
 const NAME = gateEnv.SAGAX_GATE_NAME || "mcp";
 const SPILL_DIR = gateEnv.SAGAX_GATE_SPILL_DIR || "";
@@ -73,6 +76,11 @@ const DIRECTORY = gateEnv.SAGAX_GATE_DIRECTORY === "1";
  * any tool still unregistrable is logged loudly and written to the report. */
 const ALIASES = gateEnv.SAGAX_GATE_TOOL_NAMES === "grok" ? new ToolNameAliases(NAME) : undefined;
 const REPORT_DIR = gateEnv.SAGAX_GATE_REPORT_DIR || "";
+/** Sagax gates this server's calls itself (mcp-gate-approval.ts): every
+ * `tools/call` not on READ_ONLY waits for an approval from the server over
+ * this socket. Fail closed throughout. */
+const APPROVAL_SOCKET = gateEnv.SAGAX_GATE_APPROVAL_SOCKET || "";
+const APPROVAL_TOKEN = gateEnv.SAGAX_GATE_APPROVAL_TOKEN || "";
 
 function fail(message: string): never {
   process.stderr.write(`mcp-gate(${NAME}): ${message}\n`);
@@ -88,6 +96,66 @@ function toolScope(): ToolScope | undefined {
   if (!parsed.ok || parsed.scope === undefined) fail("invalid tool selection; check the bot's Access settings");
   if (!/^[a-z][a-z0-9_-]{0,31}$/.test(NAME)) fail("invalid MCP server identity for tool selection");
   return parsed.scope;
+}
+
+/** The reviewed read-only tools of this server (upstream names): the only
+ * calls that run without an approval when the approval gate is on. */
+function readOnlyTools(): ReadonlySet<string> {
+  if (!APPROVAL_SOCKET) return new Set();
+  if (!APPROVAL_TOKEN) fail("approval gate without a token");
+  const raw = gateEnv.SAGAX_GATE_READ_ONLY ?? "[]";
+  let value: unknown;
+  try { value = JSON.parse(raw); } catch { fail("invalid read-only tool list"); }
+  if (!Array.isArray(value) || !value.every((name) => typeof name === "string" && name.length > 0)) fail("invalid read-only tool list");
+  return new Set(value as string[]);
+}
+
+let approvalConn: Socket | undefined;
+let approvalDead = false;
+let approvalBuf = "";
+const approvalWaiting = new Map<string, (behavior: "allow" | "deny") => void>();
+
+function approvalFailAll(): void {
+  approvalDead = true;
+  for (const resolve of approvalWaiting.values()) resolve("deny");
+  approvalWaiting.clear();
+}
+
+/** Ask the Sagax server whether this one call may run. Resolves "deny" on
+ * any failure: an unreachable server never becomes an approval. */
+function askApproval(server: string, tool: string, args: unknown): Promise<"allow" | "deny"> {
+  if (approvalDead) return Promise.resolve("deny");
+  if (!approvalConn) {
+    approvalConn = connect(APPROVAL_SOCKET);
+    approvalConn.setEncoding("utf8");
+    approvalConn.on("error", (error) => {
+      process.stderr.write(`mcp-gate(${NAME}): approval channel failed (${String(error)}); declining\n`);
+      approvalFailAll();
+    });
+    approvalConn.on("close", approvalFailAll);
+    approvalConn.on("data", (chunk: string) => {
+      approvalBuf += chunk;
+      let nl;
+      while ((nl = approvalBuf.indexOf("\n")) !== -1) {
+        const line = approvalBuf.slice(0, nl);
+        approvalBuf = approvalBuf.slice(nl + 1);
+        let answer: Partial<GateAnswer> | undefined;
+        try { answer = JSON.parse(line); } catch { continue; }
+        if (answer?.t !== "answer" || typeof answer.id !== "string") continue;
+        const resolve = approvalWaiting.get(answer.id);
+        if (!resolve) continue;
+        approvalWaiting.delete(answer.id);
+        resolve(answer.behavior === "allow" ? "allow" : "deny");
+      }
+    });
+    approvalConn.unref();
+  }
+  const conn = approvalConn;
+  return new Promise((resolve) => {
+    const ask: GateAsk = { t: "ask", id: randomUUID(), token: APPROVAL_TOKEN, server, tool, summary: gateArgsSummary(args) };
+    approvalWaiting.set(ask.id, resolve);
+    conn.write(`${JSON.stringify(ask)}\n`);
+  });
 }
 
 function isRecord(value: unknown): value is Json {
@@ -227,6 +295,7 @@ function reportToolNames(advertised: string[], outcome: ReturnType<ToolNameAlias
 
 // Validate before starting a process: corrupt policy must never become pass-through.
 const scope = toolScope();
+const READ_ONLY = readOnlyTools();
 const spec = upstreamSpec();
 if (SPILL_DIR) sweepSpill(SPILL_DIR);
 
@@ -291,9 +360,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       const parsed: unknown = JSON.parse(line);
       if (isRecord(parsed)) message = parsed;
     } catch {
-      if (scope) return rejectRequest(null, -32700, "Invalid JSON-RPC frame");
+      if (scope || APPROVAL_SOCKET) return rejectRequest(null, -32700, "Invalid JSON-RPC frame");
     }
-    if (scope && (!message || message.jsonrpc !== "2.0")) return rejectRequest(message?.id, -32600, "Invalid JSON-RPC frame");
+    // A batch or a frame the gate cannot read could carry a call past the
+    // selection or the approval check: refused on a gated connection.
+    if ((scope || APPROVAL_SOCKET) && (!message || message.jsonrpc !== "2.0")) return rejectRequest(message?.id, -32600, "Invalid JSON-RPC frame");
   }
   const id = requestKey(message?.id);
   const params = isRecord(message?.params) ? message.params : undefined;
@@ -318,6 +389,30 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   if (scope && message?.method === "tools/list" && !id) {
     return rejectRequest(message.id, -32600, "Tool listing needs a request ID");
   }
+  if (APPROVAL_SOCKET && message?.method === "tools/call") {
+    if (!id || typeof params?.name !== "string") return rejectRequest(message.id, -32602, "Invalid tool call");
+    const target = callTarget(params.name, params.arguments);
+    // The directory answers a call naming no tool itself; nothing runs.
+    if (target !== undefined && !READ_ONLY.has(target)) {
+      const callId = message.id;
+      const held = askApproval(NAME, target, params.arguments)
+        .then((behavior) => {
+          if (behavior === "allow") return forward(line, message, id, params);
+          process.stderr.write(`mcp-gate(${NAME}): ${target} not approved; not run\n`);
+          process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: callId, result: { content: [{ type: "text", text: gateDeclinedText(NAME, target) }], isError: true } })}\n`);
+        })
+        .finally(() => heldCalls.delete(held));
+      heldCalls.add(held);
+      return;
+    }
+  }
+  forward(line, message, id, params);
+});
+
+/** Calls waiting for an approval: the upstream's stdin closes only after them. */
+const heldCalls = new Set<Promise<void>>();
+
+function forward(line: string, message: Json | undefined, id: string | undefined, params: Json | undefined): void {
   if (id && typeof message?.method === "string") {
     if (scope && pending.has(id)) fail("duplicate request ID on a restricted connection");
     if (message.method === "tools/call") {
@@ -329,8 +424,10 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     }
   }
   child.stdin.write(`${line}\n`);
+}
+process.stdin.on("end", () => {
+  void Promise.allSettled(heldCalls).then(() => child.stdin.end());
 });
-process.stdin.on("end", () => child.stdin.end());
 
 // server -> client: the one direction that gets rewritten
 createInterface({ input: child.stdout }).on("line", (line) => {

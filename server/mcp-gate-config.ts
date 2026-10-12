@@ -165,14 +165,20 @@ export function gateServer(input: {
    * map calls back (mcp-tool-names.ts). Mounts the gate even without a
    * budget or a selection. */
   toolNames?: "grok";
+  /** Sagax gates this server's calls itself (mcp-gate-approval.ts): every
+   * call not in readOnly waits for an approval card. Mounts the gate always;
+   * never returns null, so an approval-gated server can never run ungated. */
+  approval?: { socket: string; token: string; readOnly: readonly string[] };
 }): { command: string; args: string[]; env: Record<string, string> } | null {
   const { name, server, budget } = input;
   const parsed = parseToolScope(input.toolScope);
   if (!parsed.ok) throw new Error(parsed.error);
   const scoped = parsed.scope !== undefined;
   const aliased = input.toolNames === "grok";
-  if (budget <= 0 && !scoped && !aliased) return null;
-  if (!scoped && !aliased && remoteMcpSpec(server)) return null;
+  const approval = input.approval;
+  if (approval && (!approval.socket || !approval.token)) throw new Error("An approval gate needs its socket and token.");
+  if (budget <= 0 && !scoped && !aliased && !approval) return null;
+  if (!scoped && !aliased && !approval && remoteMcpSpec(server)) return null;
   // The directory is the remote proxy's; it sits inside the gate, which
   // knows to look through call_tool at the tool underneath.
   const directory = input.directory === true && remoteMcpSpec(server) !== undefined;
@@ -184,6 +190,7 @@ export function gateServer(input: {
   });
   if (!spec) {
     if (scoped) throw new Error("Tool selection requires a supported MCP server.");
+    if (approval) throw new Error("Approval gating requires a supported MCP server.");
     return null;
   }
   const env = {
@@ -194,6 +201,11 @@ export function gateServer(input: {
     ...(scoped ? { SAGAX_GATE_TOOL_SCOPE: JSON.stringify(parsed.scope) } : {}),
     ...(directory ? { SAGAX_GATE_DIRECTORY: "1" } : {}),
     ...(aliased ? { SAGAX_GATE_TOOL_NAMES: "grok", SAGAX_GATE_REPORT_DIR: toolNameReportDir() } : {}),
+    ...(approval ? {
+      SAGAX_GATE_APPROVAL_SOCKET: approval.socket,
+      SAGAX_GATE_APPROVAL_TOKEN: approval.token,
+      SAGAX_GATE_READ_ONLY: JSON.stringify([...new Set(approval.readOnly)].sort()),
+    } : {}),
   };
   if (input.configEnvName && (!scoped || !/^SAGAX_GATE_CONFIG_[a-f0-9]{64}$/.test(input.configEnvName))) {
     throw new Error("Invalid private MCP gate configuration.");

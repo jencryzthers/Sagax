@@ -7,13 +7,13 @@
 // The fake CLI is a shebang script Windows cannot exec directly —
 // resolveCliSpawn turns it into `node <script>`, so these run everywhere.
 import { randomUUID } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ensureDirs, NATIVE_DIR } from "../../config.ts";
+import { DATA_DIR, ensureDirs, NATIVE_DIR } from "../../config.ts";
 import type { ProviderInstance } from "../../contracts.ts";
 import { TurnNotStartedError } from "../../contracts.ts";
 import { recordEvents, type EventRecorder } from "../../testing/events.ts";
@@ -1353,6 +1353,150 @@ describe("ACP turns (fake CLI)", () => {
       }
     },
   );
+
+  describe("Sagax approval gate (Grok default mode)", () => {
+    // An upstream MCP server that records every call it actually runs.
+    const RECORDING_MCP = `
+const { createInterface } = require("node:readline");
+const { appendFileSync } = require("node:fs");
+createInterface({ input: process.stdin }).on("line", (line) => {
+  if (!line.trim()) return;
+  const msg = JSON.parse(line);
+  if (msg.id === undefined) return;
+  if (msg.method === "tools/call") appendFileSync(process.env.CALLS, process.env.SERVER + ":" + msg.params.name + "\\n");
+  const result = msg.method === "initialize" ? { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "rec", version: "1" } }
+    : msg.method === "tools/call" ? { content: [{ type: "text", text: "ran " + msg.params.name }] } : {};
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result }) + "\\n");
+});
+`;
+    const flagFile = join(DATA_DIR, "grok-approval-gate.json");
+    let calls: string;
+    const server = (name: string) => {
+      const path = join(scratch, "recording-mcp.cjs");
+      writeFileSync(path, RECORDING_MCP);
+      return { command: process.execPath, args: [path], env: { CALLS: calls, SERVER: name } };
+    };
+    const ran = () => existsSync(calls) ? readFileSync(calls, "utf8").trim().split("\n").filter(Boolean) : [];
+    const opened = (turnId: string) => recorder.events.filter((e) => e.type === "request.opened" && e.turnId === turnId) as Array<{ requestId: string; mcpTool?: string; requestType?: string; allowSession?: boolean }>;
+    const nextCard = (turnId: string, count: number) => recorder.until(() => opened(turnId).length >= count).then(() => opened(turnId)[count - 1]!);
+    const reply = (turnId: string) => (recorder.events.find((e) => e.type === "item.completed" && e.turnId === turnId
+      && (e as { itemType?: string }).itemType === "assistant_text") as { text?: string } | undefined)?.text ?? "";
+
+    beforeEach(() => {
+      calls = join(scratch, "calls.log");
+      process.env.FAKE_ACP_DUMP = join(scratch, "gate-dump.json");
+    });
+    afterEach(() => {
+      rmSync(flagFile, { force: true });
+      delete process.env.FAKE_ACP_MCP_CALLS;
+    });
+
+    it("runs Grok in default mode; reviewed reads run unasked, a write and an unknown third-party tool each wait for a card, and declining blocks", async () => {
+      writeFileSync(flagFile, JSON.stringify({ bots: ["bot-gated"] }));
+      process.env.FAKE_ACP_MCP_CALLS = "agents:list_bots,agents:create_bot,third:anything,agents:workspace_read";
+      await create(GrokAgentDriver, "mcp-call");
+      const { turnId } = await instance.adapter.sendTurn({
+        threadId: "t-gate", botId: "bot-gated", text: "go", model: "grok-4.5", approvalMode: "auto",
+        integrations: { agents: server("agents"), custom: { third: server("third") } },
+      });
+      const write = await nextCard(turnId, 1);
+      expect(write).toMatchObject({ requestType: "permission", mcpTool: "agents__create_bot" });
+      expect(write.allowSession).toBeUndefined();
+      expect(ran()).toEqual(["agents:list_bots"]);
+      expect(await instance.adapter.respondToRequest("t-gate", write.requestId, { behavior: "deny" })).toBe("rejected");
+      const unknown = await nextCard(turnId, 2);
+      expect(unknown).toMatchObject({ mcpTool: "third__anything" });
+      expect(await instance.adapter.respondToRequest("t-gate", unknown.requestId, { behavior: "allow" })).toBe("allowed-once");
+      await recorder.until((e) => e.type === "turn.completed" && e.turnId === turnId);
+      expect(opened(turnId)).toHaveLength(2);
+      expect(ran()).toEqual(["agents:list_bots", "third:anything", "agents:workspace_read"]);
+      const lines = reply(turnId).split("\n");
+      expect(lines[0]).toBe("agents:list_bots -> ran list_bots");
+      expect(lines[1]).toContain("agents:create_bot -> Not approved: agents__create_bot did not run");
+      expect(lines[2]).toBe("third:anything -> ran anything");
+      const seen = JSON.parse(readFileSync(process.env.FAKE_ACP_DUMP!, "utf8")) as { argv: string[]; mcpServers: Array<{ name: string; env: Array<{ name: string }> }> };
+      expect(seen.argv.slice(0, 2)).toEqual(["--permission-mode", "default"]);
+      expect(seen.argv).not.toContain("--allow");
+      // every mounted server rides the approval gate
+      for (const mounted of seen.mcpServers) {
+        expect(mounted.env.map((entry) => entry.name)).toContain("SAGAX_GATE_APPROVAL_SOCKET");
+      }
+    });
+
+    it("never replays an approval: an 'always allow' answer still asks for the next identical call", async () => {
+      writeFileSync(flagFile, JSON.stringify({ bots: "all" }));
+      process.env.FAKE_ACP_MCP_CALLS = "agents:create_bot,agents:create_bot";
+      await create(GrokAgentDriver, "mcp-call");
+      const { turnId } = await instance.adapter.sendTurn({
+        threadId: "t-gate-replay", botId: "any-bot", text: "go", model: "grok-4.5", approvalMode: "auto",
+        integrations: { agents: server("agents") },
+      });
+      const first = await nextCard(turnId, 1);
+      await instance.adapter.respondToRequest("t-gate-replay", first.requestId, { behavior: "allow", always: true });
+      const second = await nextCard(turnId, 2);
+      expect(second.requestId).not.toBe(first.requestId);
+      await instance.adapter.respondToRequest("t-gate-replay", second.requestId, { behavior: "deny" });
+      await recorder.until((e) => e.type === "turn.completed" && e.turnId === turnId);
+      expect(ran()).toEqual(["agents:create_bot"]);
+    });
+
+    it("declines a held call when the turn is stopped before anyone answers", async () => {
+      writeFileSync(flagFile, JSON.stringify({ bots: ["bot-gated"] }));
+      process.env.FAKE_ACP_MCP_CALLS = "agents:create_bot";
+      await create(GrokAgentDriver, "mcp-call");
+      const { turnId } = await instance.adapter.sendTurn({
+        threadId: "t-gate-stop", botId: "bot-gated", text: "go", model: "grok-4.5", approvalMode: "auto",
+        integrations: { agents: server("agents") },
+      });
+      const card = await nextCard(turnId, 1);
+      await instance.adapter.interruptTurn("t-gate-stop");
+      await recorder.until((e) => e.type === "request.resolved" && (e as { requestId?: string }).requestId === card.requestId);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(ran()).toEqual([]);
+      expect(await instance.adapter.respondToRequest("t-gate-stop", card.requestId, { behavior: "allow" })).toBe("unavailable");
+    });
+
+    it("leaves bots without the flag, and Ask, Edits and Full access, on their current modes", async () => {
+      writeFileSync(flagFile, JSON.stringify({ bots: ["bot-gated"] }));
+      await create(GrokAgentDriver);
+      const cases: Array<{ botId: string; approvalMode: "auto" | "ask" | "edits" | "full"; mode: string }> = [
+        { botId: "other-bot", approvalMode: "auto", mode: "auto" },
+        { botId: "bot-gated", approvalMode: "ask", mode: "default" },
+        { botId: "bot-gated", approvalMode: "edits", mode: "acceptEdits" },
+        { botId: "bot-gated", approvalMode: "full", mode: "bypassPermissions" },
+      ];
+      for (const [index, entry] of cases.entries()) {
+        const dump = join(scratch, `gate-off-${index}.json`);
+        process.env.FAKE_ACP_DUMP = dump;
+        const { turnId } = await instance.adapter.sendTurn({
+          threadId: `t-gate-off-${index}`, botId: entry.botId, text: "go", model: "grok-4.5", approvalMode: entry.approvalMode,
+          integrations: { agents: server("agents") },
+        });
+        await recorder.until((e) => e.type === "turn.completed" && e.turnId === turnId);
+        const seen = JSON.parse(readFileSync(dump, "utf8")) as { argv: string[]; mcpServers: Array<{ env: Array<{ name: string }> }> };
+        expect(seen.argv.slice(seen.argv.indexOf("--permission-mode"), seen.argv.indexOf("--permission-mode") + 2)).toEqual(["--permission-mode", entry.mode]);
+        for (const mounted of seen.mcpServers) {
+          expect(mounted.env.map((item) => item.name)).not.toContain("SAGAX_GATE_APPROVAL_SOCKET");
+        }
+      }
+    });
+
+    it("treats a missing or corrupt flag file as off", async () => {
+      await create(GrokAgentDriver);
+      for (const [index, content] of [undefined, "not json", JSON.stringify({ bots: "some" })].entries()) {
+        if (content === undefined) rmSync(flagFile, { force: true }); else writeFileSync(flagFile, content);
+        const dump = join(scratch, `gate-flag-${index}.json`);
+        process.env.FAKE_ACP_DUMP = dump;
+        const { turnId } = await instance.adapter.sendTurn({
+          threadId: `t-gate-flag-${index}`, botId: "bot-gated", text: "go", model: "grok-4.5", approvalMode: "auto",
+          integrations: { agents: server("agents") },
+        });
+        await recorder.until((e) => e.type === "turn.completed" && e.turnId === turnId);
+        const seen = JSON.parse(readFileSync(dump, "utf8")) as { argv: string[] };
+        expect(seen.argv.slice(0, 2)).toEqual(["--permission-mode", "auto"]);
+      }
+    });
+  });
 
   it.each(["ask", "edits"] as const)("adds no read-only allow rules outside Auto (%s keeps every card)", async (approvalMode) => {
     await create(GrokAgentDriver);
