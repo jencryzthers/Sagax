@@ -1859,12 +1859,17 @@ public struct CompanionClient: Sendable {
     public func events(
         since cursor: String?,
         screens: Bool = false,
+        pushToken: String? = nil,
         streamingSession: URLSession? = nil
     ) throws -> AsyncThrowingStream<StreamFrame, Error> {
         var query = [URLQueryItem(name: "screens", value: screens ? "on" : "off")]
         if let cursor { query.append(URLQueryItem(name: "since", value: cursor)) }
         var streamRequest = try makeRequest("GET", "/api/events", query: query)
         streamRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        let token = pushToken?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        if !token.isEmpty {
+            streamRequest.setValue(token, forHTTPHeaderField: PushToken.header)
+        }
         // `makeRequest` stamps every request with the 20 seconds that suit a
         // call-and-answer API, and a per-request timeout *overrides* the
         // session's `timeoutIntervalForRequest` rather than deferring to it —

@@ -9,7 +9,7 @@ import { removeTempDir } from "../../testing/cleanup.ts";
 import { recordEvents } from "../../testing/events.ts";
 import { GeminiAgentDriver } from "./gemini.ts";
 import { acpNativeIncomingLogMessage } from "./core.ts";
-import { GrokAgentDriver, grokInheritedProfile, grokToolScopeProfile } from "./grok.ts";
+import { allowsRegisteredTool, GrokAgentDriver, grokInheritedProfile, grokToolScopeProfile } from "./grok.ts";
 import { clearDesktopInjectHosts, upsertDesktopInjectHost } from "../local-inject.ts";
 
 const cli = join(dirname(fileURLToPath(import.meta.url)), "../../testing/fake-acp-cli.ts");
@@ -299,4 +299,25 @@ it("shows the unknown-model notice once per conversation, even when the process 
   const other = await f.instance.adapter.sendTurn({ threadId: "other", text: "test", model: "grok-9-preview", withholdHostTools: true });
   await f.recorder.until(event => event.type === "turn.completed" && event.turnId === other.turnId);
   expect(f.recorder.events.filter(event => event.type === "runtime.notice")).toHaveLength(2);
+});
+
+it("mounts every Grok MCP server through the gate so cw_psa__query is registered, never skipped", async () => {
+  const f = await fixture(GrokAgentDriver, { FAKE_ACP_GROK_VERSION: "1.0.41" });
+  await f.instance.adapter.sendTurn({ threadId: "grok-names", text: "Fixture", integrations: {
+    custom: { perspicax_profil_jean_christophe_limited: { command: "node", args: ["bridge.js"], env: {} } },
+  } });
+  await f.recorder.until((event) => event.type === "turn.completed");
+  const servers = JSON.parse(readFileSync(`${f.dump}.mcp.json`, "utf8"));
+  const server = servers.find((entry: { name: string }) => entry.name === "perspicax_profil_jean_christophe_limited");
+  const env = Object.fromEntries(server.env.map((entry: { name: string; value: string }) => [entry.name, entry.value]));
+  expect(server.args.join(" ")).toContain("mcp-gate");
+  expect(env.SAGAX_GATE_TOOL_NAMES).toBe("grok");
+  expect(JSON.parse(env.SAGAX_GATE_UPSTREAM)).toMatchObject({ command: "node", args: ["bridge.js"] });
+  expect(env.SAGAX_GATE_TOOL_SCOPE).toBeUndefined();
+});
+
+it("accepts a Grok alias of an allowed tool in the selected catalog", () => {
+  const scope = { allow: ["native:*", "mcp:perspicax_jc:cw_psa__query"] };
+  expect(allowsRegisteredTool(scope, "perspicax_jc", "cw_psa_query")).toBe(true);
+  expect(allowsRegisteredTool(scope, "perspicax_jc", "cw_psa_write")).toBe(false);
 });

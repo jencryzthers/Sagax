@@ -43,7 +43,7 @@ import { MAUS_COLORS, swatchStyle, type MausColor, type MausMotion } from "@/lib
 import { BotAvatar, MausAvatar } from "@/components/Avatar";
 import { MASCOT_SKIN_IDS, OWL_SKIN_TIER, botMascotSkin, type MascotSkinId } from "../../../shared/mascot-skins";
 import type { MascotColorGroup } from "../../../shared/mascot-colors";
-import { BUNBU_SKIN_TIER, BUNBU_SKINS, completeMascotLook, FROG_SKIN_TIER, FROG_SKINS, GRUMP_SKIN_TIER, GRUMP_SKINS, OGRE_SKIN_TIER, OGRE_SKINS, SHIBA_SKIN_TIER, SHIBA_SKINS, SHAPE_SKIN_TIER, SHAPE_SKINS, TROMBI_SKIN_TIER, TROMBI_SKINS, type MascotCharacter, type MascotLook, type MascotShape, type ShapeSkin, type SkinTier } from "../../../shared/mascot-look";
+import { BUNBU_SKIN_TIER, BUNBU_SKINS, completeMascotLook, CRAB_SKIN_TIER, CRAB_SKINS, FROG_SKIN_TIER, FROG_SKINS, GRUMP_SKIN_TIER, GRUMP_SKINS, OGRE_SKIN_TIER, OGRE_SKINS, SHIBA_SKIN_TIER, SHIBA_SKINS, SHAPE_SKIN_TIER, SHAPE_SKINS, TROMBI_SKIN_TIER, TROMBI_SKINS, type MascotCharacter, type MascotLook, type MascotShape, type ShapeSkin, type SkinTier } from "../../../shared/mascot-look";
 import { ShapeMascot } from "@/components/ShapeMascot";
 import { SkinnedTrombi } from "@/components/skin-fx/SkinnedTrombi";
 import { BunbuMascot } from "@/components/BunbuMascot";
@@ -51,6 +51,7 @@ import { ShibaMascot } from "@/components/ShibaMascot";
 import { GrumpMascot } from "@/components/GrumpMascot";
 import { OgreMascot } from "@/components/OgreMascot";
 import { FrogMascot } from "@/components/FrogMascot";
+import { CrabMascot } from "@/components/CrabMascot";
 import type { FxMoveRequest } from "@/components/skin-fx/skin-fx";
 import "@/components/skin-fx/skin-fx.css";
 import { colorGroupsFor, colorTabFor, colorTabs, nextTab, skinTabFor, skinTierTabs } from "./editor-tabs";
@@ -81,6 +82,7 @@ export const CHARACTER_LABEL = {
   grump: "floatingBots.mascot.grump",
   ogre: "floatingBots.mascot.ogre",
   frog: "floatingBots.mascot.frog",
+  crab: "floatingBots.mascot.crab",
 } satisfies Record<MascotCharacter, LocaleKey>;
 
 export const SHAPE_LABEL = {
@@ -201,6 +203,23 @@ export const FROG_SKIN_LABEL = {
   holo: "mascot.frogSkin.holo",
   molten: "mascot.frogSkin.molten",
 } satisfies Record<(typeof FROG_SKINS)[number], LocaleKey>;
+
+export const CRAB_SKIN_LABEL = {
+  plain: "mascot.crabSkin.plain",
+  coral: "mascot.crabSkin.coral",
+  sand: "mascot.crabSkin.sand",
+  ink: "mascot.crabSkin.ink",
+  mint: "mascot.crabSkin.mint",
+  gold: "mascot.crabSkin.gold",
+  pearl: "mascot.crabSkin.pearl",
+  neon: "mascot.crabSkin.neon",
+  chrome: "mascot.crabSkin.chrome",
+  crystal: "mascot.crabSkin.crystal",
+  circuit: "mascot.crabSkin.circuit",
+  holo: "mascot.crabSkin.holo",
+  molten: "mascot.crabSkin.molten",
+  galaxy: "mascot.crabSkin.galaxy",
+} satisfies Record<(typeof CRAB_SKINS)[number], LocaleKey>;
 
 export const SKIN_TIER_LABEL = {
   common: "mascot.tier.common",
@@ -505,8 +524,7 @@ function MascotTile({ option, look, color, owlSkin, selected, inUse, lock, disab
       onClick={onSelect}
       onKeyDown={onKeyDown}
       className={cn(
-        "relative flex h-[78px] min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg bg-inset px-1 pt-1 transition-colors hover:bg-control disabled:opacity-50",
-        locked ? "pb-2" : "pb-1",
+        "relative flex h-[88px] min-w-0 flex-col items-center justify-start gap-0.5 rounded-lg bg-inset px-1 pb-2 pt-2 transition-colors hover:bg-control disabled:opacity-50",
         focusRing,
         selected && on,
       )}
@@ -515,7 +533,7 @@ function MascotTile({ option, look, color, owlSkin, selected, inUse, lock, disab
         <option.Thumb color={color} skin={owlSkin} look={{ ...look, character: option.id }} size={36} />
       </span>
       <span className="w-full truncate text-center text-[11.5px] leading-4 text-ink">{name}</span>
-      {!locked && <span className="w-full truncate text-center text-[10px] leading-3 text-ink-tertiary">{option.premium && option.isNew ? option.premium.price : family}</span>}
+      <span className={cn("h-3 w-full truncate text-center text-[10px] leading-3 text-ink-tertiary", locked && "invisible")}>{option.premium && option.isNew ? option.premium.price : family}</span>
       {inUse && (
         <span className="absolute left-1 top-1 grid size-4 place-items-center rounded-full bg-accent text-accent-ink" aria-hidden="true">
           <Check size={10} strokeWidth={3} />
@@ -605,6 +623,7 @@ export default function MascotLookEditor({ bot, disabled, onPatch: savePatch, on
   const [owlMotion, setOwlMotion] = useState<{ kind: Exclude<MausMotion, "none">; nonce: number } | null>(null);
   const [fxMove, setFxMove] = useState<FxMoveRequest | null>(null);
   const moves: { id: string; label: string; clip: string; owl?: OwlMove }[] = characterMoves(shownLook).map((move) => ({ ...move, label: t(move.label) }));
+  const stagePick = useRef(0);
   const play = (move: { clip: string; owl?: OwlMove }) => {
     if (move.owl) {
       const kind = move.owl;
@@ -692,46 +711,52 @@ export default function MascotLookEditor({ bot, disabled, onPatch: savePatch, on
       </div>
 
       <div data-mascot-detail={shown} className="flex min-w-0 flex-col gap-2.5 rounded-xl border border-hairline-weak bg-panel p-2.5">
-        {/* the stage (the real avatar in the bot's color, playing the moves and the equip animation), and beside it the name and the action */}
-        <div className="flex gap-2.5">
-          <div data-mascot-stage="" className="relative grid size-[112px] shrink-0 place-items-center overflow-hidden rounded-lg bg-inset">
-            <span className="absolute bottom-2.5 h-2 w-14 rounded-full bg-ink/15 blur-[3px]" aria-hidden="true" />
+        {/* the stage: the real avatar, large and centred on its own ground; hovering or clicking it previews a move. The name, family and action sit under it. */}
+        <button
+          type="button"
+          data-mascot-stage=""
+          aria-label={t("appearance.preview", { name: shownName })}
+          onMouseEnter={() => { if (moves[0]) play(moves[0]); }}
+          onClick={() => { if (moves.length) { const next = moves[(stagePick.current++) % moves.length]; play(next); } }}
+          className={cn("relative grid h-[176px] w-full place-items-center overflow-hidden rounded-xl bg-[radial-gradient(ellipse_at_50%_45%,var(--color-control)_0%,var(--color-inset)_70%)]", focusRing)}
+        >
+          <span aria-hidden="true" className={cn("pointer-events-none", shownLock.locked && "opacity-60 grayscale")}>
             <BotAvatar
               bot={{ name: bot.name, color: bot.color, mascotSkin: owlSkin, mascotLook: shownLook, avatarCrop: "mascot" }}
-              size={80}
+              size={128}
               state="idle"
               motion={owlMotion?.kind ?? "none"}
               motionKey={owlMotion?.nonce ?? 0}
               characterMove={fxMove}
               label={t("appearance.preview", { name: shownName })}
             />
-            {shownLock.locked && (
-              <span className="absolute right-1.5 top-1.5 grid size-5 place-items-center rounded-full bg-control text-ink-secondary" aria-hidden="true"><Lock size={11} strokeWidth={2.4} /></span>
-            )}
-          </div>
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <div className="min-w-0">
-              <div className="truncate text-[14px] font-medium leading-5 text-ink">{shownName}</div>
-              <div className="truncate text-[11px] leading-4 text-ink-tertiary">
-                {t(MASCOT_FAMILY_LABEL[shownOption.family])} · {t("appearance.moveCount", { count: moves.length })}
-              </div>
+          </span>
+          {shownLock.locked && (
+            <span className="absolute right-2 top-2 grid size-6 place-items-center rounded-full bg-control text-ink-secondary" aria-hidden="true"><Lock size={12} strokeWidth={2.4} /></span>
+          )}
+        </button>
+        <div className="flex flex-col items-center gap-2 text-center">
+          <div className="min-w-0">
+            <div className="truncate text-[15px] font-medium leading-5 text-ink">{shownName}</div>
+            <div className="truncate text-[11px] leading-4 text-ink-tertiary">
+              {t(MASCOT_FAMILY_LABEL[shownOption.family])} · {t("appearance.moveCount", { count: moves.length })}
             </div>
-            {/* the action: what the bot wears, the character to wear, or what unlocks it */}
-            <button
-              type="button"
-              data-mascot-action={shownLock.locked ? "locked" : inUse ? "in-use" : "use"}
-              disabled={disabled || inUse || shownLock.locked}
-              onClick={() => setLook({ character: shown })}
-              className={cn(
-                "mt-auto flex min-h-8 items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-center text-[12px] leading-4",
-                focusRing,
-                !inUse && !shownLock.locked ? "bg-accent font-medium text-accent-ink hover:brightness-110" : "bg-control text-ink-secondary",
-              )}
-            >
-              {shownLock.locked ? <Lock size={12} className="shrink-0" aria-hidden="true" /> : inUse ? <Check size={13} className="shrink-0" aria-hidden="true" /> : null}
-              <span>{shownLock.locked ? lockHint(shownLock) : inUse ? t("appearance.inUse") : t("appearance.use", { name: shownName })}</span>
-            </button>
           </div>
+          {/* the action: what the bot wears, the character to wear, or what unlocks it */}
+          <button
+            type="button"
+            data-mascot-action={shownLock.locked ? "locked" : inUse ? "in-use" : "use"}
+            disabled={disabled || inUse || shownLock.locked}
+            onClick={() => setLook({ character: shown })}
+            className={cn(
+              "flex min-h-8 w-full items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-center text-[12px] leading-4",
+              focusRing,
+              !inUse && !shownLock.locked ? "bg-accent font-medium text-accent-ink hover:brightness-110" : "bg-control text-ink-secondary",
+            )}
+          >
+            {shownLock.locked ? <Lock size={12} className="shrink-0" aria-hidden="true" /> : inUse ? <Check size={13} className="shrink-0" aria-hidden="true" /> : null}
+            <span>{shownLock.locked ? lockHint(shownLock) : inUse ? t("appearance.inUse") : t("appearance.use", { name: shownName })}</span>
+          </button>
         </div>
 
         <div data-character-options={shown} className="flex flex-col gap-2.5">
@@ -880,6 +905,21 @@ export default function MascotLookEditor({ bot, disabled, onPatch: savePatch, on
               preview={(skin) => <FrogMascot skin={skin} color={bot.color} size={32} detail="full" label={null} />}
             />
           )}
+          {shown === "crab" && (
+            <SkinPicker
+              key="crab"
+              skins={CRAB_SKINS}
+              tierOf={CRAB_SKIN_TIER}
+              selected={look.skins.crab}
+              labelOf={(skin) => t(CRAB_SKIN_LABEL[skin])}
+              idPrefix="crab-skin"
+              dataKey="data-crab-skin-option"
+              disabled={optionsOff}
+              onSelect={(skin) => setLook({ skins: { ...look.skins, crab: skin } })}
+              lockOf={(skin) => skinLock(unlocks, "crab", skin)}
+              preview={(skin) => <CrabMascot skin={skin} color={bot.color} size={32} detail="full" label={null} />}
+            />
+          )}
 
           <div>
             <Head title={t("mascot.moves.title")} />
@@ -891,6 +931,7 @@ export default function MascotLookEditor({ bot, disabled, onPatch: savePatch, on
                   data-character-move={item.id}
                   aria-label={t("mascot.moves.play", { move: item.label })}
                   onClick={() => play(item)}
+                  onMouseEnter={() => play(item)}
                   className={cn("rounded-md bg-control px-2 py-0.5 text-[11px] leading-4 text-ink hover:bg-raised-hover", focusRing)}
                 >
                   {item.label}

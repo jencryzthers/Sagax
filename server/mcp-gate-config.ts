@@ -28,6 +28,12 @@ export function spillDir(threadId: string): string {
   return join(DATA_DIR, "tool-results", threadId.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 80) || "thread");
 }
 
+/** Where each gate writes its connector's tool-name report (advertised vs
+ * registered, renames, failures), read by GET /api/mcp/tool-names. */
+export function toolNameReportDir(): string {
+  return join(DATA_DIR, "mcp-tool-names");
+}
+
 export interface StdioServer {
   command: string;
   args?: string[];
@@ -154,13 +160,25 @@ export function gateServer(input: {
   directory?: boolean;
   /** where a remote proxy's network settings come from (default: this process) */
   sourceEnv?: NodeJS.ProcessEnv | Record<string, string | undefined>;
+  /** The engine skips tool names it cannot qualify (Grok: a second `__`, a
+   * dot, a key over 256): register every tool under an admissible alias and
+   * map calls back (mcp-tool-names.ts). Mounts the gate even without a
+   * budget or a selection. */
+  toolNames?: "grok";
+  /** Sagax gates this server's calls itself (mcp-gate-approval.ts): every
+   * call not in readOnly waits for an approval card. Mounts the gate always;
+   * never returns null, so an approval-gated server can never run ungated. */
+  approval?: { socket: string; token: string; readOnly: readonly string[] };
 }): { command: string; args: string[]; env: Record<string, string> } | null {
   const { name, server, budget } = input;
   const parsed = parseToolScope(input.toolScope);
   if (!parsed.ok) throw new Error(parsed.error);
   const scoped = parsed.scope !== undefined;
-  if (budget <= 0 && !scoped) return null;
-  if (!scoped && remoteMcpSpec(server)) return null;
+  const aliased = input.toolNames === "grok";
+  const approval = input.approval;
+  if (approval && (!approval.socket || !approval.token)) throw new Error("An approval gate needs its socket and token.");
+  if (budget <= 0 && !scoped && !aliased && !approval) return null;
+  if (!scoped && !aliased && !approval && remoteMcpSpec(server)) return null;
   // The directory is the remote proxy's; it sits inside the gate, which
   // knows to look through call_tool at the tool underneath.
   const directory = input.directory === true && remoteMcpSpec(server) !== undefined;
@@ -172,6 +190,7 @@ export function gateServer(input: {
   });
   if (!spec) {
     if (scoped) throw new Error("Tool selection requires a supported MCP server.");
+    if (approval) throw new Error("Approval gating requires a supported MCP server.");
     return null;
   }
   const env = {
@@ -181,6 +200,12 @@ export function gateServer(input: {
     SAGAX_GATE_BUDGET: String(budget),
     ...(scoped ? { SAGAX_GATE_TOOL_SCOPE: JSON.stringify(parsed.scope) } : {}),
     ...(directory ? { SAGAX_GATE_DIRECTORY: "1" } : {}),
+    ...(aliased ? { SAGAX_GATE_TOOL_NAMES: "grok", SAGAX_GATE_REPORT_DIR: toolNameReportDir() } : {}),
+    ...(approval ? {
+      SAGAX_GATE_APPROVAL_SOCKET: approval.socket,
+      SAGAX_GATE_APPROVAL_TOKEN: approval.token,
+      SAGAX_GATE_READ_ONLY: JSON.stringify([...new Set(approval.readOnly)].sort()),
+    } : {}),
   };
   if (input.configEnvName && (!scoped || !/^SAGAX_GATE_CONFIG_[a-f0-9]{64}$/.test(input.configEnvName))) {
     throw new Error("Invalid private MCP gate configuration.");

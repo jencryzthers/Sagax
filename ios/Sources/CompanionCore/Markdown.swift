@@ -114,9 +114,13 @@ public enum Markdown {
         // written across several lines arrives as one paragraph per line, and
         // a fenced block gains a blank line between every line of code. Tool
         // output and pasted text reach chat bubbles with CRLF intact, so this
-        // is a path real messages take.
-        let normalised = source.replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
+        // is a path real messages take. Claude.ai <antArtifact> tags become
+        // the fences ChatMarkdown already draws, so lift them after CRLF
+        // repair and before the fence split.
+        let normalised = RichBlocks.liftClaudeChatBlocks(
+            source.replacingOccurrences(of: "\r\n", with: "\n")
+                .replacingOccurrences(of: "\r", with: "\n")
+        )
         var lines = normalised.components(separatedBy: "\n")[...]
         while let line = lines.first {
             lines = lines.dropFirst()

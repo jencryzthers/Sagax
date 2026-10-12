@@ -111,6 +111,11 @@ export function selectAutoComputer(
   desktopConnected: boolean,
 ): AutoComputerSelection {
   if (!state.auto) {
+    // Asking for the place it is fixed to is not a refusal: the bot already
+    // works there (a cloud-only bot asking for the cloud, server/cloud-only-bots.ts).
+    if (state.fixed === "cloud" && parseAutoComputerTarget(request.target) === "cloud") {
+      return { ok: true, text: "You already work on the cloud (their server environment); this bot's Works on is fixed there. Use the sagax-environment tools.", target: "cloud", from: "cloud", changed: false };
+    }
     const fixed = FIXED_LABEL[state.fixed ?? "off"];
     return { ok: false, text: `This bot's Works on is fixed to ${fixed}, so you cannot switch computers. Only the person can change it (the bot's Computer tab, or the composer's computer menu for this conversation, set to Auto).` };
   }
@@ -167,6 +172,7 @@ export function autoComputerGuidance(state: AutoComputerState, desktopConnected:
     "- this_computer: anything on the person's own machine: their files and folders, their apps, their local network and printers, devices plugged in (USB, camera), Docker on their computer, local dev servers (localhost), their VPN.",
     "- local_vm: isolated or risky work on their machine (try an install, run untrusted code) in the Local VM, including seeing and driving that VM's desktop (local_vm action use); creating one asks them on their computer first.",
     "- cloud: heavy or long tasks, internet browsing and scraping, work that must keep running when their laptop is closed, and whenever their computer is not connected.",
-    "The person's own words win: \"sur mon Mac\", \"sur mon ordinateur\", \"on my computer\", \"localement\", \"locally\" mean this_computer; \"dans une VM\", \"in a VM\" mean local_vm; \"dans le cloud\", \"in the cloud\", \"sur le serveur\", \"on the server\" mean cloud. Select before the first tool call of a step. If the place they asked for is unavailable, say why (the tool's answer) instead of quietly working elsewhere. Use computer_select, not select_computer, for this.</workplace>",
+    "computer_select only moves the shell, files and desktop tools (sagax-environment, sagax-desktop). Connector and Sagax tools (ConnectWise, Pulsatrix memory and flow, agents, search, other MCP servers) run on the server wherever you are: they need no computer and no computer_select. Prefer the cloud; use the person's own computer only for what exists only there.",
+    "The person's own words win: \"sur mon Mac\", \"sur mon ordinateur\", \"on my computer\", \"localement\", \"locally\" mean this_computer; \"dans une VM\", \"in a VM\" mean local_vm; \"dans le cloud\", \"in the cloud\", \"sur le serveur\", \"on the server\" mean cloud. Call computer_select only when a step needs a place other than the one you are on (not to confirm it). If the place they asked for is unavailable, say why (the tool's answer) instead of quietly working elsewhere. Use computer_select, not select_computer, for this.</workplace>",
   ].join("\n");
 }

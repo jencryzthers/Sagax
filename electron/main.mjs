@@ -2102,6 +2102,11 @@ ipcMain.on("desktop:notify", (event, request) => {
   if (!fromMainWindowTop(event)) return;
   desktopAttention.notify(request);
 });
+// The approval a notification asked about was answered elsewhere or expired.
+ipcMain.on("desktop:notify-withdraw", (event, withdrawKey) => {
+  if (!fromMainWindowTop(event)) return;
+  desktopAttention.withdraw(withdrawKey);
+});
 
 // ── environments: this computer's server, or a paired remote one ──────
 // The app switches by loading the chosen server's own UI (electron/menu.mjs).
@@ -3358,6 +3363,7 @@ const floatingBotWindows = createFloatingBotWindows({
   BrowserWindow,
   screen,
   ipcMain,
+  Menu,
   getMainWindow: () => mainWindow,
   isTrustedMain: (event) => isDesktopUiSender(event),
   pageUrl: () => `${detachedPageOrigin()}/?${FLOATING_QUERY}`,
@@ -3368,9 +3374,7 @@ const floatingBotWindows = createFloatingBotWindows({
   focusMain: () => {
     const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
     if (!win) return;
-    if (win.isMinimized()) win.restore();
-    win.show();
-    win.focus();
+    bringMainWindowForward(win);
   },
   log: (line) => {
     slog(line);

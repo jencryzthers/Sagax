@@ -57,12 +57,16 @@ describe("bot panel header and tabs", () => {
     expect(html.indexOf("data-persona-edit-badge")).toBeGreaterThan(html.indexOf("data-avatar-edit"));
   });
 
-  it("offers one Edit persona button after the tab bar, outside the tab list", () => {
+  it("offers one pencil on the mascot, before the tab bar", () => {
     vi.stubGlobal("window", { ogb: { platform: "darwin" } });
     const html = renderToStaticMarkup(createElement(DesktopCapabilitiesProvider, null, createElement(BotSettingsDialog, { bot })));
     expect(html.match(/data-edit-persona=""/g)).toHaveLength(1);
-    expect(html).toContain("Edit persona");
-    expect(html.indexOf('data-edit-persona=""')).toBeGreaterThan(html.indexOf('role="tablist"'));
+    // no second persona button (the 0.4.19 one): the badge says Edit bot
+    expect(html).not.toContain('aria-label="Edit persona"');
+    // the one pencil is the mascot's badge
+    expect(html.match(/<button[^>]*data-edit-persona=""[^>]*>/)?.[0]).toContain("data-persona-edit-badge");
+    expect(html.indexOf('data-edit-persona=""')).toBeLessThan(html.indexOf('role="tablist"'));
+    expect(html).not.toMatch(/role="tablist"[\s\S]*data-edit-persona=""/);
   });
 
   const panel = () => {

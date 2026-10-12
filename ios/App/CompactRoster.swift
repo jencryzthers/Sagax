@@ -144,6 +144,7 @@ struct CompactBotEntry: View {
             .buttonStyle(.plain)
             // the desktop's bot menu, the same in every density
             .contextMenu { BotRowMenu(bot: bot) }
+            .sidebarBotPinSwipe(bot, session: session)
             .accessibilityIdentifier("chat-row.\(bot.id)")
 
             if showsThreads && row.showsThreadControl {

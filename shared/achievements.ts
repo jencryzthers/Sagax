@@ -15,6 +15,8 @@ import { botMascotSkin, MASCOT_SKIN_IDS, OWL_SKIN_TIER, type MascotSkinId } from
 import {
   BUNBU_SKIN_TIER,
   BUNBU_SKINS,
+  CRAB_SKIN_TIER,
+  CRAB_SKINS,
   SHAPE_SKIN_TIER,
   SHAPE_SKINS,
   TROMBI_SKIN_TIER,
@@ -415,8 +417,8 @@ export function rewardKey(reward: AchievementReward): string {
   }
 }
 
-/** Unlocked from the start: the owl, with its Common skins. Shapes waits for a linked Grok account. */
-export const DEFAULT_CHARACTERS: readonly MascotCharacter[] = ["owl"];
+/** Unlocked from the start: the owl and the crab, with their Common skins. Shapes waits for a linked Grok account. */
+export const DEFAULT_CHARACTERS: readonly MascotCharacter[] = ["owl", "crab"];
 
 /** The rarity of a character's skin, by its id. */
 export function skinTier(character: RewardCharacter, skin: string): SkinTier {
@@ -429,6 +431,8 @@ export function skinTier(character: RewardCharacter, skin: string): SkinTier {
       return (TROMBI_SKIN_TIER as Record<string, SkinTier>)[skin] ?? "common";
     case "bunbu":
       return (BUNBU_SKIN_TIER as Record<string, SkinTier>)[skin] ?? "common";
+    case "crab":
+      return (CRAB_SKIN_TIER as Record<string, SkinTier>)[skin] ?? "common";
     default:
       // a Mastery character, drawn by this build or not yet: the registry's rarity
       return masterySkinTier(skin);
@@ -445,6 +449,8 @@ export function skinsOf(character: RewardCharacter): readonly string[] {
       return TROMBI_SKINS;
     case "bunbu":
       return BUNBU_SKINS;
+    case "crab":
+      return CRAB_SKINS;
     default:
       return isMasteryCharacter(character) ? masterySkins(character) : [];
   }
@@ -516,7 +522,7 @@ export function grandfatheredFromBots(bots: ReadonlyArray<{ mascotLook?: unknown
     if (look.character !== "owl") keys.add(`character:${look.character}`);
     const owlSkin: MascotSkinId = botMascotSkin(bot.mascotSkin);
     if (OWL_SKIN_TIER[owlSkin] !== "common") keys.add(`skin:owl:${owlSkin}`);
-    for (const character of ["shape", "trombi", "bunbu"] as const) {
+    for (const character of ["shape", "trombi", "bunbu", "crab"] as const) {
       // The editor saves every character's skin on any change (filled with
       // the Common default), so only a skin above Common says it was chosen:
       // then that skin, and its character, were in use.

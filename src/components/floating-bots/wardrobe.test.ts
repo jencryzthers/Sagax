@@ -6,7 +6,7 @@ import fr from "@/locales/fr.json";
 import { MASCOTS } from "./mascots";
 import { filterWardrobe, MASCOT_FAMILIES, MASCOT_FAMILY_LABEL, wardrobeFilters, wardrobeShelf, wardrobeShelves, wardrobeStep, type MascotFamily, type WardrobeEntry } from "./wardrobe";
 
-const NAMES: Record<string, string> = { owl: "Owl", shape: "Shapes", trombi: "Trombi", bunbu: "Bunbu", shiba: "Shiba", grump: "Grump", ogre: "Ogre", frog: "Frog", axolotl: "Axolotl", robo: "Robo" };
+const NAMES: Record<string, string> = { owl: "Owl", crab: "Crab", shape: "Shapes", trombi: "Trombi", bunbu: "Bunbu", shiba: "Shiba", grump: "Grump", ogre: "Ogre", frog: "Frog", axolotl: "Axolotl", robo: "Robo" };
 const FAMILY_NAMES: Record<MascotFamily, string> = { classics: "Classics", shapes: "Shapes", animals: "Animals" };
 
 const ids = (entries: readonly WardrobeEntry[]) => entries.map((entry) => entry.id);
@@ -15,6 +15,7 @@ describe("the registry's families", () => {
   it("gives every character a family, Owl and Trombi the classics, the rest by kind", () => {
     expect(Object.fromEntries(MASCOTS.map((option) => [option.id, option.family]))).toEqual({
       owl: "classics",
+      crab: "animals",
       shape: "shapes",
       trombi: "classics",
       bunbu: "animals",
@@ -72,7 +73,7 @@ describe("shelves and filters", () => {
   it("splits the catalog into shelves in registry order and draws no empty shelf", () => {
     expect(wardrobeShelves(catalog, lockedOf).map(({ shelf, entries }) => [shelf, ids(entries)])).toEqual([
       ["yours", ["owl", "trombi", "bunbu", "robo"]],
-      ["locked", ["shape", "shiba", "grump", "ogre", "frog"]],
+      ["locked", ["crab", "shape", "shiba", "grump", "ogre", "frog"]],
       ["premium", ["axolotl"]],
     ]);
     expect(wardrobeShelves(MASCOTS, () => false).map(({ shelf }) => shelf)).toEqual(["yours"]);
@@ -82,24 +83,24 @@ describe("shelves and filters", () => {
   it("keeps what each chip names", () => {
     expect(run("all")).toEqual(ids(catalog));
     expect(run("owned")).toEqual(["owl", "trombi", "bunbu", "robo"]);
-    expect(run("locked")).toEqual(["shape", "shiba", "grump", "ogre", "frog"]);
+    expect(run("locked")).toEqual(["crab", "shape", "shiba", "grump", "ogre", "frog"]);
     expect(run("premium")).toEqual(["axolotl", "robo"]);
     expect(run("family:classics")).toEqual(["owl", "trombi"]);
     expect(run("family:shapes")).toEqual(["shape", "robo"]);
-    expect(run("family:animals")).toEqual(["bunbu", "shiba", "grump", "ogre", "frog", "axolotl"]);
+    expect(run("family:animals")).toEqual(["crab", "bunbu", "shiba", "grump", "ogre", "frog", "axolotl"]);
   });
 
   it("searches the name and the family, any case and any accent, within the chip", () => {
     expect(run("all", "OGR")).toEqual(["ogre"]);
     expect(run("all", "og")).toEqual(["ogre", "frog"]);
     expect(run("all", "  fro ")).toEqual(["frog"]);
-    expect(run("all", "anim")).toEqual(["bunbu", "shiba", "grump", "ogre", "frog", "axolotl"]);
-    expect(run("locked", "anim")).toEqual(["shiba", "grump", "ogre", "frog"]);
+    expect(run("all", "anim")).toEqual(["crab", "bunbu", "shiba", "grump", "ogre", "frog", "axolotl"]);
+    expect(run("locked", "anim")).toEqual(["crab", "shiba", "grump", "ogre", "frog"]);
     expect(run("all", "zzz")).toEqual([]);
     const accented = filterWardrobe(catalog, { filter: "all", query: "grenou", nameOf: (entry) => (entry.id === "frog" ? "Grenouille" : NAMES[entry.id]), familyNameOf: () => "Créatures", lockedOf });
     expect(ids(accented)).toEqual(["frog"]);
     const families = filterWardrobe(catalog, { filter: "all", query: "creat", nameOf: (entry) => NAMES[entry.id], familyNameOf: (family) => (family === "animals" ? "Créatures" : FAMILY_NAMES[family]), lockedOf });
-    expect(ids(families)).toEqual(["bunbu", "shiba", "grump", "ogre", "frog", "axolotl"]);
+    expect(ids(families)).toEqual(["crab", "bunbu", "shiba", "grump", "ogre", "frog", "axolotl"]);
   });
 });
 

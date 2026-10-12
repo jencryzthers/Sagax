@@ -65,6 +65,16 @@ export interface PromptSplitReceipt {
   lastUsed?: number;
   /** Highest reported context size since the last detected compaction. */
   peakUsed?: number;
+  /** Fingerprint of each volatile section by id, so a later turn re-sends
+   * only the sections that changed. Absent on receipts written before it
+   * existed (the whole volatile half is then re-sent once, as before). */
+  sections?: Record<string, string>;
+}
+
+/** One volatile section of a turn's system prompt (system-prompt.ts). */
+export interface VolatileSection {
+  id: string;
+  text: string;
 }
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -75,6 +85,35 @@ export function promptSplitFingerprints(stable: string, volatile: string): Promp
   return { stable: digest(stable), volatile: digest(volatile) };
 }
 
+/** Fingerprints of the volatile sections that carry text, by id. */
+export function sectionFingerprints(sections: readonly VolatileSection[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const section of sections) if (section.text.trim()) out[section.id] = digest(section.text);
+  return out;
+}
+
+export const VOLATILE_SECTIONS_NOTE_PREFIX =
+  "Context from Sagax updated since your last copy. Each section below replaces its earlier copy; sections not listed here are unchanged:";
+
+/** The note for a volatile half of which only some sections changed: just
+ * those sections, and one line per section that went away. Every section is
+ * self-contained, so a model that keeps the newest copy of each has the
+ * whole current context without the unchanged ones riding again. Null when
+ * nothing section-level differs (the caller then falls back to the whole
+ * half). */
+export function changedSectionsNote(
+  sections: readonly VolatileSection[],
+  previous: Record<string, string>,
+): string | null {
+  const current = sectionFingerprints(sections);
+  const changed = sections.filter((section) => current[section.id] !== undefined && previous[section.id] !== current[section.id]);
+  const removed = Object.keys(previous).filter((id) => current[id] === undefined);
+  if (!changed.length && !removed.length) return null;
+  const parts = changed.map((section) => section.text.trim());
+  for (const id of removed) parts.push(`(The earlier "${id}" context section no longer applies.)`);
+  return VOLATILE_SECTIONS_NOTE_PREFIX + "\n\n" + parts.join("\n\n");
+}
+
 const receiptPath = (scope: string, key: string) =>
   join(DATA_DIR, "prompt-split", digest(JSON.stringify([scope, key])) + ".json");
 
@@ -82,11 +121,16 @@ const receiptPath = (scope: string, key: string) =>
  * last carried. Unknown - never tracked, or tracked before this file
  * existed - reads as null, and the caller re-delivers the full prompt
  * once. */
+function validSections(value: unknown): value is Record<string, string> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+    && Object.values(value as Record<string, unknown>).every((print) => typeof print === "string");
+}
+
 export function readPromptSplitReceipt(scope: string, key: string): PromptSplitReceipt | null {
   try {
     const raw = JSON.parse(readFileSync(receiptPath(scope, key), "utf8")) as unknown;
     if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-      const record = raw as { stable?: unknown; volatile?: unknown; turnsSinceFull?: unknown; lastUsed?: unknown; peakUsed?: unknown };
+      const record = raw as { stable?: unknown; volatile?: unknown; turnsSinceFull?: unknown; lastUsed?: unknown; peakUsed?: unknown; sections?: unknown };
       if (typeof record.stable === "string" && typeof record.volatile === "string") {
         return {
           stable: record.stable,
@@ -94,6 +138,7 @@ export function readPromptSplitReceipt(scope: string, key: string): PromptSplitR
           ...(typeof record.turnsSinceFull === "number" ? { turnsSinceFull: record.turnsSinceFull } : {}),
           ...(typeof record.lastUsed === "number" && record.lastUsed > 0 ? { lastUsed: record.lastUsed } : {}),
           ...(typeof record.peakUsed === "number" && record.peakUsed > 0 ? { peakUsed: record.peakUsed } : {}),
+          ...(validSections(record.sections) ? { sections: record.sections } : {}),
         };
       }
     }
@@ -132,7 +177,10 @@ export function deletePromptSplitReceipt(scope: string, key: string): void {
  * reAnchorAfterTurns, when positive, re-sends the full prompt after that
  * many consecutive bare turns: a session that rewrites its own history
  * without an observable event (an older pi, a missed compaction) still
- * gets its standing instructions back within a bounded number of turns. */
+ * gets its standing instructions back within a bounded number of turns.
+ * volatileSections, when given, lets a later turn re-send only the volatile
+ * sections that changed (one recent-work line moving no longer re-sends the
+ * whole memory notebook into the session's history every turn). */
 export function splitSessionPrompt(
   stable: string,
   volatile: string,
@@ -141,16 +189,23 @@ export function splitSessionPrompt(
   text: string,
   perTurnVolatile = false,
   reAnchorAfterTurns = 0,
+  volatileSections?: readonly VolatileSection[],
 ): { text: string; receipt: PromptSplitReceipt } {
-  const fingerprints = promptSplitFingerprints(stable, volatile);
+  const fingerprints: PromptSplitReceipt = {
+    ...promptSplitFingerprints(stable, volatile),
+    ...(volatileSections ? { sections: sectionFingerprints(volatileSections) } : {}),
+  };
   // Legacy receipts predate the turn counter; count them from zero.
   const turnsSinceFull = typeof previous?.turnsSinceFull === "number" ? previous.turnsSinceFull : 0;
   const reAnchor = reAnchorAfterTurns > 0 && previous !== null && turnsSinceFull >= reAnchorAfterTurns;
   if (previous === null || previous.stable !== fingerprints.stable || reAnchor) {
     return { text: fullSystem ? fullSystem + "\n\n" + text : text, receipt: { ...fingerprints, turnsSinceFull: 0 } };
   }
+  const sectionNote = previous.volatile !== fingerprints.volatile && !perTurnVolatile && volatileSections && previous.sections
+    ? changedSectionsNote(volatileSections, previous.sections)
+    : null;
   const note = previous.volatile === fingerprints.volatile && !perTurnVolatile
     ? ""
-    : volatileContextNote(volatile, previous.volatile !== EMPTY_FINGERPRINT);
+    : sectionNote ?? volatileContextNote(volatile, previous.volatile !== EMPTY_FINGERPRINT);
   return { text: withContextNote(note, text), receipt: { ...fingerprints, turnsSinceFull: turnsSinceFull + 1 } };
 }

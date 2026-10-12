@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -33,7 +34,7 @@ import {
   APP_SKINS,
   appTheme,
 } from "./floating-bot-window.mjs";
-import { BUNBU_SKINS, FROG_SKINS, GRUMP_SKINS, LEGACY_BUNBU_SKINS, LEGACY_FROG_SKINS, LEGACY_GRUMP_SKINS, LEGACY_OGRE_SKINS, LEGACY_SHAPE_SKINS, LEGACY_SHIBA_SKINS, LEGACY_TROMBI_SKINS, OGRE_SKINS, SHAPE_SKINS, SHIBA_SKINS, TROMBI_SKINS } from "../shared/mascot-look.ts";
+import { BUNBU_SKINS, CRAB_SKINS, FROG_SKINS, GRUMP_SKINS, LEGACY_BUNBU_SKINS, LEGACY_CRAB_SKINS, LEGACY_FROG_SKINS, LEGACY_GRUMP_SKINS, LEGACY_OGRE_SKINS, LEGACY_SHAPE_SKINS, LEGACY_SHIBA_SKINS, LEGACY_TROMBI_SKINS, OGRE_SKINS, SHAPE_SKINS, SHIBA_SKINS, TROMBI_SKINS } from "../shared/mascot-look.ts";
 import { displaySignature } from "./retro-assistant-window.mjs";
 import { SKIN_IDS } from "../src/lib/skins.ts";
 
@@ -102,6 +103,7 @@ function setup(extra = {}) {
   const fake = fakeElectron(extra);
   const saved = { positions: extra.positions };
   const focusMain = vi.fn();
+  const logs = [];
   const controller = createFloatingBotWindows({
     BrowserWindow: fake.BrowserWindow,
     screen: fake.screen,
@@ -117,7 +119,6 @@ function setup(extra = {}) {
     Menu: extra.Menu,
     log: (line) => logs.push(line),
   });
-  const logs = [];
   const fromMain = { sender: fake.main.webContents };
   const invoke = (channel, event, ...args) => fake.handlers.get(channel)(event, ...args);
   const emit = (channel, event, ...args) => fake.listeners.get(channel)(event, ...args);
@@ -817,7 +818,7 @@ describe("floating bots: the mascot's right-click menu", () => {
     { id: "moves", label: "Moves", items: [{ id: "move:wave", label: "Wave" }, { id: "move:dance", label: "Dance" }] },
     { id: "sep-2", label: "", type: "separator" },
     { id: "snooze", label: "Hide for 1 hour" },
-    { id: "dock", label: "Hide" },
+    { id: "dock", label: "Put back in the window" },
     { id: "sep-3", label: "", type: "separator" },
     { id: "options", label: "On the desktop", items: [{ id: "top", label: "Always on top", checked: true }] },
     { id: "settings", label: "Settings" },
@@ -866,7 +867,7 @@ describe("floating bots: the mascot's right-click menu", () => {
   it("builds the native menu with its separators, submenus and greyed items", () => {
     const choose = vi.fn();
     const template = menuTemplate(sanitizeFloatingSnapshot({ ...SNAPSHOT, menu: MENU }).menu, choose);
-    expect(template.map((item) => item.type === "separator" ? "-" : item.label)).toEqual(["Talk", "Start a voice call", "Open in Sagax", "-", "Switch bot", "Moves", "-", "Hide for 1 hour", "Hide", "-", "On the desktop", "Settings"]);
+    expect(template.map((item) => item.type === "separator" ? "-" : item.label)).toEqual(["Talk", "Start a voice call", "Open in Sagax", "-", "Switch bot", "Moves", "-", "Hide for 1 hour", "Put back in the window", "-", "On the desktop", "Settings"]);
     expect(template[4].submenu.map((item) => item.label)).toEqual(["Ada", "Bo", "Cy"]);
     expect(template[4].submenu[0]).toMatchObject({ type: "checkbox", checked: true });
     expect(template[4].submenu[2]).toMatchObject({ enabled: false });
@@ -877,7 +878,7 @@ describe("floating bots: the mascot's right-click menu", () => {
   it("sends each choice to the brain for this window's bot, and brings the app forward for Open and Settings", () => {
     const { template, fake, focusMain } = popMenu();
     const items = template();
-    for (const label of ["Talk", "Start a voice call", "Hide for 1 hour", "Hide"]) items.find((item) => item.label === label).click();
+    for (const label of ["Talk", "Start a voice call", "Hide for 1 hour", "Put back in the window"]) items.find((item) => item.label === label).click();
     expect(focusMain).not.toHaveBeenCalled();
     items.find((item) => item.label === "Open in Sagax").click();
     expect(focusMain).toHaveBeenCalledTimes(1);
@@ -885,6 +886,21 @@ describe("floating bots: the mascot's right-click menu", () => {
     expect(focusMain).toHaveBeenCalledTimes(2);
     items.find((item) => item.label === "Switch bot").submenu[1].click();
     expect(sentToBrain(fake)).toEqual(["balloon", "call", "snooze", "dock", "open", "settings", "switch:bot_b"]);
+  });
+
+  it("main passes electron Menu so a right click can pop the native menu", () => {
+    const src = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
+    const start = src.indexOf("const floatingBotWindows = createFloatingBotWindows");
+    expect(start).toBeGreaterThan(-1);
+    expect(src.slice(start, start + 1800)).toMatch(/\bMenu,/);
+  });
+
+  it("skips the native menu when Menu was not given", () => {
+    const { emit, open, fromMain, logs } = setup();
+    const a = open("bot_a");
+    emit("floating-bots:update", fromMain, { botId: "bot_a", snapshot: { ...SNAPSHOT, menu: MENU } });
+    emit("floating-bots:menu", a.from, { x: 10, y: 10 });
+    expect(logs.some((line) => line.includes("Menu was not given"))).toBe(true);
   });
 
   it("plays a move in the mascot's own window, without the brain", () => {
@@ -964,6 +980,12 @@ describe("the desktop window's mascot look", () => {
     for (const skin of FROG_SKINS) expect(mascotLook({ character: "frog", skins: { frog: skin } })).toEqual({ character: "frog", skins: { frog: skin } });
     for (const [old, current] of Object.entries(LEGACY_FROG_SKINS)) expect(mascotLook({ character: "frog", skins: { frog: old } }).skins.frog).toBe(current);
     expect(mascotLook({ character: "frog", skins: { frog: "junk", shiba: "red" } })).toEqual({ character: "frog", skins: { shiba: "red" } });
+  });
+
+  it("knows Crab and its fourteen skins, legacy names included, as the app does", () => {
+    for (const skin of CRAB_SKINS) expect(mascotLook({ character: "crab", skins: { crab: skin } })).toEqual({ character: "crab", skins: { crab: skin } });
+    for (const [old, current] of Object.entries(LEGACY_CRAB_SKINS)) expect(mascotLook({ character: "crab", skins: { crab: old } }).skins.crab).toBe(current);
+    expect(mascotLook({ character: "crab", skins: { crab: "junk", frog: "tree" } })).toEqual({ character: "crab", skins: { frog: "tree" } });
   });
 });
 

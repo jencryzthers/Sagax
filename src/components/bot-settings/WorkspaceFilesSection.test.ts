@@ -32,13 +32,14 @@ const listing: WorkspaceListing = {
     { path: "docs", kind: "dir", bytes: 0, load: "never", editable: false, markdown: false, forgotten: false },
     file("docs/onboarding.md", "on-demand", { createdAt: now - 90 * day, modifiedAt: now - 90 * day, forgotten: true }),
     { path: "memory", kind: "dir", bytes: 0, load: "never", editable: false, markdown: false, forgotten: false },
+    { path: "memory/log", kind: "dir", bytes: 0, load: "never", editable: false, markdown: false, forgotten: false },
     file("memory/log/2026-10-08.md", "never"),
     file("report.pdf", "never", { editable: false, markdown: false }),
   ],
   truncated: false,
 };
 const bot = { id: "pepper", name: "Pepper" } as unknown as Bot;
-const render = () => renderToStaticMarkup(createElement(WorkspaceFilesSection, { bot, active: false, onOpenSection: () => {}, initial: listing }))
+const render = (expanded?: string[]) => renderToStaticMarkup(createElement(WorkspaceFilesSection, { bot, active: false, onOpenSection: () => {}, initial: listing, initialExpanded: expanded }))
   .replace(/&#x27;/g, "'").replace(/&quot;/g, '"');
 
 beforeEach(() => {
@@ -47,17 +48,39 @@ beforeEach(() => {
 });
 
 describe("WorkspaceFilesSection", () => {
-  it("lists SOUL.md first, then the whole tree, each file with its load badge", () => {
+  it("lists SOUL.md first, then the tree with folders collapsed, each visible file with its load badge", () => {
     const html = render();
     const rows = [...html.matchAll(/data-file-row="([^"]+)"/g)].map((match) => match[1]);
-    expect(rows).toEqual(["SOUL.md", "MEMORY.md", "RULES.md", "docs", "docs/onboarding.md", "memory", "memory/log/2026-10-08.md", "report.pdf"]);
+    expect(rows).toEqual(["SOUL.md", "MEMORY.md", "RULES.md", "docs", "memory", "report.pdf"]);
+    expect(html).toContain('data-folder-toggle="memory"');
+    expect(html).toContain('data-folder-expanded="false"');
+    expect(html).toContain('aria-label="Expand memory"');
+    expect(html).not.toContain('data-file-row="docs/onboarding.md"');
+    expect(html).not.toContain('data-file-row="memory/log"');
+    expect(html).not.toContain('data-file-row="memory/log/2026-10-08.md"');
     const badges = [...html.matchAll(/data-load-badge="([\w-]+)"/g)].map((match) => match[1]);
-    expect(badges).toEqual(["every-turn", "every-turn", "every-turn", "on-demand", "never", "never"]);
-    for (const label of [">Every turn<", ">On demand<", ">Never loaded<"]) expect(html).toContain(label);
+    expect(badges).toEqual(["every-turn", "every-turn", "every-turn", "never"]);
+    for (const label of [">Every turn<", ">Never loaded<"]) expect(html).toContain(label);
+  });
+
+  it("opens a folder like a file manager, nested folders still collapsed", () => {
+    const memory = render(["memory"]);
+    expect([...memory.matchAll(/data-file-row="([^"]+)"/g)].map((match) => match[1])).toEqual([
+      "SOUL.md", "MEMORY.md", "RULES.md", "docs", "memory", "memory/log", "report.pdf",
+    ]);
+    expect(memory).toContain('data-folder-toggle="memory"');
+    expect(memory).toContain('aria-label="Collapse memory"');
+    expect(memory).toContain('aria-label="Expand log"');
+    expect(memory).not.toContain('data-file-row="memory/log/2026-10-08.md"');
+    const open = render(["docs", "memory", "memory/log"]);
+    expect([...open.matchAll(/data-file-row="([^"]+)"/g)].map((match) => match[1])).toEqual([
+      "SOUL.md", "MEMORY.md", "RULES.md", "docs", "docs/onboarding.md", "memory", "memory/log", "memory/log/2026-10-08.md", "report.pdf",
+    ]);
+    expect(open).toContain(">On demand<");
   });
 
   it("marks a file nobody used in 30 days that does not load every turn as forgotten", () => {
-    const html = render();
+    const html = render(["docs"]);
     expect(html).toMatch(/data-file-row="docs\/onboarding.md" data-forgotten=""/);
     expect(html.match(/data-forgotten-badge=""/g)).toHaveLength(1);
     expect(html).toContain("Not used in 30 days and not loaded every turn");
@@ -75,7 +98,7 @@ describe("WorkspaceFilesSection", () => {
 
   it("keeps the badges and drops their details in Simple mode", () => {
     fixture.advanced = false;
-    const html = render();
+    const html = render(["docs"]);
     expect(html).toContain(">Every turn<");
     expect(html).not.toContain("data-file-details");
     expect(html).not.toContain("data-workspace-path");
@@ -84,7 +107,7 @@ describe("WorkspaceFilesSection", () => {
   });
 
   it("offers rename and delete on documents only, and download on every real file", () => {
-    const html = render();
+    const html = render(["docs"]);
     expect(html).toContain('aria-label="Rename onboarding.md"');
     expect(html).toContain('aria-label="Delete onboarding.md"');
     expect(html).not.toContain('aria-label="Rename MEMORY.md"');

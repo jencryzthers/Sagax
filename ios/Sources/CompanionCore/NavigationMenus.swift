@@ -173,8 +173,9 @@ public enum NavigationMenus {
         var groups: [[BotMenuItem]] = []
 
         var first: [BotMenuItem] = []
-        // The Primary Bot heads the home on its own; it is never pinned.
-        if bot.chiefOfStaff != true { first.append(bot.pinned == true ? .unpin : .pin) }
+        // Electron includes Primary in pinnedBots. Sidecar keeps Pin (Grok Bot);
+        // Electron remoteClient omits it.
+        first.append(bot.pinned == true ? .unpin : .pin)
         if context.canMoveToSection { first.append(.moveTo) }
         first.append(.markUnread)
         groups.append(first)

@@ -102,6 +102,7 @@ struct DesktopAppearanceSettings: View {
     @EnvironmentObject private var session: Session
     @ObservedObject private var themes = ThemeStore.shared
     @AppStorage(PrefKey.desktopSidebarDensity) private var density = DesktopSidebarDensity.comfortable.rawValue
+    @AppStorage(SidebarLogoPreference.key) private var showSidebarLogo = SidebarLogoPreference.defaultEnabled
     @AppStorage(RunCardPreference.key) private var showRunCard = true
     @AppStorage(NotificationSounds.key) private var sounds = true
     @AppStorage(DesktopInspectorButton.key) private var showInspector = false
@@ -150,6 +151,20 @@ struct DesktopAppearanceSettings: View {
                     label: Text("Sidebar density"),
                     identifier: "desktop-settings.density"
                 ) { density = $0 }
+            }
+            if SidebarLogoRuntime.showsSetting {
+                DesktopSettingRow(
+                    title: Text("Sidebar logo"),
+                    subtitle: Text("Show the Sagax logo and name at the top of the sidebar.")
+                ) {
+                    DesktopSwitch(
+                        isOn: showSidebarLogo,
+                        label: Text("Show the sidebar logo"),
+                        identifier: "desktop-settings.sidebar-logo"
+                    ) {
+                        showSidebarLogo.toggle()
+                    }
+                }
             }
             if session.surfaceGate.allows(.inspector) {
                 DesktopSettingRow(

@@ -1,7 +1,6 @@
-Sagax 0.4.18
+Sagax 0.4.19
 
-• New thread and New folder live in the context menu
-• A bot-to-bot Messaged chip opens in the column
-• Tool-call chips leave the iPhone and iPad transcript
-• Member card: title, score and achievements on their own tab
-• Mastery Ogre: cleaner silhouette and two incisors in the smile
+• Persona pencil opens the mascot gallery (owl, then crab)
+• Unready providers stay hidden until Appearance shows them
+• Sidebar: folders and conversations in one list, folders collapsed
+• Frog and ogre stills follow the desktop

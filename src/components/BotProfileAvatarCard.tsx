@@ -68,6 +68,7 @@ export function BotProfileAvatarCard({
           <button
             type="button"
             data-persona-edit-badge=""
+            data-edit-persona=""
             aria-label={t("botPanel.editBot")}
             title={t("botPanel.editBot")}
             onClick={onEdit}

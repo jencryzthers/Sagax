@@ -6,6 +6,7 @@ import {
   promptSplitFingerprints,
   readPromptSplitReceipt,
   splitSessionPrompt,
+  VOLATILE_SECTIONS_NOTE_PREFIX,
   volatileContextNote,
   withContextNote,
   writePromptSplitReceipt,
@@ -167,5 +168,54 @@ describe("splitSessionPrompt", () => {
     expect(state.text).toBe("first");
     state = splitSessionPrompt("stable rules.", "memory", state.receipt, fullSystem, "second", false, 1);
     expect(state.text).toBe(fullSystem + "\n\nsecond");
+  });
+});
+
+describe("splitSessionPrompt by section", () => {
+  const memory = { id: "memory", text: "\n\nMemory: likes tea. ".repeat(50) };
+  const recent = (line: string) => ({ id: "recent", text: `\n\nRecent work:\n- ${line}` });
+  const volatileOf = (sections: Array<{ id: string; text: string }>) => sections.map((section) => section.text).join("");
+  const compose = (sections: Array<{ id: string; text: string }>, previous: Parameters<typeof splitSessionPrompt>[2], text: string, perTurn = false) =>
+    splitSessionPrompt("stable rules.", volatileOf(sections), previous, "stable rules." + volatileOf(sections), text, perTurn, 0, sections);
+
+  it("re-sends only the section that changed, not the whole memory notebook", () => {
+    const first = compose([memory, recent("today 16:40 said hi")], null, "first");
+    expect(first.receipt.sections).toEqual({ memory: expect.any(String), recent: expect.any(String) });
+    const second = compose([memory, recent("today 17:02 said pong")], first.receipt, "second");
+    expect(second.text.startsWith(VOLATILE_SECTIONS_NOTE_PREFIX)).toBe(true);
+    expect(second.text).toContain("today 17:02 said pong");
+    expect(second.text).not.toContain("likes tea");
+    expect(second.text.endsWith("second")).toBe(true);
+    const third = compose([memory, recent("today 17:02 said pong")], second.receipt, "third");
+    expect(third.text).toBe("third");
+  });
+
+  it("says when a section went away", () => {
+    const first = compose([memory, recent("x")], null, "first");
+    const second = compose([memory], first.receipt, "second");
+    expect(second.text).toContain('The earlier "recent" context section no longer applies.');
+    expect(second.text).not.toContain("likes tea");
+  });
+
+  it("falls back to the whole volatile half on a receipt without section prints", () => {
+    const legacy = splitSessionPrompt("stable rules.", volatileOf([memory, recent("x")]), null, "s", "first");
+    expect(legacy.receipt.sections).toBeUndefined();
+    const next = compose([memory, recent("y")], legacy.receipt, "next");
+    expect(next.text).toContain("replaces any earlier copy");
+    expect(next.text).toContain("likes tea");
+  });
+
+  it("keeps the whole half on a mention turn", () => {
+    const first = compose([memory, recent("x")], null, "first");
+    const tagged = compose([memory, recent("x")], first.receipt, "tagged", true);
+    expect(tagged.text).toContain("likes tea");
+  });
+
+  it("survives a receipt round trip", () => {
+    const key = randomUUID();
+    const first = compose([memory, recent("x")], null, "first");
+    writePromptSplitReceipt("test-sections", key, first.receipt);
+    expect(readPromptSplitReceipt("test-sections", key)?.sections).toEqual(first.receipt.sections);
+    deletePromptSplitReceipt("test-sections", key);
   });
 });

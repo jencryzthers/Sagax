@@ -1,11 +1,21 @@
 /** A separate payload prevents folder drags from reordering sidebar sections. */
 export const FOLDER_DRAG_TYPE = "application/x-openmausbot-folder";
+/** Filing a chat into a folder, or taking it out. Distinct from folder reorder. */
+export const THREAD_DRAG_TYPE = "application/x-openmausbot-thread";
 
 export function draggedFolder(raw: string, botId: string, projectIds: readonly string[]): string | null {
   try {
     const value = JSON.parse(raw);
     return value?.botId === botId && typeof value.projectId === "string" && projectIds.includes(value.projectId)
       ? value.projectId : null;
+  } catch { return null; }
+}
+
+export function draggedThread(raw: string, ownerId: string, threadIds: readonly string[]): string | null {
+  try {
+    const value = JSON.parse(raw);
+    return value?.ownerId === ownerId && typeof value.threadId === "string" && threadIds.includes(value.threadId)
+      ? value.threadId : null;
   } catch { return null; }
 }
 

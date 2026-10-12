@@ -256,6 +256,15 @@ struct CharacterEditor: View {
                     draft.look = next.stored
                 }
             }
+        case .crab:
+            let skins = CrabSkin.allCases.filter { !skinLocked(.crab, $0.rawValue, worn: wornDraft.complete.crabSkin.rawValue) }
+            row(count: skins.count, pitch: metrics.skinPitch, height: metrics.skinRowHeight ?? metrics.pitch) { index in
+                thumbnail(look: edited { $0.crabSkin = skins[index] }, skin: .none, size: metrics.skinCell, selected: draft.complete.crabSkin == skins[index], label: Text(verbatim: skins[index].rawValue), tier: tierLabel(.crab, skins[index].rawValue)) {
+                    var next = draft.complete
+                    next.crabSkin = skins[index]
+                    draft.look = next.stored
+                }
+            }
         }
     }
 
@@ -442,6 +451,7 @@ struct CharacterEditor: View {
         case .grump: "Grump"
         case .ogre: "Ogre"
         case .frog: "Frog"
+        case .crab: "Crab"
         }
     }
 }

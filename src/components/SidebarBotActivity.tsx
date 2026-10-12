@@ -3,6 +3,7 @@ import type { Dispatch } from "react";
 import type { Action, AppState, Bot, Group, Task } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
+import { taskHiddenFromSidebar } from "@/lib/bot-unread";
 import { orderedSidebarThreads, orderedThreadList, threadRecency, threadUpdatedLabel } from "./SidebarThreadRow";
 import type { SidebarDensity } from "@/lib/sidebar-preferences";
 
@@ -15,8 +16,9 @@ export function sidebarBotActivityTasks(bot: Bot, queued: Record<string, unknown
     waitingForTeammates: bot.waitingForTeammates,
   }];
   return tasks.map((task) => ({ ...task, queued: Boolean(queued[task.threadId]?.length) }))
-    // Routine runs are reachable through their run receipt, never a menu.
-    .filter((task) => !task.routineRunId)
+    // Routine runs are reachable through their run receipt, never a menu;
+    // an AI client's hidden conversation through the Activity panel (#291).
+    .filter((task) => !taskHiddenFromSidebar(task, bot.id))
     .filter((task) => task.activity === "waiting-on-you" || task.activity === "working" || task.busy || task.waitingForTeammates === true || task.queued || task.unread);
 }
 

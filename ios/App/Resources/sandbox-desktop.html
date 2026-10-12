@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<style>
+  html, body, #screen { margin: 0; padding: 0; width: 100%; height: 100%; background: #111; overflow: hidden; }
+  #screen > div { width: 100% !important; height: 100% !important; }
+</style>
+</head>
+<body>
+<div id="screen"></div>
+<script src="novnc.min.js"></script>
+<script>
+(function () {
+  try { Object.defineProperty(window, "isSecureContext", { get: function () { return true; } }); } catch (e) {}
+  function b64ToBuf(b64) {
+    var bin = atob(b64);
+    var out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out.buffer;
+  }
+  function bufToB64(data) {
+    var bytes = data instanceof ArrayBuffer ? new Uint8Array(data)
+      : (data && data.buffer) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+      : new TextEncoder().encode(String(data));
+    var s = "";
+    for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    return btoa(s);
+  }
+  function BridgeSocket() {
+    this.binaryType = "arraybuffer";
+    this.readyState = 0;
+    this.bufferedAmount = 0;
+    this.protocol = "";
+    this.extensions = "";
+    this.onopen = null;
+    this.onclose = null;
+    this.onmessage = null;
+    this.onerror = null;
+    this._listeners = { open: [], close: [], message: [], error: [] };
+  }
+  BridgeSocket.prototype.addEventListener = function (type, fn) {
+    if (this._listeners[type]) this._listeners[type].push(fn);
+  };
+  BridgeSocket.prototype.removeEventListener = function (type, fn) {
+    var list = this._listeners[type];
+    if (!list) return;
+    this._listeners[type] = list.filter(function (item) { return item !== fn; });
+  };
+  BridgeSocket.prototype.dispatch = function (type, event) {
+    var list = this._listeners[type] || [];
+    for (var i = 0; i < list.length; i++) list[i](event);
+    if (type === "open" && this.onopen) this.onopen(event);
+    if (type === "close" && this.onclose) this.onclose(event);
+    if (type === "message" && this.onmessage) this.onmessage(event);
+    if (type === "error" && this.onerror) this.onerror(event);
+  };
+  BridgeSocket.prototype.send = function (data) {
+    if (window.webkit && window.webkit.messageHandlers.sagaxRfb) {
+      window.webkit.messageHandlers.sagaxRfb.postMessage({ op: "send", data: bufToB64(data) });
+    }
+  };
+  BridgeSocket.prototype.close = function () {
+    this.readyState = 3;
+    // Only the current socket closes the native one: reopening (Take
+    // control) disconnects the previous RFB, whose close must not stop the
+    // socket that replaced it.
+    if (this !== sock) return;
+    if (window.webkit && window.webkit.messageHandlers.sagaxRfb) {
+      window.webkit.messageHandlers.sagaxRfb.postMessage({ op: "close" });
+    }
+  };
+  var sock = null;
+  var rfb = null;
+  window.sagaxOpen = function (password, viewOnly) {
+    var previous = rfb;
+    rfb = null;
+    sock = new BridgeSocket();
+    if (previous) { try { previous.disconnect(); } catch (e) {} }
+    var RFB = window.RFB || (window.noVNC && window.noVNC.RFB);
+    if (!RFB) return;
+    rfb = new RFB(document.getElementById("screen"), sock, { credentials: { password: password || "", username: "", target: "" } });
+    rfb.viewOnly = !!viewOnly;
+    rfb.scaleViewport = true;
+    rfb.background = "#111111";
+  };
+  window.sagaxOnOpen = function () {
+    if (!sock) return;
+    sock.readyState = 1;
+    sock.dispatch("open", { type: "open" });
+  };
+  window.sagaxOnMessage = function (b64) {
+    if (!sock) return;
+    sock.dispatch("message", { type: "message", data: b64ToBuf(b64) });
+  };
+  window.sagaxOnClose = function () {
+    if (!sock) return;
+    sock.readyState = 3;
+    sock.dispatch("close", { type: "close" });
+  };
+  // Keys from the phone keyboard: [[keysym, down], ...].
+  window.sagaxKeys = function (list) {
+    if (!rfb || rfb.viewOnly) return;
+    for (var i = 0; i < list.length; i++) rfb.sendKey(list[i][0], null, !!list[i][1]);
+  };
+  window.sagaxClose = function () {
+    var previous = rfb;
+    rfb = null;
+    sock = null;
+    if (previous) { try { previous.disconnect(); } catch (e) {} }
+  };
+})();
+</script>
+</body>
+</html>

@@ -85,6 +85,8 @@ export function presentNotification(input: {
   /** Where the click goes, handed to the shell and sent back with the click. */
   target?: NotificationTarget;
   web?: NotificationOptions;
+  /** withdrawNotification(key) takes it down again */
+  withdrawKey?: string;
 }): boolean {
   if (typeof window !== "undefined" && window.ogb?.notify) {
     wireDesktopClicks();
@@ -97,6 +99,7 @@ export function presentNotification(input: {
       bounce: input.attention.bounce,
       flash: input.attention.flash,
       ...(input.target ? { target: input.target } : {}),
+      ...(input.withdrawKey ? { withdrawKey: input.withdrawKey } : {}),
     });
     return true;
   }
@@ -110,11 +113,35 @@ export function presentNotification(input: {
     // which is what a person on a call with the bot asked for.
     ...(input.attention.sound ? {} : { silent: true }),
   };
-  new Notification(input.title, options).onclick = () => {
+  const note = new Notification(input.title, options);
+  note.onclick = () => {
     window.focus();
     input.open();
   };
+  if (input.withdrawKey) {
+    shownForWithdraw.set(input.withdrawKey, [...(shownForWithdraw.get(input.withdrawKey) ?? []), note].slice(-5));
+    note.onclose = () => shownForWithdraw.delete(input.withdrawKey!);
+    if (shownForWithdraw.size > 50) shownForWithdraw.delete(shownForWithdraw.keys().next().value!);
+  }
   return true;
+}
+
+/** Browser notifications still on screen, by withdraw key. */
+const shownForWithdraw = new Map<string, InstanceType<typeof globalThis.Notification>[]>();
+
+/** The key an approval's notification is shown and withdrawn under. */
+export function approvalWithdrawKey(threadId: string, requestId: string): string {
+  return `approval:${threadId}:${requestId}`;
+}
+
+/** An approval was answered on another device, or expired: take its
+ * notification down here too (desktop shell or browser). */
+export function withdrawNotification(withdrawKey: string): void {
+  if (typeof window !== "undefined" && window.ogb?.withdrawNotification) window.ogb.withdrawNotification(withdrawKey);
+  for (const note of shownForWithdraw.get(withdrawKey) ?? []) {
+    try { note.close(); } catch { /* already gone */ }
+  }
+  shownForWithdraw.delete(withdrawKey);
 }
 
 /** Show one unless the exact destination conversation is already visible
@@ -145,6 +172,7 @@ export function showNotification(
   };
   presentNotification({
     target,
+    ...(frame.requestId && frame.threadId ? { withdrawKey: approvalWithdrawKey(frame.threadId, frame.requestId) } : {}),
     title: frame.title,
     body: frame.body,
     attention,

@@ -105,12 +105,14 @@ final class PhoneBotPanelTests: XCTestCase {
 }
 
 final class BotLibraryViewTests: XCTestCase {
-    func testLibraryViewsFollowTheDesktopPerPairing() {
-        XCTAssertEqual(BotLibraryView.visible(gate: SurfaceGate(scope: .serverAdmin)), [.files, .skills, .plugins])
-        XCTAssertEqual(BotLibraryView.visible(gate: SurfaceGate(scope: .serverClient)), [.files, .plugins])
-        // the sidecar forwards the skills route (D1), not the plugins one
-        XCTAssertEqual(BotLibraryView.visible(gate: SurfaceGate(scope: .sidecar)), [.files, .skills])
-        XCTAssertEqual(BotLibraryView.visible(gate: SurfaceGate(scope: .sidecar, sidecarRoutes: [])), [.files])
+    func testLibraryShowsFilesOnlySkillsLiveOnPersonas() {
+        for gate in [SurfaceGate(scope: .serverAdmin), SurfaceGate(scope: .serverClient), SurfaceGate(scope: .sidecar), SurfaceGate(scope: .sidecar, sidecarRoutes: [])] {
+            XCTAssertEqual(BotLibraryView.visible(gate: gate), [.files])
+        }
+        // plugins stay one link away where the route is forwarded
+        XCTAssertTrue(BotLibraryView.pluginsLink(gate: SurfaceGate(scope: .serverAdmin)))
+        XCTAssertTrue(BotLibraryView.pluginsLink(gate: SurfaceGate(scope: .serverClient)))
+        XCTAssertFalse(BotLibraryView.pluginsLink(gate: SurfaceGate(scope: .sidecar)))
     }
 
     func testPluginsListingDecodesAndToleratesMissingFields() throws {

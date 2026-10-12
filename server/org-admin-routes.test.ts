@@ -301,7 +301,7 @@ describe("org admin API: the console routes (2026-10-08)", () => {
   it("capabilities: any role, the release version and every route", async () => {
     const got = await call("/api/org/admin/capabilities", assertion("bob", "employee"));
     expect(got).toMatchObject({ status: 200, body: { version: "0.4.14", api: 5, mascotFamilies: ["classics", "shapes", "animals"] } });
-    expect(got.body.mascots.map((entry: { id: string; family: string }) => `${entry.id}:${entry.family}`)).toEqual(["owl:classics", "shape:shapes", "trombi:classics", "bunbu:animals", "shiba:animals", "grump:animals", "ogre:animals", "frog:animals"]);
+    expect(got.body.mascots.map((entry: { id: string; family: string }) => `${entry.id}:${entry.family}`)).toEqual(["owl:classics", "crab:animals", "shape:shapes", "trombi:classics", "bunbu:animals", "shiba:animals", "grump:animals", "ogre:animals", "frog:animals"]);
     // api 4: the engines, grouped Cloud and Local by the server
     expect(got.body.engines).toEqual([
       { id: "claude", name: "Claude", kind: "cloud", installed: true, auth: "oauth" },

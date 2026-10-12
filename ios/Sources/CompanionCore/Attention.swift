@@ -31,17 +31,15 @@ public struct NudgeAttention: Hashable, Sendable {
     public var fresh: Bool
     public var sound: Bool
     public var haptic: Bool
-    /// A local notification too, when the app is not in front or another
-    /// conversation is open.
+    /// A local notification too, when the app is not in front.
     public var notify: Bool
 
     /// `nudgeAttention`.
-    public static func decide(_ nudge: NudgeFrame, now: Double, appActive: Bool, viewingThreadId: String?, settings: AttentionSettings) -> NudgeAttention {
+    public static func decide(_ nudge: NudgeFrame, now: Double, appActive: Bool, viewingThreadId _: String?, settings: AttentionSettings) -> NudgeAttention {
         let fresh: Bool
         if let at = nudge.at { fresh = abs(now - at) <= NudgeFrame.freshMs } else { fresh = true }
         guard fresh else { return NudgeAttention(fresh: false, sound: false, haptic: false, notify: false) }
-        let looking = appActive && viewingThreadId != nil && viewingThreadId == nudge.open?.threadId
-        return NudgeAttention(fresh: true, sound: settings.nudgeSound, haptic: settings.nudgeHaptic && appActive, notify: !looking)
+        return NudgeAttention(fresh: true, sound: settings.nudgeSound, haptic: settings.nudgeHaptic && appActive, notify: !appActive)
     }
 }
 
@@ -50,5 +48,20 @@ public enum Attention {
     public static func badge(_ unread: Int, settings: AttentionSettings) -> Int {
         guard settings.badge, unread > 0 else { return 0 }
         return unread
+    }
+}
+
+/// What `userNotificationCenter(_:willPresent:)` should show. The live stream
+/// already delivered the line: a banner or sound on top of the open app is
+/// noise, especially when that bot's conversation is on screen.
+public enum ForegroundNotification {
+    /// False while the app is in front. A backgrounded phone still rings,
+    /// even if the last open thread matches.
+    public static func showsSystemBanner(appActive: Bool, viewingThreadId: String?, threadId: String?) -> Bool {
+        guard appActive else { return true }
+        // Floor: the conversation on screen. This build is silent for every
+        // notification while the app is in front.
+        if let threadId, let viewingThreadId, threadId == viewingThreadId { return false }
+        return false
     }
 }

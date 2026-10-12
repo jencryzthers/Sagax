@@ -49,6 +49,9 @@ struct BotAvatarEditor: View {
     @State private var config: ConfigStatus?
     /// The colour row picked by hand; nil follows the colour worn.
     @State private var colourRow: MausColors.PickerRow?
+    /// The stage's own mascot plays the moves (as MascotLookEditor.tsx's stage).
+    @StateObject private var stageHandle = OwlMascotHandle()
+    @State private var hop = false
 
     private var shownRow: MausColors.PickerRow {
         guard MausColors.offersClay(draft.character, color: draft.color) else { return .classic }
@@ -103,6 +106,7 @@ struct BotAvatarEditor: View {
         .onAppear { draft = CharacterDraft(bot: bot) }
         .onValueChange(of: CharacterDraft(bot: bot)) { server in if !working { draft = server } }
         .task {
+            if session.isDemo { unlocks = .demo }
             config = await session.configStatus()
             if session.surfaceGate.allows(.characterExtras), session.surfaceGate.allows(.achievements),
                let client = session.profileClient {
@@ -130,16 +134,14 @@ struct BotAvatarEditor: View {
 
     private var botTab: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 12) {
-                MascotCharacterView(look: draft.complete, color: draft.color, skin: draft.character == .owl ? draft.skin : .none, size: 60)
-                    .frame(width: 64, height: 64)
-                    .background(theme.inset, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .padding(.top, 11)
+            stage
+            VStack(alignment: .leading, spacing: 6) {
                 VStack(alignment: .leading, spacing: 6) {
                     label("Character")
                     let wornCharacter = CharacterDraft(bot: bot).character
                     let characters = MascotCharacter.allCases.filter { !unlocks.characterLocked($0, current: wornCharacter) }
-                    HStack(spacing: 6) {
+                    // equal tiles on one grid, as the web gallery's (minmax(70px, 1fr))
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 70), spacing: 6)], alignment: .leading, spacing: 6) {
                         ForEach(characters, id: \.self) { character in
                             cell(look: lookFor(character), skin: character == .owl ? draft.skin : .none,
                                  name: characterName(character), selected: draft.character == character, height: 64,
@@ -210,6 +212,7 @@ struct BotAvatarEditor: View {
                     ForEach(ShapeMove.allCases, id: \.self) { move in
                         chip(CharacterMovesMenu.name(move), selected: false) {
                             model.avatarShapeMove = nil
+                            stageHandle.shape(move)
                             DispatchQueue.main.async { model.avatarShapeMove = move }
                         }
                         .accessibilityLabel(Text("Play the \(CharacterMovesMenu.name(move)) move"))
@@ -217,6 +220,51 @@ struct BotAvatarEditor: View {
                     }
                 }
                 .padding(.top, 6)
+            }
+        }
+    }
+
+    /// The preview stage (MascotLookEditor.tsx `data-mascot-stage`): the
+    /// mascot large and centred on its own ground, its name and family under
+    /// it. A tap or a pointer hover previews a move: the owl's wave, a
+    /// shape's wink, a hop for the others.
+    private var stage: some View {
+        VStack(spacing: 8) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(RadialGradient(colors: [theme.control, theme.inset], center: .center, startRadius: 4, endRadius: 150))
+                MascotCharacterView(look: draft.complete, color: draft.color, skin: draft.character == .owl ? draft.skin : .none,
+                                    size: 104, animated: true, owlHandle: stageHandle)
+                    .offset(y: hop ? -10 : 0)
+                    .scaleEffect(hop ? 1.04 : 1)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 150)
+            .contentShape(Rectangle())
+            .onTapGesture { preview() }
+            .onHover { inside in if inside { preview() } }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text("Preview of \(characterName(draft.character))"))
+            .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier("avatar-stage")
+            Text(verbatim: characterName(draft.character))
+                .font(theme.font(14, .medium))
+                .foregroundStyle(theme.ink)
+                .frame(maxWidth: .infinity)
+                .accessibilityIdentifier("avatar-stage-name")
+        }
+        .padding(.top, 11)
+        .padding(.bottom, 4)
+    }
+
+    private func preview() {
+        switch draft.character {
+        case .owl: stageHandle.flourish(OwlWingMove.allCases.first!)
+        case .shape: stageHandle.shape(ShapeMove.allCases.first!)
+        default:
+            withAnimation(.spring(response: 0.22, dampingFraction: 0.5)) { hop = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.55)) { hop = false }
             }
         }
     }
@@ -333,6 +381,20 @@ struct BotAvatarEditor: View {
                         var next = draft
                         var look = next.complete
                         look.frogSkin = skin
+                        next.look = look.stored
+                        save(next)
+                    }
+                }
+            }
+        case .crab:
+            let skins = CrabSkin.allCases.filter { !unlocks.skinLocked(.crab, skin: $0.rawValue, current: worn.complete.crabSkin.rawValue) }
+            LazyVGrid(columns: columns, spacing: 4) {
+                ForEach(skins, id: \.self) { skin in
+                    cell(look: edited { $0.crabSkin = skin }, skin: .none, name: skinName(skin.rawValue), selected: draft.complete.crabSkin == skin, height: 60,
+                         locked: false) {
+                        var next = draft
+                        var look = next.complete
+                        look.crabSkin = skin
                         next.look = look.stored
                         save(next)
                     }
@@ -542,6 +604,7 @@ struct BotAvatarEditor: View {
         case .grump: String(localized: "Grump")
         case .ogre: String(localized: "Ogre")
         case .frog: String(localized: "Frog")
+        case .crab: String(localized: "Crab")
         }
     }
 

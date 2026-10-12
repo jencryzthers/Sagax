@@ -33,7 +33,7 @@ extension Chat {
     /// there is a list (a second thread or a folder).
     var desktopHasThreadList: Bool {
         guard case let .bot(bot) = self else { return false }
-        return (bot.tasks?.filter { $0.routineRunId == nil }.count ?? 1) > 1 || !(bot.projects ?? []).isEmpty
+        return (bot.tasks?.filter { !$0.isHiddenFromPerson }.count ?? 1) > 1 || !(bot.projects ?? []).isEmpty
     }
 }
 
@@ -120,6 +120,7 @@ struct DesktopPinnedTile: View {
         .onHover { hovering = $0 }
         .contextMenu { DesktopMenuItems(entries: menu) }
         .onDrag { NSItemProvider(object: "bot:\(chat.id)" as NSString) }
+        .sidebarBotPinSwipe(chat, session: session)
         .accessibilityLabel(Text(verbatim: PeopleDirectory.shared.name(chat, session: session)))
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityIdentifier("desktop-pinned.\(chat.id)")
@@ -189,6 +190,11 @@ struct DesktopSidebarRow: View {
 
     private var density: DesktopSidebarDensity { model.density }
     private var isRoom: Bool { if case .room = chat { true } else { false } }
+    /// Electron `touch:` / `pointer: coarse` shows ⋯. iPad has no hover;
+    /// Mac (Designed for iPad) keeps hover-only.
+    private var showsTouchRowActions: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && !ProcessInfo.processInfo.isiOSAppOnMac
+    }
 
     var body: some View {
         let selected = model.selected?.id == chat.id
@@ -204,15 +210,18 @@ struct DesktopSidebarRow: View {
             // to the drag)
             .contextMenu { DesktopMenuItems(entries: menu) }
             .onDrag { NSItemProvider(object: (isRoom ? "room:\(chat.id)" : "bot:\(chat.id)") as NSString) }
+            .sidebarBotPinSwipe(chat, session: session)
             .accessibilityAddTraits(selected ? .isSelected : [])
             .accessibilityIdentifier("desktop-row.\(chat.id)")
             if density != .icons {
                 if showThreads, chat.desktopHasThreadList { disclosure }
-                if hovered, !menu.isEmpty { hoverActions(menu: menu) }
+                if hovered || showsTouchRowActions, !menu.isEmpty { hoverActions(menu: menu) }
             }
         }
+        // Unfolded, the selected thread below carries the one highlight
+        // (the web's Sidebar.tsx rule): no second stacked block on the bot.
         .background(
-            selected ? theme.sidebarSelected : (hovered ? theme.sidebarHover : .clear),
+            selected && !(showThreads && threadsOpen) ? theme.sidebarSelected : (hovered ? theme.sidebarHover : .clear),
             in: RoundedRectangle(cornerRadius: theme.radiusLg, style: .continuous)
         )
         .onHover { inside in
@@ -640,7 +649,7 @@ struct DesktopThreadRow: View {
         }
         .background(
             current ? theme.sidebarSelected : (hovering ? theme.sidebarHover : .clear),
-            in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+            in: RoundedRectangle(cornerRadius: theme.radiusLg, style: .continuous)
         )
         .onHover { hovering = $0 }
         .threadMenu(task, owner: .bot(bot), actions: actions, session: session)

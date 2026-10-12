@@ -366,7 +366,7 @@ public enum ApprovalDockRules {
 
 /// What a settled approval card says happened (`approvalCardOutcome`).
 public enum ApprovalOutcome: Hashable, Sendable {
-    case expired, allowed, denied, cancelled
+    case expired, allowed, alwaysAllowed, denied, cancelled
     case routineScheduled, routineUpdated, routinePaused, routineResumed, routineRunQueued, routineDeleted
     case skillEnabled, skillUpdated, profileUpdated
     case teamSetupApplied, botDeleted
@@ -376,6 +376,8 @@ public enum ApprovalOutcome: Hashable, Sendable {
         guard let answered = card.answered else { return nil }
         let proposal = ApprovalDockRules.isProposal(card)
         guard answered == "allow" else { return proposal ? .cancelled : .denied }
+        // answered with Always allow: the saved rule reads like the web pill
+        if !proposal, card.alwaysAllowed?.isEmpty == false { return .alwaysAllowed }
         if let setup = card.teamSetupRequest { return setup.deletion == true ? .botDeleted : .teamSetupApplied }
         switch card.routineRequest?.operation?.action {
         case "create": return .routineScheduled
@@ -692,6 +694,29 @@ public enum ApprovalToolAction: Hashable, Sendable {
     }
 }
 
+/// "Added to your Allow rules": the rule a card saved, as the action it
+/// lets the bot take (`describeAllowRule`, shared/approval-describe.ts).
+public enum AllowRuleText {
+    /// The card's saved rule, only on a card that was allowed with it.
+    public static func savedRule(_ card: OptionCard) -> String? {
+        guard card.answered == "allow", card.expired != true, let rule = card.alwaysAllowed, !rule.isEmpty else { return nil }
+        return rule
+    }
+
+    /// The action an `mcp:<server>__<tool>` rule allows; nil for other keys
+    /// (the app shows those as sent).
+    public static func action(of rule: String) -> ApprovalToolAction? {
+        guard rule.hasPrefix("mcp:") else { return nil }
+        // mcp:<server>__<tool>: the tool after the server's own name
+        let key = String(rule.dropFirst(4))
+        let tool = key.range(of: "__").map { String(key[$0.upperBound...]) } ?? key
+        switch tool {
+        case "run_command", "vm_exec", "exec": return .runCommand
+        default: return .of(tool: tool)
+        }
+    }
+}
+
 /// The dock's heading for a request: a plain tool ask names the bot and
 /// the action; a proposal says what is being confirmed.
 public enum ApprovalHeading: Hashable, Sendable {
@@ -709,6 +734,22 @@ public enum ApprovalHeading: Hashable, Sendable {
         return .wantsTo(.of(tool: card.tool))
     }
 
+    /// The server's plain title ("Allow Cryptic to view the schedule in
+    /// ConnectWise PSA?") for a plain tool ask, when the phone reads English:
+    /// those words are English, and a mixed sentence is worse than the app's
+    /// own localized "wants to" heading.
+    public static func plainTitle(_ card: OptionCard, language: String? = Locale.preferredLanguages.first) -> String? {
+        guard case .wantsTo = of(card), let title = card.plain?.title.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else { return nil }
+        guard (language ?? "en").lowercased().hasPrefix("en") else { return nil }
+        return title
+    }
+
+    /// The server's plain line under the title, on the same terms.
+    public static func plainLine(_ card: OptionCard, language: String? = Locale.preferredLanguages.first) -> String? {
+        guard plainTitle(card, language: language) != nil, let line = card.plain?.line.trimmingCharacters(in: .whitespacesAndNewlines), !line.isEmpty else { return nil }
+        return line
+    }
+
     /// What the dock prints in its monospace block: a proposal's text, a
     /// command (the exact one when the card offers to remember it), or the
     /// card's plain summary. Raw JSON arguments stay out.
@@ -718,7 +759,7 @@ public enum ApprovalHeading: Hashable, Sendable {
         let text = card.subtitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
         guard text.hasPrefix("{") || text.hasPrefix("[") else { return card.subtitle }
-        return argumentSummary(card.toolInput ?? card.subtitle)
+        return argumentSummary(card.toolInput ?? card.subtitle) ?? plainLine(card)
     }
 
     /// Raw JSON arguments are not shown as such: the one argument a person

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ArrowLeft, ArrowRight, EllipsisVertical, Globe, Hand, Loader2, Maximize2, Minimize2, Plus, RotateCw, UserRound, X } from "lucide-react";
 import { BrowserUnavailableNote } from "./SettingsLink";
 import { t } from "@/lib/i18n";
@@ -20,7 +21,7 @@ const NO_CONTROL = { held: false, controlling: false, owned: false };
  * restores permission to type, and never replays old browser frames.
  * There is no Take control button: interacting takes the browser from the
  * bot, and a few idle seconds hand it back (see createBrowserControl). */
-export function LiveBrowser({ bot }: { bot: Bot }) {
+export function LiveBrowser({ bot, hosted = false }: { bot: Bot; /** Inside the take-control window, which owns full screen. */ hosted?: boolean }) {
   const { state } = useStore();
   const [attempt, setAttempt] = useState(0);
   const [frame, setFrame] = useState<ViewerFrame | null>(null);
@@ -265,7 +266,7 @@ export function LiveBrowser({ bot }: { bot: Bot }) {
         </div>) : <div className="flex items-center gap-2 rounded-xl bg-inset px-3 py-2 text-[12px] text-ink-secondary"><Globe size={13} />New tab</div>}
         <button className={`${button} shrink-0`} disabled={!commandsReady} aria-label="New tab" title="New tab" onClick={() => command({ type: "tab-new" })}><Plus size={17} /></button>
       </div>
-      <button className={button} title={fullscreen ? "Exit full screen" : "Full screen"} aria-label={fullscreen ? "Exit full screen" : "Full screen"} onClick={toggleFullscreen}>{fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
+      {!hosted && <button className={button} title={fullscreen ? "Exit full screen" : "Full screen"} aria-label={fullscreen ? "Exit full screen" : "Full screen"} onClick={toggleFullscreen}>{fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>}
       {/* Profiles can't switch while this window holds the browser: opening them hands it back now, not after the idle wait. */}
       <button className={`${button} rounded-xl bg-inset p-2`} title={`Browser profile: ${profileName}`} aria-label="Browser profiles" aria-expanded={showProfiles} onClick={() => { browserControl.current?.handBack(); setShowProfiles(true); }}><UserRound size={16} /></button>
     </div>
@@ -324,6 +325,62 @@ export function LiveBrowser({ bot }: { bot: Bot }) {
   </div>;
 }
 
+/** Like the VM tab: the pane shows an idle card, never a live stream. Take
+ * control opens the browser in a full-screen window, and only then does the
+ * live connection start. Leaving full screen or closing the window unmounts
+ * LiveBrowser, which closes the EventSource and releases control. */
+export function BrowserIdleCard({ bot }: { bot: Bot }) {
+  const [open, setOpen] = useState(false);
+  return <>
+    <div data-browser-idle="" className="flex min-h-64 flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-[13px] text-ink-secondary">
+      <Globe size={24} aria-hidden="true" />
+      <p>{t("browser.idle.help", { name: bot.name })}</p>
+      <button type="button" data-take-control="" onClick={() => setOpen(true)}
+        className="flex min-h-[44px] items-center gap-2 rounded-full bg-control px-4 py-2 text-[13px] font-medium text-ink hover:bg-raised-hover md:min-h-0">
+        <Hand size={15} aria-hidden="true" />{t("sandboxDesktop.takeControl")}
+      </button>
+    </div>
+    {open && <BrowserTakeoverWindow bot={bot} onClose={() => setOpen(false)} />}
+  </>;
+}
+
+export function BrowserTakeoverWindow({ bot, onClose }: { bot: Bot; onClose: () => void }) {
+  const panel = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const element = panel.current;
+    let entered = false;
+    // Leaving full screen (Esc, the system control) ends the session.
+    const change = () => {
+      if (element && document.fullscreenElement === element) entered = true;
+      else if (entered) close.current();
+    };
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && (event.metaKey || event.ctrlKey) && event.shiftKey) { event.preventDefault(); close.current(); }
+    };
+    document.addEventListener("fullscreenchange", change);
+    window.addEventListener("keydown", key, true);
+    if (element && typeof element.requestFullscreen === "function" && document.fullscreenEnabled !== false) void element.requestFullscreen().catch(() => {});
+    return () => {
+      document.removeEventListener("fullscreenchange", change);
+      window.removeEventListener("keydown", key, true);
+      if (element && document.fullscreenElement === element) void document.exitFullscreen().catch(() => {});
+    };
+  }, []);
+  const body = <div className="fixed inset-0 z-50 flex bg-black/60" data-browser-takeover="">
+    <div ref={panel} role="dialog" aria-modal="true" aria-label={t("computer.browserOf", { name: bot.name })} className="flex h-full w-full flex-col overflow-hidden bg-card">
+      <div className="flex items-center gap-2 border-b border-hairline px-3 py-2">
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">{t("computer.browserOf", { name: bot.name })}</span>
+        <button type="button" data-takeover-close="" aria-label={t("sandboxDesktop.closeWindow")} title={t("sandboxDesktop.closeWindow")} onClick={onClose}
+          className="flex size-8 items-center justify-center rounded-full text-ink hover:bg-raised-hover"><X size={14} aria-hidden="true" /></button>
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col p-2"><LiveBrowser key={bot.id} bot={bot} hosted /></div>
+    </div>
+  </div>;
+  return typeof document === "undefined" ? body : createPortal(body, document.body);
+}
+
 export function BrowserPanel({ bot }: { bot: Bot }) {
   const { state } = useStore();
   const engine = state.config?.browserEngine;
@@ -342,7 +399,7 @@ export function BrowserPanel({ bot }: { bot: Bot }) {
   if (bot.browser === false) return <div className="p-5 text-[13px] text-ink-secondary">Enable the browser in this bot’s profile to use it.</div>;
   if (engine?.kind === "engine" && !installing && !engine.installError) return admin === null
     ? <div className="p-5 text-[13px] text-ink-secondary">Loading browser…</div>
-    : <LiveBrowser key={bot.id} bot={bot} />;
+    : <BrowserIdleCard key={bot.id} bot={bot} />;
   return <div className="flex min-h-0 flex-1 flex-col items-start justify-center gap-3 rounded-xl bg-card p-5">
     <div className="text-[15px] font-medium text-ink">{engine?.kind === "engine" ? "Browser installation incomplete" : "Browser engine not installed"}</div>
     <p className="text-[13px] leading-relaxed text-ink-secondary">{engine?.kind === "engine" ? "agent-browser is installed, but Chrome setup has not finished. Retry the browser installation." : <BrowserUnavailableNote config={state.config} />}</p>

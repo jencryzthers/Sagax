@@ -12,9 +12,10 @@
 //
 // On an organization server, Works on Local VM or This computer does not
 // use that viewer. `LocalVmComputerPanel` below shows a still and the
-// power buttons, and it never takes control. There, `ComputerChooser` above
-// the screen lists Cloud and each of the person's computers by name, and
-// shows the one picked (the bot's own first).
+// power buttons, and it never takes control. Cloud uses `SandboxDesktopScreen`
+// (GET /api/desktop-viewer/sandbox/me), because POST computer/screenshot
+// answers 409 org_user_sandbox. `ComputerChooser` above the screen lists
+// Cloud, Other VMs and Browser; the host name sits under Other VMs.
 import SwiftUI
 import CompanionCore
 import UIKit
@@ -54,8 +55,18 @@ struct ComputerView: View {
         _controller = StateObject(wrappedValue: ComputerController(botId: bot.id, client: { nil }))
     }
 
+    /// Embedded in the bot panel the card follows the app's navy theme (the
+    /// name card and tab bar colours); the full screen view stays black.
+    private var cardBackdrop: Color { embeddedWidth == nil ? Theme.bgComputer : Theme.card }
+    private var frameBackdrop: Color { embeddedWidth == nil ? Theme.Computer.frameEmpty : Theme.bg }
+    private var glassFill: Color { embeddedWidth == nil ? Theme.Computer.glassFill : Theme.cardRaised }
+    private var panelInk: Color { isEmbeddedPanel ? Theme.textPrimary : Theme.Computer.ink }
+    private var panelInkSecondary: Color { isEmbeddedPanel ? Theme.textSecondary : Theme.Computer.inkSecondary }
+
     private var fit: ComputerFit { ComputerFit(rawValue: fitRaw) ?? .fit }
     private var streamFrame: ScreenFrame? { session.state.screens[bot.id] }
+    private var isEmbeddedPanel: Bool { embeddedWidth != nil }
+
     /// The bot as the stream last described it.
     private var current: Bot { session.state.bot(bot.id) ?? bot }
     private var offline: Bool {
@@ -112,6 +123,8 @@ struct ComputerView: View {
             browserScreen
         } else if showsLocal {
             localVmScreen
+        } else if session.surfaceGate.organization {
+            sandboxScreen
         } else if let embeddedWidth {
             VStack(spacing: 12) {
                 AnyView(chooser(dark: false))
@@ -135,8 +148,7 @@ struct ComputerView: View {
                 AnyView(chooser(dark: false))
                 localVmPanel
                     .frame(width: embeddedWidth)
-                    .background(Theme.bgComputer, in: RoundedRectangle(cornerRadius: Theme.Metric.cardRadius, style: .continuous))
-                    .environment(\.colorScheme, .dark)
+                    .background(cardBackdrop, in: RoundedRectangle(cornerRadius: Theme.Metric.cardRadius, style: .continuous))
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("panel-computer")
             }
@@ -171,8 +183,62 @@ struct ComputerView: View {
     /// The Local VM shown: the one picked by name, else the person's current
     /// computer. A new computer starts over (its own status and stills).
     private var localVmPanel: some View {
-        LocalVmComputerPanel(name: current.name, chrome: .phone, desktopId: chosen?.desktopId, computerName: chosen?.name)
-            .id(chosen?.key ?? "current")
+        LocalVmComputerPanel(
+            name: current.name,
+            chrome: isEmbeddedPanel ? .panel : .phone,
+            desktopId: chosen?.desktopId,
+            computerName: chosen?.name
+        )
+        .id(chosen?.key ?? "current")
+    }
+
+    /// Organization Cloud: the server-environment desktop (SandboxDesktopView).
+    /// The bot screenshot path is not mounted; it 409s with org_user_sandbox.
+    @ViewBuilder
+    private var sandboxScreen: some View {
+        if let embeddedWidth {
+            VStack(spacing: 12) {
+                AnyView(chooser(dark: false))
+                SandboxDesktopScreen(
+                    botName: current.name,
+                    ink: Theme.textPrimary,
+                    secondary: Theme.textSecondary,
+                    card: Theme.card
+                )
+                .frame(width: embeddedWidth)
+                .accessibilityIdentifier("panel-computer")
+            }
+        } else {
+            VStack(spacing: 0) {
+                HStack {
+                    GlassCircleButton(
+                        systemImage: "chevron.left", fill: Theme.Computer.glassFill, accessibilityLabel: "Back",
+                        glyphSize: 18, glyphOffset: CGSize(width: 0.85, height: -0.25), glyphColor: Theme.Computer.ink
+                    ) { dismiss() }
+                        .accessibilityIdentifier("computer-back")
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, Theme.Metric.screenEdge)
+                .padding(.top, 6)
+                AnyView(chooser(dark: true))
+                    .padding(.horizontal, Theme.Metric.screenEdge)
+                    .padding(.bottom, 12)
+                SandboxDesktopScreen(
+                    botName: current.name,
+                    ink: Theme.Computer.ink,
+                    secondary: Theme.Computer.inkSecondary,
+                    card: Theme.Computer.frameEmpty
+                )
+                .padding(.horizontal, Theme.Metric.screenEdge)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Theme.bgComputer.ignoresSafeArea())
+            .toolbar(.hidden, for: .navigationBar)
+            .navigationBarBackButtonHidden(true)
+            .background(SwipeBackBridge())
+            .preferredColorScheme(.dark)
+        }
     }
 
     /// Cloud and each of the person's computers (an organization server),
@@ -183,15 +249,27 @@ struct ComputerView: View {
         let items = ComputerChooser.items(bridge: choices.bridge, organization: session.surfaceGate.organization,
                                           worksOnLocal: showsLocalVm, browser: browserOffered)
         if items.count > 1 {
-            ComputerChooser(
-                items: items,
-                chosen: showsBrowser ? ComputerChooser.browserKey : (chosen?.key ?? "screen"),
-                colors: dark
-                    ? .init(ink: Theme.Computer.ink, secondary: Theme.Computer.ink.opacity(0.6), track: Theme.Computer.glassFill,
-                            selected: Theme.Computer.ink.opacity(0.18), dot: Theme.accent)
-                    : .init(ink: Theme.textPrimary, secondary: Theme.textSecondary, track: Theme.card,
-                            selected: Theme.cardRaised, dot: Theme.accent)
-            ) { picked = $0 }
+            VStack(alignment: dark ? .center : .leading, spacing: 6) {
+                ComputerChooser(
+                    items: items,
+                    chosen: ComputerChooser.selectedKey(showsBrowser: showsBrowser, chosen: chosen),
+                    colors: dark
+                        ? .init(ink: Theme.Computer.ink, secondary: Theme.Computer.ink.opacity(0.6), track: Theme.Computer.glassFill,
+                                selected: Theme.Computer.ink.opacity(0.18), dot: Theme.accent)
+                        : .init(ink: Theme.textPrimary, secondary: Theme.textSecondary, track: Theme.card,
+                                selected: Theme.cardRaised, dot: Theme.accent)
+                ) { picked = ComputerChooser.resolvePick($0, bridge: choices.bridge, current: chosen) }
+                ComputerChooser.provenance(
+                    bridge: choices.bridge, chosen: showsBrowser ? nil : chosen,
+                    pick: { picked = $0 },
+                    secondary: dark ? Theme.Computer.ink.opacity(0.6) : Theme.textSecondary
+                )
+            }
+            // Embedded in the profile sheet, the picker's horizontal scroll
+            // view would take the sheet's full width and start at its edge;
+            // it takes the screen's own width, which the sheet already
+            // insets by `Theme.Profile.cardMargin`.
+            .frame(width: dark ? nil : embeddedWidth, alignment: .leading)
         }
     }
 
@@ -241,19 +319,19 @@ struct ComputerView: View {
             HStack(spacing: 8) {
                 Text("\(current.name)'s screen")
                     .font(Theme.Profile.labelFont)
-                    .foregroundStyle(Theme.Computer.inkSecondary)
+                    .foregroundStyle(Theme.textSecondary)
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 GlassCircleButton(
-                    systemImage: "questionmark", fill: Theme.Computer.glassFill, accessibilityLabel: "Gestures",
-                    glyphSize: 20, weight: .regular, glyphColor: Theme.Computer.ink
+                    systemImage: "questionmark", fill: glassFill, accessibilityLabel: "Gestures",
+                    glyphSize: 20, weight: .regular, glyphColor: Theme.textPrimary
                 ) { showingHelp = true }
                     .accessibilityIdentifier("computer-help")
                 moreMenu
                 if let onFullScreen {
                     GlassCircleButton(
-                        systemImage: "arrow.up.left.and.arrow.down.right", fill: Theme.Computer.glassFill,
-                        accessibilityLabel: "Full screen", glyphSize: 16, weight: .regular, glyphColor: Theme.Computer.ink
+                        systemImage: "arrow.up.left.and.arrow.down.right", fill: glassFill,
+                        accessibilityLabel: "Full screen", glyphSize: 16, weight: .regular, glyphColor: Theme.textPrimary
                     ) { onFullScreen() }
                         .accessibilityIdentifier("computer-full-screen")
                 }
@@ -279,9 +357,8 @@ struct ComputerView: View {
             .accessibilityHidden(true)
         }
         .frame(width: width)
-        .background(Theme.bgComputer, in: RoundedRectangle(cornerRadius: Theme.Metric.cardRadius, style: .continuous))
+        .background(cardBackdrop, in: RoundedRectangle(cornerRadius: Theme.Metric.cardRadius, style: .continuous))
         .overlay(alignment: .top) { toast.padding(.top, 4) }
-        .environment(\.colorScheme, .dark)
         .onAppear { controller.frameWidth = inner }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("panel-computer")
@@ -392,7 +469,7 @@ struct ComputerView: View {
     private var topBar: some View {
         HStack(spacing: 0) {
             GlassCircleButton(
-                systemImage: "chevron.left", fill: Theme.Computer.glassFill, accessibilityLabel: "Back",
+                systemImage: "chevron.left", fill: glassFill, accessibilityLabel: "Back",
                 glyphSize: 18, glyphOffset: CGSize(width: 0.85, height: -0.25), glyphColor: Theme.Computer.ink
             ) { dismiss() }
                 .accessibilityIdentifier("computer-back")
@@ -407,7 +484,7 @@ struct ComputerView: View {
                 .padding(.leading, Theme.Computer.nameLeading)
             Spacer(minLength: 8)
             GlassCircleButton(
-                systemImage: "questionmark", fill: Theme.Computer.glassFill, accessibilityLabel: "Gestures",
+                systemImage: "questionmark", fill: glassFill, accessibilityLabel: "Gestures",
                 glyphSize: 20, weight: .regular, glyphColor: Theme.Computer.ink
             ) { showingHelp = true }
                 .accessibilityIdentifier("computer-help")
@@ -458,12 +535,12 @@ struct ComputerView: View {
         } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(Theme.Computer.ink)
+                .foregroundStyle(panelInk)
                 .frame(width: Theme.Metric.glassLarge, height: Theme.Metric.glassLarge)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .themeGlass(Circle(), fill: Theme.Computer.glassFill)
+        .themeGlass(Circle(), fill: glassFill)
         .accessibilityLabel(Text("More"))
         .accessibilityIdentifier("computer-more")
     }
@@ -472,7 +549,7 @@ struct ComputerView: View {
 
     private func screen(width: CGFloat, height: CGFloat) -> some View {
         ZStack {
-            Theme.Computer.frameEmpty
+            frameBackdrop
             if let image = controller.image {
                 Image(uiImage: image)
                     .resizable()
@@ -540,7 +617,7 @@ struct ComputerView: View {
         if let notice = controller.notice ?? (offline ? String(localized: "This computer is offline. Reconnecting…") : nil) {
             Text(notice)
                 .font(Theme.Font.profileLabel)
-                .foregroundStyle(Theme.Computer.inkSecondary)
+                .foregroundStyle(panelInkSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
                 .padding(.top, 12)
@@ -562,13 +639,13 @@ struct ComputerView: View {
                 }
             } label: {
                 ClipboardGlyph()
-                    .fill(Theme.Computer.ink, style: FillStyle(eoFill: true))
+                    .fill(panelInk, style: FillStyle(eoFill: true))
                     .frame(width: ClipboardGlyph.size.width, height: ClipboardGlyph.size.height)
                     .frame(width: Theme.Metric.glassSmall, height: Theme.Metric.glassSmall)
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .themeGlass(Circle(), fill: Theme.Computer.glassFill)
+            .themeGlass(Circle(), fill: glassFill)
             .accessibilityLabel(Text("Clipboard"))
             .accessibilityIdentifier("computer-clipboard")
             .disabled(controller.noComputer)
@@ -580,13 +657,13 @@ struct ComputerView: View {
                 toggleKeyboard()
             } label: {
                 KeyboardDotsGlyph()
-                    .fill(Theme.Computer.ink)
+                    .fill(panelInk)
                     .frame(width: KeyboardDotsGlyph.size.width, height: KeyboardDotsGlyph.size.height)
                     .frame(width: Theme.Metric.glassSmall, height: Theme.Metric.glassSmall)
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .themeGlass(Circle(), fill: Theme.Computer.glassFill)
+            .themeGlass(Circle(), fill: glassFill)
             .accessibilityLabel(Text(keyboardUp ? "Hide keyboard" : "Keyboard"))
             .accessibilityIdentifier("computer-keyboard")
             .disabled(controller.noComputer)
@@ -806,6 +883,22 @@ struct LocalVmComputerChrome {
             warning: Theme.warning,
             hairline: Color.white.opacity(0.16),
             control: Color.white.opacity(0.12)
+        )
+    }
+
+    /// The bot panel's Computer tab on iPhone: same navy card as the name
+    /// block and tab bar, not the full-screen black stage.
+    static var panel: LocalVmComputerChrome {
+        LocalVmComputerChrome(
+            ink: Theme.textPrimary,
+            secondary: Theme.textSecondary,
+            frame: Theme.bg,
+            accent: Theme.accent,
+            accentInk: Theme.accentInk,
+            danger: Theme.danger,
+            warning: Theme.warning,
+            hairline: Theme.hairline,
+            control: Theme.cardRaised
         )
     }
 

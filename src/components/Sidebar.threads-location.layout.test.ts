@@ -9,7 +9,7 @@ vi.mock("@/lib/thread-preferences", async (original) => ({ ...await original<typ
   useShowThreads: () => prefs.show,
   useThreadsLocationChoice: () => prefs.location,
 }));
-import { BotListItem } from "./Sidebar";
+import { BotListItem, BotThreadList } from "./Sidebar";
 import { TaskPicker } from "./TaskPicker";
 
 const bot: Bot = {
@@ -57,6 +57,20 @@ describe("threads location: one place at a time", () => {
     const row = rail.match(/<div[^>]*data-sidebar-bot-row="atlas"[\s\S]*?<\/div><\/div>/)?.[0] ?? "";
     expect(row).not.toContain('aria-label="New thread"');
     expect(header()).toBe("");
+  });
+
+  it("lists folders and chats straight, with no My conversations or Threads heading", () => {
+    prefs.location = "sidebar";
+    const html = renderToStaticMarkup(createElement(StoreProvider, null, createElement(BotThreadList, { bot, selected: true })));
+    expect(html).toContain('data-sidebar-project="p1"');
+    expect(html).toContain('data-sidebar-thread-row="current"');
+    expect(html).not.toContain('data-sidebar-thread-row="older"');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain("data-sidebar-my-threads");
+    expect(html).not.toContain("My conversations");
+    expect(html).not.toMatch(/>Threads</);
+    expect(html).not.toContain("No threads yet");
+    expect(html).toContain('draggable="true"');
   });
 
   it("With threads off neither place shows threads", () => {

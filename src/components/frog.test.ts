@@ -31,8 +31,11 @@ import {
   FROG_ROLES,
   frogEyeOps,
   frogFlyOps,
+  frogHaunchOps,
+  frogLegJoints,
   frogLegOps,
   frogMouthOps,
+  frogOpsToSvg,
   frogOutline,
   frogPadOps,
   frogPalette,
@@ -98,8 +101,47 @@ describe("Frog's art", () => {
     expect(lidLine(frogEyeOps(FROG_FACES.surprised.eyes[0], 1, 2, 0.6))).toBeDefined();
     expect(frogThroatOps(0, 2)).toEqual([]);
     expect(frogTongueOps([90, 30], 0, 2)).toEqual([]);
-    expect(frogLegOps(1, 0, 2)).toEqual([]);
     expect(frogWaterOps(100, 0, 2)).toEqual([]);
+  });
+
+  it("draws hind legs as filled palmate limbs, squat at rest and kicked out on a hop", async () => {
+    const rest = frogLegOps(-1, 0, 2);
+    const kick = frogLegOps(-1, 1, 2);
+    expect(rest.length).toBeGreaterThan(0);
+    expect(kick.some((op) => op.fill === "toe")).toBe(true);
+    expect(kick.some((op) => op.fill === "skin")).toBe(true);
+    expect(kick.filter((op) => op.stroke === "line" && op.clip).length).toBeGreaterThanOrEqual(4);
+    expect(frogHaunchOps(1, 0, 2).some((op) => op.fill === "skin")).toBe(true);
+    for (const op of [...rest, ...kick, ...frogHaunchOps(-1, 1, 2)]) {
+      expect(op.d).toMatch(ABSOLUTE);
+      if (op.fill) expect(op.d.endsWith("Z")).toBe(true);
+    }
+    const squat = frogLegJoints(-1, 0);
+    const out = frogLegJoints(-1, 1);
+    // sitting W: knee outboard of both hip and ankle
+    expect(squat.knee[0]).toBeLessThan(squat.hip[0]);
+    expect(squat.knee[0]).toBeLessThan(squat.ankle[0]);
+    expect(out.ankle[1]).toBeGreaterThan(squat.ankle[1]);
+    expect(out.ankle[0]).toBeLessThan(squat.ankle[0]);
+    expect(out.ankle[1]).toBeLessThan(114);
+    expect(squat.ankle[0]).toBeGreaterThan(10);
+    expect(frogLegJoints(1, 1).ankle[0]).toBeGreaterThan(frogLegJoints(1, 0).ankle[0]);
+    if (process.env.DUMP_FROG_LEGS === "1") {
+      const { mkdirSync, writeFileSync } = await import("node:fs");
+      mkdirSync("/tmp/frog-legs", { recursive: true });
+      const palette = frogPalette();
+      const ow = frogOutline(200);
+      const parts = frogParts({ expression: "neutral", size: 200 });
+      const layer = (ops: FrogOp[], key: string) => frogOpsToSvg(ops, palette, key);
+      for (const [extend, name] of [
+        [0, "squat"],
+        [0.45, "crouch"],
+        [1, "kick"],
+      ] as const) {
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-18 8 136 118" width="800" height="700">${layer(frogPadOps(ow), "pad")}${layer([...frogLegOps(-1, extend, ow), ...frogLegOps(1, extend, ow)], "lg")}${layer(parts.body, "b")}${layer(parts.handL, "hl")}${layer(parts.handR, "hr")}${layer([...frogHaunchOps(-1, extend, ow), ...frogHaunchOps(1, extend, ow)], "hn")}${layer(parts.head, "h")}${layer(parts.eyeL, "el")}${layer(parts.eyeR, "er")}${layer(parts.mouth, "m")}</svg>`;
+        writeFileSync(`/tmp/frog-legs/${name}.svg`, svg);
+      }
+    }
   });
 
   it("crops to the bust under 48 px and leaves the sleeping z out", () => {
