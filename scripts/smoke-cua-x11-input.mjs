@@ -234,6 +234,9 @@ try {
     "start_session",
   );
   xevOutput = "";
+  // Pixel clicks need a screenshot snapshot first. Xvfb has no window
+  // manager, so foreground (activate via _NET_ACTIVE_WINDOW) fails;
+  // background delivers through XTEST.
   const target = {
     session,
     pid: xev.pid,
@@ -241,7 +244,7 @@ try {
     x: 80,
     y: 80,
     scope: "window",
-    delivery_mode: "foreground",
+    delivery_mode: "background",
   };
   assertToolResult(
     await rpc("tools/call", {

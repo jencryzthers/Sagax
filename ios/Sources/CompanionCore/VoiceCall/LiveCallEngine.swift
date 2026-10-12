@@ -463,8 +463,10 @@ public final class LiveCallEngine {
 
     private func dispatch(_ event: CallEvent) {
         let duplex = settings().fullDuplex
-        if state.duplex != duplex { state.duplex = duplex }
-        thinkingCueSeconds = duplex ? 0.4 : 1.2
+        if state.duplex != duplex {
+            state.duplex = duplex
+            thinkingCueSeconds = duplex ? 0.4 : 1.2
+        }
         // A turn that starts right after the last one, before the bot said a
         // word, is the same utterance cut by a pause: it is sent whole, and
         // the turn the fragment started is stopped.

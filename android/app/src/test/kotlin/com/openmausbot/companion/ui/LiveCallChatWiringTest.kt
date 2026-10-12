@@ -117,6 +117,7 @@ class LiveCallChatWiringTest {
                     }
                     request.path == "/api/live/call" -> json(200, """{"call":null}""")
                     request.path == "/api/instances" -> json(200, """{"instances":[]}""")
+                    request.path == "/api/config" -> json(200, """{"live":{"enabled":true,"configured":true,"voice":"marin"}}""")
                     request.path?.startsWith("/api/threads/") == true -> json(200, """{"messages":[],"hasMore":false}""")
                     else -> MockResponse().setResponseCode(404)
                 }
