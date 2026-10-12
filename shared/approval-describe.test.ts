@@ -29,7 +29,7 @@ describe("approvalPlain", () => {
   });
   it("says 'run a command' for a run_command tool, not 'run the command action'", () => {
     const plain = approvalPlain({ botName: "Cryptic", tool: "sagax-environment__run_command", toolInput: '{"command":"echo hi"}', detail: 'sagax-environment__run_command {"command":"echo hi"}' });
-    expect(plain.title).toBe("Allow Cryptic to run a command in Sagax Environment?");
+    expect(plain.title).toBe("Allow Cryptic to run a command?");
     const isolate = approvalPlain({ botName: "Cryptic", tool: "s1__isolate_action", detail: "s1__isolate_action {}" });
     expect(isolate.title).not.toMatch(/run a command/);
   });

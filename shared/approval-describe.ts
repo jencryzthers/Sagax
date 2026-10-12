@@ -568,7 +568,10 @@ export function approvalAction(tool: string | undefined, input: string | undefin
   const action = described.action && described.verbless && !composio
     ? words.t("approval.verb.use", { name: described.action })
     : described.action ?? composio ?? name.replace(/_+/g, " ");
-  return described.product ? words.t("approval.phrase.inProduct", { action, product: described.product }) : action;
+  // Sagax's own built-in servers (sagax-environment, sagax-computer) are the
+  // bot itself: "run a command", not "run a command in Sagax Environment"
+  const builtinServer = /^sagax-/.test(server);
+  return described.product && !builtinServer ? words.t("approval.phrase.inProduct", { action, product: described.product }) : action;
 }
 
 const capitalize = (text: string) => (text ? text[0]!.toLocaleUpperCase() + text.slice(1) : text);
