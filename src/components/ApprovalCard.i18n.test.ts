@@ -53,7 +53,7 @@ describe("German approval cards", () => {
       message,
     }));
 
-    expect(markup).toContain("Mochi möchte einen Befehl ausführen");
+    expect(markup).toContain("Darf Mochi einen Befehl ausführen?");
     expect(markup).toContain('aria-label="Details zur Freigabe"');
     expect(markup).toContain("Wartet unten auf deine Antwort");
   });
@@ -80,7 +80,7 @@ describe("German approval cards", () => {
     expect(markup).toContain('aria-label="Ausstehende Freigabe"');
     expect(markup).toContain("2 von 3");
     // the human title, not the old "command approval requested" label
-    expect(markup).toContain("Möchte einen Befehl ausführen");
+    expect(markup).toContain("Darf dieser Bot einen Befehl ausführen?");
     expect(markup).toContain('aria-label="Details zur Freigabe prüfen"');
   });
 
@@ -163,7 +163,7 @@ describe("Brazilian Portuguese approval cards", () => {
       message,
     }));
 
-    expect(markup).toContain("Mochi quer executar um comando");
+    expect(markup).toContain("Deixar Mochi executar um comando?");
     expect(markup).toContain('aria-label="Detalhes da aprovação"');
     expect(markup).toContain("Aguardando sua resposta abaixo");
   });
@@ -189,7 +189,7 @@ describe("Brazilian Portuguese approval cards", () => {
 
     expect(markup).toContain('aria-label="Aprovação pendente"');
     expect(markup).toContain("2 de 3");
-    expect(markup).toContain("Quer executar um comando");
+    expect(markup).toContain("Deixar este bot executar um comando?");
     expect(markup).toContain('aria-label="Detalhes da aprovação para revisar"');
   });
 

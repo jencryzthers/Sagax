@@ -694,6 +694,16 @@ export interface OptionCardData {
   expired?: boolean;
   /** Catalog key for held when it is one of the fixed notes. */
   heldCode?: string;
+  /** A permission card in plain words, made by shared/approval-describe.ts
+   * (the same generator writes the push): "Allow Cryptic to run a
+   * command?" and one line under it. Clients without a catalog show these. */
+  plain?: { title: string; line: string; risk?: "read" | "write" | "destructive" | "execute" };
+  /** The engine's own `<server>__<tool>` name when `tool` is a kind (ACP
+   * "other") or a bare name. */
+  mcpTool?: string;
+  /** When nobody answers by then, the server declines it and marks it
+   * expired (an AI client's hidden conversation, server/index.ts). */
+  expiresAt?: number;
   /** the narrow grant "always allow" remembers for a harness-native card. */
   allowKey?: string;
   /** the provider can remember an allow for the rest of its session. */
@@ -1005,6 +1015,8 @@ export type ServerFrame =
   | { kind: "bot"; bot: WireBot }
   | { kind: "group"; group: WireGroup }
   | { kind: "notify"; notification: Notification }
+  /** An approval was answered or expired: take its notification down. */
+  | { kind: "notify-withdraw"; threadId: string; requestId: string }
   | { kind: "group.deleted"; groupId: string }
   | { kind: "routine"; routine: Routine }
   | { kind: "routine.deleted"; routineId: string }

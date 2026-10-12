@@ -535,3 +535,25 @@ final class CardClientTests: XCTestCase {
         XCTAssertTrue(CardRequestStub.requests.isEmpty)
     }
 }
+
+final class ApprovalPlainWordsTests: XCTestCase {
+    private func card(_ json: String) throws -> OptionCard {
+        try JSONDecoder().decode(OptionCard.self, from: Data(json.utf8))
+    }
+
+    func testServerPlainTitleOnEnglishPhones() throws {
+        let ask = try card(#"{"title":"Approval needed","subtitle":"{\"command\":\"echo hi\"}","options":["Allow","Deny"],"requestId":"r1","tool":"other","plain":{"title":"Allow Cryptic to run a command?","line":"Runs an action.","risk":"execute"},"expiresAt":1760000000000}"#)
+        XCTAssertEqual(ApprovalHeading.plainTitle(ask, language: "en-CA"), "Allow Cryptic to run a command?")
+        XCTAssertEqual(ApprovalHeading.plainLine(ask, language: "en"), "Runs an action.")
+        XCTAssertEqual(ask.expiresAt, 1760000000000)
+        // English words never land in a French sentence
+        XCTAssertNil(ApprovalHeading.plainTitle(ask, language: "fr-CA"))
+    }
+
+    func testOlderServersAndProposalsKeepTheAppHeading() throws {
+        let old = try card(#"{"title":"Approval needed","subtitle":"pnpm test","options":["Allow","Deny"],"requestId":"r1","tool":"Bash"}"#)
+        XCTAssertNil(ApprovalHeading.plainTitle(old, language: "en"))
+        let routine = try card(#"{"title":"Routine","subtitle":"x","options":["Confirm"],"requestId":"r2","tool":"schedule_routine","routineRequest":{"operation":{"action":"create"}},"plain":{"title":"Allow X to schedule?","line":"y"}}"#)
+        XCTAssertNil(ApprovalHeading.plainTitle(routine, language: "en"))
+    }
+}

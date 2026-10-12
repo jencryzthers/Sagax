@@ -25,6 +25,7 @@ export interface NotifyNote {
   body: string;
   audience?: string[];
   avatarUrl?: string;
+  requestId?: string;
 }
 
 export interface FramePushDeps {
@@ -58,6 +59,7 @@ export function pushesForFrame(payload: Record<string, unknown>, deps: FramePush
       body: text(raw.body),
       ...(Array.isArray(raw.audience) ? { audience: raw.audience.filter((id): id is string => typeof id === "string") } : {}),
       ...(avatarUrl ? { avatarUrl } : {}),
+      ...(text(raw.requestId) ? { requestId: text(raw.requestId).slice(0, 128) } : {}),
     };
     const people = note.audience ?? deps.notificationPeople(note);
     const unique = [...new Set(people.map((id) => id.trim().toLowerCase()).filter(Boolean))];
@@ -74,6 +76,7 @@ export function pushesForFrame(payload: Record<string, unknown>, deps: FramePush
       ...(senderName ? { senderName } : {}),
       ...(senderId ? { senderId } : {}),
       ...(note.avatarUrl ? { avatarUrl: note.avatarUrl } : {}),
+      ...(note.requestId ? { requestId: note.requestId } : {}),
       at,
     }));
   }
