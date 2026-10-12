@@ -464,7 +464,11 @@ posixOnly("Perspicax console: the Sagax admin routes", () => {
     expect((await admin("GET", `routines/${routineId}`, ALICE)).body.routine.lastRun).toMatchObject({ status: "ok" });
     const paused = await admin("POST", `routines/${routineId}/pause`, ALICE, { paused: true });
     expect(paused.body.routine.enabled).toBe(false);
-    const audit = (await admin("GET", `audit?category=bot&target=${routineId}`, ALICE)).body.rows as Array<any>;
+    // the pause row can land a moment after its answer: read until it shows
+    const audit = await waitFor(async () => {
+      const rows = (await admin("GET", `audit?category=bot&target=${routineId}`, ALICE)).body.rows as Array<any>;
+      return rows.some((row) => row.action === "routine.pause") ? rows : null;
+    }, 10_000);
     expect(audit.map((row) => row.action)).toEqual(expect.arrayContaining(["routine.resume", "routine.run_now", "routine.pause"]));
     expect(audit.find((row) => row.action === "routine.run_now")).toMatchObject({ actor: { via: "console", principalId: ids.alice } });
   }, 60_000);
