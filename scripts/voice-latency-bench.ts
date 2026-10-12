@@ -125,6 +125,12 @@ export function defaultBenchTurns(real: boolean): number {
   return knob("BENCH_TURNS", real ? 20 : 12);
 }
 
+/** STT/TTS may use `auto`; a send's voiceCall.language must not (the mark
+ * parser rejects it and the turn never starts). */
+export function voiceCallMarkLanguage(lang: string): "en" | "fr" {
+  return lang === "fr" ? "fr" : "en";
+}
+
 /** Local spoken audio of `text` at 16 kHz, for real STT (macOS `say`). */
 export function spokenPcm(text: string, voice?: string): Float32Array {
   const dir = mkdtempSync(join(tmpdir(), "voice-bench-say-"));
@@ -501,6 +507,7 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
     live.on("partial", (text) => { if (diag.partials.at(-1) !== text) diag.partials.push(text); });
     live.on("rejected", (reason) => diag.rejects.push(reason));
     live.on("error", (reason) => diag.errors.push(reason));
+    let currentLang: "en" | "fr" = "en";
     live.on("utterance", (text, turnMetrics, turn) => {
       metrics = { ...metrics, ...turnMetrics } as never;
       current.sentAt = performance.now();
@@ -508,8 +515,11 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
       const utteranceId = (turn as { utteranceId?: string }).utteranceId ?? `bench-${Math.random().toString(36).slice(2, 12)}`;
       void api("POST", `/api/bots/${bot.id}/messages`, {
         threadId, text, sendId: utteranceId,
-        voiceCall: { callId, utteranceId, language: callLanguage, duplex: true, ...(turn.interrupted ? { interrupted: true } : {}), ...(turn.continues ? { continues: true } : {}) },
-      }).then((sent) => diag.sends.push({ status: sent.status, ok: sent.ok, superseded: sent.superseded }));
+        voiceCall: { callId, utteranceId, language: voiceCallMarkLanguage(currentLang), duplex: true, ...(turn.interrupted ? { interrupted: true } : {}), ...(turn.continues ? { continues: true } : {}) },
+      }).then((sent) => {
+        diag.sends.push({ status: sent.status, ok: sent.ok, superseded: sent.superseded });
+        benchLog(`send status=${sent.status} ok=${sent.ok}`);
+      });
     });
     live.on("interrupt-bot", () => void api("POST", `/api/bots/${bot.id}/interrupt`, { threadId }));
 
@@ -578,6 +588,7 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
       current = { text: "" };
       metrics = {};
       const q = transcripts[turn - 1]!;
+      currentLang = q.lang;
       benchLog(`turn ${turn}/${turns} ${q.lang} begin`);
       const establishedBefore = acpMethods(acpLog).filter((method) => ESTABLISH.has(method)).length;
       if (real) {

@@ -6,6 +6,7 @@
 import { writeFileSync } from "node:fs";
 import { expect, it } from "vitest";
 
+import { parseVoiceCallMeta } from "../server/voice-call-prompt.ts";
 import {
   BENCH_SAY_VOICE_FR,
   REAL_QUESTIONS,
@@ -13,6 +14,7 @@ import {
   realVoiceBench,
   runVoiceLatencyBench,
   summarize,
+  voiceCallMarkLanguage,
   type BenchEngine,
 } from "./voice-latency-bench.ts";
 
@@ -30,6 +32,16 @@ it("real bench is 20 turns mixing English and Québec French, short and long", (
   expect(REAL_QUESTIONS.some((q) => q.lang === "fr" && words(q) <= 5)).toBe(true);
   expect(REAL_QUESTIONS.some((q) => q.lang === "fr" && words(q) >= 10)).toBe(true);
   expect(BENCH_SAY_VOICE_FR).toMatch(/Amélie|Amelie/);
+});
+
+it("voice-call marks use en or fr, never auto (parseVoiceCallMeta rejects auto)", () => {
+  expect(parseVoiceCallMeta({ callId: "call-0123456789", language: "auto" })).toHaveProperty("error");
+  expect(voiceCallMarkLanguage("auto")).toBe("en");
+  for (const q of REAL_QUESTIONS) {
+    const language = voiceCallMarkLanguage(q.lang);
+    expect(language === "en" || language === "fr").toBe(true);
+    expect(parseVoiceCallMeta({ callId: "call-0123456789", language })).toMatchObject({ language });
+  }
 });
 
 const real = realVoiceBench();
