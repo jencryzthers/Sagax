@@ -111,6 +111,22 @@
         }
       }
     },
+    "%@'s browser opens in full screen when you take control.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@'s browser opens in full screen when you take control."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le navigateur de %@ s’ouvre en plein écran quand vous prenez le contrôle."
+          }
+        }
+      }
+    },
     "%@'s browser": {
       "localizations": {
         "en": {
@@ -9689,6 +9705,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Liberar o controle"
+          }
+        }
+      }
+    },
+    "Exit full screen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit full screen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quitter le plein écran"
           }
         }
       }
