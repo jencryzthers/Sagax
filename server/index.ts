@@ -630,6 +630,13 @@ import { createMailSettingsRoutes } from "./mail-routes.ts";
 import { createVoiceModeRoutes } from "./voice-mode.ts";
 import { parseVoiceCallMeta, voiceCallSection, voiceCallSteerPrompt, voiceCallTurnPrompt } from "./voice-call-prompt.ts";
 import {
+  VOICE_FIRST_SENTENCE_SYSTEM,
+  VoiceFirstSentenceJobs,
+  beginVoiceFirstSentence,
+  pickFastSentenceModel,
+  voiceOpenerFrameAllowed,
+} from "./voice-first-sentence.ts";
+import {
   admitDuplexSend,
   dropCancelledVoiceEvent,
   duplexEpoch,
@@ -8545,6 +8552,7 @@ function sseFrameFor(
   // a person's preferences reach that person's own devices only
   if (payload?.kind === "preferences" && !preferencesFrameAllowed(payload, client.viewerId)) return null;
   if ((payload?.kind === "nudge" || payload?.kind === "nudge.sent") && !nudgeFrameAllowed(payload, client.viewerId, localPrincipalId())) return null;
+  if (payload?.kind === "voice.opener" && !voiceOpenerFrameAllowed(payload, client.viewerId, localPrincipalId())) return null;
   if (payload?.kind === "presence.changed" && !presenceFrameAllowed(payload, client)) return null;
   // A read position in a conversation between two people follows both
   // people's "Send read receipts" choice (server/read-receipts.ts).
@@ -11979,6 +11987,7 @@ async function compactConversation(input: {
 /** Threads on a live voice call (server/voice-call-session.ts). */
 const voiceCalls = new VoiceCallSessions();
 const voiceWarmup = new VoiceCallWarmup();
+const voiceFirstSentences = new VoiceFirstSentenceJobs();
 /** Close the idle engine a call warmed. A process a turn already owns stays. */
 function releaseWarmEngine(threadId: string): void {
   const bot = store.botByThread(threadId);
@@ -12513,6 +12522,7 @@ async function startDuplexCallTurn(
     });
   }
   if (admit.action === "stop") {
+    voiceFirstSentences.cancel(threadId);
     discardSteeredQueue(current.id, threadId);
     if (admit.interrupt) await stopDirectThreadByPerson(current.id, threadId);
     return { ok: true as const, threadId, stopped: true as const };
@@ -12530,6 +12540,33 @@ async function startDuplexCallTurn(
     await waitForThreadIdle(() => threadBusy(botId, threadId), {
       capMs: Math.max(0, deadline - Date.now()),
     });
+  }
+  const openerId = voiceCall?.utteranceId;
+  const openerCall = voiceCall?.callId;
+  if (openerId && openerCall && (admit.action === "start" || admit.action === "replace")) {
+    const engine = registry.get(current.modelSelection.instanceId);
+    const audience = speakerPrincipal(speaker, effectiveBotOwner(current));
+    if (engine?.generateText && audience) {
+      const generate = engine.generateText.bind(engine);
+      beginVoiceFirstSentence({
+        jobs: voiceFirstSentences,
+        threadId,
+        callId: openerCall,
+        utteranceId: openerId,
+        text,
+        driverKind: engine.driverKind,
+        modelIds: engine.models.options.map((option) => option.id),
+        generate,
+        emit: (opener) => broadcast({
+          kind: "voice.opener",
+          audience,
+          threadId,
+          callId: openerCall,
+          utteranceId: openerId,
+          text: opener,
+        }),
+      });
+    }
   }
   while (true) {
     if (!epoch.isLatest(mine)) return { ok: true as const, threadId, superseded: true as const };
@@ -14947,7 +14984,7 @@ async function startTurn(
         // on a live call the engine process stays warm from turn to turn.
         // A warm uses the same flag so the first spoken turn's contract matches.
         ...(onCall || warmOnly ? { keepWarm: true } : {}),
-        ...(warmOnly ? { warmOnly: true, ...(opts?.warmSignal ? { warmSignal: opts.warmSignal } : {}) } : {}),
+        ...(warmOnly ? { warmOnly: true, ...(onCall ? { cachePrime: true } : {}), ...(opts?.warmSignal ? { warmSignal: opts.warmSignal } : {}) } : {}),
         startupRecovery: !warmOnly && cfg.automaticRecovery?.enabled === true &&
           (opts?.automaticRecoveryIndex ?? 0) < ((liveBot ?? bot).fallback?.length || (cfg.automaticRecovery.backup ? 1 : 0)),
         text: warmOnly ? "" : (engineCommand ? engineCommand.engineText : withRecalled(recalled, dispatchContext.turnText)),
@@ -14989,7 +15026,23 @@ async function startTurn(
       });
       if (warmOnly) {
         if (dispatch.cancelled || opts?.warmSignal?.aborted) instance.adapter.releaseWarmSession?.(threadId);
-        else warmOk = true;
+        else {
+          warmOk = true;
+          // The HTTP pool is already warm from GET /models. One 1-token
+          // completion on the opener's model opens the chat path and, when
+          // the prompt is long enough for the provider, writes the prefix.
+          // Not awaited: the call's first turn does not wait on it.
+          if (instance.driverKind === "grok" && instance.generateText) {
+            const fast = pickFastSentenceModel(instance.models.options.map((option) => option.id));
+            if (fast) {
+              void instance.generateText(".", {
+                system: VOICE_FIRST_SENTENCE_SYSTEM,
+                model: fast,
+                maxTokens: 1,
+              }).catch(() => undefined);
+            }
+          }
+        }
         return;
       }
       if (dispatch.cancelled) {

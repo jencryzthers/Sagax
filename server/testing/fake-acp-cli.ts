@@ -697,6 +697,9 @@ const bootAt = Date.now();
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 const envMs = (name: string) => Math.max(0, Number(process.env[name]) || 0);
 let voiceQueue: Promise<void> = Promise.resolve();
+/** Set once a cache-prime prompt has been answered, so the next spoken
+ * prompt can use FAKE_ACP_CACHED_FIRST_TOKEN_MS. Unset keeps the cold delay. */
+let voiceCachePrimed = false;
 async function voiceDelay(msg: any): Promise<void> {
   if (msg.method === "initialize") await pause(bootAt + envMs("FAKE_ACP_COLD_MS") - Date.now());
   else if (msg.method === "session/new" || msg.method === "session/load" || msg.method === "session/resume") await pause(envMs("FAKE_ACP_LOAD_MS"));
@@ -1012,9 +1015,23 @@ function handle(msg: any) {
             : { stopReason: "end_turn", _meta: { inputTokens: 10, outputTokens: 5 } },
         );
       };
+      const promptHead = String(msg.params?.prompt?.[0]?.text ?? "");
+      if (promptHead.includes("[sagax-cache-prime]")) {
+        voiceCachePrimed = true;
+        out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: "ok" } } } });
+        complete();
+        return;
+      }
       if (mode === "voice") {
         void (async () => {
-          await pause(envMs("FAKE_ACP_FIRST_TOKEN_MS"));
+          // After a cache prime, FAKE_ACP_CACHED_FIRST_TOKEN_MS (when set)
+          // stands in for a prefix-cache hit. Unset keeps the cold delay,
+          // including an explicit 0.
+          const cached = process.env.FAKE_ACP_CACHED_FIRST_TOKEN_MS;
+          const firstToken = voiceCachePrimed && cached !== undefined
+            ? envMs("FAKE_ACP_CACHED_FIRST_TOKEN_MS")
+            : envMs("FAKE_ACP_FIRST_TOKEN_MS");
+          await pause(firstToken);
           let reply = process.env.FAKE_ACP_VOICE_REPLY || "Sure. It is sunny in Montreal today, with a high of twenty degrees and a light wind. Do you want the forecast for tomorrow too?";
           const tool = process.env.FAKE_ACP_VOICE_TOOL;
           if (tool) {
