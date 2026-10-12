@@ -397,6 +397,9 @@ export interface Task {
   threadId: string;
   /** Internal routine execution; reachable through its run receipt, not history menus. */
   routineRunId?: string;
+  /** An AI client's hidden conversation (#291): the server lists it only
+   * while it is the open thread; never a dot, a preview or typing dots. */
+  hidden?: true;
   projectId?: string;
   title: string;
   createdAt: number;

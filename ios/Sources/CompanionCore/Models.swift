@@ -521,6 +521,13 @@ public struct BotTask: Codable, Hashable, Sendable {
     public var archivedAt: Double?
     /// Bot-only internal execution. Keep it addressable, but out of thread pickers.
     public var routineRunId: String?
+    /// An AI client's own conversation with this bot (#291): reachable from
+    /// a link or the bot's activity, never in the list, previews, unread or
+    /// notifications.
+    public var hidden: Bool? = nil
+    /// Out of the person's thread list: a routine run's execution or an AI
+    /// client's hidden conversation.
+    public var isHiddenFromPerson: Bool { routineRunId != nil || hidden == true }
     /// The person pinned this thread above the update-ordered list.
     /// The thread runs its bot's model (true) or one of its own (false);
     /// absent on an older server (#261).
@@ -781,7 +788,7 @@ public struct Bot: Codable, Hashable, Identifiable, Sendable {
 
     /// Routine results are ordinary tasks; only their per-run executions are hidden.
     public var visibleTasks: [BotTask] {
-        (tasks ?? []).filter { $0.routineRunId == nil }
+        (tasks ?? []).filter { !$0.isHiddenFromPerson }
     }
 
     /// Older computers only send the profile default. Newer ones snapshot

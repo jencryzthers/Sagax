@@ -13,7 +13,7 @@ import { settledChipLabel } from "./waiting-chip.ts";
 import { groupOwnerId, groupPatchOwnerRefusal, mayDeleteGroup, ownsGroup, type GroupActor } from "./group-ownership.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync, realpathSync, rmSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, rmSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { writeFileAtomic } from "./atomic.ts";
 import { rm as removeDirectory } from "node:fs/promises";
 import { hostname, userInfo } from "node:os";
@@ -812,6 +812,7 @@ import { OidcRelyingParty } from "./oidc-rp.ts";
 import type { BotAttachment, BotFileRoot } from "./org-admin-files.ts";
 import { ADMIN_ACTIVITY_CATEGORIES } from "./admin-activity.ts";
 import { createOrgMemberRoutes, type MemberPerson, type MemberRequest } from "./org-member-routes.ts";
+import { planHiddenAgentThreads } from "./agent-threads.ts";
 import { MemberLiveText } from "./member-live-text.ts";
 import { createOrgAdminRoutes, type AccessKind, type AdminApproval, type AdminEngine, type AdminBot, type AdminBotReach, type AdminPerson, type ApprovalAnswer, type ApprovalType, type OrgAdminViewer } from "./org-admin-routes.ts";
 import { RevocationQueue } from "./idp-revocations.ts";
@@ -5575,8 +5576,32 @@ const wireTask = (task: TaskRecord, botModel: ModelSelection): WireTask => {
   return asleep ? { ...coordinated, snoozedUntil } : coordinated;
 };
 
+/** The threads a client lists for a bot. An AI client's hidden
+ * conversation (#291) is left out unless it is the selected thread (someone
+ * opened it from the Activity panel or a link): no sidebar row, no preview,
+ * no dot, on every client including the ones built before `hidden`. */
+function listedTasks<T extends { threadId: string; hidden?: true }>(selectedThreadId: string | undefined, tasks: readonly T[]): T[] {
+  return tasks.filter((task) => task.hidden !== true || task.threadId === selectedThreadId);
+}
+/** The bot-wide activity a client shows (the sidebar's "Waiting for you…",
+ * "Working…" and typing dots): an AI client's hidden conversation does not
+ * count, unless it is the selected thread. Null when nothing is hidden. */
+function shownBotActivity(bot: BotRecord, include: (task: TaskRecord) => boolean = () => true): ReturnType<typeof store.activityOf> | null {
+  const tasks = store.tasks(bot.id);
+  if (!tasks.some((task) => task.hidden === true)) return null;
+  return store.activityOf(bot.id, (task) => include(task) && (task.hidden !== true || task.threadId === bot.threadId));
+}
+
 const wireBot = (bot: BotRecord): WireBot => {
-  const { resumeCursors: _resumeCursors, tasks, approvalGrant, lastProfileRequestId: _lastProfileRequestId, lastTeamSetupReceipt: _lastTeamSetupReceipt, packageBase: _packageBase, perspicax: _perspicax, assignedSkills: _assignedSkills, ...rest } = bot;
+  const { resumeCursors: _resumeCursors, tasks: allTasks, approvalGrant, lastProfileRequestId: _lastProfileRequestId, lastTeamSetupReceipt: _lastTeamSetupReceipt, packageBase: _packageBase, perspicax: _perspicax, assignedSkills: _assignedSkills, ...rest } = bot;
+  const tasks = allTasks ? listedTasks(bot.threadId, allTasks) : undefined;
+  // The aggregate only: a record projected onto one thread already carries
+  // that thread's own activity.
+  const shown = store.bot(bot.id) === bot ? shownBotActivity(bot) : null;
+  if (shown) {
+    rest.activity = shown.activity;
+    rest.busy = shown.busy;
+  }
   // An elevated selection is inert until the desktop confirms its exact
   // private reply. Every ordinary client sees the effective Ask state during
   // that two-phase window, never a grant that may still roll back.
@@ -5599,7 +5624,8 @@ function toolScopeForTurn(botId: string) {
 /** The correlated private response carries the requested value so Electron
  * can validate it before sending the confirmation that makes it effective. */
 const wireTrustedApprovalBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
-  const { resumeCursors: _resumeCursors, tasks, approvalGrant: _approvalGrant, lastProfileRequestId: _lastProfileRequestId, lastTeamSetupReceipt: _lastTeamSetupReceipt, packageBase: _packageBase, perspicax: _perspicax, assignedSkills: _assignedSkills, ...rest } = bot;
+  const { resumeCursors: _resumeCursors, tasks: allTasks, approvalGrant: _approvalGrant, lastProfileRequestId: _lastProfileRequestId, lastTeamSetupReceipt: _lastTeamSetupReceipt, packageBase: _packageBase, perspicax: _perspicax, assignedSkills: _assignedSkills, ...rest } = bot;
+  const tasks = allTasks ? listedTasks(bot.threadId, allTasks) : undefined;
   return { ...rest, approvalMode: approvalModeFor(rest), avatarUrl: rest.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map((task) => wireTask(task, bot.modelSelection)) } : {}) };
 };
 
@@ -6302,7 +6328,7 @@ const storedAvatarExists = (avatarUrl: string): boolean =>
 const publicBot = (bot: NonNullable<ReturnType<typeof store.bot>>, viewer?: ApprovalViewer) => ({
   ...wireBot(bot),
   ...(viewer ? messagePage(bot.threadId, DEFAULT_PAGE, null, viewer) : transcriptPage(bot.threadId, DEFAULT_PAGE)),
-  tasks: store.tasks(bot.id).map((task) => wireTask(task, bot.modelSelection)),
+  tasks: listedTasks(bot.threadId, store.tasks(bot.id)).map((task) => wireTask(task, bot.modelSelection)),
 });
 const publicBotQueuedMessages = () => queuedSteerSnapshot((botId, threadId) => Boolean(store.taskByThread(botId, threadId)));
 
@@ -8796,11 +8822,21 @@ const providerLabel = (provider: string): string => {
 /** Put a notification on the wire. Clients decide what to do with it — a
  * desktop notification now, a push to a paired phone later. */
 function notify(notification: Notification | null) {
+  // An AI client's hidden conversation (#291) never buzzes the person: the
+  // client that started it reads the answer (and asks for any approval).
+  if (notification && notificationInHiddenThread(notification.threadId)) return;
   // the conversation on a live voice call is heard, not buzzed (notify.ts)
   if (notification && quietForCall(notification, lastPersonMessage(notification.threadId), Date.now(), Boolean(voiceCalls.active(notification.threadId)))) return;
   // nested rather than spread — the frame's own `kind` names the frame,
   // exactly like {kind:"message", message} and {kind:"bot", bot}
   if (notification) broadcast({ kind: "notify", notification });
+}
+
+/** Whether a notification belongs to an AI client's hidden conversation. */
+function notificationInHiddenThread(threadId: string | undefined): boolean {
+  if (!threadId) return false;
+  const bot = store.botByThread(threadId);
+  return Boolean(bot && store.taskByThread(bot.id, threadId)?.hidden === true);
 }
 
 /** The person's latest message in a thread (a call turn carries voiceCall). */
@@ -22344,7 +22380,10 @@ function routeThreadId(bot: BotRecord, rawThreadId: unknown, action: ThreadActio
  * threads (and the bot's rooms), never over someone else's private thread. */
 function viewerBotActivity(bot: BotRecord, viewerId: string): ReturnType<typeof store.activityOf> {
   const owner = effectiveBotOwner(bot);
-  return store.activityOf(bot.id, (task) => ownsThread(viewerId, task, owner));
+  const selected = viewerSelections.get(selectionKey(bot.id, viewerId));
+  // An AI client's hidden conversation (#291) is not the person's to wait on
+  // or watch, unless they opened it.
+  return store.activityOf(bot.id, (task) => ownsThread(viewerId, task, owner) && (task.hidden !== true || task.threadId === selected));
 }
 /** A bot (wire shape) as one viewer receives it: their threads only, their
  * thread selected, nobody else's transcript (thread-privacy.ts). */
@@ -22390,6 +22429,24 @@ function threadKeyedForViewer<T>(entries: Record<string, T>, viewerId: string | 
     const bot = store.botByThread(threadId);
     return !bot || botThreadReadable(bot, threadId, viewerId, "thread.stream");
   }));
+}
+/** Once (marker file `agent-threads-hidden.v1`): the threads an AI client
+ * opened with `newThread` before #291 become hidden conversations, and are
+ * no longer unread (server/agent-threads.ts). Counts only in the log. */
+function hideEarlierAgentThreads(): void {
+  if (IDENTITY.kind !== "perspicax") return;
+  const marker = join(DATA_DIR, "agent-threads-hidden.v1");
+  if (existsSync(marker)) return;
+  try {
+    const to = new Date();
+    const rows = readAdminActivityRange(DATA_DIR, { from: new Date(to.getTime() - 120 * 24 * 60 * 60_000), to });
+    const plan = planHiddenAgentThreads(rows, (botId, threadId) => store.taskByThread(botId, threadId) ?? undefined);
+    for (const entry of plan) store.setTaskHidden(entry.botId, entry.threadId, true);
+    writeFileSync(marker, `${new Date().toISOString()} ${plan.length}\n`, { mode: 0o600 });
+    console.log(`[agent-threads] ${plan.length} AI client thread(s) hidden`);
+  } catch (error) {
+    console.warn(`[agent-threads] could not hide earlier AI client threads: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 /** One-time (config.privateThreadsMigratedAt): every bot thread written
  * before private threads gets its owner (thread-privacy.ts planThreadOwners).
@@ -25327,6 +25384,14 @@ const orgMember = createOrgMemberRoutes({
     return `${origin}/#thread=${encodeURIComponent(threadId)}${bot ? `&bot=${encodeURIComponent(bot)}` : ""}`;
   },
   botOfThread: (threadId) => store.botByThread(threadId)?.id ?? null,
+  hiddenThreadOf: (botId, principalId) => {
+    const person = principalId.trim().toLowerCase();
+    const at = (task: TaskRecord) => task.updatedAt ?? task.createdAt;
+    const open = store.tasks(botId)
+      .filter((task) => task.hidden === true && task.archivedAt === undefined && !task.closedBy && task.ownerPrincipalId === person)
+      .sort((a, b) => at(b) - at(a));
+    return open[0]?.threadId ?? null;
+  },
   approvalAnswerer: (threadId, requestId) => {
     const message = store.messagesFor(threadId).find((row) => row.card?.requestId === requestId);
     if (!message?.card) return null;
@@ -29666,7 +29731,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           ...wireBot(record),
           // busy while any of the viewer's threads works, not only the one shown
           ...(viewerId && privateThreads() ? viewerBotActivity(bot, viewerId) : {}),
-          tasks: threadsShownTo(bot, store.tasks(bot.id), viewerId).map((task) => wireTask(task, bot.modelSelection)),
+          tasks: listedTasks(record.threadId, threadsShownTo(bot, store.tasks(bot.id), viewerId)).map((task) => wireTask(task, bot.modelSelection)),
           ...messagePage(record.threadId, limit, null, viewerForApproval(auth)),
         }, visible);
       });
@@ -33925,20 +33990,25 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (body.projectId !== undefined && (typeof body.projectId !== "string" || !store.project(bot.id, body.projectId))) {
         return json(res, 400, { error: "projectId must belong to this bot" });
       }
+      if (body.hidden !== undefined && body.hidden !== true) return json(res, 400, { error: "hidden must be true when given" });
+      // An AI client's hidden conversation (#291, the member API's
+      // sagax_send): started beside the person's chat, never selected, so
+      // nothing on their screens moves to it.
+      const hidden = body.hidden === true;
       // Organization server: the new thread is its creator's, and only their
       // selection moves (the bot's own selection is its owner's).
       const creator = scopedThreadViewer();
       const ownerCreates = !creator || viewerBotLevel(auth, bot) === "owner";
-      const task = store.createTask(bot.id, typeof body.title === "string" ? body.title : undefined, ownerCreates, body.projectId, undefined, body.approvalMode, creator && isPrincipalId(creator) ? creator : undefined);
+      const task = store.createTask(bot.id, typeof body.title === "string" ? body.title : undefined, ownerCreates && !hidden, body.projectId, undefined, body.approvalMode, creator && isPrincipalId(creator) ? creator : undefined, undefined, hidden);
       if (!task) return json(res, 500, { error: "couldn't create that task" });
       // Settings > Bot > Auto-review: a new conversation starts reviewed.
       if (body.approvalMode === undefined) applyAutoReviewDefault(auth, bot.id, task.threadId);
-      if (creator) selectViewerThread(bot.id, creator, task.threadId);
+      if (creator && !hidden) selectViewerThread(bot.id, creator, task.threadId);
       // Who opened it decides who may answer its cards on a shared workspace.
       if (auth.kind === "session") threadStarters.set(task.threadId, actorKey(auth));
       // A non-owner's new thread is not the bot's selection: answer with
       // the bot as seen from that thread.
-      const fresh = publicBot(ownerCreates ? store.bot(bot.id)! : store.projectBotForTask(bot.id, task.threadId) ?? store.bot(bot.id)!);
+      const fresh = publicBot(ownerCreates && !hidden ? store.bot(bot.id)! : store.projectBotForTask(bot.id, task.threadId) ?? store.bot(bot.id)!);
       return json(res, 201, { bot: projectBotTranscript(fresh, viewerForApproval(auth)), task: wireTask(store.taskByThread(bot.id, task.threadId) ?? task, store.bot(bot.id)!.modelSelection) });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/tasks\/([\w-]+)$/);
@@ -33961,7 +34031,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         ? store.projectBotForTask(bot.id, m[2])
         : store.switchTask(bot.id, m[2]);
       if (!switched) return json(res, 404, { error: "no such task" });
-      const switchedSettings = { ...wireBot(switched), tasks: store.tasks(switched.id).map((task) => wireTask(task, switched.modelSelection)) };
+      const switchedSettings = { ...wireBot(switched), tasks: listedTasks(switched.threadId, store.tasks(switched.id)).map((task) => wireTask(task, switched.modelSelection)) };
       // "0" is settings only, a positive page is a bounded transcript, and no
       // parameter is the whole thread — the one branch that materialises it.
       // Search results land through that branch (src/lib/focus-message.ts):
@@ -36639,6 +36709,7 @@ restoreChannelMessages();
 // Organization server, once: every bot thread from before private threads
 // gets its owner (server/thread-privacy.ts), before anyone can read one.
 migrateThreadOwners();
+hideEarlierAgentThreads();
 
 server.listen(PORT, "127.0.0.1", async () => {
   companyRuntimeReady();
