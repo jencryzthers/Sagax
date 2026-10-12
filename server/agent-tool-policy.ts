@@ -19,6 +19,15 @@ export const READ_ONLY_AGENT_TOOL_NAMES: ReadonlySet<string> = new Set([
   "skills_list",
   "workspace_read",
   "workspace_search",
+  // The agent-to-agent API's reads (server/agent-api.ts AGENT_TOOL_POLICY).
+  "list_agents",
+  "find_agents",
+  "await_turn",
+  "read_transcript",
+  "read_transcript_page",
+  "read_latest_page",
+  "read_latest_page_with_threads",
+  "read_transcript_cold",
 ]);
 
 const READ_ONLY_ANNOTATIONS = Object.freeze({

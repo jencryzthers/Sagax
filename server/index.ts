@@ -19,7 +19,7 @@ import { rm as removeDirectory } from "node:fs/promises";
 import { hostname, userInfo } from "node:os";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { ToolResults, TOOL_RESULT_MAX_CHARS } from "./tool-results.ts";
-import { extname, join, sep } from "node:path";
+import { basename, extname, join, sep } from "node:path";
 import { authorizeExternalRuntime, externalRuntimeIsActive, type ExternalRuntimeGrant } from "./external-runtime.ts";
 
 import { z } from "zod";
@@ -814,6 +814,8 @@ import { OidcRelyingParty } from "./oidc-rp.ts";
 import type { BotAttachment, BotFileRoot } from "./org-admin-files.ts";
 import { ADMIN_ACTIVITY_CATEGORIES } from "./admin-activity.ts";
 import { createOrgMemberRoutes, type MemberPerson, type MemberRequest } from "./org-member-routes.ts";
+import { internalAgentApiTool } from "./routes/agent-api-internal.ts";
+import { createAgentApi, refuse as agentRefuse, SEND_FILE_MAX_BYTES as AGENT_SEND_FILE_MAX_BYTES, type AgentCaller, type AgentScope, type AgentSummary, type AuditEntry, type FileInput, type Refusal, type TurnState } from "./agent-api.ts";
 import { planHiddenAgentThreads } from "./agent-threads.ts";
 import { MemberLiveText } from "./member-live-text.ts";
 import { createOrgAdminRoutes, type AccessKind, type AdminApproval, type AdminEngine, type AdminBot, type AdminBotReach, type AdminPerson, type ApprovalAnswer, type ApprovalType, type OrgAdminViewer } from "./org-admin-routes.ts";
@@ -3336,6 +3338,9 @@ function agentsIntegration(
       SAGAX_ROOM_TURN: roomCoordination ? "1" : "0",
       SAGAX_OWN_THREAD_CREATION: ownThreadCreation ? "1" : "0",
       SAGAX_SKILL_AUTHORING_ENABLED: skillAuthoring ? "1" : "0",
+      // The agent-to-agent tools (server/agent-api.ts) in direct turns; a
+      // room coordinates with coordinate_bots instead. The route re-checks.
+      SAGAX_AGENT_API: !roomCoordination && store.bot(botId) && agentApiMounted(store.bot(botId)!) ? "1" : "0",
       SAGAX_MEMORY_ENABLED: store.bot(botId)?.memoryEnabled === false ? "0" : "1",
       // A room turn in a group whose shared memory is on gets
       // group_memory_update (server/group-memory.ts); the route re-checks.
@@ -25442,7 +25447,311 @@ async function performAsMember(person: MemberPerson, request: MemberRequest): Pr
     sessions.revoke(opened.session.id);
   }
 }
+// ── agent-to-agent API (docs/agent-api.md) ────────────────────────────
+// Ten tools with Grok Bot's semantics, for a bot (its agents MCP server,
+// /api/internal/agent-api/<tool>) and for a person's AI client (the member
+// API, /api/org/member/agents/<tool>). Every send lands in a hidden
+// conversation (#291, #302) the caller owns. server/agent-api.ts is the core.
+const AGENT_API_KEY_FILE = join(DATA_DIR, "agent-api.key");
+function agentApiSecret(): Buffer {
+  try {
+    const existing = readFileSync(AGENT_API_KEY_FILE);
+    if (existing.length >= 32) return existing;
+  } catch {
+    // first boot: make one below
+  }
+  const key = randomBytes(32);
+  mkdirSync(DATA_DIR, { recursive: true });
+  writeFileSync(AGENT_API_KEY_FILE, key, { mode: 0o600 });
+  return key;
+}
+/** Optional per-bot scope grants: DATA_DIR/agent-api-grants.json
+ * {"bots": {"<botId>": ["agents.read", "agents.send"]}}. A bot not listed
+ * holds read and send; a Primary Bot also create. An empty list turns the
+ * tools off for that bot. */
+const AGENT_API_GRANTS_FILE = join(DATA_DIR, "agent-api-grants.json");
+function agentApiBotScopes(bot: BotRecord): Set<AgentScope> {
+  const fallback: AgentScope[] = bot.chiefOfStaff && !ownerBotsReadOnly(bot) ? ["agents.read", "agents.send", "agents.create"] : ["agents.read", "agents.send"];
+  try {
+    const parsed = JSON.parse(readFileSync(AGENT_API_GRANTS_FILE, "utf8")) as { bots?: Record<string, unknown> };
+    const listed = parsed.bots?.[bot.id];
+    if (Array.isArray(listed)) {
+      const scopes = listed.filter((scope): scope is AgentScope => scope === "agents.read" || scope === "agents.send" || scope === "agents.create");
+      // create stays a Primary Bot's, whatever a file says
+      return new Set(scopes.filter((scope) => scope !== "agents.create" || (bot.chiefOfStaff && !ownerBotsReadOnly(bot))));
+    }
+  } catch {
+    // no file, or unreadable: the defaults
+  }
+  return new Set(fallback);
+}
+/** Whether the agents tools are mounted for this bot (presentation only;
+ * every call is checked again). */
+function agentApiMounted(bot: BotRecord): boolean {
+  return agentApiBotScopes(bot).size > 0;
+}
+function agentTurnState(agentId: string, threadId: string): TurnState {
+  const task = store.taskByThread(agentId, threadId);
+  if (task?.activity === "waiting-on-you") return "waiting";
+  if (threadBusy(agentId, threadId)) return "running";
+  if (queuedThreadPosition(agentId, threadId) !== null || roomHandoffs.activeDirect(threadId)) return "queued";
+  return "idle";
+}
+function agentSummary(bot: BotRecord): AgentSummary {
+  return {
+    id: bot.id,
+    name: bot.name,
+    description: (bot.description || bot.title || "").slice(0, 600),
+    status: bot.busy || store.tasks(bot.id).some((task) => threadBusy(bot.id, task.threadId)) ? "running" : "idle",
+  };
+}
+/** The bots a bot may reach: its team, the teams it was allowed, its allow-list. */
+function agentPeersOf(from: BotRecord): BotRecord[] {
+  return reachablePeers(store.bots, from).filter((peer) => !peer.hidden && peerInScope(from, peer) && canAccessTeam(from, peer.section) && peerAllowed(from, peer));
+}
+const agentApiCallerBot = (caller: AgentCaller) => (caller.kind === "bot" ? store.bot(caller.id) ?? null : null);
+/** One workspace-relative file of a bot caller, resolved inside one of its roots. */
+function agentApiSourceFile(from: BotRecord, sourceThreadId: string, relative: string): { path: string; bytes: number } | Refusal {
+  const roots = messageFileRootsForThread(from.id, sourceThreadId).filter((root) => root !== ATTACHMENTS_DIR);
+  for (const root of roots) {
+    const candidate = join(root, relative);
+    try {
+      const real = realpathSync(candidate);
+      const realRoot = realpathSync(root);
+      if (real !== realRoot && !real.startsWith(`${realRoot}${sep}`)) continue;
+      const info = statSync(real);
+      if (!info.isFile()) continue;
+      if (info.size > AGENT_SEND_FILE_MAX_BYTES) return agentRefuse(413, "file_too_large", `${relative} is larger than 25 MiB.`);
+      return { path: real, bytes: info.size };
+    } catch {
+      // not in this root
+    }
+  }
+  return agentRefuse(404, "file_not_found", `No file ${relative} in your workspace.`);
+}
+/** Puts the files in the agent's workspace (inbox/<sender>/) and answers
+ * the relative paths the prompt names. */
+function agentApiStageFiles(caller: AgentCaller, target: BotRecord, files: FileInput[]): string[] | Refusal {
+  if (!files.length) return [];
+  const from = agentApiCallerBot(caller);
+  const slug = (caller.name || caller.id).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "agent";
+  const folder = join(workspaceDir(target.id), "inbox", slug);
+  const sources: Array<{ name: string; read: () => Buffer }> = [];
+  for (const file of files) {
+    const name = basename(file.path) || "file";
+    if (file.content_base64 !== undefined) {
+      const bytes = Buffer.from(file.content_base64, "base64");
+      if (bytes.length > AGENT_SEND_FILE_MAX_BYTES) return agentRefuse(413, "file_too_large", `${file.path} is larger than 25 MiB.`);
+      sources.push({ name, read: () => bytes });
+    } else if (from && caller.sourceThreadId) {
+      const found = agentApiSourceFile(from, caller.sourceThreadId, file.path);
+      if ("code" in found) return found;
+      sources.push({ name, read: () => readFileSync(found.path) });
+    } else {
+      return agentRefuse(400, "bad_request", `${file.path}: send the file's bytes (content_base64).`);
+    }
+  }
+  mkdirSync(folder, { recursive: true });
+  const written: string[] = [];
+  for (const source of sources) {
+    let name = source.name;
+    for (let n = 2; existsSync(join(folder, name)); n++) name = `${source.name.replace(/(\.[^.]*)?$/, `-${n}$1`)}`;
+    writeFileSync(join(folder, name), source.read());
+    written.push(["inbox", slug, name].join("/"));
+  }
+  return written;
+}
+const agentPromptWithFiles = (prompt: string, staged: string[]) =>
+  staged.length
+    ? `${prompt}\n\n[Files sent with this message, now in your Sagax workspace folder: ${staged.join(", ")}. Read them with your host file tools; if you work on a VM or cloud computer, they are not there until you copy them over (read here, then write them there).]`
+    : prompt;
+/** A bot's prompt to a peer's hidden conversation: runs now when the peer
+ * has a free slot, else waits in its queue; the line records the sender. */
+async function startAgentPrompt(from: BotRecord, target: BotRecord, threadId: string, text: string, sourceThreadId: string, depth: number): Promise<{ messageId: string | null } | Refusal> {
+  const unattended = isUnattended(from.id, sourceThreadId);
+  const peerAsk = { botId: from.id, name: from.name, unattended: unattended || undefined };
+  const speaker = peerSpeaker(from.id, sourceThreadId);
+  const decision = admit("opened-thread", {}, { atCapacity: botAtThreadCapacity(target.id), groupTurn: Boolean(activeGroupTurnForBot(target.id)) });
+  if (decision.action === "queue") {
+    queueSteeredMessage(target.id, threadId, text, { reason: decision.reason, unattended, peerAsk, speaker });
+    return { messageId: null };
+  }
+  const before = new Set(store.messagesFor(threadId).map((message) => message.id));
+  try {
+    await startTurn(target.id, text, { threadId, unattended, peerAsk, speaker, commsDepth: depth + 1 });
+  } catch (error) {
+    return agentRefuse(409, "not_started", `The prompt could not start: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const posted = store.messagesFor(threadId).find((message) => !before.has(message.id) && message.role === "user");
+  return { messageId: posted?.id ?? null };
+}
+/** The conversations of an agent a person may read: their own (hidden ones
+ * included), and every one when the bot is theirs. */
+function personAgentThreads(principalId: string, agent: BotRecord): TaskRecord[] {
+  const ownsBot = approvalOwnerId(agent) === principalId;
+  return store.tasks(agent.id).filter((task) => task.ownerPrincipalId === principalId || (ownsBot && !task.ownerPrincipalId));
+}
+function agentApiAudit(caller: AgentCaller, entry: AuditEntry): void {
+  const target = entry.agentId ? store.bot(entry.agentId) : undefined;
+  appendAdminAction(DATA_DIR, {
+    category: "client",
+    action: `agents.${entry.tool}`,
+    ...(entry.agentId ? { target: { kind: "bot", id: entry.agentId, ...(target ? { name: target.name } : {}) } } : {}),
+    after: { outcome: entry.outcome, ...(entry.code ? { code: entry.code } : {}), ...(caller.kind === "bot" ? { callerBotId: caller.id, callerBotName: caller.name } : {}), ...entry.detail },
+    actor: caller.kind === "person"
+      ? { kind: "person", principalId: caller.id, via: caller.via === "console" ? "console" : "perspicax-mcp" }
+      : { kind: "worker" },
+  });
+}
+const agentApi = createAgentApi({
+  secret: agentApiSecret(),
+  audit: agentApiAudit,
+  async agents(caller) {
+    const from = agentApiCallerBot(caller);
+    if (caller.kind === "bot") return from ? agentPeersOf(from).map(agentSummary) : [];
+    const listed = await performAsMember(memberForAgentCaller(caller), { method: "GET", path: "/api/bots", query: { messages: "0" } });
+    if (listed.status < 200 || listed.status >= 300) return [];
+    const ids = new Set(((listed.body as { bots?: Array<{ id?: unknown }> })?.bots ?? []).map((bot) => String(bot.id ?? "")));
+    return store.bots.filter((bot) => ids.has(bot.id) && !bot.hidden).map(agentSummary);
+  },
+  async createAgent(caller, input) {
+    if (caller.kind === "person") {
+      const created = await performAsMember(memberForAgentCaller(caller), { method: "POST", path: "/api/bots", body: { name: input.name, ...(input.description ? { description: input.description } : {}) } });
+      const body = (created.body ?? {}) as { bot?: { id?: unknown }; id?: unknown; error?: unknown; message?: unknown };
+      const id = String(body.bot?.id ?? body.id ?? "");
+      if (created.status >= 300 || !store.bot(id)) return agentRefuse(created.status >= 400 ? created.status : 502, "not_created", String(body.message ?? body.error ?? "The agent could not be created."));
+      return agentSummary(store.bot(id)!);
+    }
+    const chief = agentApiCallerBot(caller);
+    if (!chief || !chief.chiefOfStaff) return agentRefuse(403, "forbidden_scope", "Only a Primary Bot can create agents.");
+    if (ownerBotsReadOnly(chief)) return agentRefuse(403, "bots_read_only", BOTS_READ_ONLY.message);
+    if (store.bots.length >= MAX_WORKSPACE_BOTS) return agentRefuse(409, "limit", `This workspace is limited to ${MAX_WORKSPACE_BOTS} bots.`);
+    let selection = await defaultSelection();
+    if (chief.modelSelection.auto === true && selection.instanceId) selection = { ...selection, auto: true };
+    if (hostedModels && !hostedModels.allows(selection)) return agentRefuse(400, "model", hostedModels.error());
+    const bot = store.createBot({
+      name: input.name,
+      description: input.description,
+      modelSelection: selection,
+      section: chief.section,
+      ...(recordedBotOwner(chief) ? { ownerUserId: recordedBotOwner(chief) } : {}),
+      ...(chief.visibility ? { visibility: chief.visibility } : {}),
+    });
+    return agentSummary(bot);
+  },
+  threads(caller, agentId) {
+    const agent = store.bot(agentId);
+    if (!agent) return [];
+    const tasks = caller.kind === "bot"
+      ? store.tasks(agentId).filter((task) => task.openedBy?.botId === caller.id)
+      : personAgentThreads(caller.id, agent);
+    return tasks.map((task) => ({ threadId: task.threadId, title: task.title, hidden: task.hidden === true }));
+  },
+  messages(threadId) {
+    return store.messagesFor(threadId).map((message) => ({
+      id: message.id,
+      role: message.role,
+      kind: message.kind,
+      text: message.text,
+      at: message.at,
+      sender: message.from?.name ?? message.peerAsk?.name ?? message.sender?.name ?? null,
+      tool: message.tool ? { name: message.tool.name, ok: message.tool.ok } : null,
+      attachments: (message.attachments ?? []).map((file) => ({ name: file.kind === "file" ? file.name : undefined, path: file.path })),
+    }));
+  },
+  turnState: agentTurnState,
+  async conversation(caller, agentId) {
+    const target = store.bot(agentId);
+    if (!target) return agentRefuse(404, "unknown_agent", "No such agent.");
+    const newest = (tasks: TaskRecord[]) => tasks.filter((task) => task.hidden === true && task.archivedAt === undefined && !task.closedBy)
+      .sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt))[0];
+    if (caller.kind === "person") {
+      const existing = newest(store.tasks(agentId).filter((task) => task.ownerPrincipalId === caller.id));
+      if (existing) return { threadId: existing.threadId };
+      const created = await performAsMember(memberForAgentCaller(caller), { method: "POST", path: `/api/bots/${encodeURIComponent(agentId)}/tasks`, body: { hidden: true, title: "AI client" } });
+      const threadId = (created.body as { task?: { threadId?: unknown } })?.task?.threadId;
+      if (created.status >= 300 || typeof threadId !== "string") return agentRefuse(created.status >= 400 ? created.status : 502, "not_started", "A conversation with this agent could not be opened.");
+      return { threadId };
+    }
+    const from = agentApiCallerBot(caller);
+    if (!from || !caller.sourceThreadId) return agentRefuse(403, "forbidden", "This bot cannot open a conversation.");
+    const existing = newest(store.tasks(agentId).filter((task) => task.openedBy?.botId === from.id));
+    if (existing) return { threadId: existing.threadId };
+    const task = store.createTask(target.id, `@${from.name} · agent`, false, undefined, { botId: from.id, name: from.name, at: Date.now() }, undefined,
+      openedThreadOwner(from, caller.sourceThreadId, target), undefined, true);
+    if (!task) return agentRefuse(500, "server_error", "The conversation could not be created.");
+    threadStarters.set(task.threadId, openerFrom(caller.sourceThreadId));
+    applyDelegatedLevel(from, caller.sourceThreadId, target, task.threadId);
+    return { threadId: task.threadId };
+  },
+  async post(caller, agentId, threadId, prompt, files) {
+    const target = store.bot(agentId);
+    if (!target) return agentRefuse(404, "unknown_agent", "No such agent.");
+    if (caller.kind === "person") {
+      const staged = agentApiStageFiles(caller, target, files);
+      if ("code" in staged) return staged;
+      const sent = await performAsMember(memberForAgentCaller(caller), { method: "POST", path: `/api/bots/${encodeURIComponent(agentId)}/messages`, body: { text: agentPromptWithFiles(prompt, staged), threadId } });
+      const body = (sent.body ?? {}) as { message?: { id?: unknown }; error?: unknown; message_?: unknown };
+      if (sent.status >= 300) return agentRefuse(sent.status >= 400 ? sent.status : 502, "not_sent", String((sent.body as { error?: unknown })?.error ?? "The prompt could not be sent."));
+      return { messageId: typeof body.message?.id === "string" ? body.message.id : null };
+    }
+    const from = agentApiCallerBot(caller);
+    const capability = caller.depth;
+    if (!from || !caller.sourceThreadId || capability === undefined) return agentRefuse(403, "forbidden", "This bot cannot send from here.");
+    if (capability >= MAX_COMMS_DEPTH) return agentRefuse(409, "too_deep", "Agent chains are limited to one hop: a prompt you received from another agent cannot be passed on. Do the work here.");
+    // The Sagax approval gate: a bot whose peer contact needs review asks first.
+    if (peerReviewRequired(from, caller.sourceThreadId)) {
+      const verdict = await requestPeerApproval(approvalBus, from, target, prompt, "delegate_bot", caller.sourceThreadId);
+      if (verdict !== "allow") return agentRefuse(403, "not_approved", `The person did not approve this prompt (${String(verdict)}). Do not retry it.`);
+      if (!store.bot(from.id) || !store.bot(target.id) || !agentPeersOf(store.bot(from.id)!).some((peer) => peer.id === target.id)) {
+        return agentRefuse(403, "unknown_agent", "That agent is no longer reachable.");
+      }
+    }
+    const staged = agentApiStageFiles(caller, target, files);
+    if ("code" in staged) return staged;
+    return startAgentPrompt(from, target, threadId, agentPromptWithFiles(prompt, staged), caller.sourceThreadId, capability);
+  },
+  async interrupt(agentId, threadId) {
+    await interruptDirectThread(agentId, threadId);
+  },
+  notify(caller, agent, result) {
+    if (caller.kind !== "bot" || !caller.sourceThreadId) return;
+    const source = store.bot(caller.id);
+    const target = store.bot(agent.id);
+    if (!source || !store.taskByThread(source.id, caller.sourceThreadId)) return;
+    const text = result.finished
+      ? (result.reply ? `@${agent.name} finished the turn you sent with send_prompt:\n\n${result.reply}` : `@${agent.name} finished the turn you sent with send_prompt, without text.`)
+      : `@${agent.name} is waiting for a person to answer an approval before it can go on (send_prompt).`;
+    store.appendMessage(caller.sourceThreadId, { role: "bot", kind: "text", text, ...(target ? { from: { botId: target.id, name: target.name, color: target.color } } : {}) });
+    if (result.finished) wakeDelegationSource(source, caller.sourceThreadId, agent.name);
+  },
+});
+function memberForAgentCaller(caller: AgentCaller): MemberPerson {
+  return {
+    principalId: caller.id,
+    sub: caller.sub ?? "",
+    name: caller.name,
+    admin: caller.admin === true,
+    actor: caller.via === "console" ? "console" : "perspicax-mcp",
+  };
+}
+/** A person's scopes from their permissions (shared/permissions.ts). */
+function agentScopesFor(person: MemberPerson): Set<AgentScope> {
+  const held = person.admin ? { admin: true, permissions: [] } : principalPermissions(person.principalId);
+  const scopes = new Set<AgentScope>();
+  if (can(held, "clients.botsRead")) scopes.add("agents.read");
+  if (can(held, "clients.botsMessage")) scopes.add("agents.send");
+  if (can(held, "clients.agentsCreate")) scopes.add("agents.create");
+  return scopes;
+}
+function agentApiForMember(person: MemberPerson, tool: string, args: unknown, signal?: AbortSignal) {
+  return agentApi.call({
+    kind: "person", id: person.principalId, name: person.name, sub: person.sub, admin: person.admin,
+    scopes: agentScopesFor(person), via: person.actor === "console" ? "console" : "perspicax-mcp",
+  }, tool, args, signal);
+}
 const orgMember = createOrgMemberRoutes({
+  agentApi: agentApiForMember,
   identity: IDENTITY.kind,
   issuer: IDENTITY.kind === "perspicax" ? IDENTITY.issuer : "",
   publicOrigin: () => (IDENTITY.kind === "perspicax" ? IDENTITY.publicOrigin.replace(/\/+$/, "") : null),
@@ -26456,6 +26765,27 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         task: store.taskByThread(internalSender.id, internalCapability.threadId),
         threadId: internalCapability.threadId,
       });
+      // The agent-to-agent API (server/agent-api.ts): the bot is the caller,
+      // reaching the peers its team and allow-list let it reach.
+      const agentApiTool = internalAgentApiTool(method, path);
+      if (agentApiTool) {
+        const body = await readInternalBody();
+        if (!connectorThread(internalSender.id, internalCapability.threadId)) {
+          return json(res, 403, { error: "source conversation does not belong to sender" });
+        }
+        const aborted = new AbortController();
+        res.on("close", () => aborted.abort());
+        const answer = await agentApi.call({
+          kind: "bot",
+          id: internalSender.id,
+          name: internalSender.name,
+          scopes: agentApiBotScopes(internalSender),
+          via: "agents-mcp",
+          sourceThreadId: internalCapability.threadId,
+          depth: internalCapability.depth,
+        }, agentApiTool, body ?? {}, aborted.signal);
+        return json(res, answer.status, answer.body);
+      }
       if (path === "/api/internal/act" && method === "POST") {
         const body = await readInternalBody();
         const acting = store.projectBotForTask(internalSender.id, internalCapability.threadId) ?? internalSender;

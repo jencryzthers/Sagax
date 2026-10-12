@@ -41,6 +41,8 @@ export interface CatalogProfile {
   chief: boolean;
   /** Written into start_thread's schema in a coordinating turn. */
   botId: string;
+  /** The agent-to-agent tools (server/agent-api.ts), in direct turns. */
+  agentApi?: boolean;
 }
 
 /** The profile a spawned proxy was given. Everything is off unless the
@@ -60,6 +62,7 @@ export function catalogProfileFromEnv(env: NodeJS.ProcessEnv): CatalogProfile {
     groupMemory: env.SAGAX_GROUP_MEMORY === "1",
     chief: env.SAGAX_CHIEF_OF_STAFF === "1",
     botId: env.SAGAX_BOT_ID ?? "",
+    agentApi: env.SAGAX_AGENT_API === "1",
   };
 }
 
@@ -1058,6 +1061,97 @@ const toolDefinitions = (externalRuntime: boolean) => [
   return annotations ? { ...tool, annotations } : tool;
 });
 
+
+/** The agent-to-agent tools (server/agent-api.ts, docs/agent-api.md): the
+ * names, parameters and limits of Grok Bot's own agent tools. Every send
+ * lands in a hidden conversation the calling bot owns on that agent. */
+const AGENT_ID = { type: "string", description: "The agent's id, exactly as list_agents or find_agents returned it." } as const;
+const AGENT_CURSOR = { type: "string", description: "next_cursor of the previous page: entries before it." } as const;
+const AGENT_API_TOOLS = [
+  {
+    name: "list_agents",
+    description: "List the Sagax agents (bots) you may reach: id, name, description, status (running or idle). Its ids are the only valid agent_id values.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {} },
+  },
+  {
+    name: "find_agents",
+    description: "Find reachable agents by name or description; answers the best matches only.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {
+      query: { type: "string", minLength: 1, maxLength: 200, description: "Words of the agent's name or description." },
+      status: { type: "string", enum: ["running", "idle"] },
+      limit: { type: "integer", minimum: 1, maximum: 64, description: "Default 8." },
+    }, required: ["query"] },
+  },
+  {
+    name: "create_agent",
+    description: "Create one agent (bot) in your section. Only when the user explicitly asks; one per call; check list_agents first, since only the owner can delete it in the app. It greets the user itself: do not send it a first prompt and never quote its id.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {
+      name: { type: "string", minLength: 1, maxLength: 80, description: "Display name." },
+      description: { type: "string", maxLength: 1000, description: "What it does." },
+    }, required: ["name"] },
+  },
+  {
+    name: "send_prompt",
+    description: "Send a prompt to an agent in your own hidden conversation with it. mode fire_and_forget (default) and async return a handle once accepted (async also tells you when the turn ends); blocking waits up to timeout_ms. After a timeout, resume with await_turn and the handle: never re-send. An empty reply with finished=true means the agent said nothing. on_busy: supersede (default) stops its running turn, reject refuses, queue waits.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {
+      agent_id: AGENT_ID,
+      prompt: { type: "string", minLength: 1, maxLength: 32000 },
+      mode: { type: "string", enum: ["fire_and_forget", "blocking", "async"] },
+      timeout_ms: { type: "integer", minimum: 1000, maximum: 600000, description: "Blocking wait; default 120000." },
+      on_busy: { type: "string", enum: ["supersede", "reject", "queue"] },
+      files: { type: "array", maxItems: 8, items: { type: "string" }, description: "Workspace-relative paths, 25 MiB each; copied to the agent's workspace." },
+    }, required: ["agent_id", "prompt"] },
+  },
+  {
+    name: "await_turn",
+    description: "Wait for an agent's turn: with the handle send_prompt gave, that turn; without one, the in-flight turn of your conversation, else its last message. Never re-send the prompt.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {
+      agent_id: AGENT_ID,
+      handle: { type: "string" },
+      timeout_ms: { type: "integer", minimum: 0, maximum: 600000, description: "Default 120000." },
+    }, required: ["agent_id"] },
+  },
+  {
+    name: "read_transcript",
+    description: "Read your whole transcript with an agent (the conversations you may read), oldest first.",
+    inputSchema: { type: "object", additionalProperties: false, properties: { agent_id: AGENT_ID }, required: ["agent_id"] },
+  },
+  {
+    name: "read_transcript_page",
+    description: "Read a time-bounded page of the transcript: the newest limit entries with before_ms >= at >= after_ms (unix ms, inclusive), before cursor when given.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {
+      agent_id: AGENT_ID,
+      limit: { type: "integer", minimum: 1, maximum: 200 },
+      before_ms: { type: "integer", minimum: 0, description: "Inclusive upper bound, unix ms." },
+      after_ms: { type: "integer", minimum: 0, description: "Optional inclusive lower bound, unix ms." },
+      cursor: AGENT_CURSOR,
+    }, required: ["agent_id", "limit", "before_ms"] },
+  },
+  {
+    name: "read_latest_page",
+    description: "Read the newest entries of the transcript; page back with next_cursor. Do not poll: use await_turn.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {
+      agent_id: AGENT_ID, limit: { type: "integer", minimum: 1, maximum: 200, description: "Default 20." }, cursor: AGENT_CURSOR,
+    }, required: ["agent_id"] },
+  },
+  {
+    name: "read_latest_page_with_threads",
+    description: "read_latest_page plus each conversation's entry count, last time and status.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {
+      agent_id: AGENT_ID, limit: { type: "integer", minimum: 1, maximum: 200, description: "Default 20." }, cursor: AGENT_CURSOR,
+    }, required: ["agent_id"] },
+  },
+  {
+    name: "read_transcript_cold",
+    description: "Read the stored transcript, 50 entries per page from the newest, without touching the agent's live state.",
+    inputSchema: { type: "object", additionalProperties: false, properties: { agent_id: AGENT_ID, cursor: AGENT_CURSOR }, required: ["agent_id"] },
+  },
+].map((tool) => {
+  const annotations = agentToolAnnotations(tool.name);
+  return annotations ? { ...tool, annotations } : tool;
+});
+export const AGENT_API_TOOL_NAMES: ReadonlySet<string> = new Set(AGENT_API_TOOLS.map((tool) => tool.name));
+
 const SKILL_TOOL_NAMES = new Set(["skills_list", "skill_manage"]);
 // A workspace with computer sharing off refuses the routes behind these two,
 // so they must not be advertised at all: a model that sees a tool it cannot
@@ -1102,6 +1196,12 @@ export function availableTools(profile: CatalogProfile) {
 }
 
 function catalogTools(profile: CatalogProfile) {
+  const base = coreCatalogTools(profile);
+  if (!profile.agentApi || profile.externalRuntime || profile.coordinating) return base;
+  return [...base, ...AGENT_API_TOOLS.filter((tool) => profile.chief || tool.name !== "create_agent")];
+}
+
+function coreCatalogTools(profile: CatalogProfile) {
   const TOOLS = toolDefinitions(profile.externalRuntime);
   const BOT_SCOPED_TOOLS = TOOLS.filter((tool) =>
     (profile.botId === WATCHER_OPTIONS_CARD_BOT_ID || !WATCHER_TOOL_NAMES.has(tool.name)) &&
