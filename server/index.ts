@@ -638,7 +638,7 @@ import {
   isThreadBusyError,
   waitForThreadIdle,
 } from "./voice-call-duplex.ts";
-import { callHasBackgroundWork, isNewVoiceTopic, topicsFromCallMessages } from "../src/lib/voice-mode/voice-topics.ts";
+import { callHasParkableWork, isNewVoiceTopic, topicsFromCallMessages } from "../src/lib/voice-mode/voice-topics.ts";
 import { VoiceCallSessions } from "./voice-call-session.ts";
 import { VoiceCallWarmup } from "./voice-call-warmup.ts";
 import { callTurnEffort } from "./voice-call-effort.ts";
@@ -12485,7 +12485,7 @@ async function startDuplexCallTurn(
   if (!current) throw Object.assign(new Error("no such bot"), { status: 404 });
   const epoch = duplexEpochFor(threadId);
   const mine = epoch.claim();
-  const backgroundWork = callHasBackgroundWork(store.messagesFor(threadId))
+  const backgroundWork = callHasParkableWork(store.messagesFor(threadId))
     || store.tasks(current.id).some((task) => task.parallelOf?.threadId === threadId && parallelPending(task));
   const admit = admitDuplexSend({
     duplex: true,

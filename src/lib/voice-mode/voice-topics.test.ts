@@ -4,6 +4,7 @@ import {
   announceTopic,
   applyTopicEvent,
   callHasBackgroundWork,
+  callHasParkableWork,
   howToSpeakTopicResult,
   isNewVoiceTopic,
   isStopUtterance,
@@ -58,6 +59,16 @@ describe("voice topics", () => {
     expect(callHasBackgroundWork([{ parallelTask: { role: "card", state: "queued" } }])).toBe(true);
     expect(callHasBackgroundWork([{ parallelTask: { role: "card", state: "done" } }])).toBe(false);
     expect(callHasBackgroundWork([{ kind: "text" }])).toBe(false);
+  });
+
+  it("a new topic parks when an own-turn tool is still in flight, or a parallel card is live", () => {
+    expect(callHasParkableWork([{ kind: "activity", tool: { name: "Bash" } }])).toBe(true);
+    expect(callHasParkableWork([{ kind: "activity", tool: { name: "Bash", ok: false } }])).toBe(false);
+    expect(callHasParkableWork([{ kind: "activity", tool: { name: "Bash", ok: true } }])).toBe(false);
+    expect(callHasParkableWork([{ kind: "text" }])).toBe(false);
+    expect(callHasParkableWork([{ parallelTask: { role: "card", state: "running" } }])).toBe(true);
+    expect(callHasParkableWork([{ parallelTask: { role: "card", state: "queued" } }])).toBe(true);
+    expect(callHasParkableWork([{ parallelTask: { role: "card", state: "done" } }])).toBe(false);
   });
 
   it("a result for an older topic is announced; the latest is spoken in full", () => {
