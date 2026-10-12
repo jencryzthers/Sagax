@@ -25,10 +25,12 @@
 // session/update notifications, so updates are double-gated: nothing emits
 // before the prompt is sent, and `_meta.isReplay` updates are dropped. Session
 // configuration is the exception: its live updates apply before prompting too.
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
+import { chmodSync } from "node:fs";
+import { createServer as createNetServer, type Server as NetServer, type Socket } from "node:net";
 import { lstat, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
-import { createHash } from "node:crypto";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { createHash, randomBytes } from "node:crypto";
 
 import { PROVIDER_CREDENTIAL_ENV, stripControlPlaneEnv, WORKSPACE_CREDENTIAL_ENV } from "../../config.ts";
 import { openStartupModelCatalog, writeStartupModelCache } from "../../startup-model-catalog.ts";
@@ -60,6 +62,7 @@ import type {
   DriverCreateInput,
   EffortLevel,
   EngineInstall,
+  McpServerSpec,
   ProviderDriver,
   ProviderInstance,
   ProviderSnapshot,
@@ -86,9 +89,12 @@ import { extractMcpImages } from "../../mcp-tool-images.ts";
 import { redactSecretsInText } from "../../redact.ts";
 import { recoveryPromptFor } from "../../resume-recovery.ts";
 import { sessionIdlePolicy } from "../session-idle.ts";
+import { newTurnLatency, noteTurnActivity, turnLatencyLine, type TurnLatency } from "./turn-latency.ts";
 import { classifyError } from "../retry.ts";
 import { canUseMcpServer, narrowsNativeTools, parseToolScope } from "../../../shared/tool-scope.ts";
 import { gateServer, mcpStdioServer } from "../../mcp-gate-config.ts";
+import type { GateAnswer, GateAsk } from "../../mcp-gate-approval.ts";
+import { gatedMcpAsk } from "./gated-mcp-ask.ts";
 import { TURN_TOKEN_ENV, warmCommsEnv } from "../spawn-contract.ts";
 import { acpHostToolRequest } from "../host-tools.ts";
 
@@ -153,6 +159,12 @@ interface AcpTurn {
   turn: SendTurnInput;
   turnConfig: AcpConfig;
   controlsHost: boolean;
+  /** Sagax approval gate on (grok-approval-gate.ts): the MCP servers this
+   * turn mounted through the gate. The agent's own ask about a call to one
+   * of them is answered allow-once; the gate decides (gated-mcp-ask.ts). */
+  gatedServers?: ReadonlySet<string>;
+  /** this turn's stage timestamps, logged once when it settles */
+  latency?: TurnLatency;
   state: {
     settled: boolean; promptSent: boolean; text: string; producedItem: boolean; startupActivity: boolean; stopped: boolean;
     /** Compaction detection: peak and last reported context size, and
@@ -162,7 +174,11 @@ interface AcpTurn {
     usageCompacted: boolean;
     /** The context window the agent reports beside `used` (ACP `size`). */
     usageSize?: number | null;
+    /** the agent streamed something (text, thought, tool) for this prompt */
+    promptActivity?: boolean;
   };
+  /** inputs of this turn's tool calls by id, for onToolCompleted */
+  toolInputs?: Map<string, unknown>;
   acknowledge: () => void;
   asks: Map<string, AcpAskFinish>;
   /** Tool calls the agent started and has not yet reported finished. A tool
@@ -308,7 +324,14 @@ export interface AcpSupport {
    * own evidence (device-auth.ts). */
   deviceSignIn?: DeviceSignIn;
   /** CLI argv AFTER the binary name to enter ACP stdio mode. */
-  spawnArgs(config: AcpConfig, turn: SendTurnInput): string[];
+  spawnArgs(config: AcpConfig, turn: SendTurnInput, launch?: { approvalGate: boolean }): string[];
+  /** Sagax gates this turn's MCP calls itself (mcp-gate-approval.ts): every
+   * MCP server is mounted through the gate with an approval socket, and
+   * only `approvalReadOnly` tools run unasked. Decided once per turn; the
+   * same decision reaches spawnArgs as `launch.approvalGate`. */
+  approvalGate?(config: AcpConfig, turn: SendTurnInput): boolean;
+  /** The reviewed read-only tools of one mounted server (upstream names). */
+  approvalReadOnly?(server: { name: string; builtin: boolean; spec?: McpServerSpec }): string[];
   /** Provider credential variables this ACP child is allowed to inherit. */
   credentialEnv?: readonly string[];
   /** Select the model through a session config option instead of argv, for
@@ -434,6 +457,25 @@ export interface AcpSupport {
   describeAccountError?(code: AccountErrorCode, model?: string): string;
   /** Compose the session/prompt text. Default prepends the persona. */
   buildPromptText?(turn: SendTurnInput): string;
+  /** A standing line appended to the stable system half (and the full
+   * system prompt), delivered with it once per native session. */
+  stableSystemHint?: string;
+  /** The agent skips MCP tool names it cannot qualify as `server__tool`
+   * (Grok: a second `__`, a dot, a key over 256). Every MCP server is then
+   * mounted through the gate, which registers each tool under an admissible
+   * alias and maps calls back (server/mcp-tool-names.ts). */
+  mcpToolNames?: "grok";
+  /** A context section added to the volatile half each turn. The section
+   * split (prompt-split.ts) re-sends it only when its text changes. */
+  volatileSection?(input: { botId?: string; serverNames: string[] }): { id: string; text: string } | null;
+  /** A tool call finished successfully, with the input it was started with. */
+  onToolCompleted?(input: { botId?: string; rawInput: unknown }): void;
+  /** Ask once more when the agent sends nothing at all (no text, thought or
+   * tool call, no question) for this many ms after the prompt; 0 is off. */
+  stallRetryMs?(context?: { contextTokens: number | null; promptChars: number }): number;
+  /** The context size a vendor notification reports (tokens), for agents
+   * that send no ACP usage_update; undefined when the message is not one. */
+  roundContextUsage?(msg: any): number | undefined;
   /** Rewrite a picker id (`omlx::model`) into the CLI-native id before spawn
    * and session/select. Local inject writers live here so the child sees a
    * model it already knows. */
@@ -891,6 +933,114 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         createdAt: new Date().toISOString(),
       });
 
+      // Sagax's approval gate for MCP calls (mcp-gate-approval.ts). One
+      // socket per driver instance; each thread's gates carry that thread's
+      // secret token, so a gate can only ever open a card on its own thread's
+      // running turn. Every failure answers deny.
+      const gateTokens = new Map<string, string>();
+      const gateThreads = new Map<string, string>();
+      let gateBroker: { path: string; server: NetServer } | undefined;
+      const gateToken = (threadId: string): string => {
+        let token = gateTokens.get(threadId);
+        if (!token) {
+          token = randomBytes(24).toString("hex");
+          gateTokens.set(threadId, token);
+          gateThreads.set(token, threadId);
+        }
+        return token;
+      };
+      const handleGateConnection = (conn: Socket) => {
+        conn.setEncoding("utf8");
+        const open = new Set<() => void>();
+        const answer = (id: string, behavior: "allow" | "deny") => {
+          if (conn.destroyed) return;
+          const message: GateAnswer = { t: "answer", id, behavior };
+          conn.write(`${JSON.stringify(message)}\n`);
+        };
+        let buf = "";
+        conn.on("data", (chunk: string) => {
+          buf += chunk;
+          if (buf.length > 1_000_000) { conn.destroy(); return; }
+          let nl;
+          while ((nl = buf.indexOf("\n")) !== -1) {
+            const line = buf.slice(0, nl);
+            buf = buf.slice(nl + 1);
+            let ask: Partial<GateAsk> | undefined;
+            try { ask = JSON.parse(line); } catch { continue; }
+            if (ask?.t !== "ask" || typeof ask.id !== "string" || !ask.id) continue;
+            const askId = ask.id;
+            const threadId = typeof ask.token === "string" ? gateThreads.get(ask.token) : undefined;
+            const current = threadId ? sessions.get(threadId)?.current : undefined;
+            if (!threadId || !current || current.state.settled || current.state.stopped
+              || typeof ask.server !== "string" || typeof ask.tool !== "string" || !ask.server || !ask.tool) {
+              answer(askId, "deny");
+              continue;
+            }
+            current.flushAssistantText();
+            const mcpTool = `${ask.server}__${ask.tool}`;
+            const preview = typeof ask.summary === "string" && ask.summary ? ` ${ask.summary}` : "";
+            const requestId = newId();
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            const finish: AcpAskFinish = (behavior, source = "user") => {
+              if (!current.asks.delete(requestId)) return "unavailable";
+              if (timer) clearTimeout(timer);
+              open.delete(onClose);
+              // only an explicit "allow" from a person runs the call
+              const allow = behavior === "allow" && source === "user";
+              answer(askId, allow ? "allow" : "deny");
+              emit({
+                ...base(threadId, current.turnId),
+                type: "request.resolved",
+                requestId,
+                behavior: allow ? "allow" : "deny",
+                source,
+                approvalScope: current.controlsHost ? "local-computer" : undefined,
+              });
+              return allow ? "allowed-once" : "rejected";
+            };
+            const onClose = () => { finish("deny", "system"); };
+            open.add(onClose);
+            timer = setTimeout(() => {
+              emit({ ...base(threadId, current.turnId), type: "runtime.error", message: DENY_TIMEOUT_NOTE });
+              finish("deny", "timeout");
+            }, 15 * 60_000);
+            timer.unref?.();
+            current.asks.set(requestId, finish);
+            emit({
+              ...base(threadId, current.turnId),
+              type: "request.opened",
+              requestId,
+              requestType: "permission",
+              tool: "other",
+              summary: `${mcpTool}${preview}`.slice(0, 200),
+              mcpTool,
+              approvalScope: current.controlsHost ? "local-computer" : undefined,
+              // never a session-wide grant: every call is its own card
+            });
+          }
+        });
+        const closeAll = () => { for (const onClose of Array.from(open)) onClose(); };
+        conn.on("close", closeAll);
+        conn.on("error", closeAll);
+      };
+      const gateSocket = (): string => {
+        if (gateBroker) return gateBroker.path;
+        const name = `sgx-gate-${process.pid}-${randomBytes(6).toString("hex")}`;
+        const path = process.platform === "win32" ? `\\\\.\\pipe\\${name}` : join(tmpdir(), `${name}.sock`);
+        const server = createNetServer(handleGateConnection);
+        server.on("error", (error) => {
+          console.error(`[acp] approval gate socket failed: ${String(error)}; gated MCP calls are declined`);
+        });
+        server.listen(path, () => {
+          if (process.platform !== "win32") {
+            try { chmodSync(path, 0o600); } catch { /* the token still guards it */ }
+          }
+        });
+        server.unref();
+        gateBroker = { path, server };
+        return path;
+      };
+
       // ACP session mcpServers: stdio is the baseline every ACP agent
       // supports (mcpCapabilities.http/.sse only add EXTRA transports), so
       // an injected stdio proxy — e.g. the peer-agent comms tool — attaches
@@ -906,7 +1056,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
       // server named before every tool came back "Tool not found"). The
       // catalog passes through whole: the agent searches tools itself.
       type AcpMcpServer = { name: string; command: string; args: string[]; env: Array<{ name: string; value: string }> };
-      const acpMcpServers = (turn: SendTurnInput) => {
+      const acpMcpServers = (turn: SendTurnInput, approvalGated = false) => {
         const servers: AcpMcpServer[] = [];
         const acpEnv = (env: Record<string, string>) =>
           Object.entries(env).map(([name, value]) => ({ name, value: String(value) }));
@@ -942,18 +1092,43 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         // user-configured servers, after the built-ins: a residual name
         // collision keeps the built-in (reserved names are filtered at the
         // config boundary; this is defense in depth).
+        const custom = new Set<string>();
         for (const [name, server] of Object.entries(turn.integrations?.custom ?? {})) {
           if (servers.some((existing) => existing.name === name)) continue;
           const stdio = "url" in server ? mcpStdioServer(server, { nodeEnv: { ELECTRON_RUN_AS_NODE: "1" } }) : server;
-          if (!stdio) continue;
+          if (!stdio) {
+            // Never a silent drop: a connector that cannot be mounted says so.
+            console.warn(`[acp] MCP server "${name}" could not be mounted for ${support.displayName}: unsupported server shape; its tools are NOT available this turn`);
+            continue;
+          }
           servers.push({ name, command: stdio.command, args: stdio.args ?? [], env: acpEnv(stdio.env ?? {}) });
+          custom.add(name);
         }
-        if (turn.toolScope === undefined) return servers;
-        return servers.filter((server) => canUseMcpServer(turn.toolScope, server.name)).map((server) => {
+        // Approval gate: EVERY server rides the gate, built-in or not, and
+        // only its reviewed read-only tools pass unasked.
+        const customSpecs = turn.integrations?.custom ?? {};
+        const approvalFor = (server: AcpMcpServer) => ({
+          socket: gateSocket(),
+          token: gateToken(turn.threadId),
+          readOnly: support.approvalReadOnly?.({
+            name: server.name,
+            builtin: !custom.has(server.name),
+            ...(custom.has(server.name) ? { spec: customSpecs[server.name] } : {}),
+          }) ?? [],
+        });
+        // Sagax's own servers (agents, composio, browser, computer) name their
+        // tools admissibly; connectors (Perspicax profiles, URL and stdio
+        // servers) can name them anything, so those ride the gate.
+        const toolNames = support.mcpToolNames;
+        const renames = (server: AcpMcpServer) => Boolean(toolNames) && custom.has(server.name);
+        if (turn.toolScope === undefined && !servers.some(renames) && !approvalGated) return servers;
+        return servers.filter((server) => turn.toolScope === undefined || canUseMcpServer(turn.toolScope, server.name)).map((server) => {
+          if (turn.toolScope === undefined && !renames(server) && !approvalGated) return server;
           const original = { command: server.command, args: server.args, env: Object.fromEntries(server.env.map(({ name, value }) => [name, value])) };
           const gated = gateServer({ name: server.name, server: original, threadId: turn.threadId, budget: 0,
-            toolScope: turn.toolScope, nodeEnv: { ELECTRON_RUN_AS_NODE: "1" } });
-          if (!gated) throw new Error("Tool selection requires an MCP gate.");
+            toolScope: turn.toolScope, nodeEnv: { ELECTRON_RUN_AS_NODE: "1" }, ...(toolNames && renames(server) ? { toolNames } : {}),
+            ...(approvalGated ? { approval: approvalFor(server) } : {}) });
+          if (!gated) throw new Error(turn.toolScope === undefined && !approvalGated ? "Tool names require an MCP gate." : "Tool selection requires an MCP gate.");
           return { name: server.name, command: gated.command, args: gated.args, env: acpEnv(gated.env) };
         });
       };
@@ -1081,6 +1256,9 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           });
         }
         emit({ ...base(threadId, current.turnId), type: "turn.completed", ok: finalOk, stopReason: finalStopReason, cost: null });
+        if (current.latency) {
+          console.log(turnLatencyLine(DRIVER_KIND, threadId, current.latency, Date.now(), finalOk ? "ok" : (finalStopReason ?? "failed")));
+        }
         if (session.child.exitCode === null && !session.closing && !session.dead) {
           armIdle(threadId);
         } else if (session.dead && sessions.get(threadId) === session) {
@@ -1325,6 +1503,13 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               result: allow ? { outcome: { outcome: "selected", optionId: allow } } : cancelled,
             });
           }
+          // Sagax approval gate: the agent asks about an MCP call that the gate
+          // itself holds unless it is a reviewed read. Allow once (never
+          // always), so the gate's decision is the only one.
+          if (!isQuestion && !current.controlsHost && gatedMcpAsk(toolCall, current.gatedServers)) {
+            const allow = optionFor("allow");
+            if (allow) return send({ jsonrpc: "2.0", id: msg.id, result: { outcome: { outcome: "selected", optionId: allow } } });
+          }
           const kind = String(toolCall.kind ?? "");
           // an earlier "Always allow this session" on this exact operation
           const operationKey = isQuestion || current.controlsHost ? null : sessionOperationKey(toolCall);
@@ -1432,7 +1617,28 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           });
         };
 
+        const noteContextUsage = (current: AcpTurn, used: unknown, size?: unknown) => {
+          if (typeof used !== "number" || !(used > 0)) return;
+          if (current.state.usagePeak !== null && used < current.state.usagePeak * ACP_COMPACTION_COLLAPSE_RATIO) {
+            current.state.usageCompacted = true;
+          }
+          if (current.state.usagePeak === null || used > current.state.usagePeak) current.state.usagePeak = used;
+          current.state.usageLast = used;
+          if (typeof size === "number" && size > 0) current.state.usageSize = size;
+        };
         const handleNotification = (msg: any) => {
+          // A support whose agent reports no usage_update gives the context
+          // size another way: Grok's per-round usage (the whole prompt of the
+          // round, cached part included) is what fills its window now. Sagax
+          // folds the thread on it (server/context-budget.ts).
+          const roundUsed = support.roundContextUsage?.(msg);
+          if (roundUsed !== undefined) {
+            const current = session.current;
+            if (current && current.state.promptSent && !current.state.settled && msg.params?._meta?.isReplay !== true) {
+              noteContextUsage(current, roundUsed);
+            }
+            return;
+          }
           // Vendor side-channels (e.g. grok's `_x.ai/*`) are teed to the
           // native log but never normalized: the prompt result is the settle.
           if (msg.method !== "session/update") return;
@@ -1445,6 +1651,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           }
           if (current && ["agent_message_chunk", "agent_thought_chunk", "tool_call", "tool_call_update"].includes(p.update?.sessionUpdate)) {
             current.state.startupActivity = true;
+            if (current.state.promptSent) current.state.promptActivity = true;
+            noteTurnActivity(current.latency, p.update.sessionUpdate, Date.now());
           }
           if (!current || !current.state.promptSent) return;
           const u = p.update ?? {};
@@ -1478,6 +1686,9 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             case "tool_call": {
               current.flushAssistantText();
               trackRunningTool(current, u, "pending");
+              if (support.onToolCompleted && typeof u.toolCallId === "string" && u.rawInput !== undefined) {
+                (current.toolInputs ??= new Map()).set(u.toolCallId, u.rawInput);
+              }
               emit({
                 ...base(threadId, current.turnId),
                 type: "item.started",
@@ -1494,6 +1705,13 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               trackRunningTool(current, u);
               if (u.status === "completed" || u.status === "failed") {
                 current.state.producedItem = true;
+                if (support.onToolCompleted && typeof u.toolCallId === "string") {
+                  const rawInput = u.rawInput ?? current.toolInputs?.get(u.toolCallId);
+                  current.toolInputs?.delete(u.toolCallId);
+                  if (u.status === "completed" && rawInput !== undefined) {
+                    try { support.onToolCompleted({ botId: current.turn.botId, rawInput }); } catch { /* bookkeeping only */ }
+                  }
+                }
                 emit({
                   ...base(threadId, current.turnId),
                   type: "item.completed",
@@ -1510,15 +1728,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             }
             case "usage_update": {
               // opencode 1.18 sends `used` flat; ignore non-positive reports
-              const used = u.used ?? u.usage?.used;
-              if (typeof used !== "number" || !(used > 0)) break;
-              if (current.state.usagePeak !== null && used < current.state.usagePeak * ACP_COMPACTION_COLLAPSE_RATIO) {
-                current.state.usageCompacted = true;
-              }
-              if (current.state.usagePeak === null || used > current.state.usagePeak) current.state.usagePeak = used;
-              current.state.usageLast = used;
-              const size = u.size ?? u.usage?.size;
-              if (typeof size === "number" && size > 0) current.state.usageSize = size;
+              noteContextUsage(current, u.used ?? u.usage?.used, u.size ?? u.usage?.size);
               break;
             }
           }
@@ -1626,6 +1836,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
       };
 
       const sendTurn = async (turn: SendTurnInput) => {
+        const latency = newTurnLatency(Date.now(), turn.receivedAt);
         if (startupModelRefresh) await startupModelRefresh;
         const parsedScope = parseToolScope(turn.toolScope);
         if (!parsedScope.ok) throw new Error(parsedScope.error);
@@ -1694,12 +1905,15 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         const withAgentsEnv = (agentsEnv: Record<string, string>): SendTurnInput =>
           ({ ...turn, integrations: { ...turn.integrations, agents: { ...callAgents!, env: agentsEnv } } });
         const callAgentsEnv = callAgents ? warmCommsEnv(threadId, turn.botId, callAgents.env) : undefined;
-        const mcpServers = acpMcpServers(callAgentsEnv ? withAgentsEnv(callAgentsEnv) : turn);
+        // One decision per turn, shared by the MCP mounts and spawnArgs: a
+        // turn can never get the ungated mode with ungated servers.
+        const approvalGated = support.approvalGate?.(turnConfig, cliTurn) === true;
+        const mcpServers = acpMcpServers(callAgentsEnv ? withAgentsEnv(callAgentsEnv) : turn, approvalGated);
         const sessionServersKey = callAgentsEnv
           ? acpMcpServers(withAgentsEnv({
             ...callAgentsEnv,
             ...Object.fromEntries(TURN_TOKEN_ENV.filter((key) => key in callAgentsEnv).map((key) => [key, "(turn token)"])),
-          }))
+          }), approvalGated)
           : mcpServers;
         let launch: { command: string; args?: string[]; env?: Record<string, string | undefined> };
         try {
@@ -1733,7 +1947,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         // The env the spawned child actually receives is part of the
         // contract too, and arrives hashed as envFingerprint for the same
         // reason.
-        const spawnArgs = support.spawnArgs(turnConfig, cliTurn);
+        const spawnArgs = support.spawnArgs(turnConfig, cliTurn, { approvalGate: approvalGated });
         const spawnEnv = launch.env ?? env;
         // Env is part of the spawn contract: a turn that changes auth env
         // (FACTORY_API_KEY placeholder, a fresh login file) must not keep
@@ -1983,7 +2197,9 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           turn: cliTurn,
           turnConfig,
           controlsHost,
+          ...(approvalGated ? { gatedServers: new Set(mcpServers.map((server) => server.name)) } : {}),
           state,
+          latency,
           acknowledge,
           asks,
           runningTools: new Set(),
@@ -2276,7 +2492,24 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             // prefix its provider cached. Receipts are durable because the
             // native session outlives this process; an un-split turn (a direct
             // adapter call) keeps the legacy full-prompt shape.
-            const halves = promptHalves(turn);
+            // A support's own standing line (support.stableSystemHint) joins
+            // the stable half, so it rides once per session like the rest.
+            const hint = support.stableSystemHint ?? "";
+            const split = promptHalves(turn);
+            let halves = hint && split.stable !== null ? { ...split, stable: split.stable + hint } : split;
+            if (hint && promptTurn.system) promptTurn = { ...promptTurn, system: promptTurn.system + hint };
+            // A support's own context section (Grok: the tools this bot
+            // already used) rides the volatile half as one more section, so
+            // a change re-sends that section alone.
+            let volatileSections = turn.systemVolatileSections;
+            const extraSection = halves.stable !== null
+              ? support.volatileSection?.({ botId: turn.botId, serverNames: mcpServers.map((server) => server.name) }) ?? null
+              : null;
+            if (extraSection && extraSection.text.trim()) {
+              halves = { ...halves, volatile: halves.volatile ? `${halves.volatile}\n\n${extraSection.text}` : extraSection.text };
+              volatileSections = [...(volatileSections ?? []), extraSection];
+              if (promptTurn.system) promptTurn = { ...promptTurn, system: `${promptTurn.system}\n\n${extraSection.text}` };
+            }
             let promptInput = promptTurn;
             if (halves.stable !== null) {
               const receiptKey = JSON.stringify([threadId, sessionId]);
@@ -2292,6 +2525,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                 promptTurn.text,
                 Boolean(turn.mentionTurn),
                 ACP_PROMPT_RE_ANCHOR_TURNS,
+                volatileSections,
               );
               promptInput = { ...promptTurn, system: "", text: composed.text };
               pendingSplitReceipt = { key: receiptKey, receipt: composed.receipt, previous: previousReceipt };
@@ -2312,10 +2546,14 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             }
             if (state.settled || state.stopped || session.closing) throw new Error("turn stopped");
             state.promptSent = true;
+            latency.promptAt = Date.now();
+            latency.path = launchedThisTurn ? "spawn" : reused ? "pooled" : "load";
+            latency.promptChars = text.length;
+            if (pendingSplitReceipt) latency.full = pendingSplitReceipt.receipt.turnsSinceFull === 0;
             acknowledge();
             const promptIdleMs = promptIdleTimeoutMs();
             const quiet = startQuietWatch(threadId, session, current);
-            const result = await request(
+            const sendPrompt = () => request(
               "session/prompt",
               { sessionId, prompt: [{ type: "text", text }, ...imageBlocks] },
               undefined,
@@ -2328,6 +2566,50 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                   "Send the message again to retry. On a self-hosted server, SAGAX_ACP_PROMPT_IDLE_TIMEOUT_MS sets this limit (0 turns it off).";
               },
               );
+            // A Grok-side stall: the provider sometimes takes 30-90 s to its
+            // first token (measured on the GOX server, 2026-10-11; the CLI
+            // logged a single attempt each time). When nothing at all has come
+            // back - no text, thought, tool call or question - nothing has run
+            // and nothing was approved, so the prompt is cancelled and asked
+            // once more. Any sign of life, a running tool or an open ask turns
+            // the retry off for this turn.
+            // The last context size this session reported (the split receipt
+            // carries it across processes) lets the guard wait longer for a
+            // big uncached prefill than for a short conversation.
+            const lastUsed = pendingSplitReceipt?.previous?.lastUsed ?? state.usagePeak;
+            const stallMs = support.stallRetryMs?.({
+              contextTokens: typeof lastUsed === "number" && lastUsed > 0 ? lastUsed : null,
+              promptChars: text.length,
+            }) ?? 0;
+            if (stallMs > 0) latency.stallMs = stallMs;
+            let result: any;
+            if (stallMs > 0) {
+              state.promptActivity = false;
+              let stalled = false;
+              const stallTimer = setTimeout(() => {
+                if (state.promptActivity || state.settled || state.stopped || session.closing || session.current !== current
+                    || current.asks.size || current.runningTools.size) return;
+                stalled = true;
+                latency.stallRetried = true;
+                emit({
+                  ...base(threadId, turnId),
+                  type: "runtime.notice",
+                  message: `${support.displayName} sent nothing for ${Math.round(stallMs / 1000)} s, so Sagax asked again.`,
+                });
+                session.acp.send({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId } });
+              }, stallMs);
+              stallTimer.unref?.();
+              try {
+                result = await sendPrompt();
+              } finally {
+                clearTimeout(stallTimer);
+              }
+              if (stalled && result?.stopReason === "cancelled" && !state.promptActivity && !state.stopped && !state.settled && !session.closing) {
+                result = await sendPrompt();
+              }
+            } else {
+              result = await sendPrompt();
+            }
             if (pendingSplitReceipt) {
               // session/prompt resolving is the acceptance boundary: a
               // rejected prompt leaves the receipt unwritten, so the next
@@ -2366,6 +2648,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               // key: absent is not zero.
               const input = usage.inputTokens ?? 0;
               const output = usage.outputTokens ?? 0;
+              latency.inputTokens = input;
+              if (typeof usage.cachedReadTokens === "number") latency.cachedTokens = usage.cachedReadTokens;
               const cachedRead = typeof usage.cachedReadTokens === "number" && usage.cachedReadTokens > 0
                 ? usage.cachedReadTokens
                 : null;

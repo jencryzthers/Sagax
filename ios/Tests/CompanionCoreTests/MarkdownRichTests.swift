@@ -63,5 +63,18 @@ final class MarkdownRichTests: XCTestCase {
     func testFencesKeepTheirLanguageForTheRichRenderers() {
         XCTAssertEqual(Markdown.blocks("```chart\n{}\n```"), [.code(language: "chart", text: "{}")])
         XCTAssertEqual(Markdown.blocks("```mermaid\ngraph TD\n```"), [.code(language: "mermaid", text: "graph TD")])
+        XCTAssertEqual(Markdown.blocks("```artifact\n{\"title\":\"Deck\"}\n```"), [.code(language: "artifact", text: "{\"title\":\"Deck\"}")])
+    }
+
+    func testLiftsAClaudeAntArtifactHTMLTagIntoAWidgetFence() {
+        XCTAssertEqual(
+            Markdown.blocks("Here:\n<antArtifact type=\"text/html\" title=\"Box\"><button>Go</button></antArtifact>"),
+            [.paragraph("Here:"), .code(language: "widget", text: "<button>Go</button>")]
+        )
+        XCTAssertEqual(Markdown.blocks("See:\n<antArtifact type=\"text/html\"><p>partial"), [.paragraph("See:")])
+        XCTAssertEqual(
+            Markdown.blocks("```html\n<antArtifact type=\"text/html\"><p>x</p></antArtifact>\n```"),
+            [.code(language: "html", text: "<antArtifact type=\"text/html\"><p>x</p></antArtifact>")]
+        )
     }
 }

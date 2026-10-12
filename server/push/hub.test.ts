@@ -46,7 +46,7 @@ describe("push hub", () => {
   const dirs: string[] = [];
   afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
-  function setup(options: { connected?: boolean; answer?: (token: string) => { status: number; reason?: string }; config?: ApnsConfigResult } = {}) {
+  function setup(options: { connected?: boolean; activeTokens?: string[]; answer?: (token: string) => { status: number; reason?: string }; config?: ApnsConfigResult } = {}) {
     const dir = mkdtempSync(join(tmpdir(), "sagax-push-"));
     dirs.push(dir);
     let now = 10_000;
@@ -62,6 +62,7 @@ describe("push hub", () => {
       config: options.config ?? CONFIG,
       store,
       connected: () => options.connected ?? true,
+      activeTokens: options.activeTokens ? () => options.activeTokens! : undefined,
       transport,
       now: () => now,
       log: { info: (line) => logs.push(line), warn: (line) => logs.push(line) },
@@ -102,6 +103,57 @@ describe("push hub", () => {
     expect(sent).toHaveLength(1);
   });
 
+  it("an approval answered elsewhere withdraws its banner: a queued one never goes, a delivered one is told silently", async () => {
+    const { store, hub, sent, fire } = setup({ connected: true });
+    store.register("pr_bob", { token: TOKEN_A, platform: "ios", environment: "production", appVersion: "", deviceName: "" });
+    // still in its grace: dropped
+    hub.submit(message({ kind: "approval", title: "Allow Nib to run a command?", body: "Run echo hi." }));
+    hub.noteSettled("t1");
+    await fire();
+    expect(sent).toHaveLength(0);
+    // delivered (no client connected), then answered on the desktop
+    const offline = setup({ connected: false });
+    offline.store.register("pr_bob", { token: TOKEN_A, platform: "ios", environment: "production", appVersion: "", deviceName: "" });
+    offline.hub.submit(message({ kind: "approval", title: "Allow Nib to run a command?", body: "Run echo hi." }));
+    await offline.fire();
+    expect(offline.sent).toHaveLength(1);
+    offline.hub.noteSettled("t2");
+    await offline.hub.drain();
+    expect(offline.sent).toHaveLength(1);
+    offline.hub.noteSettled("t1");
+    await offline.hub.drain();
+    expect(offline.sent).toHaveLength(2);
+    expect(offline.sent[1]!.body).toMatchObject({ kind: "read", threadId: "t1" });
+    // already told
+    offline.hub.noteSettled("t1");
+    await offline.hub.drain();
+    expect(offline.sent).toHaveLength(2);
+  });
+
+  it("a conversation read after it buzzed the phones tells them, silently, once", async () => {
+    const { store, hub, sent, fire, tick } = setup({ connected: false });
+    store.register("pr_bob", { token: TOKEN_A, platform: "ios", environment: "production", appVersion: "", deviceName: "" });
+    // a read of a conversation that never buzzed sends nothing
+    hub.noteRead("pr_bob", "t1");
+    await hub.drain();
+    expect(sent).toHaveLength(0);
+    hub.submit(message());
+    await fire();
+    expect(sent).toHaveLength(1);
+    tick(5_000);
+    hub.noteRead("PR_BOB", "t1");
+    await hub.drain();
+    expect(sent).toHaveLength(2);
+    expect(sent[1]!.headers).toMatchObject({ "apns-push-type": "background", "apns-priority": "5", "apns-topic": "ca.pulsatrix.sagax" });
+    expect(sent[1]!.body).toEqual({ aps: { "content-available": 1 }, kind: "read", threadId: "t1", at: 15_000 });
+    // no banner, no sound, no badge number: the phone recounts its own
+    expect(JSON.stringify(sent[1]!.body)).not.toMatch(/alert|sound|badge/);
+    // read again: already told
+    hub.noteRead("pr_bob", "t1");
+    await hub.drain();
+    expect(sent).toHaveLength(2);
+  });
+
   it("collapses a burst in one conversation into one push with the newest line", async () => {
     const { store, hub, sent, fire } = setup();
     store.register("pr_bob", { token: TOKEN_A, platform: "ios", environment: "production", appVersion: "", deviceName: "" });
@@ -110,6 +162,24 @@ describe("push hub", () => {
     await fire();
     expect(sent).toHaveLength(1);
     expect((sent[0]!.body as { aps: { alert: { body: string } } }).aps.alert.body).toBe("two");
+  });
+
+  it("skips APNs for a device whose live stream is open, and still pushes the others", async () => {
+    const { store, hub, sent, fire } = setup({ activeTokens: [TOKEN_A] });
+    store.register("pr_bob", { token: TOKEN_A, platform: "ios", environment: "production", appVersion: "", deviceName: "in app" });
+    store.register("pr_bob", { token: TOKEN_B, platform: "ios", environment: "production", appVersion: "", deviceName: "locked" });
+    hub.submit(message());
+    await fire();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.path).toBe(`/3/device/${TOKEN_B}`);
+  });
+
+  it("skips a nudge to the device that is in the app", async () => {
+    const { store, hub, sent } = setup({ connected: true, activeTokens: [TOKEN_A] });
+    store.register("pr_bob", { token: TOKEN_A, platform: "ios", environment: "production", appVersion: "", deviceName: "" });
+    hub.submit(message({ kind: "nudge" }));
+    await hub.drain();
+    expect(sent).toHaveLength(0);
   });
 
   it("pushes a nudge at once, even while a client is connected", async () => {

@@ -33,7 +33,7 @@ ipcRenderer.on("app:open-settings", (_event, section) => {
 // helpers here. Main enforces the same rule on the sensitive channels.
 const localOrigin = process.argv.find((arg) => arg.startsWith("--omb-local-origin="))?.slice("--omb-local-origin=".length) ?? null;
 const isLocalPage = !localOrigin || location.origin === localOrigin;
-const REMOTE_SAFE = new Set(["platform", "getCapabilities", "onCapabilitiesChanged", "applySkin", "setUnreadCount", "nudgeWindow", "notify", "onNotificationClick", "systemIdle", "permStatus", "workspaces", "takeSignInReturn", "pulsatrixSignIn", "orgJoin"]);
+const REMOTE_SAFE = new Set(["platform", "getCapabilities", "onCapabilitiesChanged", "applySkin", "setUnreadCount", "nudgeWindow", "notify", "withdrawNotification", "onNotificationClick", "systemIdle", "permStatus", "workspaces", "takeSignInReturn", "pulsatrixSignIn", "orgJoin"]);
 // An organization server's page drawn from THIS app's bundle
 // (electron/bundled-ui.cjs) is the desktop's own UI on that server, so it
 // also gets the desktop-UI parts that hold no local data: floating bots and
@@ -279,6 +279,7 @@ const bridge = {
    * page: text the page already shows, capped by main; main accepts it only
    * from the main window's top frame. */
   notify: (request) => ipcRenderer.send("desktop:notify", request),
+  withdrawNotification: (withdrawKey) => ipcRenderer.send("desktop:notify-withdraw", withdrawKey),
   /** The person clicked one of those notifications: its id and the
    * conversation it is about ({botId, threadId, groupId, routineRunId}). */
   onNotificationClick: (cb) => {

@@ -80,7 +80,7 @@ export function buildNotification(
   bot: NotifyBot,
   threadId: string,
   detail: string,
-  extra?: { avatarUrl?: string; group?: { id: string; name: string } },
+  extra?: { avatarUrl?: string; group?: { id: string; name: string }; title?: string; requestId?: string },
 ): Notification | null {
   // The toggle means what it says: off is off, including for approvals.
   // A bot whose notifications you turned off can still block waiting for
@@ -92,7 +92,9 @@ export function buildNotification(
   // is Scout, in that room. Name the room or the notification reads as if it
   // came from the 1:1 thread it will not open.
   const who = extra?.group ? `${bot.name} in ${extra.group.name}` : bot.name;
-  const title =
+  // An approval names what it allows ("Allow Cryptic to run a command?"):
+  // the caller passes the card's own plain title, never a tool id.
+  const title = extra?.title ? summarize(extra.title, 120) :
     kind === "approval"
       ? `${who} needs approval`
       : kind === "question"
@@ -118,6 +120,7 @@ export function buildNotification(
   const notification: Notification = { kind, botId: bot.id, botName: bot.name, threadId, title, body };
   if (extra?.avatarUrl) notification.avatarUrl = extra.avatarUrl;
   if (extra?.group) notification.groupId = extra.group.id;
+  if (extra?.requestId) notification.requestId = extra.requestId;
   return notification;
 }
 
@@ -129,7 +132,7 @@ export function deliverableNotification(
   bot: NotifyBot,
   threadId: string,
   detail: string,
-  extra?: { avatarUrl?: string; group?: { id: string; name: string } },
+  extra?: { avatarUrl?: string; group?: { id: string; name: string }; title?: string; requestId?: string },
 ): Notification | null {
   return buildNotification(kind, { ...bot, notifications: undefined }, threadId, detail, extra);
 }

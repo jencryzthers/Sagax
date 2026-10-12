@@ -22,6 +22,8 @@ let live: () => string | null = () => null;
 let noted: Array<{ principalId: string; threadId: string; requestId: string }> = [];
 let cards = new Map<string, { open: boolean; ownerPrincipalId: string | null; ownerName: string | null; adminOnly: boolean }>();
 let clock = 1_000_000;
+/** The person's open hidden conversation with a bot (#291). */
+let hiddenThread: (botId: string, principalId: string) => string | null = () => "t1";
 
 function token(sub: string, role: ConsoleAssertion["role"] = "employee", actor: ConsoleAssertion["actor"] = "perspicax-mcp"): string {
   jti += 1;
@@ -55,6 +57,7 @@ const deps: OrgMemberRouteDeps = {
   liveText: () => live(),
   threadLink: (threadId, botId) => `${ORIGIN}/#thread=${threadId}${botId ? `&bot=${botId}` : ""}`,
   botOfThread: (threadId) => (threadId === "t1" ? "b1" : null),
+  hiddenThreadOf: (botId, principalId) => hiddenThread(botId, principalId),
   noteAnsweredVia: (person, threadId, requestId) => noted.push({ principalId: person.principalId, threadId, requestId }),
   approvalAnswerer: (threadId, requestId) => {
     const card = cards.get(`${threadId}/${requestId}`);
@@ -95,6 +98,7 @@ beforeEach(() => {
   noted = [];
   cards = new Map();
   respond = () => ({ status: 404, body: { error: "no" } });
+  hiddenThread = () => "t1";
 });
 
 async function call(method: string, path: string, bearer?: string, body?: unknown) {
@@ -182,8 +186,9 @@ describe("sending", () => {
     const got = await call("POST", "bots/b1/messages", token("bob"), { text: "hi", wait: 30 });
     expect(got.status).toBe(200);
     expect(got.body).toMatchObject({ botId: "b1", threadId: "t1", messageId: "m1", status: "done", pending: false, reply: "Done: 3 tickets.", cursor: "m2" });
-    expect(performed[0]!.request).toEqual({ method: "POST", path: "/api/bots/b1/messages", body: { text: "hi" } });
-    expect(recorded).toEqual([{ person: expect.objectContaining({ principalId: "pr_bob" }), action: "client.message", after: { threadId: "t1", waited: true } }]);
+    // the AI client continues its hidden conversation (#291), never the person's open chat
+    expect(performed[0]!.request).toEqual({ method: "POST", path: "/api/bots/b1/messages", body: { text: "hi", threadId: "t1" } });
+    expect(recorded).toEqual([{ person: expect.objectContaining({ principalId: "pr_bob" }), action: "client.message", after: { threadId: "t1", waited: true, hidden: true } }]);
     expect(JSON.stringify(recorded)).not.toContain("hi\"");
   });
 
@@ -216,10 +221,58 @@ describe("sending", () => {
       : { status: 403, body: { error: "This bot is not yours to use." } };
     const got = await call("POST", "bots/b1/messages", token("bob"), { text: "hello", newThread: true });
     expect(performed.map((p) => p.request.path)).toEqual(["/api/bots/b1/tasks", "/api/bots/b1/messages"]);
+    // a new thread is a hidden one too (#291)
+    expect(performed[0]!.request.body).toEqual({ hidden: true });
     expect(performed[1]!.request.body).toEqual({ text: "hello", threadId: "t9" });
     expect(got.status).toBe(403);
     expect(got.body).toMatchObject({ code: "forbidden", message: "This bot is not yours to use." });
     expect(recorded).toEqual([]);
+  });
+
+  describe("an AI client works in a hidden conversation (#291)", () => {
+    const sentTo = (threadId: string) => (request: MemberRequest) => request.path.endsWith("/tasks")
+      ? { status: 201, body: { task: { threadId: "t9" } } }
+      : request.method === "POST"
+        ? { status: 202, body: { ok: true, threadId, message: { id: "m1" } } }
+        : page({ id: "m1", role: "user", kind: "text", text: "x", at: 2 });
+
+    it("starts the person's hidden conversation when they have none, never their open chat", async () => {
+      hiddenThread = () => null;
+      respond = sentTo("t9");
+      const got = await call("POST", "bots/b1/messages", token("bob"), { text: "count the tickets" });
+      expect(got.status).toBe(200);
+      expect(performed.filter((p) => p.request.method === "POST").map((p) => [p.request.path, p.request.body])).toEqual([
+        ["/api/bots/b1/tasks", { hidden: true }],
+        ["/api/bots/b1/messages", { text: "count the tickets", threadId: "t9" }],
+      ]);
+      expect(recorded[0]!.after).toEqual({ threadId: "t9", waited: false, hidden: true });
+    });
+
+    it("continues the hidden conversation it already has with that bot, for that person", async () => {
+      const asked: string[] = [];
+      hiddenThread = (botId, principalId) => {
+        asked.push(`${botId}/${principalId}`);
+        return "t7";
+      };
+      respond = sentTo("t7");
+      await call("POST", "bots/b1/messages", token("bob"), { text: "again" });
+      expect(asked).toEqual(["b1/pr_bob"]);
+      expect(performed.filter((p) => p.request.method === "POST").map((p) => [p.request.path, p.request.body])).toEqual([["/api/bots/b1/messages", { text: "again", threadId: "t7" }]]);
+    });
+
+    it("honors a thread the client names, as given", async () => {
+      respond = sentTo("t5");
+      await call("POST", "bots/b1/messages", token("bob"), { text: "here", threadId: "t5" });
+      expect(performed.filter((p) => p.request.method === "POST").map((p) => [p.request.path, p.request.body])).toEqual([["/api/bots/b1/messages", { text: "here", threadId: "t5" }]]);
+      expect(recorded[0]!.after).toEqual({ threadId: "t5", waited: false });
+    });
+
+    it("the Perspicax console is the person typing: their own conversation, nothing hidden", async () => {
+      respond = sentTo("t1");
+      await call("POST", "bots/b1/messages", token("bob", "employee", "console"), { text: "from the console" });
+      expect(performed.filter((p) => p.request.method === "POST").map((p) => [p.request.path, p.request.body])).toEqual([["/api/bots/b1/messages", { text: "from the console" }]]);
+      expect(recorded[0]!.after).toEqual({ threadId: "t1", waited: false });
+    });
   });
 
   it("checks its body", async () => {

@@ -61,6 +61,8 @@ export type DecisionKind =
  * by editing a bot's connectorTools, so the call itself needed no card. */
 export type DecisionSource =
   | AutoVerdictSource
+  /** nobody answered an AI client's hidden-thread approval in time */
+  | "expired"
   | "self"
   | "question"
   | "auto-fallback"

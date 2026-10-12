@@ -16,6 +16,36 @@ export const MAX_DEVICES_PER_PERSON = 10;
 
 /** APNs device tokens are 32 bytes today (64 hex); Apple says they may grow. */
 export const DEVICE_TOKEN = /^[0-9a-f]{64,200}$/;
+
+/** On `GET /api/events`: this phone's APNs token. The hub skips a push to
+ * a device that is already reading the live stream. */
+export const PUSH_TOKEN_HEADER = "x-sagax-push-token";
+
+export function pushTokenFromHeader(value: string | string[] | undefined): string | undefined {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (typeof raw !== "string") return undefined;
+  const token = raw.trim().toLowerCase();
+  return DEVICE_TOKEN.test(token) ? token : undefined;
+}
+
+/** APNs tokens of this person's devices that currently have a live stream. */
+export function tokensOfConnectedDevices(
+  streams: Iterable<{ viewerId?: string; pushToken?: string }>,
+  person: string,
+  localPerson?: string,
+): string[] {
+  const who = person.trim().toLowerCase();
+  if (!who) return [];
+  const fallback = localPerson?.trim().toLowerCase() ?? "";
+  const tokens: string[] = [];
+  for (const stream of streams) {
+    const owner = (stream.viewerId ?? fallback).trim().toLowerCase();
+    if (owner !== who || !stream.pushToken) continue;
+    tokens.push(stream.pushToken);
+  }
+  return tokens;
+}
+
 const PERSON = /^[\w:.@-]{1,128}$/;
 
 export interface PushDevice {

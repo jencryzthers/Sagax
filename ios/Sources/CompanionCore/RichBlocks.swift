@@ -10,8 +10,11 @@
 // renderer recognizes:
 //   ```email   To/Cc/Bcc/Subject header lines, a blank line, then the body
 //   ```widget  a self-contained HTML/CSS/JS snippet, run in a sandbox
+//   ```artifact  HTML (same as widget) or JSON {title, url} for a published page
 //   ```chart   a JSON spec or CSV rows, drawn without scripts
 //   ```csv / ```tsv  a data table with sort, filter and copy
+// Claude harness <antArtifact> tags are rewritten by liftClaudeChatBlocks
+// (`shared/claude-chat-blocks.ts` on the desktop).
 import Foundation
 
 public enum RichFenceKind: String, Sendable {
@@ -859,11 +862,12 @@ extension RichBlocks {
 
     private static let wideFence = JS.regex(#"(^|\n) {0,3}(?:`{3,}|~{3,})[ \t]*(?:email|mail|eml|widget|html-widget|artifact|chart|csv|tsv|mermaid)\b"#, [.caseInsensitive])
     private static let tableRule = JS.regex(#"(^|\n)\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*(\n|$)"#)
+    private static let antArtifactWide = JS.regex(#"<antArtifact\b"#, [.caseInsensitive])
 
     /// A message holding a table, a diagram or one of the rich fences gets
     /// the wide bubble on the desktop.
     public static func prefersWideBubble(_ text: String) -> Bool {
-        JS.test(wideFence, text) || JS.test(tableRule, text)
+        JS.test(wideFence, text) || JS.test(tableRule, text) || JS.test(antArtifactWide, text)
     }
 
     private static let rasterDataURL = JS.regex(#"^data:image/(?:png|jpe?g|gif|webp|avif|bmp);base64,[a-z0-9+/=\s]+$"#, [.caseInsensitive])
@@ -980,6 +984,195 @@ public enum CodeBlocks {
         return code.replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .components(separatedBy: "\n").count
+    }
+}
+
+// MARK: - Claude chat blocks
+// Ported from `shared/claude-chat-blocks.ts`. The Artifact tool's publish
+// JSON and Claude.ai <antArtifact> tags become the fences this renderer
+// already draws. Invented URLs are dropped.
+
+public struct ArtifactPage: Equatable, Hashable, Sendable {
+    public var title: String
+    public var url: String?
+    public var icon: String?
+
+    public init(title: String, url: String? = nil, icon: String? = nil) {
+        self.title = title
+        self.url = url
+        self.icon = icon
+    }
+}
+
+extension RichBlocks {
+    public static let artifactTitleMax = 200
+    public static let artifactIconMax = 32
+    private static let artifactChartTypes: Set<String> = ["bar", "line", "area", "pie", "scatter"]
+    private static let fenceBlock = JS.regex(#"(^|\n)((?: {0,3}>[ \t]?)* {0,3})(`{3,}|~{3,})([^\n]*)\n[\s\S]*?(?:\n(?: {0,3}>[ \t]?)* {0,3}\3[ \t]*(?=\n|$)|$)"#)
+    private static let antArtifact = JS.regex(#"<antArtifact\b([^>]*)>([\s\S]*?)</antArtifact>"#, [.caseInsensitive])
+    private static let antArtifactOpenTag = JS.regex(#"<antArtifact\b[^>]*>"#, [.caseInsensitive])
+    private static let antArtifactClose = JS.regex(#"</antArtifact>"#, [.caseInsensitive])
+    private static let attr = JS.regex(#"([A-Za-z_:][\w:.-]*)\s*=\s*"([^"]*)""#)
+
+    /// https URLs, plus http on loopback. Userinfo is refused.
+    public static func isSafeHttpUrl(_ value: String) -> Bool {
+        guard let url = URL(string: value) else { return false }
+        if let user = url.user, !user.isEmpty { return false }
+        if let password = url.password, !password.isEmpty { return false }
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        let host = url.host ?? ""
+        if scheme == "https" { return !host.isEmpty }
+        if scheme == "http" {
+            return host == "localhost" || host == "127.0.0.1" || host == "[::1]"
+        }
+        return false
+    }
+
+    /// JSON in a ```artifact fence: a title and an optional real URL. HTML in
+    /// that fence stays a widget (parseArtifactPage returns nil). Chart-shaped
+    /// JSON is refused so a mis-tagged ```artifact does not become a page card.
+    public static func parseArtifactPage(_ code: String) -> ArtifactPage? {
+        let trimmed = JS.trim(code)
+        guard trimmed.hasPrefix("{") else { return nil }
+        let raw: OrderedJSON
+        do { raw = try OrderedJSON.parse(trimmed) } catch { return nil }
+        guard case let .object(fields) = raw else { return nil }
+        func field(_ key: String) -> OrderedJSON? { fields.first { $0.0 == key }?.1 }
+        if case let .string(type)? = field("type"), artifactChartTypes.contains(type) { return nil }
+        if case .array = field("labels"), case .array = field("series") { return nil }
+        if case .array = field("artifacts") { return nil }
+        let title: String
+        if case let .string(text)? = field("title") {
+            title = String(JS.trim(text).prefix(artifactTitleMax))
+        } else {
+            title = ""
+        }
+        var url: String?
+        if case let .string(text)? = field("url") {
+            let candidate = JS.trim(text)
+            if isSafeHttpUrl(candidate) { url = candidate }
+        }
+        var icon: String?
+        if case let .string(text)? = field("icon") {
+            let value = String(JS.trim(text).prefix(artifactIconMax))
+            if !value.isEmpty { icon = value }
+        }
+        if title.isEmpty && url == nil { return nil }
+        return ArtifactPage(title: title.isEmpty ? "Page" : title, url: url, icon: icon)
+    }
+
+    private static func fenceAttrs(_ raw: String) -> [String: String] {
+        var out: [String: String] = [:]
+        let ns = raw as NSString
+        for match in attr.matches(in: raw, range: NSRange(location: 0, length: ns.length)) {
+            out[ns.substring(with: match.range(at: 1)).lowercased()] = ns.substring(with: match.range(at: 2))
+        }
+        return out
+    }
+
+    private static func fenced(_ lang: String, _ body: String) -> String {
+        var text = body
+        if text.hasPrefix("\n") { text = String(text.dropFirst()) }
+        if text.hasSuffix("\n") { text = String(text.dropLast()) }
+        return "```\(lang)\n\(text)\n```"
+    }
+
+    private static func langFromMime(_ type: String) -> String? {
+        if type == "text/javascript" || type == "application/javascript" { return "javascript" }
+        if type == "text/typescript" || type == "application/typescript" { return "typescript" }
+        if type == "application/json" || type == "text/json" { return "json" }
+        if type == "text/css" { return "css" }
+        if type == "text/x-python" || type == "text/python" { return "python" }
+        if type.hasPrefix("text/x-") { return String(type.dropFirst("text/x-".count)) }
+        return nil
+    }
+
+    private static func looksLikeChart(_ body: String) -> Bool {
+        let trimmed = JS.trim(body)
+        guard trimmed.hasPrefix("{") else { return false }
+        guard let raw = try? OrderedJSON.parse(trimmed), case let .object(fields) = raw else { return false }
+        guard case let .string(type)? = fields.first(where: { $0.0 == "type" })?.1 else { return false }
+        return artifactChartTypes.contains(type)
+    }
+
+    /// Turn one Claude.ai artifact tag into the Sagax fence the renderer already
+    /// knows. React/JSX stays a code fence: the widget sandbox has no network
+    /// and cannot load React.
+    public static func antArtifactToMarkdown(_ attributeSource: String, _ body: String) -> String {
+        let attrs = fenceAttrs(attributeSource)
+        let type = JS.trim(attrs["type"] ?? "").lowercased()
+        let language = JS.trim(attrs["language"] ?? "")
+        var trimmed = body
+        if trimmed.hasPrefix("\n") { trimmed = String(trimmed.dropFirst()) }
+        if trimmed.hasSuffix("\n") { trimmed = String(trimmed.dropLast()) }
+        if type == "application/vnd.ant.mermaid" || type == "text/mermaid" { return fenced("mermaid", trimmed) }
+        if type == "text/markdown" { return trimmed }
+        if type.contains("chart") || looksLikeChart(trimmed) { return fenced("chart", trimmed) }
+        if type == "text/html" || type == "image/svg+xml" || type == "application/vnd.ant.html" {
+            return fenced("widget", trimmed)
+        }
+        if type == "application/vnd.ant.react" || type.contains("react") {
+            return fenced(language.isEmpty ? "jsx" : language, trimmed)
+        }
+        if type == "application/vnd.ant.code" {
+            return fenced(language.isEmpty ? (langFromMime(type) ?? "text") : language, trimmed)
+        }
+        if type.hasPrefix("text/"), type != "text/plain" {
+            return fenced(language.isEmpty ? (langFromMime(type) ?? "text") : language, trimmed)
+        }
+        if trimmed.range(of: #"^\s*<"#, options: .regularExpression) != nil { return fenced("widget", trimmed) }
+        return fenced(language.isEmpty ? "text" : language, trimmed)
+    }
+
+    /// Rewrite complete `<antArtifact>` tags into fences. An unclosed tag (the
+    /// model is still streaming) is dropped so raw XML never flashes in the
+    /// bubble. Fenced code that documents the tag is left alone.
+    public static func liftClaudeChatBlocks(_ text: String) -> String {
+        var parts: [String] = []
+        let protected = JS.replace(text, fenceBlock) { groups in
+            let token = "\u{0000}OMB_FENCE_\(parts.count)\u{0000}"
+            parts.append(groups[0] ?? "")
+            return token
+        }
+        var lifted = JS.replace(protected, antArtifact) { groups in
+            "\n\n\(antArtifactToMarkdown(groups[1] ?? "", groups[2] ?? ""))\n\n"
+        }
+        let ns = lifted as NSString
+        if let opener = antArtifactOpenTag.firstMatch(in: lifted, range: NSRange(location: 0, length: ns.length)) {
+            let rest = ns.substring(from: opener.range.location)
+            if !JS.test(antArtifactClose, rest) {
+                lifted = ns.substring(to: opener.range.location)
+            }
+        }
+        // ICU regex cannot hold a NUL, so the restore walks the same token
+        // the desktop writes (`\0OMB_FENCE_n\0`) by hand.
+        return restoreFences(lifted, parts)
+    }
+
+    private static func restoreFences(_ text: String, _ parts: [String]) -> String {
+        let prefix = "\u{0000}OMB_FENCE_"
+        let suffix: Character = "\u{0000}"
+        var out = ""
+        var rest = Substring(text)
+        while let start = rest.range(of: prefix) {
+            out += rest[..<start.lowerBound]
+            let after = rest[start.upperBound...]
+            var digits = ""
+            var idx = after.startIndex
+            while idx < after.endIndex, after[idx].isNumber {
+                digits.append(after[idx])
+                idx = after.index(after: idx)
+            }
+            guard idx < after.endIndex, after[idx] == suffix, let index = Int(digits), parts.indices.contains(index) else {
+                out += prefix
+                rest = after
+                continue
+            }
+            out += parts[index]
+            rest = after[after.index(after: idx)...]
+        }
+        out += rest
+        return out
     }
 }
 

@@ -341,7 +341,11 @@ const __SAGAX_DEFAULT_SERVER__: string;
         bounce: "critical" | "informational" | null;
         flash: boolean;
         target?: { botId?: string; threadId?: string; groupId?: string; routineRunId?: string };
+        /** Lets withdrawNotification take it down (an approval answered elsewhere). */
+        withdrawKey?: string;
       }): void;
+      /** Close the shell notifications shown with this withdraw key. */
+      withdrawNotification?(withdrawKey: string): void;
       /** The id of a shell notification the person clicked. */
       onNotificationClick?(cb: (id: string, target?: { botId?: string; threadId?: string; groupId?: string; routineRunId?: string } | null) => void): () => void;
       /** Presence: the computer's idle state and seconds since the last

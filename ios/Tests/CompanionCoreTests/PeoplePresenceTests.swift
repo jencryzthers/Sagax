@@ -192,14 +192,22 @@ final class AccountRowTests: XCTestCase {
 final class AttentionTests: XCTestCase {
     private let nudge = NudgeFrame(fromId: "pr_bob", fromName: "Bob", at: 1_000_000, open: .init(groupId: "g1", threadId: "t1"))
 
-    func testAFreshNudgeRingsBuzzesAndNotifiesUnlessThatConversationIsOpen() {
+    func testAFreshNudgeRingsBuzzesAndNotifiesUnlessTheAppIsInFront() {
         let away = NudgeAttention.decide(nudge, now: 1_000_500, appActive: false, viewingThreadId: nil, settings: .default)
         XCTAssertEqual(away, NudgeAttention(fresh: true, sound: true, haptic: false, notify: true), "in the background: no haptic, a notification")
         let elsewhere = NudgeAttention.decide(nudge, now: 1_000_500, appActive: true, viewingThreadId: "t9", settings: .default)
-        XCTAssertEqual(elsewhere, NudgeAttention(fresh: true, sound: true, haptic: true, notify: true))
+        XCTAssertEqual(elsewhere, NudgeAttention(fresh: true, sound: true, haptic: true, notify: false), "in front, even another conversation: no banner")
         let looking = NudgeAttention.decide(nudge, now: 1_000_500, appActive: true, viewingThreadId: "t1", settings: .default)
         XCTAssertFalse(looking.notify)
         XCTAssertTrue(looking.haptic)
+    }
+
+    func testWillPresentShowsNoBannerWhileTheAppIsActive() {
+        XCTAssertFalse(ForegroundNotification.showsSystemBanner(appActive: true, viewingThreadId: "t1", threadId: "t1"))
+        XCTAssertFalse(ForegroundNotification.showsSystemBanner(appActive: true, viewingThreadId: "t1", threadId: "t2"))
+        XCTAssertFalse(ForegroundNotification.showsSystemBanner(appActive: true, viewingThreadId: nil, threadId: "t1"))
+        XCTAssertTrue(ForegroundNotification.showsSystemBanner(appActive: false, viewingThreadId: "t1", threadId: "t1"))
+        XCTAssertTrue(ForegroundNotification.showsSystemBanner(appActive: false, viewingThreadId: nil, threadId: "t1"))
     }
 
     func testAStaleReplayDoesNothingAndSwitchesAreRespected() {

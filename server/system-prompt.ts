@@ -50,7 +50,7 @@ export function buildSystemPrompt(
   persona: string,
   soul: string,
   parts: PromptPart[],
-): { text: string; sections: PromptSection[]; stable: string; volatile: string } {
+): { text: string; sections: PromptSection[]; stable: string; volatile: string; volatileSections: Array<{ id: string; text: string }> } {
   // RULES.md (server/workspace-files.ts) rides right after the soul and
   // before everything else, wherever a call site lists it: hard constraints
   // belong next to the standing instructions, ahead of memory.
@@ -65,7 +65,13 @@ export function buildSystemPrompt(
     .map((part) => ({ ...part, bytes: Buffer.byteLength(part.text, "utf8") }));
   const halves = (volatile: boolean) =>
     sections.filter((section) => VOLATILE_SECTIONS.has(section.id) === volatile).map((section) => section.text).join("");
-  return { text: sections.map((section) => section.text).join(""), sections, stable: halves(false), volatile: halves(true) };
+  return {
+    text: sections.map((section) => section.text).join(""),
+    sections,
+    stable: halves(false),
+    volatile: halves(true),
+    volatileSections: sections.filter((section) => VOLATILE_SECTIONS.has(section.id)).map(({ id, text }) => ({ id, text })),
+  };
 }
 
 // The "box*" prompt kinds are Boat's historical kind literals; events and
@@ -173,6 +179,7 @@ export const RICH_OUTPUT_PROMPT =
   + " When you write an email for the person, put it in one ```email fence: header lines To:, Cc:, Bcc: and Subject: (only the ones that apply), a blank line, then the body in Markdown; it shows as a draft card with Copy and Open in mail app, and nothing is sent."
   + " For a chart, use a ```chart fence holding JSON such as {\"type\":\"bar\",\"title\":\"Tickets\",\"labels\":[\"Mon\",\"Tue\"],\"series\":[{\"name\":\"Opened\",\"data\":[4,7]}]} (type bar, line, area or pie) or CSV with a header row; for a large dataset, a ```csv fence becomes a sortable, filterable table."
   + " For an interactive tool (calculator, simulator, small form or visualization), use a ```widget fence with self-contained HTML, CSS and inline JavaScript; it runs in a sandbox with no network access, so inline all data and never load external scripts, fonts or images."
+  + " When you have a hosted page the person can open, put it in one ```artifact fence holding JSON such as {\"title\":\"Report\",\"url\":\"https://example.com/page\"} (a real https URL only, never invented); it shows as a card with Open."
   + " To show an image, video or document, attach it or link its absolute path; a remote image loads only after the person allows it.";
 
 export const CREDENTIAL_PROMPT =

@@ -284,6 +284,7 @@ struct ApprovalDock: View {
     private func heading(_ pending: PendingApproval) -> String {
         switch ApprovalHeading.of(pending.card) {
         case let .wantsTo(action):
+            if let plain = ApprovalHeading.plainTitle(pending.card) { return plain }
             let name = pending.message.from?.name ?? chat.name
             return String(localized: "\(name) wants to \(Self.phrase(action))")
         case .confirmRoutine: return String(localized: "Confirm this routine")

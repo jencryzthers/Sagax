@@ -1044,7 +1044,19 @@ function mcpDetail(item: PluginItem, { mcp, mcpAccountDraft, setMcpAccountDraft 
   const remote = isRemoteMcpListing(server);
   const disabled = new Set(server.disabledTools ?? []);
   const probe = mcp.probe[name];
-  const toolList = probe?.ok ? (probe.tools ?? []).map((tool) => ({ name: tool.name, description: tool.description, enabled: !disabled.has(tool.name) })) : null;
+  // A tool Grok registers under another name, or cannot register, says so
+  // on its row: a connector tool is never lost without a word.
+  const grokNames = probe?.ok ? probe.engineNames?.grok : undefined;
+  const engineNote = (tool: string) => {
+    const renamed = grokNames?.renamed.find((entry) => entry.upstream === tool);
+    if (renamed) return t("mcp.engineName.renamed", { name: renamed.registered });
+    const failed = grokNames?.unregistrable.find((entry) => entry.upstream === tool);
+    return failed ? t("mcp.engineName.unregistrable", { reason: failed.reason }) : undefined;
+  };
+  const toolList = probe?.ok ? (probe.tools ?? []).map((tool) => {
+    const note = engineNote(tool.name);
+    return { name: tool.name, description: note ? [note, tool.description].filter(Boolean).join(" ") : tool.description, enabled: !disabled.has(tool.name) };
+  }) : null;
   const signingIn = mcp.busy === `oauth:${name}` || Boolean(mcp.waiting[name]);
   const issuer = remote ? (server.authIssuer ?? safeHost(server.url)) : "";
   const others = remote ? (server.accounts ?? []).filter((entry) => entry.id !== "default") : [];

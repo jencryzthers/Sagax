@@ -269,7 +269,7 @@ describe("composioSystemPrompt", () => {
 
 describe("RICH_OUTPUT_PROMPT", () => {
   it("teaches every fence the chat renders, and the sandbox rules", () => {
-    for (const fence of ["```email", "```chart", "```csv", "```widget", "```mermaid", "[!NOTE]"]) {
+    for (const fence of ["```email", "```chart", "```csv", "```widget", "```artifact", "```mermaid", "[!NOTE]"]) {
       expect(RICH_OUTPUT_PROMPT).toContain(fence);
     }
     expect(RICH_OUTPUT_PROMPT).toMatch(/To:, Cc:, Bcc: and Subject:/);
@@ -301,5 +301,21 @@ describe("cloudHomePrompt", () => {
     expect(cloudHomePrompt(true)).toContain("turn on Let My Cloud use this Mac under Settings → Sagax Cloud in the desktop app on that Mac");
     expect(cloudHomePrompt(false)).not.toMatch(/shared_computer|list_shared_computers/);
     expect(cloudHomePrompt(false)).toContain("You cannot see or use their Mac or PC, its screen or its files from here.");
+  });
+});
+
+describe("buildSystemPrompt volatile sections", () => {
+  it("returns the volatile half by section, in prompt order, for per-section delivery", () => {
+    const built = buildSystemPrompt("I am Testy.", "", [
+      { id: "memory", label: "Memory", text: "\n\nMemory: tea." },
+      { id: "tools", label: "Tools", text: "\n\nTools: shell." },
+      { id: "recent", label: "Recent work", text: "\n\nRecent: pong." },
+      { id: "docs", label: "Documents index", text: "" },
+    ]);
+    expect(built.volatileSections).toEqual([
+      { id: "memory", text: "\n\nMemory: tea." },
+      { id: "recent", text: "\n\nRecent: pong." },
+    ]);
+    expect(built.volatile).toBe(built.volatileSections.map((section) => section.text).join(""));
   });
 });

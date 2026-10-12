@@ -22,7 +22,7 @@ import type { AchievementDefinition, AchievementReward } from "./achievements.ts
 import type { MasteryMetric } from "./achievements-mastery.ts";
 import { masteryRewards } from "./mascot-unlocks.ts";
 
-const skin = (character: "owl" | "shape" | "trombi" | "bunbu", id: string) => ({ kind: "skin", character, skin: id }) as const;
+const skin = (character: "owl" | "shape" | "trombi" | "bunbu" | "crab", id: string) => ({ kind: "skin", character, skin: id }) as const;
 const title = (id: string, en: string, fr: string) => ({ kind: "title", id, name: { en, fr } }) as const;
 const mastery = (id: string, metric: MasteryMetric, target: number) => ({
   id,
@@ -51,7 +51,7 @@ const CATALOG: readonly AchievementDefinition[] = [
     icon: "Bot",
     points: 10,
     rule: { kind: "count", event: "bot.created", target: 1 },
-    rewards: [skin("shape", "outline")],
+    rewards: [skin("shape", "outline"), skin("crab", "pearl")],
   },
   {
     id: "grok-linked",
@@ -91,7 +91,7 @@ const CATALOG: readonly AchievementDefinition[] = [
     icon: "Shirt",
     points: 20,
     rule: { kind: "distinct", event: "bot.customized", target: 3 },
-    rewards: [skin("shape", "gold")],
+    rewards: [skin("shape", "gold"), skin("crab", "gold")],
   },
   {
     id: "small-family",
@@ -143,7 +143,7 @@ const CATALOG: readonly AchievementDefinition[] = [
     icon: "Cog",
     points: 100,
     rule: { kind: "count", event: "routine.ran", target: 50 },
-    rewards: [skin("shape", "molten")],
+    rewards: [skin("shape", "molten"), skin("crab", "molten")],
   },
   {
     id: "gatekeeper",
@@ -163,7 +163,7 @@ const CATALOG: readonly AchievementDefinition[] = [
     icon: "Scale",
     points: 20,
     rule: { kind: "count", event: "approval.answered", target: 25 },
-    rewards: [skin("shape", "neon")],
+    rewards: [skin("shape", "neon"), skin("crab", "neon")],
   },
   {
     id: "slash-and-learn",
@@ -183,7 +183,7 @@ const CATALOG: readonly AchievementDefinition[] = [
     icon: "SquareTerminal",
     points: 20,
     rule: { kind: "distinct", event: "message.slash", target: 5 },
-    rewards: [skin("shape", "circuit")],
+    rewards: [skin("shape", "circuit"), skin("crab", "circuit")],
   },
   {
     id: "paperclip",
@@ -245,7 +245,7 @@ const CATALOG: readonly AchievementDefinition[] = [
     icon: "Split",
     points: 20,
     rule: { kind: "count", event: "message.parallel", target: 1 },
-    rewards: [skin("shape", "chrome")],
+    rewards: [skin("shape", "chrome"), skin("crab", "chrome")],
   },
   {
     id: "juggler",
@@ -255,7 +255,7 @@ const CATALOG: readonly AchievementDefinition[] = [
     icon: "Layers",
     points: 50,
     rule: { kind: "count", event: "message.parallel", target: 10 },
-    rewards: [skin("shape", "holo")],
+    rewards: [skin("shape", "holo"), skin("crab", "holo")],
   },
   {
     id: "delegator",
@@ -369,7 +369,7 @@ const CATALOG: readonly AchievementDefinition[] = [
     icon: "Share2",
     points: 20,
     rule: { kind: "count", event: "bot.shared", target: 1 },
-    rewards: [skin("shape", "crystal")],
+    rewards: [skin("shape", "crystal"), skin("crab", "crystal")],
   },
   {
     id: "dream-team",
@@ -379,7 +379,7 @@ const CATALOG: readonly AchievementDefinition[] = [
     icon: "UsersRound",
     points: 50,
     rule: { kind: "count", event: "group.mixed", target: 1 },
-    rewards: [skin("shape", "galaxy")],
+    rewards: [skin("shape", "galaxy"), skin("crab", "galaxy")],
   },
   {
     id: "direct-line",

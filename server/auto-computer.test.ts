@@ -40,6 +40,13 @@ describe("computer_select availability", () => {
     }
   });
 
+  it("answers a fixed Cloud asked for the cloud with where it already works, not a refusal", () => {
+    const answer = selectAutoComputer(auto({ auto: false, fixed: "cloud", selected: null }), { target: "cloud" }, true);
+    expect(answer).toMatchObject({ ok: true, target: "cloud", changed: false });
+    expect(answer.text).toContain("You already work on the cloud");
+    expect(selectAutoComputer(auto({ auto: false, fixed: "local", selected: null }), { target: "cloud" }, true).ok).toBe(false);
+  });
+
   it("refuses this_computer and local_vm when the desktop app is not connected", () => {
     for (const target of ["this_computer", "local_vm"]) {
       const notMounted = selectAutoComputer(auto({ desktopMounted: false }), { target }, false);
@@ -142,6 +149,13 @@ describe("Auto guidance (prompt fixture)", () => {
   it("lists only what can be reached", () => {
     expect(autoComputerGuidance(auto({ desktopMounted: false }), false)).toContain("available now: cloud.");
     expect(autoComputerGuidance(auto({ sandboxConfigured: false, selected: null }), true)).toContain("This turn starts on no computer; available now: this_computer, local_vm.");
+  });
+
+  it("does not send the bot to computer_select for connector tools or to confirm where it already is", () => {
+    expect(text).toContain("Connector and Sagax tools (ConnectWise, Pulsatrix memory and flow, agents, search, other MCP servers) run on the server wherever you are: they need no computer and no computer_select.");
+    expect(text).toContain("Call computer_select only when a step needs a place other than the one you are on (not to confirm it).");
+    expect(text).not.toContain("Select before the first tool call");
+    expect(text).toContain("Prefer the cloud; use the person's own computer only for what exists only there.");
   });
 
   it("has no long dashes", () => {
