@@ -37,13 +37,38 @@ export const STATIC_GROK_MODELS: ModelCatalog = {
 /** Appended to the stable system half of every Grok turn (acp/core.ts
  * stableSystemHint): skip a search round for tools already discovered. */
 /** SAGAX_GROK_STALL_RETRY_MS: ms of total silence after a prompt before
- * Sagax cancels and asks once more (default 20000, 0 turns it off). */
-export function grokStallRetryMs(env: NodeJS.ProcessEnv = process.env): number {
+ * Sagax cancels and asks once more (0 turns it off). Unset, the wait follows
+ * the conversation's size (grokAdaptiveStallMs). */
+export function grokStallRetryMs(
+  context?: { contextTokens: number | null; promptChars: number },
+  env: NodeJS.ProcessEnv = process.env,
+): number {
   const raw = env.SAGAX_GROK_STALL_RETRY_MS;
-  if (raw === undefined || raw.trim() === "") return 20_000;
-  const value = Number(raw);
-  if (!Number.isFinite(value) || value < 0) return 20_000;
-  return Math.floor(value);
+  if (raw !== undefined && raw.trim() !== "") {
+    const value = Number(raw);
+    if (Number.isFinite(value) && value >= 0) return Math.floor(value);
+  }
+  return grokAdaptiveStallMs(context);
+}
+
+/** Grok's own system prompt and tool definitions, in tokens, that ride every
+ * request beside Sagax's text (measured on the GOX server: a bare "pong" on a
+ * new session reports ~12.5-14.7k input tokens). */
+const GROK_BASE_CONTEXT_TOKENS = 13_000;
+export const GROK_STALL_MIN_MS = 10_000;
+export const GROK_STALL_MAX_MS = 30_000;
+
+/** How long a silent prompt is given before the stall guard asks again.
+ * Measured on the GOX server (179 prompts, 2026-10-11): a healthy first
+ * streamed update came at p50 2.4 s / p90 7.8 s; uncached prefills of
+ * 94-173k tokens took 8.7-19.8 s; the provider stalls (no update at all)
+ * ran 27-90 s, some on contexts under 20k tokens. A flat 20 s wait made a
+ * stalled short conversation wait 20 s; here a short one waits 10 s and a
+ * long one up to 30 s (10 s plus 0.12 s per 1k tokens beyond 20k). */
+export function grokAdaptiveStallMs(context?: { contextTokens: number | null; promptChars: number }): number {
+  const tokens = (context?.contextTokens ?? GROK_BASE_CONTEXT_TOKENS) + Math.ceil((context?.promptChars ?? 0) / 4);
+  const ms = GROK_STALL_MIN_MS + Math.max(0, tokens - 20_000) * 0.12;
+  return Math.round(Math.min(GROK_STALL_MAX_MS, Math.max(GROK_STALL_MIN_MS, ms)));
 }
 
 export const GROK_TOOL_REUSE_HINT =

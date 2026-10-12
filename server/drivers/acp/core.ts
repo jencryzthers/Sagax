@@ -89,6 +89,7 @@ import { extractMcpImages } from "../../mcp-tool-images.ts";
 import { redactSecretsInText } from "../../redact.ts";
 import { recoveryPromptFor } from "../../resume-recovery.ts";
 import { sessionIdlePolicy } from "../session-idle.ts";
+import { newTurnLatency, noteTurnActivity, turnLatencyLine, type TurnLatency } from "./turn-latency.ts";
 import { classifyError } from "../retry.ts";
 import { canUseMcpServer, narrowsNativeTools, parseToolScope } from "../../../shared/tool-scope.ts";
 import { gateServer, mcpStdioServer } from "../../mcp-gate-config.ts";
@@ -162,6 +163,8 @@ interface AcpTurn {
    * turn mounted through the gate. The agent's own ask about a call to one
    * of them is answered allow-once; the gate decides (gated-mcp-ask.ts). */
   gatedServers?: ReadonlySet<string>;
+  /** this turn's stage timestamps, logged once when it settles */
+  latency?: TurnLatency;
   state: {
     settled: boolean; promptSent: boolean; text: string; producedItem: boolean; startupActivity: boolean; stopped: boolean;
     /** Compaction detection: peak and last reported context size, and
@@ -469,7 +472,7 @@ export interface AcpSupport {
   onToolCompleted?(input: { botId?: string; rawInput: unknown }): void;
   /** Ask once more when the agent sends nothing at all (no text, thought or
    * tool call, no question) for this many ms after the prompt; 0 is off. */
-  stallRetryMs?(): number;
+  stallRetryMs?(context?: { contextTokens: number | null; promptChars: number }): number;
   /** Rewrite a picker id (`omlx::model`) into the CLI-native id before spawn
    * and session/select. Local inject writers live here so the child sees a
    * model it already knows. */
@@ -1250,6 +1253,9 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           });
         }
         emit({ ...base(threadId, current.turnId), type: "turn.completed", ok: finalOk, stopReason: finalStopReason, cost: null });
+        if (current.latency) {
+          console.log(turnLatencyLine(DRIVER_KIND, threadId, current.latency, Date.now(), finalOk ? "ok" : (finalStopReason ?? "failed")));
+        }
         if (session.child.exitCode === null && !session.closing && !session.dead) {
           armIdle(threadId);
         } else if (session.dead && sessions.get(threadId) === session) {
@@ -1622,6 +1628,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           if (current && ["agent_message_chunk", "agent_thought_chunk", "tool_call", "tool_call_update"].includes(p.update?.sessionUpdate)) {
             current.state.startupActivity = true;
             if (current.state.promptSent) current.state.promptActivity = true;
+            noteTurnActivity(current.latency, p.update.sessionUpdate, Date.now());
           }
           if (!current || !current.state.promptSent) return;
           const u = p.update ?? {};
@@ -1813,6 +1820,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
       };
 
       const sendTurn = async (turn: SendTurnInput) => {
+        const latency = newTurnLatency(Date.now(), turn.receivedAt);
         if (startupModelRefresh) await startupModelRefresh;
         const parsedScope = parseToolScope(turn.toolScope);
         if (!parsedScope.ok) throw new Error(parsedScope.error);
@@ -2175,6 +2183,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           controlsHost,
           ...(approvalGated ? { gatedServers: new Set(mcpServers.map((server) => server.name)) } : {}),
           state,
+          latency,
           acknowledge,
           asks,
           runningTools: new Set(),
@@ -2521,6 +2530,10 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             }
             if (state.settled || state.stopped || session.closing) throw new Error("turn stopped");
             state.promptSent = true;
+            latency.promptAt = Date.now();
+            latency.path = launchedThisTurn ? "spawn" : reused ? "pooled" : "load";
+            latency.promptChars = text.length;
+            if (pendingSplitReceipt) latency.full = pendingSplitReceipt.receipt.turnsSinceFull === 0;
             acknowledge();
             const promptIdleMs = promptIdleTimeoutMs();
             const quiet = startQuietWatch(threadId, session, current);
@@ -2544,7 +2557,15 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             // and nothing was approved, so the prompt is cancelled and asked
             // once more. Any sign of life, a running tool or an open ask turns
             // the retry off for this turn.
-            const stallMs = support.stallRetryMs?.() ?? 0;
+            // The last context size this session reported (the split receipt
+            // carries it across processes) lets the guard wait longer for a
+            // big uncached prefill than for a short conversation.
+            const lastUsed = pendingSplitReceipt?.previous?.lastUsed ?? state.usagePeak;
+            const stallMs = support.stallRetryMs?.({
+              contextTokens: typeof lastUsed === "number" && lastUsed > 0 ? lastUsed : null,
+              promptChars: text.length,
+            }) ?? 0;
+            if (stallMs > 0) latency.stallMs = stallMs;
             let result: any;
             if (stallMs > 0) {
               state.promptActivity = false;
@@ -2553,6 +2574,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                 if (state.promptActivity || state.settled || state.stopped || session.closing || session.current !== current
                     || current.asks.size || current.runningTools.size) return;
                 stalled = true;
+                latency.stallRetried = true;
                 emit({
                   ...base(threadId, turnId),
                   type: "runtime.notice",
@@ -2610,6 +2632,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               // key: absent is not zero.
               const input = usage.inputTokens ?? 0;
               const output = usage.outputTokens ?? 0;
+              latency.inputTokens = input;
+              if (typeof usage.cachedReadTokens === "number") latency.cachedTokens = usage.cachedReadTokens;
               const cachedRead = typeof usage.cachedReadTokens === "number" && usage.cachedReadTokens > 0
                 ? usage.cachedReadTokens
                 : null;

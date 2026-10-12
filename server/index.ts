@@ -14728,6 +14728,8 @@ async function startTurn(
         return instance.adapter.sendTurn({
         threadId,
         botId: bot.id,
+        // the per-turn latency line's queue stage (drivers/acp/turn-latency.ts)
+        ...(!warmOnly && typeof userMessage.at === "number" ? { receivedAt: userMessage.at } : {}),
         ...(turnAccess ? { access: turnAccess } : {}),
         // on a live call the engine process stays warm from turn to turn.
         // A warm uses the same flag so the first spoken turn's contract matches.

@@ -7,7 +7,7 @@ import {
   GROK_KNOWN_TOOLS_MAX, GROK_KNOWN_TOOLS_SECTION, knownGrokTools, knownGrokToolsSection,
   recordGrokToolUse, resetGrokToolUsageCache, useToolName,
 } from "./grok-tool-usage.ts";
-import { grokStallRetryMs } from "./grok.ts";
+import { GROK_STALL_MAX_MS, GROK_STALL_MIN_MS, grokAdaptiveStallMs, grokStallRetryMs } from "./grok.ts";
 
 describe("grok tool usage", () => {
   let dir: string;
@@ -58,10 +58,23 @@ describe("grok tool usage", () => {
     expect(section?.text).toContain("without search_tool");
   });
 
-  it("reads the stall retry setting", () => {
-    expect(grokStallRetryMs({})).toBe(20_000);
-    expect(grokStallRetryMs({ SAGAX_GROK_STALL_RETRY_MS: "0" })).toBe(0);
-    expect(grokStallRetryMs({ SAGAX_GROK_STALL_RETRY_MS: "30000" })).toBe(30_000);
-    expect(grokStallRetryMs({ SAGAX_GROK_STALL_RETRY_MS: "nope" })).toBe(20_000);
+  it("reads the stall retry setting, and sizes the wait to the conversation when it is unset", () => {
+    expect(grokStallRetryMs(undefined, { SAGAX_GROK_STALL_RETRY_MS: "0" })).toBe(0);
+    expect(grokStallRetryMs(undefined, { SAGAX_GROK_STALL_RETRY_MS: "30000" })).toBe(30_000);
+    expect(grokStallRetryMs({ contextTokens: 150_000, promptChars: 0 }, { SAGAX_GROK_STALL_RETRY_MS: "20000" })).toBe(20_000);
+    // unset or invalid: adaptive
+    expect(grokStallRetryMs(undefined, {})).toBe(GROK_STALL_MIN_MS);
+    expect(grokStallRetryMs({ contextTokens: 112_000, promptChars: 0 }, { SAGAX_GROK_STALL_RETRY_MS: "nope" })).toBe(21_040);
+  });
+
+  it("waits 10 s for a short conversation and up to 30 s for a long uncached one", () => {
+    // a new session: Grok's own ~13k plus a 36k-character first prompt
+    expect(grokAdaptiveStallMs({ contextTokens: null, promptChars: 36_000 })).toBe(10_240);
+    expect(grokAdaptiveStallMs({ contextTokens: 17_000, promptChars: 1_600 })).toBe(10_000);
+    // the measured slow-but-healthy prefills (94k, 112k, 173k) stay under the wait
+    expect(grokAdaptiveStallMs({ contextTokens: 94_566, promptChars: 7_307 })).toBeGreaterThan(8_700);
+    expect(grokAdaptiveStallMs({ contextTokens: 112_605, promptChars: 8_089 })).toBeGreaterThan(19_800);
+    expect(grokAdaptiveStallMs({ contextTokens: 173_260, promptChars: 51_760 })).toBeGreaterThan(18_300);
+    expect(grokAdaptiveStallMs({ contextTokens: 900_000, promptChars: 0 })).toBe(GROK_STALL_MAX_MS);
   });
 });

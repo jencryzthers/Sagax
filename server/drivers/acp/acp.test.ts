@@ -1834,6 +1834,27 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       expect(recorder.events.some((e) => e.type === "content.delta")).toBe(true);
     });
 
+    it("logs one latency line per turn with its stages and the stall retry", async () => {
+      const lines: string[] = [];
+      const log = vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+        if (typeof args[0] === "string" && args[0].startsWith("[turn-latency]")) lines.push(args[0]);
+      });
+      try {
+        process.env.SAGAX_GROK_STALL_RETRY_MS = "150";
+        await create(GrokAgentDriver, "stall-first-prompt");
+        await instance.adapter.sendTurn({ threadId: "t-latency", text: "go", receivedAt: Date.now() - 40 });
+        expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+        expect(lines).toHaveLength(1);
+        expect(lines[0]).toMatch(
+          /^\[turn-latency\] \S+ thread=t-latenc path=spawn queue=\d+ms setup=\d+ms ttfa=\d+ms ttft=\d+ms tools=\d+ total=\d+ms prompt=\d+ch full=\S+ in=\S+ cached=\S+ stallGuard=150ms retried ok$/,
+        );
+        expect(Number(/queue=(\d+)ms/.exec(lines[0]!)![1])).toBeGreaterThanOrEqual(40);
+        expect(Number(/ttfa=(\d+)ms/.exec(lines[0]!)![1])).toBeGreaterThanOrEqual(150);
+      } finally {
+        log.mockRestore();
+      }
+    });
+
     it("retries only once: a second silence is left to the idle guard", async () => {
       process.env.SAGAX_GROK_STALL_RETRY_MS = "100";
       process.env.SAGAX_ACP_PROMPT_IDLE_TIMEOUT_MS = "600";
