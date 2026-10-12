@@ -284,7 +284,7 @@ import {
 } from "./mcp-registry.ts";
 import { withDisabledTools } from "./mcp-tool-filter.ts";
 import { probeMcpServer } from "./mcp-probe.ts";
-import { readToolNameReports } from "./mcp-tool-name-reports.ts";
+import { createMcpToolNameRoutes } from "./routes/mcp-tool-names.ts";
 import { callbackPage, DEFAULT_MCP_ACCOUNT, isMcpAccountId, McpOAuthError, McpOAuthManager, McpOAuthVault, parseMcpAccountChoices, phoneOAuthReturns, phoneReturnLocation, resolveVaultKey, type VaultKeySource } from "./mcp-oauth.ts";
 import {
   GROUP_GOAL_MAX_TURNS,
@@ -20832,6 +20832,7 @@ const cloudMoveRoutes = async (..._args: unknown[]): Promise<boolean> => false;
 
 // Route modules (server/routes/README.md). `workspaceAccess` is assigned at
 // boot, after this line, so the dependency reads it per request.
+ROUTES.push(createMcpToolNameRoutes());
 ROUTES.push(createHostedSlackRoutes({ bot: (id) => store.bot(id), hostedReady: () => Boolean(workspaceAccess) && entitled("admin") }));
 // Install statuses come from the organization library's own state, never
 // its file, so New bot cannot disagree with it. No organization: none.
@@ -35214,13 +35215,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const started = await startMcpSignIn(req, auth, name, server, body);
       return json(res, started.status, started.body);
-    }
-
-    // Connector tool-name status: what each MCP gate saw the server advertise
-    // and what the engine registers (renames, anything that could not be
-    // registered). Written by server/mcp-gate.ts; names only, no values.
-    if (method === "GET" && path === "/api/mcp/tool-names") {
-      return json(res, 200, { reports: readToolNameReports() });
     }
 
     const mcpTest = /^\/api\/mcp\/servers\/([a-z][a-z0-9_-]{0,31})\/test$/.exec(path);
