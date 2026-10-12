@@ -67,16 +67,29 @@ function acceptanceWords(text: string): string[] {
   return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[a-z0-9]+/g) ?? [];
 }
 
+const WAIT_SCRIPT_IDS = new Set(["A", "B", "C"]);
+
+export function acceptanceScriptLine(id: string | undefined): AcceptanceLine | undefined {
+  if (!id) return undefined;
+  return [...ACCEPTANCE_SCRIPT, ...ACCEPTANCE_STOP_SCRIPT].find((row) => row.id === id);
+}
+
 /** Speculative prefixes of a wait instruction are skipped. The full sentence,
  * including a complete speculative of a short question, must POST or the
- * line never lands (48f D/barge). */
-export function shouldPostAcceptanceUtterance(turn: { speculative?: boolean }, text = ""): boolean {
+ * line never lands (48f D/barge). 48g: B's "Please wait fifteen seconds"
+ * did not match tokyo, posted, forked unlabeled, then replaced A. */
+export function shouldPostAcceptanceUtterance(
+  turn: { speculative?: boolean },
+  text = "",
+  injectedId?: string,
+): boolean {
   if (turn.speculative !== true) return true;
-  const line = matchAcceptanceLine(text);
+  const line = matchAcceptanceLine(text) ?? acceptanceScriptLine(injectedId);
   if (!line) return true;
   const got = acceptanceWords(text);
   const want = acceptanceWords(line.text);
   if (got.length >= want.length) return true;
+  if (WAIT_SCRIPT_IDS.has(line.id)) return false;
   return !got.every((word, i) => word === want[i]);
 }
 
@@ -190,10 +203,10 @@ const HINT: Record<string, RegExp> = {
   corr: /\b(toronto|i meant|je voulais|no,)\b/i,
   barge: /\bparis\b/i,
   lim: /\b(rapport|mensuel)\b/i,
-  C: /\b(courriel|bonjour|email)\b/i,
-  B: /\btokyo\b/i,
+  C: /\b(courriel|bonjour|email|attends huit|attends 8)\b/i,
+  B: /\b(tokyo|wait fifteen|wait 15)\b/i,
   D: /\b(quebec|québec|how far)\b/i,
-  A: /\b(count|two hundred|wait twelve|wait twenty|montreal|montréal|story|weather|histoire)\b/i,
+  A: /\b(count|two hundred|wait twelve|wait 12|wait twenty|wait 20|montreal|montréal|story|weather|histoire)\b/i,
 };
 
 /** One warm EOS->first-audio sample per utterance. Metrics events repeat. */
@@ -271,6 +284,40 @@ export function assignAcceptanceTurnIds(events: AcceptanceEvent[]): void {
       event.id = map.get(event.threadId);
     }
   }
+}
+
+/** Main-thread fallback is A only after the labeled A send (48g prefix complete). */
+export function stampAcceptanceMainThread(events: AcceptanceEvent[], threadId: string): void {
+  const sentAt = events.find((event) => event.kind === "send" && event.id === "A" && event.threadId === threadId)?.t;
+  if (sentAt === undefined) return;
+  for (const event of events) {
+    if ((event.kind === "turn-started" || event.kind === "turn-completed") && event.threadId === threadId && !event.id && event.t >= sentAt) {
+      event.id = "A";
+    }
+  }
+}
+
+export function acceptanceBotSpeaking(events: AcceptanceEvent[]): boolean {
+  let speaking = false;
+  for (const event of [...events].sort((a, b) => a.t - b.t || a.kind.localeCompare(b.kind))) {
+    if (event.kind === "bot-speak-start") speaking = true;
+    else if (event.kind === "bot-speak-end") speaking = false;
+  }
+  return speaking;
+}
+
+export async function waitForAcceptanceSpeech(
+  events: AcceptanceEvent[],
+  timeoutMs: number,
+  now: () => number = () => performance.now(),
+  pause: (ms: number) => Promise<void> = sleep,
+): Promise<boolean> {
+  const deadline = now() + timeoutMs;
+  while (now() < deadline) {
+    if (acceptanceBotSpeaking(events)) return true;
+    await pause(50);
+  }
+  return acceptanceBotSpeaking(events);
 }
 
 export function matchAcceptanceLine(text: string): AcceptanceLine | undefined {
@@ -445,11 +492,11 @@ async function driveAcceptancePhase(input: {
     noteWarmTotal(warmSeen, warmTotals, turn);
   });
   call.on("utterance", (text, turnMetrics, turn) => {
-    if (!shouldPostAcceptanceUtterance(turn, text)) {
+    if (!shouldPostAcceptanceUtterance(turn, text, injectedId)) {
       log(`skip speculative ${text.slice(0, 48)}`);
       return;
     }
-    const line = matchAcceptanceLine(text);
+    const line = matchAcceptanceLine(text) ?? acceptanceScriptLine(injectedId);
     const utteranceId = turn.utteranceId ?? `acc-${Math.random().toString(36).slice(2, 10)}`;
     void api("POST", `/api/bots/${bot.id}/messages`, {
       threadId, text, sendId: utteranceId,
@@ -467,7 +514,7 @@ async function driveAcceptancePhase(input: {
         stopped,
       });
       if (stopped) mark({ kind: "cancelled", id: "A", threadId });
-      log(`send ${line?.id ?? "?"} status=${sent.status} parallel=${parallel?.state ?? "none"} stopped=${stopped}`);
+      log(`send ${line?.id ?? "?"} status=${sent.status} parallel=${parallel?.state ?? "none"} stopped=${stopped} ${text.slice(0, 56)}`);
     });
   });
   call.on("interrupt-bot", (target) => {
@@ -568,6 +615,10 @@ async function driveAcceptancePhase(input: {
   const trailQuiet = Math.round(ACCEPTANCE_TRAIL_SILENCE_MS / 32);
   for (const item of spoken) {
     await sleep(acceptanceInjectWait(injectOrigin, item.row.atMs, performance.now()));
+    if (item.row.id === "barge") {
+      const heard = await waitForAcceptanceSpeech(events, 20_000);
+      log(heard ? "barge over speech" : "barge without speech");
+    }
     log(`inject ${item.row.id}`);
     pendingFrames.push(...item.frames.map((frame) => ({ id: item.row.id, frame })));
     for (let i = 0; i < trailQuiet; i++) pendingFrames.push({ id: item.row.id, frame: quietFrame() });
@@ -585,11 +636,7 @@ async function driveAcceptancePhase(input: {
   call.end();
 
   assignAcceptanceTurnIds(events);
-  for (const event of events) {
-    if ((event.kind === "turn-started" || event.kind === "turn-completed") && event.threadId === threadId && !event.id) {
-      event.id = "A";
-    }
-  }
+  stampAcceptanceMainThread(events, threadId);
   return { events, warmTotals };
 }
 

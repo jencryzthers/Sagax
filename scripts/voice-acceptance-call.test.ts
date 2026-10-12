@@ -17,15 +17,23 @@ import {
   acceptanceInjectWait,
   assignAcceptanceTurnIds,
   waitForAcceptanceSend,
+  waitForAcceptanceSpeech,
+  acceptanceBotSpeaking,
+  stampAcceptanceMainThread,
   type AcceptanceEvent,
 } from "./voice-acceptance-call.ts";
 
 it("matches spoken lines to script ids, including stop and correction", () => {
   expect(matchAcceptanceLine("Please wait twelve seconds, then count to two hundred")?.id).toBe("A");
   expect(matchAcceptanceLine("Please wait twelve seconds")?.id).toBe("A");
+  expect(matchAcceptanceLine("Please wait 12 seconds")?.id).toBe("A");
   expect(matchAcceptanceLine("Count to two hundred please")?.id).toBe("A");
   expect(matchAcceptanceLine("Please wait fifteen seconds, then what time is it in Tokyo?")?.id).toBe("B");
+  expect(matchAcceptanceLine("Please wait fifteen seconds")?.id).toBe("B");
+  expect(matchAcceptanceLine("Please wait 15 seconds")?.id).toBe("B");
   expect(matchAcceptanceLine("What time is it in Tokyo?")?.id).toBe("B");
+  expect(matchAcceptanceLine("Attends huit secondes, puis rédige un court courriel de bonjour.")?.id).toBe("C");
+  expect(matchAcceptanceLine("Attends huit secondes")?.id).toBe("C");
   expect(matchAcceptanceLine("stop")?.id).toBe("stop");
   expect(matchAcceptanceLine("no, I meant Toronto")?.id).toBe("corr");
   expect(matchAcceptanceLine("Prépare aussi le rapport mensuel")?.id).toBe("lim");
@@ -231,10 +239,41 @@ it("a continues interrupt is not scored as barge-in cancelling A", () => {
 
 it("skips speculative posts so a wait instruction is not a 4-word short turn", () => {
   expect(shouldPostAcceptanceUtterance({ speculative: true }, "Please wait twelve seconds")).toBe(false);
+  expect(shouldPostAcceptanceUtterance({ speculative: true }, "Please wait fifteen seconds")).toBe(false);
+  expect(shouldPostAcceptanceUtterance({ speculative: true }, "Attends huit secondes")).toBe(false);
+  expect(shouldPostAcceptanceUtterance({ speculative: true }, "Please wait 12 seconds", "A")).toBe(false);
   expect(shouldPostAcceptanceUtterance({ speculative: true }, "How far is Quebec City from Montreal?")).toBe(true);
   expect(shouldPostAcceptanceUtterance({ speculative: true }, "hey what time is it in Paris")).toBe(true);
   expect(shouldPostAcceptanceUtterance({ speculative: false }, "Please wait twelve seconds")).toBe(true);
   expect(shouldPostAcceptanceUtterance({})).toBe(true);
+});
+
+it("a prefix complete on main is not A until the labeled A send", () => {
+  const events: AcceptanceEvent[] = [
+    { t: 10, kind: "send", threadId: "main" },
+    { t: 20, kind: "turn-completed", threadId: "main" },
+    { t: 30, kind: "send", id: "A", threadId: "main", continues: true },
+    { t: 40, kind: "turn-started", threadId: "main" },
+    { t: 80, kind: "turn-completed", threadId: "main" },
+  ];
+  assignAcceptanceTurnIds(events);
+  stampAcceptanceMainThread(events, "main");
+  expect(events[1]!.id).toBeUndefined();
+  expect(events[3]!.id).toBe("A");
+  expect(events[4]!.id).toBe("A");
+});
+
+it("barge waits until the bot is currently speaking", async () => {
+  expect(acceptanceBotSpeaking([])).toBe(false);
+  expect(acceptanceBotSpeaking([
+    { t: 1, kind: "bot-speak-start", id: "A" },
+    { t: 2, kind: "bot-speak-end", id: "reply" },
+  ])).toBe(false);
+  expect(acceptanceBotSpeaking([{ t: 1, kind: "bot-speak-start", id: "A" }])).toBe(true);
+  const events: AcceptanceEvent[] = [];
+  const pending = waitForAcceptanceSpeech(events, 1_000);
+  events.push({ t: 1, kind: "bot-speak-start", id: "queued-notice" });
+  await expect(pending).resolves.toBe(true);
 });
 
 it("scores stop from a second call, not from sequential replace on the first", () => {
