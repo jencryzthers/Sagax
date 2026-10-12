@@ -823,7 +823,7 @@ import { ADMIN_ACTIVITY_CATEGORIES } from "./admin-activity.ts";
 import { createOrgMemberRoutes, type MemberPerson, type MemberRequest } from "./org-member-routes.ts";
 import { internalAgentApiTool } from "./routes/agent-api-internal.ts";
 import { createAgentApi, refuse as agentRefuse, SEND_FILE_MAX_BYTES as AGENT_SEND_FILE_MAX_BYTES, type AgentCaller, type AgentScope, type AgentSummary, type AuditEntry, type FileInput, type Refusal, type TurnState } from "./agent-api.ts";
-import { planHiddenAgentThreads } from "./agent-threads.ts";
+import { parseHideList, planHiddenAgentThreads, planHiddenBotThreads } from "./agent-threads.ts";
 import { MemberLiveText } from "./member-live-text.ts";
 import { createOrgAdminRoutes, type AccessKind, type AdminApproval, type AdminEngine, type AdminBot, type AdminBotReach, type AdminPerson, type ApprovalAnswer, type ApprovalType, type OrgAdminViewer } from "./org-admin-routes.ts";
 import { RevocationQueue } from "./idp-revocations.ts";
@@ -22605,6 +22605,23 @@ function hideEarlierAgentThreads(): void {
     console.warn(`[agent-threads] could not hide earlier AI client threads: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
+/** Once (marker `agent-threads-hidden.v2`): bot-to-bot threads still shown,
+ * and the operator's `agent-threads-hide.list` (agent-threads.ts
+ * planHiddenBotThreads). Counts only in the log. */
+function hideBotThreadsOnce(): void {
+  const marker = join(DATA_DIR, "agent-threads-hidden.v2");
+  if (existsSync(marker)) return;
+  try {
+    const listFile = join(DATA_DIR, "agent-threads-hide.list");
+    const listed = existsSync(listFile) ? parseHideList(readFileSync(listFile, "utf8")) : [];
+    const plan = planHiddenBotThreads(store.bots.map((bot) => ({ id: bot.id, threadId: bot.threadId, tasks: store.tasks(bot.id) })), listed);
+    for (const entry of plan) store.setTaskHidden(entry.botId, entry.threadId, true);
+    writeFileSync(marker, `${new Date().toISOString()} ${plan.length}\n`, { mode: 0o600 });
+    console.log(`[agent-threads] ${plan.length} bot-to-bot / listed thread(s) hidden`);
+  } catch (error) {
+    console.warn(`[agent-threads] could not hide bot-to-bot threads: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
 /** One-time (config.privateThreadsMigratedAt): every bot thread written
  * before private threads gets its owner (thread-privacy.ts planThreadOwners).
  * Counts go to the server log, never ids or names. */
@@ -37249,6 +37266,7 @@ restoreChannelMessages();
 // gets its owner (server/thread-privacy.ts), before anyone can read one.
 migrateThreadOwners();
 hideEarlierAgentThreads();
+hideBotThreadsOnce();
 
 server.listen(PORT, "127.0.0.1", async () => {
   companyRuntimeReady();
