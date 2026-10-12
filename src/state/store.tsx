@@ -48,6 +48,7 @@ import {
   skillRequestBehavior,
   type SkillRequestCardData,
 } from "../../shared/skill-request";
+import { terminalRequestBehavior } from "../../shared/terminal-request";
 import type { Routine, RoutineInput, RoutineRun, RoutineRunStatusFilter } from "@/lib/routines";
 import type { WebhookAttempt, WebhookIngressStatus, WebhookTrigger } from "@/lib/webhooks";
 import { botShowsUnread } from "@/lib/bot-unread";
@@ -3919,7 +3920,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 // answers the same way a 1:1 one does.
                 const response = card.skillRequest
                   ? { behavior: skillRequestBehavior(action.answer) }
-                  : answerResponse(card, action.answer);
+                  : card.terminalRequest
+                    ? { behavior: terminalRequestBehavior(action.answer) }
+                    : answerResponse(card, action.answer);
                 return api(`/api/threads/${action.threadId ?? host.threadId}/respond`, {
                   method: "POST",
                   body: JSON.stringify({
