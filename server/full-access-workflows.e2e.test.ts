@@ -160,7 +160,7 @@ it("applies requested Full Access workflows through MCP without duplicate approv
     const createdTheo = created.evidence.find((item: any) => item.step?.tool === "create_bot");
     expect(createdTheo.response.result.content[0].text).toMatch(/^Created @Theo in Operations/);
     expect((await bots()).find(bot => bot.name === "Theo")).toMatchObject({ section: "Operations", title: "Totals checker",
-      soul: "Check fixture totals before each report.", approvalMode: "ask", autoApprove: false, composio: false });
+      soul: "Check fixture totals before each report.", approvalMode: "auto", autoApprove: true, composio: false }); // Sagax: Approve for me by default
     const mira = (await bots()).find(bot => bot.name === "Mira");
     expect(mira).toMatchObject({ section: "Research", approvalMode: "auto", autoApprove: true, composio: false });
     const routine = (await api("GET", "/api/routines")).routines.find((item: any) => item.name === "Monthly fixture report");

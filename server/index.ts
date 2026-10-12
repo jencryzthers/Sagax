@@ -29374,6 +29374,43 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (duplicate) {
           return json(res, 409, { error: `@${duplicate.name} already exists in this section; use list_bots` });
         }
+        // Organization server: a team setup card needs an admin's approval,
+        // so a member's Primary Bot could never get its card applied. There
+        // create_bot keeps Sagax's direct, safe creation (MA-4); a solo
+        // server takes the reviewed card below.
+        if (IDENTITY.kind === "perspicax") {
+          const created = store.createBot(
+            {
+              name,
+              title: role,
+              description: instructions,
+              modelSelection: selection,
+              section: chief.section,
+              // The request is the agents proxy on loopback: auth is not the
+              // person. The Primary Bot's person owns the new bot.
+              ...(recordedBotOwner(chief) ? { ownerUserId: recordedBotOwner(chief) } : {}),
+              ...(cwd !== undefined ? { cwd } : {}),
+              // exactly the Primary Bot's audience: a restricted Primary Bot never makes a bot everyone sees
+              ...(chief.visibility ? { visibility: chief.visibility } : {}),
+            },
+            { seedMessages: false },
+          );
+          const safeBot = store.patchBot(created.id, {
+            composio: false,
+            connectorTools: {},
+            autoApprove: false,
+            approvePeerComms: false,
+          })!;
+          internalCapability.createdBots += 1;
+          return json(res, 201, {
+            id: safeBot.id,
+            name: safeBot.name,
+            title: safeBot.title,
+            section: safeBot.section || "General",
+            model: safeBot.modelSelection.model,
+            modelSelection: safeBot.modelSelection,
+          });
+        }
         // The Primary Bot's person owns the new bot and it keeps the
         // Primary Bot's audience: applyTeamSetup records both (the request
         // is the agents proxy on loopback, never the person).

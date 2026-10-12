@@ -9082,7 +9082,7 @@ describe("harness HTTP API", () => {
       if (target === "room") {
         const room = (await api("POST", "/api/groups", { name: `Browser preload ${bots.length}`, memberIds: [bot.id] })).body.group;
         rooms.push(room.id);
-        expect((await api("PATCH", `/api/groups/${room.id}/setup`, { action: "skip" })).status).toBe(200);
+        // a Sagax group is usable at once: there is no setup step to skip
         path = `/api/groups/${room.id}/messages`;
       }
       rmSync(fakeClaudeDump, { force: true });

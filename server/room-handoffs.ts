@@ -686,7 +686,9 @@ export class RoomHandoffs {
     if (this.loadError) return false;
     for (const n of this.nodes.values()) {
       if (!terminal(n)) return true;
-      if (n.parentId && !n.reported) return true;
+      // a child's result owed to its requester; a root a second restart cut
+      // owes its conversation the line that says so (reconcileRestart)
+      if (n.parentId ? !n.reported : n.reported === false) return true;
     }
     return false;
   }

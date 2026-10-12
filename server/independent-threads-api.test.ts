@@ -217,7 +217,7 @@ describe("independent bot tasks through the isolated control surface", () => {
     expect((await api("POST", `/api/threads/${workThread}/respond`, { requestId: "denied-approval", behavior: "deny" })).status).toBeLessThan(300);
     await expect.poll(() => deniedAnswers.some((answer) => answer.id === "denied-approval" && answer.behavior === "deny")).toBe(true);
     await expect.poll(async () => (await chiefChips()).map((chip) => [chip.tool.name, chip.tool.ok]))
-      .toEqual([["@Release Peer's request was denied", false]]);
+      .toEqual([["You declined @Release Peer's request", true]]); // Sagax's settledChipLabel
 
     // ...and nobody answers the next, which the engine denies on its timer.
     const unanswered = await permission(models[1], "unanswered-approval", { command: "npm run release-check" });

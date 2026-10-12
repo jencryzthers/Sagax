@@ -593,7 +593,8 @@ describe("legacy routine comms e2e (fake ACP fleet)", () => {
         description: "Design and review the user experience.",
         section: "Launch",
         composio: false,
-        autoApprove: false,
+        // Sagax: a bot made through the team setup card starts on Approve for me
+        approvalMode: "auto",
         approvePeerComms: false,
         modelSelection: defaultSelection,
       });

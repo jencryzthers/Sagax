@@ -70,7 +70,9 @@ it("Chief creation uses the workspace default or a validated explicit model with
     expect(bots.find((bot: any) => bot.id === chief.id).modelSelection).toEqual(chiefModel);
     for (const [id, modelSelection] of [[first.id, defaultModel], [second.id, explicit]]) {
       expect(bots.find((bot: any) => bot.id === id)).toMatchObject({
-        section: "Design", modelSelection, autoApprove: false, composio: false, approvePeerComms: false,
+        // Sagax: a bot starts on Approve for me (AGENTS.md "Default approval
+        // mode"), team setup included; the Chief's own grants never carry over
+        section: "Design", modelSelection, approvalMode: "auto", composio: false, approvePeerComms: false,
         soul: "Complete assigned work.",
       });
     }

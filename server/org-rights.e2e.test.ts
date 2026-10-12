@@ -285,7 +285,8 @@ posixOnly("Perspicax organization, slice 4: rights, teams, owner keys, sections"
     expect(listed.find((b) => b.id === x.id)?.grants.map((g) => g.target)).toEqual([`team:${TEAM_T}`]);
     // the list carries the bot's public look and whether it works now, nothing more of it
     const shownX = listed.find((b) => b.id === x.id) as unknown as { look?: Record<string, unknown>; running?: unknown };
-    expect(shownX.running).toBe(false);
+    // the earlier slices' turn on x may still be settling
+    await expect.poll(async () => ((await api("GET", "/api/org/bots", mia)).body.bots as Array<{ id: string; running?: boolean }>).find((b) => b.id === x.id)?.running, { timeout: 20_000 }).toBe(false);
     expect(typeof shownX.look?.color).toBe("string");
     expect(Object.keys(shownX.look ?? {}).every((key) => ["id", "name", "title", "color", "avatarUrl", "avatarCrop", "avatarZoom", "avatarFocusX", "avatarFocusY", "mascotBody", "mascotSkin", "mascotLook"].includes(key))).toBe(true);
     expect((await api("PUT", `/api/bots/${x.id}/grants`, mia, { target: `team:${TEAM_T}`, level: "run" })).status).toBe(403);
