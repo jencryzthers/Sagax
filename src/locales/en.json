@@ -6415,5 +6415,7 @@
   "mascot.crabSkin.plain": "Plain",
   "mascot.crabSkin.sand": "Sand",
   "persona.files.collapse": "Collapse {name}",
-  "persona.files.expand": "Expand {name}"
+  "persona.files.expand": "Expand {name}",
+  "mcp.engineName.renamed": "Grok: registered as {name}.",
+  "mcp.engineName.unregistrable": "Grok: CANNOT register this tool ({reason}); bots on Grok do not have it."
 }

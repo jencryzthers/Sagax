@@ -8,6 +8,7 @@ import { MAX_REMOTE_MCP_BYTES, McpHttpError, REMOTE_MCP_STARTUP_MS, RemoteMcpCli
 import { discoverMcpAuth } from "./mcp-oauth-discovery.ts";
 import { isRemoteMcpServer, type StoredMcpServer, type StoredRemoteMcpServer, type StoredStdioMcpServer } from "./mcp-registry.ts";
 import { killCliTree, spawnCli } from "./procs.ts";
+import { planToolNames, type ToolNameProblem } from "./mcp-tool-names.ts";
 
 export interface McpProbeTool {
   name: string;
@@ -16,8 +17,27 @@ export interface McpProbeTool {
 
 export type McpProbeResult =
   /** `total` is set when the server advertised more tools than `tools` shows. */
-  | { ok: true; tools: McpProbeTool[]; total?: number }
+  | { ok: true; tools: McpProbeTool[]; total?: number; engineNames?: EngineToolNames }
   | { ok: false; error: string; auth?: "required" };
+
+/** Tools an engine registers under another name, or cannot register at all
+ * (Grok: a second `__`, a dot, a key over 256). Shown on the server's card so
+ * a connector tool is never lost without a word. */
+export interface EngineToolNames {
+  grok: {
+    renamed: Array<{ upstream: string; registered: string; reason: ToolNameProblem }>;
+    unregistrable: Array<{ upstream: string; reason: ToolNameProblem }>;
+  };
+}
+
+/** The Grok naming plan for a whole catalog, or undefined when every tool
+ * keeps its name. */
+export function engineToolNames(serverName: string | undefined, names: readonly string[]): EngineToolNames | undefined {
+  if (!serverName) return undefined;
+  const plan = planToolNames(serverName, names);
+  if (!plan.renamed.length && !plan.unregistrable.length) return undefined;
+  return { grok: { renamed: plan.renamed.slice(0, MAX_TOOLS), unregistrable: plan.unregistrable.slice(0, MAX_TOOLS) } };
+}
 
 export const SIGN_IN_REQUIRED = "This server needs you to sign in.";
 
@@ -62,7 +82,7 @@ function redactConfiguredValues(value: string, secrets: Record<string, string>):
  * the server really advertised when that is more than the list shows.
  * `secrets` are the configured values (env or header values) a careless
  * server might echo. */
-function publicTools(raw: unknown[], secrets: Record<string, string>): { tools: McpProbeTool[]; total?: number } {
+function publicTools(raw: unknown[], secrets: Record<string, string>, serverName?: string): { tools: McpProbeTool[]; total?: number; engineNames?: EngineToolNames } {
   const named = raw.filter((entry): entry is Record<string, unknown> =>
     !!entry && typeof entry === "object" && typeof (entry as { name?: unknown }).name === "string" && !!(entry as { name: string }).name.trim());
   const tools = named.slice(0, MAX_TOOLS).map((candidate) => ({
@@ -71,7 +91,8 @@ function publicTools(raw: unknown[], secrets: Record<string, string>): { tools: 
       ? { description: redactConfiguredValues(candidate.description, secrets).slice(0, 500) }
       : {}),
   }));
-  return named.length > tools.length ? { tools, total: named.length } : { tools };
+  const engineNames = engineToolNames(serverName, named.map((candidate) => redactConfiguredValues(candidate.name as string, secrets).slice(0, 200)));
+  return { tools, ...(named.length > tools.length ? { total: named.length } : {}), ...(engineNames ? { engineNames } : {}) };
 }
 
 /** Prove the MCP handshake and list the tools of one configured server,
@@ -81,10 +102,11 @@ export function probeMcpServer(
   server: StoredMcpServer,
   timeoutMs?: number,
   signal?: AbortSignal,
+  serverName?: string,
 ): Promise<McpProbeResult> {
   return isRemoteMcpServer(server)
-    ? probeRemoteMcpServer(server, timeoutMs ?? REMOTE_PROBE_TIMEOUT_MS, signal)
-    : probeStdioMcpServer(server, timeoutMs ?? STDIO_PROBE_TIMEOUT_MS, signal);
+    ? probeRemoteMcpServer(server, timeoutMs ?? REMOTE_PROBE_TIMEOUT_MS, signal, serverName)
+    : probeStdioMcpServer(server, timeoutMs ?? STDIO_PROBE_TIMEOUT_MS, signal, serverName);
 }
 
 /** Connect to a remote server over its transport, bounded by one timeout
@@ -94,6 +116,7 @@ async function probeRemoteMcpServer(
   server: StoredRemoteMcpServer,
   timeoutMs: number,
   signal?: AbortSignal,
+  serverName?: string,
 ): Promise<McpProbeResult> {
   if (signal?.aborted) return { ok: false, error: publicProbeError("cancelled") };
   const timeout = new AbortController();
@@ -106,7 +129,7 @@ async function probeRemoteMcpServer(
     const tools = result && typeof result === "object" ? (result as { tools?: unknown }).tools : undefined;
     if (!Array.isArray(tools)) return { ok: false, error: "The server did not return a valid MCP tools list." };
     const secrets = server.oauth?.clientSecret ? { ...server.headers, "oauth.clientSecret": server.oauth.clientSecret } : server.headers;
-    return { ok: true, ...publicTools(tools, secrets) };
+    return { ok: true, ...publicTools(tools, secrets, serverName) };
   } catch (error) {
     if (signal?.aborted) return { ok: false, error: publicProbeError("cancelled") };
     if (timeout.signal.aborted) return { ok: false, error: publicProbeError("timeout") };
@@ -139,6 +162,7 @@ function probeStdioMcpServer(
   server: StoredStdioMcpServer,
   timeoutMs: number,
   signal?: AbortSignal,
+  serverName?: string,
 ): Promise<McpProbeResult> {
   return new Promise((resolve) => {
     if (signal?.aborted) {
@@ -200,7 +224,7 @@ function probeStdioMcpServer(
         finish({ ok: false, error: publicProbeError("protocol") });
         return;
       }
-      finish({ ok: true, ...publicTools(result.tools, server.env) });
+      finish({ ok: true, ...publicTools(result.tools, server.env, serverName) });
     });
 
     timer = setTimeout(() => {

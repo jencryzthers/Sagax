@@ -18,6 +18,7 @@ import { grokHostToolArgs, grokOrgAgentProfile } from "../host-tools.ts";
 import { grokReadOnlyAllowRules } from "./grok-read-only-tools.ts";
 import { knownGrokTools, knownGrokToolsSection, recordGrokToolUse, useToolName } from "./grok-tool-usage.ts";
 import { allowsTool, canUseMcpServer, narrowsNativeTools, parseToolScope } from "../../../shared/tool-scope.ts";
+import { grokAliasBase, grokToolNameProblem } from "../../mcp-tool-names.ts";
 
 /** Fallback only, for when the engine cannot be asked (not installed, or no
  * answer). Grok 1.0.46 and 1.0.50 signed in to grok.com offer exactly these
@@ -541,6 +542,25 @@ export function grokInheritedProfile(cli: string, env: Record<string, string | u
   return { ...profile, name: profile.name, description: profile.description, toolConfig, ...(match[2]?.trim() ? { promptBody: match[2].trim() } : {}) };
 }
 
+/** Whether a tool Grok registered is one the selection allows. The gate
+ * filters by the connector's own names and then registers a name Grok cannot
+ * qualify (`cw_psa__query`) under its alias (mcp-tool-names.ts), so an alias
+ * of an allowed name is allowed. Deny selectors were applied in the gate. */
+export function allowsRegisteredTool(scope: unknown, server: string, name: string): boolean {
+  if (allowsTool(scope, { kind: "mcp", server, name })) return true;
+  const parsed = parseToolScope(scope);
+  if (!parsed.ok || !parsed.scope?.allow) return false;
+  return parsed.scope.allow.some((selector) => {
+    const prefix = `mcp:${server}:`;
+    if (!selector.startsWith(prefix)) return false;
+    const allowed = selector.slice(prefix.length);
+    if (allowed === "*") return true;
+    if (!grokToolNameProblem(server, allowed)) return false;
+    const base = grokAliasBase(server, allowed);
+    return name === base || name.startsWith(`${base}-`);
+  }) && !parsed.scope.deny?.some((selector) => selector === `mcp:${server}:${name}`);
+}
+
 /** A curated registry: empty/unknown selections never inherit Grok's defaults. */
 export function grokToolScopeProfile(scope: unknown, init: unknown, inherited?: GrokScopeProfile, hasMcp = false): GrokScopeProfile {
   const parsed = parseToolScope(scope);
@@ -745,7 +765,7 @@ const support: AcpSupport = {
         for (const server of catalog.servers) {
           if (server?.session?.enabled === false) continue;
           if (!available.has(server?.name)) throw new Error("Grok has an MCP connection outside the bot's selection. Disable native MCP connections before using tool selection. No prompt was sent.");
-          if (Array.isArray(server?.session?.tools) && server.session.tools.some((tool: { name?: unknown }) => typeof tool.name !== "string" || !allowsTool(turn.toolScope, { kind: "mcp", server: server.name, name: tool.name }))) {
+          if (Array.isArray(server?.session?.tools) && server.session.tools.some((tool: { name?: unknown }) => typeof tool.name !== "string" || !allowsRegisteredTool(turn.toolScope, server.name, tool.name))) {
             throw new Error("Grok could not enforce the selected MCP catalog. No prompt was sent.");
           }
         }
@@ -847,6 +867,9 @@ const support: AcpSupport = {
   // rounds (search_tool, use_tool, answer), ~3.5 s each. A tool already found
   // in this conversation needs no second search.
   stableSystemHint: GROK_TOOL_REUSE_HINT,
+  // Grok skips `cw_psa__query` (second `__`) and other names it cannot
+  // qualify; the gate registers them under aliases (mcp-tool-names.ts).
+  mcpToolNames: "grok",
 
   // The tools this bot already used successfully, named once per
   // conversation (and again only when the set changes), so a first use in a

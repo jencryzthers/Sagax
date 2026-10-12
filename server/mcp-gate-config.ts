@@ -28,6 +28,12 @@ export function spillDir(threadId: string): string {
   return join(DATA_DIR, "tool-results", threadId.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 80) || "thread");
 }
 
+/** Where each gate writes its connector's tool-name report (advertised vs
+ * registered, renames, failures), read by GET /api/mcp/tool-names. */
+export function toolNameReportDir(): string {
+  return join(DATA_DIR, "mcp-tool-names");
+}
+
 export interface StdioServer {
   command: string;
   args?: string[];
@@ -154,13 +160,19 @@ export function gateServer(input: {
   directory?: boolean;
   /** where a remote proxy's network settings come from (default: this process) */
   sourceEnv?: NodeJS.ProcessEnv | Record<string, string | undefined>;
+  /** The engine skips tool names it cannot qualify (Grok: a second `__`, a
+   * dot, a key over 256): register every tool under an admissible alias and
+   * map calls back (mcp-tool-names.ts). Mounts the gate even without a
+   * budget or a selection. */
+  toolNames?: "grok";
 }): { command: string; args: string[]; env: Record<string, string> } | null {
   const { name, server, budget } = input;
   const parsed = parseToolScope(input.toolScope);
   if (!parsed.ok) throw new Error(parsed.error);
   const scoped = parsed.scope !== undefined;
-  if (budget <= 0 && !scoped) return null;
-  if (!scoped && remoteMcpSpec(server)) return null;
+  const aliased = input.toolNames === "grok";
+  if (budget <= 0 && !scoped && !aliased) return null;
+  if (!scoped && !aliased && remoteMcpSpec(server)) return null;
   // The directory is the remote proxy's; it sits inside the gate, which
   // knows to look through call_tool at the tool underneath.
   const directory = input.directory === true && remoteMcpSpec(server) !== undefined;
@@ -181,6 +193,7 @@ export function gateServer(input: {
     SAGAX_GATE_BUDGET: String(budget),
     ...(scoped ? { SAGAX_GATE_TOOL_SCOPE: JSON.stringify(parsed.scope) } : {}),
     ...(directory ? { SAGAX_GATE_DIRECTORY: "1" } : {}),
+    ...(aliased ? { SAGAX_GATE_TOOL_NAMES: "grok", SAGAX_GATE_REPORT_DIR: toolNameReportDir() } : {}),
   };
   if (input.configEnvName && (!scoped || !/^SAGAX_GATE_CONFIG_[a-f0-9]{64}$/.test(input.configEnvName))) {
     throw new Error("Invalid private MCP gate configuration.");

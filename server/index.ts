@@ -284,6 +284,7 @@ import {
 } from "./mcp-registry.ts";
 import { withDisabledTools } from "./mcp-tool-filter.ts";
 import { probeMcpServer } from "./mcp-probe.ts";
+import { createMcpToolNameRoutes } from "./routes/mcp-tool-names.ts";
 import { callbackPage, DEFAULT_MCP_ACCOUNT, isMcpAccountId, McpOAuthError, McpOAuthManager, McpOAuthVault, parseMcpAccountChoices, phoneOAuthReturns, phoneReturnLocation, resolveVaultKey, type VaultKeySource } from "./mcp-oauth.ts";
 import {
   GROUP_GOAL_MAX_TURNS,
@@ -20831,6 +20832,7 @@ const cloudMoveRoutes = async (..._args: unknown[]): Promise<boolean> => false;
 
 // Route modules (server/routes/README.md). `workspaceAccess` is assigned at
 // boot, after this line, so the dependency reads it per request.
+ROUTES.push(createMcpToolNameRoutes());
 ROUTES.push(createHostedSlackRoutes({ bot: (id) => store.bot(id), hostedReady: () => Boolean(workspaceAccess) && entitled("admin") }));
 // Install statuses come from the organization library's own state, never
 // its file, so New bot cannot disagree with it. No organization: none.
@@ -35236,12 +35238,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       mcpProbesInFlight += 1;
       try {
         const server = parsed.server;
-        if (!isRemoteMcpServer(server)) return json(res, 200, await probeMcpServer(server, undefined, controller.signal));
+        if (!isRemoteMcpServer(server)) return json(res, 200, await probeMcpServer(server, undefined, controller.signal, name));
         await mcpOAuth.refresh(name, server, false, controller.signal).catch(() => false);
-        let result = await probeMcpServer({ ...server, ...mcpOAuth.withAuthHeaders({ [name]: server })[name] }, undefined, controller.signal);
+        let result = await probeMcpServer({ ...server, ...mcpOAuth.withAuthHeaders({ [name]: server })[name] }, undefined, controller.signal, name);
         // A token the server refuses: one forced refresh, then one retry.
         if (!result.ok && /HTTP 401\b/.test(result.error) && await mcpOAuth.refresh(name, server, true, controller.signal).catch(() => false)) {
-          result = await probeMcpServer({ ...server, ...mcpOAuth.withAuthHeaders({ [name]: server })[name] }, undefined, controller.signal);
+          result = await probeMcpServer({ ...server, ...mcpOAuth.withAuthHeaders({ [name]: server })[name] }, undefined, controller.signal, name);
         }
         if (!result.ok && /HTTP 40[13]\b/.test(result.error)) await mcpOAuth.probe(name, server, controller.signal).catch(() => undefined);
         return json(res, 200, result);
