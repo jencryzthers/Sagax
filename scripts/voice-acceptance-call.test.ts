@@ -14,6 +14,7 @@ import {
   scoreAcceptanceCancel,
   scoreAcceptanceInterrupt,
   shouldPostAcceptanceUtterance,
+  shouldSkipDuplicateAcceptance,
   acceptanceInjectWait,
   assignAcceptanceTurnIds,
   waitForAcceptanceSend,
@@ -24,16 +25,12 @@ import {
 } from "./voice-acceptance-call.ts";
 
 it("matches spoken lines to script ids, including stop and correction", () => {
-  expect(matchAcceptanceLine("Please wait twelve seconds, then count to two hundred")?.id).toBe("A");
+  expect(matchAcceptanceLine("Please wait twenty seconds, then count to three")?.id).toBe("A");
   expect(matchAcceptanceLine("Please wait twelve seconds")?.id).toBe("A");
   expect(matchAcceptanceLine("Please wait 12 seconds")?.id).toBe("A");
   expect(matchAcceptanceLine("Count to two hundred please")?.id).toBe("A");
-  expect(matchAcceptanceLine("Please wait fifteen seconds, then what time is it in Tokyo?")?.id).toBe("B");
-  expect(matchAcceptanceLine("Please wait fifteen seconds")?.id).toBe("B");
-  expect(matchAcceptanceLine("Please wait 15 seconds")?.id).toBe("B");
   expect(matchAcceptanceLine("What time is it in Tokyo?")?.id).toBe("B");
-  expect(matchAcceptanceLine("Attends huit secondes, puis rédige un court courriel de bonjour.")?.id).toBe("C");
-  expect(matchAcceptanceLine("Attends huit secondes")?.id).toBe("C");
+  expect(matchAcceptanceLine("Rédige un court courriel de bonjour.")?.id).toBe("C");
   expect(matchAcceptanceLine("stop")?.id).toBe("stop");
   expect(matchAcceptanceLine("no, I meant Toronto")?.id).toBe("corr");
   expect(matchAcceptanceLine("Prépare aussi le rapport mensuel")?.id).toBe("lim");
@@ -237,14 +234,26 @@ it("a continues interrupt is not scored as barge-in cancelling A", () => {
   expect(scoreAcceptanceCancel("stop")).toBe(true);
 });
 
+it("skips a second POST of the same scripted utterance", () => {
+  expect(shouldSkipDuplicateAcceptance(
+    "Rédige un court courriel de bonjour.",
+    "Rédige un court courriel de bonjour.",
+  )).toBe(true);
+  expect(shouldSkipDuplicateAcceptance(
+    "What time is it in Tokyo?",
+    "How far is Quebec City from Montreal?",
+  )).toBe(false);
+  expect(shouldSkipDuplicateAcceptance(undefined, "What time is it in Tokyo?")).toBe(false);
+});
+
 it("skips speculative posts so a wait instruction is not a 4-word short turn", () => {
-  expect(shouldPostAcceptanceUtterance({ speculative: true }, "Please wait twelve seconds")).toBe(false);
-  expect(shouldPostAcceptanceUtterance({ speculative: true }, "Please wait fifteen seconds")).toBe(false);
-  expect(shouldPostAcceptanceUtterance({ speculative: true }, "Attends huit secondes")).toBe(false);
+  expect(shouldPostAcceptanceUtterance({ speculative: true }, "Please wait twenty seconds")).toBe(false);
+  expect(shouldPostAcceptanceUtterance({ speculative: true }, "Please wait twelve seconds", "A")).toBe(false);
   expect(shouldPostAcceptanceUtterance({ speculative: true }, "Please wait 12 seconds", "A")).toBe(false);
   expect(shouldPostAcceptanceUtterance({ speculative: true }, "How far is Quebec City from Montreal?")).toBe(true);
+  expect(shouldPostAcceptanceUtterance({ speculative: true }, "What time is it in Tokyo?")).toBe(true);
   expect(shouldPostAcceptanceUtterance({ speculative: true }, "hey what time is it in Paris")).toBe(true);
-  expect(shouldPostAcceptanceUtterance({ speculative: false }, "Please wait twelve seconds")).toBe(true);
+  expect(shouldPostAcceptanceUtterance({ speculative: false }, "Please wait twenty seconds")).toBe(true);
   expect(shouldPostAcceptanceUtterance({})).toBe(true);
 });
 

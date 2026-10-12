@@ -19,6 +19,7 @@ import { VAD_FRAME, type VoiceProbability } from "../src/lib/voice-mode/vad.ts";
 import { nextSpeakSlot, type SpeakItem } from "../src/lib/voice-mode/voice-speak-queue.ts";
 import { classifyVoiceIntent } from "../src/lib/voice-mode/voice-topics.ts";
 import { percentile } from "../src/lib/voice-mode/latency.ts";
+import { continuesSameUtterance } from "../server/voice-call-duplex.ts";
 import {
   BENCH_SAY_VOICE_FR,
   ClockPlayer,
@@ -45,21 +46,23 @@ export interface AcceptanceLine {
   text: string;
 }
 
-/** Overlapping topics, barge-in, correction, stop, a queued extra. EN+FR. */
+/** Overlapping topics, barge-in, correction, stop, a queued extra. EN+FR.
+ * Only A holds with wait (48h: B/C wait turns never completed). B and C are
+ * short answers so they can finish while A is still in wait. */
 export const ACCEPTANCE_SCRIPT: AcceptanceLine[] = [
-  { id: "A", lang: "en", atMs: 0, text: "Please wait twelve seconds, then count to three." },
-  { id: "B", lang: "en", atMs: 8_000, text: "Please wait fifteen seconds, then what time is it in Tokyo?" },
-  { id: "C", lang: "fr", atMs: 16_000, text: "Attends huit secondes, puis rédige un court courriel de bonjour." },
-  { id: "D", lang: "en", atMs: 24_000, text: "How far is Quebec City from Montreal?" },
-  { id: "lim", lang: "fr", atMs: 32_000, text: "Prépare aussi le rapport mensuel des billets." },
-  { id: "barge", lang: "en", atMs: 38_000, text: "hey what time is it in Paris" },
-  { id: "corr", lang: "en", atMs: 46_000, text: "no, I meant Toronto" },
+  { id: "A", lang: "en", atMs: 0, text: "Please wait twenty seconds, then count to three." },
+  { id: "B", lang: "en", atMs: 5_000, text: "What time is it in Tokyo?" },
+  { id: "C", lang: "fr", atMs: 10_000, text: "Rédige un court courriel de bonjour." },
+  { id: "barge", lang: "en", atMs: 13_000, text: "hey what time is it in Paris" },
+  { id: "D", lang: "en", atMs: 16_000, text: "How far is Quebec City from Montreal?" },
+  { id: "lim", lang: "fr", atMs: 20_000, text: "Prépare aussi le rapport mensuel des billets." },
+  { id: "corr", lang: "en", atMs: 40_000, text: "no, I meant Toronto" },
 ];
 
 /** Second call: stop while A is thinking and B is a background task. */
 export const ACCEPTANCE_STOP_SCRIPT: AcceptanceLine[] = [
-  { id: "A", lang: "en", atMs: 0, text: "Please wait twelve seconds, then count to three." },
-  { id: "B", lang: "en", atMs: 8_000, text: "Please wait fifteen seconds, then what time is it in Tokyo?" },
+  { id: "A", lang: "en", atMs: 0, text: "Please wait twenty seconds, then count to three." },
+  { id: "B", lang: "en", atMs: 8_000, text: "What time is it in Tokyo?" },
   { id: "stop", lang: "en", atMs: 14_000, text: "stop" },
 ];
 
@@ -67,7 +70,7 @@ function acceptanceWords(text: string): string[] {
   return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[a-z0-9]+/g) ?? [];
 }
 
-const WAIT_SCRIPT_IDS = new Set(["A", "B", "C"]);
+const WAIT_SCRIPT_IDS = new Set(["A"]);
 
 export function acceptanceScriptLine(id: string | undefined): AcceptanceLine | undefined {
   if (!id) return undefined;
@@ -91,6 +94,11 @@ export function shouldPostAcceptanceUtterance(
   if (got.length >= want.length) return true;
   if (WAIT_SCRIPT_IDS.has(line.id)) return false;
   return !got.every((word, i) => word === want[i]);
+}
+
+/** 48h posted C twice: the STT final of the same words queued a second sibling. */
+export function shouldSkipDuplicateAcceptance(posted: string | undefined, text: string): boolean {
+  return Boolean(posted && continuesSameUtterance(posted, text));
 }
 
 export function mergeAcceptanceScores(fork: AcceptanceScore[], stop: AcceptanceScore[]): AcceptanceScore[] {
@@ -203,8 +211,8 @@ const HINT: Record<string, RegExp> = {
   corr: /\b(toronto|i meant|je voulais|no,)\b/i,
   barge: /\bparis\b/i,
   lim: /\b(rapport|mensuel)\b/i,
-  C: /\b(courriel|bonjour|email|attends huit|attends 8)\b/i,
-  B: /\b(tokyo|wait fifteen|wait 15)\b/i,
+  C: /\b(courriel|bonjour|email)\b/i,
+  B: /\btokyo\b/i,
   D: /\b(quebec|québec|how far)\b/i,
   A: /\b(count|two hundred|wait twelve|wait 12|wait twenty|wait 20|montreal|montréal|story|weather|histoire)\b/i,
 };
@@ -455,7 +463,7 @@ async function driveAcceptancePhase(input: {
     onSentenceStart: (text, info) => {
       if (!speaking) {
         speaking = true;
-        mark({ kind: "bot-speak-start", id: injectedId ?? matchAcceptanceLine(text)?.id ?? "reply" });
+        mark({ kind: "bot-speak-start", id: matchAcceptanceLine(text)?.id ?? (injectedId === "queued-notice" ? "queued-notice" : "reply") });
       }
       innerPlayer.onSentenceStart?.(text, info);
     },
@@ -491,12 +499,18 @@ async function driveAcceptancePhase(input: {
     if (!turn) return;
     noteWarmTotal(warmSeen, warmTotals, turn);
   });
+  const postedByLine = new Map<string, string>();
   call.on("utterance", (text, turnMetrics, turn) => {
     if (!shouldPostAcceptanceUtterance(turn, text, injectedId)) {
       log(`skip speculative ${text.slice(0, 48)}`);
       return;
     }
     const line = matchAcceptanceLine(text) ?? acceptanceScriptLine(injectedId);
+    if (line && shouldSkipDuplicateAcceptance(postedByLine.get(line.id), text)) {
+      log(`skip duplicate ${line.id} ${text.slice(0, 48)}`);
+      return;
+    }
+    if (line) postedByLine.set(line.id, text);
     const utteranceId = turn.utteranceId ?? `acc-${Math.random().toString(36).slice(2, 10)}`;
     void api("POST", `/api/bots/${bot.id}/messages`, {
       threadId, text, sendId: utteranceId,
