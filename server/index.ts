@@ -25,7 +25,7 @@ import { authorizeExternalRuntime, externalRuntimeIsActive, type ExternalRuntime
 import { z } from "zod";
 import { boundedContextText, selectReplay, DEFAULT_REBUILD_BYTES, MAX_SUMMARY_BYTES, type CompactionRecord } from "./context-rebuild.ts";
 import { draftSummary, foldPoint } from "./compaction-summary.ts";
-import { compactBudget, contextWindowFor, nativeCompactionPoint, shouldCompact } from "./context-budget.ts";
+import { compactBudget, contextWindowFor, defaultCompactAt, nativeCompactionPoint, shouldCompact } from "./context-budget.ts";
 import { autoCompactWindow, resolveClaudeConfigDir } from "./drivers/claude.ts";
 import { provenRequestPerson, SharedComputers, sharedComputerOperation, sharedComputerRegistration } from "./shared-computers.ts";
 import { createUserComputerRouter } from "./user-computers.ts";
@@ -11882,7 +11882,7 @@ async function compactConversation(input: {
   const replayWouldDrop = Boolean(replayFold && replayFold.folded.some(entry => entry.id !== record?.id) && keptStart >= 0
     && history.slice(keptStart).reduce((n, entry) => n + Buffer.byteLength(entry.text) + 16, 0) <= rebuildBytes / 2 - 128);
   if (!manual && !replayWouldDrop && !shouldCompact({ contextTokens: measurement?.tokens, estimatedBytes: bytes,
-    budget: compactBudget(window, cfg.context?.compactAt, nativeCompactAt), floor, window, nativeCompactAt })) return;
+    budget: compactBudget(window, cfg.context?.compactAt ?? defaultCompactAt(instance.driverKind), nativeCompactAt), floor, window, nativeCompactAt })) return;
   const fold = manual ? { folded: history, firstKeptId: "" } : foldPoint(history);
   if (!fold) return;
   const foldedThroughId = manual

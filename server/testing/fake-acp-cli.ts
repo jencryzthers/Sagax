@@ -135,6 +135,9 @@
 //   FAKE_ACP_USAGE_UPDATES_FILE  JSON array of numbers, re-read on every
 //                        session/prompt; each is sent as a usage_update
 //                        { used: n, size: 200000 } before the result
+//   FAKE_ACP_ROUND_USAGE  send those numbers the way Grok does instead: as
+//                        `_x.ai/session_notification` response_completed with
+//                        usage { input_tokens: n - cached, cache_read_input_tokens }
 //   FAKE_ACP_MODE_ACK_FILE  path of a file read on every mode switch: while it
 //                        exists, "empty" answers without configOptions (the
 //                        switch cannot be confirmed) and "error" refuses it,
@@ -572,7 +575,12 @@ function emitUsageUpdates(): void {
     try {
       for (const used of JSON.parse(readFileSync(usageFile, "utf8")) as unknown[]) {
         if (typeof used === "number") {
-          out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "usage_update", used, size: 200000 } } });
+          if (process.env.FAKE_ACP_ROUND_USAGE) {
+            const cached = Math.floor(used * 0.9);
+            out({ jsonrpc: "2.0", method: "_x.ai/session_notification", params: { sessionId: liveSession, update: { sessionUpdate: "response_completed", usage: { input_tokens: used - cached, cache_read_input_tokens: cached, output_tokens: 7 } } } });
+          } else {
+            out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "usage_update", used, size: 200000 } } });
+          }
         }
       }
     } catch {}

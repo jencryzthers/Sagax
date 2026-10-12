@@ -473,6 +473,9 @@ export interface AcpSupport {
   /** Ask once more when the agent sends nothing at all (no text, thought or
    * tool call, no question) for this many ms after the prompt; 0 is off. */
   stallRetryMs?(context?: { contextTokens: number | null; promptChars: number }): number;
+  /** The context size a vendor notification reports (tokens), for agents
+   * that send no ACP usage_update; undefined when the message is not one. */
+  roundContextUsage?(msg: any): number | undefined;
   /** Rewrite a picker id (`omlx::model`) into the CLI-native id before spawn
    * and session/select. Local inject writers live here so the child sees a
    * model it already knows. */
@@ -1614,7 +1617,28 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           });
         };
 
+        const noteContextUsage = (current: AcpTurn, used: unknown, size?: unknown) => {
+          if (typeof used !== "number" || !(used > 0)) return;
+          if (current.state.usagePeak !== null && used < current.state.usagePeak * ACP_COMPACTION_COLLAPSE_RATIO) {
+            current.state.usageCompacted = true;
+          }
+          if (current.state.usagePeak === null || used > current.state.usagePeak) current.state.usagePeak = used;
+          current.state.usageLast = used;
+          if (typeof size === "number" && size > 0) current.state.usageSize = size;
+        };
         const handleNotification = (msg: any) => {
+          // A support whose agent reports no usage_update gives the context
+          // size another way: Grok's per-round usage (the whole prompt of the
+          // round, cached part included) is what fills its window now. Sagax
+          // folds the thread on it (server/context-budget.ts).
+          const roundUsed = support.roundContextUsage?.(msg);
+          if (roundUsed !== undefined) {
+            const current = session.current;
+            if (current && current.state.promptSent && !current.state.settled && msg.params?._meta?.isReplay !== true) {
+              noteContextUsage(current, roundUsed);
+            }
+            return;
+          }
           // Vendor side-channels (e.g. grok's `_x.ai/*`) are teed to the
           // native log but never normalized: the prompt result is the settle.
           if (msg.method !== "session/update") return;
@@ -1704,15 +1728,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             }
             case "usage_update": {
               // opencode 1.18 sends `used` flat; ignore non-positive reports
-              const used = u.used ?? u.usage?.used;
-              if (typeof used !== "number" || !(used > 0)) break;
-              if (current.state.usagePeak !== null && used < current.state.usagePeak * ACP_COMPACTION_COLLAPSE_RATIO) {
-                current.state.usageCompacted = true;
-              }
-              if (current.state.usagePeak === null || used > current.state.usagePeak) current.state.usagePeak = used;
-              current.state.usageLast = used;
-              const size = u.size ?? u.usage?.size;
-              if (typeof size === "number" && size > 0) current.state.usageSize = size;
+              noteContextUsage(current, u.used ?? u.usage?.used, u.size ?? u.usage?.size);
               break;
             }
           }

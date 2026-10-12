@@ -12,6 +12,19 @@ export function contextWindowFor(model: string | undefined, catalog?: ModelCatal
   return positive(inferred) ? inferred : DEFAULT_CONTEXT_WINDOW;
 }
 
+/** Sagax's own fold point for an engine when the server sets none
+ * (config context.compactAt wins). Grok: half the window by default
+ * (SAGAX_GROK_COMPACT_PERCENT, 10-90), so a long thread is summarised before
+ * its whole context has to be read again after the provider's cache
+ * expired: measured on GOX, 94-173k uncached tokens took 8.7-19.8 s to the
+ * first update, against ~1.5 s for a 15-30k conversation. */
+export function defaultCompactAt(driverKind: string, env: NodeJS.ProcessEnv = process.env): number | undefined {
+  if (driverKind !== "grokAgent") return undefined;
+  const raw = env.SAGAX_GROK_COMPACT_PERCENT;
+  const percent = raw !== undefined && raw.trim() !== "" ? Number(raw) : 50;
+  return Number.isFinite(percent) && percent >= 10 && percent <= 90 ? percent / 100 : 0.5;
+}
+
 /** Leave headroom even for a small local model. An 8k lower bound would
  * make compaction unreachable on models whose entire window is 8k. */
 export function compactBudget(window: number, compactAt?: number, nativeCompactAt?: number): number {
