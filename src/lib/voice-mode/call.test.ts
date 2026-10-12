@@ -295,6 +295,19 @@ describe("VoiceCall", () => {
     expect(sent).toBeLessThan(15 * VAD_FRAME * 2);
   });
 
+  it("speakers (no headphones): echo residue does not barge-in; a louder person over the bot does", async () => {
+    const t = await setup({ transcripts: ["stop talking please now"] });
+    t.call.setBotBusy(true);
+    void t.call.say("Here is a long answer that keeps going for a while.");
+    expect(t.call.current.phase).toBe("speaking");
+    const before = t.player.ducks;
+    await t.feed(0.9, 0.004, 40);
+    expect(t.player.ducks).toBe(before);
+    expect(t.utterances).toHaveLength(0);
+    await t.feed(0.95, 0.08, 8);
+    expect(t.player.ducks).toBeGreaterThan(before);
+  });
+
   it("barge-in: ducks the bot on the first voiced frame, cancels it within 160 ms, interrupts its running turn", async () => {
     const t = await setup({ transcripts: ["wait, stop"] });
     t.call.setBotBusy(true);
