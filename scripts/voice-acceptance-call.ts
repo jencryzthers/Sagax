@@ -200,6 +200,23 @@ export function scoreAcceptanceCancel(scriptId: string | undefined): boolean {
   return scriptId === "barge" || scriptId === "stop";
 }
 
+/** Wait before injecting a script line. Origin is after warmup/say, not process start. */
+export function acceptanceInjectWait(originMs: number, atMs: number, nowMs: number): number {
+  return Math.max(0, atMs - (nowMs - originMs));
+}
+
+/** First send on a thread owns later turn-started/completed on that thread.
+ * Continues of A must not relabel the thread as the last spoken line. */
+export function firstSendIdByThread(events: AcceptanceEvent[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const event of events) {
+    if (event.kind === "send" && event.id && event.threadId && !map.has(event.threadId)) {
+      map.set(event.threadId, event.id);
+    }
+  }
+  return map;
+}
+
 export function matchAcceptanceLine(text: string): AcceptanceLine | undefined {
   const intent = classifyVoiceIntent(text);
   if (intent === "stop") return ACCEPTANCE_SCRIPT.find((row) => row.id === "stop");
@@ -476,13 +493,17 @@ export async function runVoiceAcceptanceCall(outDir?: string): Promise<{
     await speechSocket.connect();
     await sleep(300);
 
-    let pendingFrames: Float32Array[] = [];
+    let pendingFrames: Array<{ id: string; frame: Float32Array }> = [];
     let stopMic = false;
     const mic = (async () => {
       const started = performance.now();
       for (let i = 0; !stopMic; i++) {
         await sleep(started + i * 32 - performance.now());
-        call.frame(pendingFrames.length ? pendingFrames.shift()! : quietFrame());
+        const next = pendingFrames.shift();
+        if (next) {
+          injectedId = next.id;
+          call.frame(next.frame);
+        } else call.frame(quietFrame());
       }
     })();
 
@@ -517,12 +538,11 @@ export async function runVoiceAcceptanceCall(outDir?: string): Promise<{
       }
     };
 
+    const injectOrigin = performance.now();
     for (const item of spoken) {
-      const wait = Math.max(0, item.row.atMs - (performance.now() - t0));
-      await sleep(wait);
+      await sleep(acceptanceInjectWait(injectOrigin, item.row.atMs, performance.now()));
       log(`inject ${item.row.id}`);
-      injectedId = item.row.id;
-      pendingFrames.push(...item.frames);
+      pendingFrames.push(...item.frames.map((frame) => ({ id: item.row.id, frame })));
     }
     const end = performance.now() + 45_000;
     while (performance.now() < end) {
@@ -534,10 +554,7 @@ export async function runVoiceAcceptanceCall(outDir?: string): Promise<{
     eventsAbort.abort();
     call.end();
 
-    const byThread = new Map<string, string>();
-    for (const event of events) {
-      if (event.kind === "send" && event.id && event.threadId) byThread.set(event.threadId, event.id);
-    }
+    const byThread = firstSendIdByThread(events);
     for (const event of events) {
       if ((event.kind === "turn-started" || event.kind === "turn-completed") && event.threadId && !event.id) {
         event.id = byThread.get(event.threadId) ?? (event.threadId === threadId ? "A" : event.id);

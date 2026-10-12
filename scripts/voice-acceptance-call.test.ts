@@ -11,6 +11,8 @@ import {
   scoreAcceptance,
   scoreAcceptanceCancel,
   scoreAcceptanceInterrupt,
+  acceptanceInjectWait,
+  firstSendIdByThread,
   type AcceptanceEvent,
 } from "./voice-acceptance-call.ts";
 
@@ -135,6 +137,25 @@ it("records one warm total per utterance, not every metrics event", () => {
   expect(noteWarmTotal(seen, totals, { utteranceId: "u1", stoppedAt: 100, firstAudioAt: 900 })).toBe(false);
   expect(noteWarmTotal(seen, totals, { utteranceId: "u2", stoppedAt: 2000, firstAudioAt: 2700 })).toBe(true);
   expect(totals).toEqual([800, 700]);
+});
+
+it("inject waits are counted from post-warmup origin so A and B stay 4s apart", () => {
+  const origin = 14_000;
+  expect(acceptanceInjectWait(origin, 0, origin)).toBe(0);
+  expect(acceptanceInjectWait(origin, 4_000, origin)).toBe(4_000);
+  expect(acceptanceInjectWait(origin, 4_000, origin + 1_000)).toBe(3_000);
+  expect(acceptanceInjectWait(0, 4_000, 14_000)).toBe(0);
+});
+
+it("the first send on a thread keeps its id through continues", () => {
+  const map = firstSendIdByThread([
+    { t: 0, kind: "send", id: "A", threadId: "main" },
+    { t: 100, kind: "send", id: "A", threadId: "main" },
+    { t: 200, kind: "send", id: "B", threadId: "b" },
+    { t: 300, kind: "send", id: "corr", threadId: "main" },
+  ]);
+  expect(map.get("main")).toBe("A");
+  expect(map.get("b")).toBe("B");
 });
 
 it("a continues interrupt is not scored as barge-in cancelling A", () => {
