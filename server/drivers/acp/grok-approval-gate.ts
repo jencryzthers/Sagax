@@ -23,6 +23,8 @@ import { DATA_DIR } from "../../config.ts";
 import type { McpServerSpec } from "../../contracts.ts";
 import { READ_ONLY_AGENT_TOOL_NAMES } from "../../agent-tool-policy.ts";
 import { isPerspicaxBridge, PERSPICAX_READ_ONLY_TOOLS } from "./grok-read-only-tools.ts";
+import { AUTO_COMPUTER_MCP_NAME } from "../../auto-computer.ts";
+import { cloudOnlyBot } from "../../cloud-only-bots.ts";
 
 export const GROK_APPROVAL_GATE_FILE = "grok-approval-gate.json";
 
@@ -43,10 +45,16 @@ export function grokApprovalGateEnabled(botId: string | undefined, dataDir: stri
 /** The reviewed read-only tools of one mounted server, by upstream name.
  * Only Sagax's own agents server (its reviewed catalog, the same one that
  * sets its readOnlyHint) and harness-spawned Perspicax bridges (an explicit
- * reviewed list) have any. Everything else, including every third-party
+ * reviewed list) have any, plus computer_select for a cloud-only bot (a
+ * no-op there). Everything else, including every third-party
  * server and any annotation it sends, gets none: all its calls ask. */
-export function gateReadOnlyTools(server: { name: string; builtin: boolean; spec?: McpServerSpec }): string[] {
+export function gateReadOnlyTools(server: { name: string; builtin: boolean; spec?: McpServerSpec }, botId?: string, dataDir: string = DATA_DIR): string[] {
   if (server.builtin && server.name === "agents") return [...READ_ONLY_AGENT_TOOL_NAMES];
+  // A cloud-only bot's Works on is forced to fixed cloud (cloud-only-bots.ts,
+  // turnWorksOn), so computer_select only reports ("you already work on the
+  // cloud") or refuses: it can never switch computers. Every other bot's
+  // computer_select can move the turn to the person's machine and still asks.
+  if (server.builtin && server.name === AUTO_COMPUTER_MCP_NAME && cloudOnlyBot(botId, dataDir)) return ["computer_select"];
   if (!server.builtin && server.name !== "agents" && isPerspicaxBridge(server.spec)) return [...PERSPICAX_READ_ONLY_TOOLS];
   return [];
 }

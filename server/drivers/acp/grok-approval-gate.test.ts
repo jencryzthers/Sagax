@@ -55,3 +55,26 @@ describe("gateReadOnlyTools", () => {
     }
   });
 });
+
+describe("gateReadOnlyTools: computer_select on a cloud-only bot", () => {
+  it("passes computer_select unasked only for a bot in cloud-only-bots.json, on Sagax's own sagax-computer", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gate-cloud-only-"));
+    try {
+      const computer = { name: "sagax-computer", builtin: true };
+      // no file: every bot's computer_select asks (it can move the turn)
+      expect(gateReadOnlyTools(computer, "cw1", dir)).toEqual([]);
+      writeFileSync(join(dir, "cloud-only-bots.json"), JSON.stringify({ bots: ["cw1"] }));
+      expect(gateReadOnlyTools(computer, "cw1", dir)).toEqual(["computer_select"]);
+      expect(gateReadOnlyTools(computer, "other", dir)).toEqual([]);
+      expect(gateReadOnlyTools(computer, undefined, dir)).toEqual([]);
+      // a connector that names itself sagax-computer gets nothing
+      expect(gateReadOnlyTools({ name: "sagax-computer", builtin: false }, "cw1", dir)).toEqual([]);
+      // the cloud-only bot's other servers are unchanged: writes still ask
+      expect(gateReadOnlyTools({ name: "sagax-environment", builtin: true }, "cw1", dir)).toEqual([]);
+      writeFileSync(join(dir, "cloud-only-bots.json"), "not json");
+      expect(gateReadOnlyTools(computer, "cw1", dir)).toEqual([]);
+    } finally {
+      removeTempDir(dir);
+    }
+  });
+});
