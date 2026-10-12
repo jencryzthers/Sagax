@@ -1,4 +1,4 @@
-# sagax-sandboxd on Kubernetes. No docker.sock. The image reference is
+# sagax-sandboxd on Kubernetes. The Docker socket is not mounted. The image reference is
 # deliberately unusable: a mistaken apply does not pull a real image.
 # Attestation variables are left unset so the process refuses to serve
 # until an operator sets them from a real cluster review.

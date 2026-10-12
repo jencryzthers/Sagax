@@ -1,5 +1,5 @@
-# Least privilege for sagax-sandboxd. Not cluster-admin. Sandbox Pods use
-# sagax-sandbox-workload, which has no Role and does not mount a token.
+# Least privilege for sagax-sandboxd. No cluster administrator binding.
+# sagax-sandbox-workload has no Role and does not mount a token.
 apiVersion: v1
 kind: ServiceAccount
 metadata:

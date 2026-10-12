@@ -162,6 +162,7 @@ describe("kubernetes sandbox lifecycle", () => {
   it("refuses a foreign pod, a bad image, an unencrypted class, and a one-shot container", async () => {
     const dir = mkdtempSync(join(tmpdir(), "sagax-k8s-"));
     const { service, objects, api, k8s, auditFile } = harness(dir);
+    await service.installEgressPolicy();
     const names = sandboxNames(person);
     objects.set(`/api/v1/namespaces/sagax-sandboxes/pods/${names.container}`, {
       kind: "Pod",
@@ -176,7 +177,6 @@ describe("kubernetes sandbox lifecycle", () => {
     expect(await api.imageExists("sagax-sandbox:local")).toBe(false);
     const storage = objects.get(`/apis/storage.k8s.io/v1/storageclasses/${k8s.storageClass}`)!;
     storage.parameters = {};
-    await service.installEgressPolicy();
     await expect(service.ensure(person)).rejects.toThrow(/encryption at rest/);
     await expect(api.runOnce("helper", { Labels: {}, HostConfig: { NetworkMode: "bridge", CapAdd: [] } }, 1000)).rejects.toThrow(/one-shot/);
     const audit = readFileSync(auditFile, "utf8");
