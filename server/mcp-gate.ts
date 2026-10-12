@@ -28,6 +28,7 @@ import { directoryCallTarget, isDirectoryTool } from "./mcp-directory.ts";
 import { DEFAULT_RESULT_BUDGET, trimResultText, trimStructured } from "./mcp-trim.ts";
 import { ToolNameAliases } from "./mcp-tool-names.ts";
 import { killCliTree } from "./procs.ts";
+import { misuseGateBlockText } from "../shared/misuse-guardrails.ts";
 import { gateArgsSummary, gateDeclinedText, type GateAnswer, type GateAsk } from "./mcp-gate-approval.ts";
 
 type Json = Record<string, unknown>;
@@ -49,7 +50,7 @@ function gateEnvironment(): NodeJS.ProcessEnv {
   }
 }
 /** The gate's own settings never reach the upstream server's environment. */
-const GATE_ENV_KEYS = ["SAGAX_GATE_NAME", "SAGAX_GATE_SPILL_DIR", "SAGAX_GATE_BUDGET", "SAGAX_GATE_UPSTREAM", "SAGAX_GATE_SPILL_HINT", "SAGAX_GATE_TOOL_SCOPE", "SAGAX_GATE_DIRECTORY", "SAGAX_GATE_TOOL_NAMES", "SAGAX_GATE_REPORT_DIR", "SAGAX_GATE_APPROVAL_SOCKET", "SAGAX_GATE_APPROVAL_TOKEN", "SAGAX_GATE_READ_ONLY"];
+const GATE_ENV_KEYS = ["SAGAX_GATE_NAME", "SAGAX_GATE_SPILL_DIR", "SAGAX_GATE_BUDGET", "SAGAX_GATE_UPSTREAM", "SAGAX_GATE_SPILL_HINT", "SAGAX_GATE_TOOL_SCOPE", "SAGAX_GATE_DIRECTORY", "SAGAX_GATE_TOOL_NAMES", "SAGAX_GATE_REPORT_DIR", "SAGAX_GATE_APPROVAL_SOCKET", "SAGAX_GATE_APPROVAL_TOKEN", "SAGAX_GATE_READ_ONLY", "SAGAX_GATE_MISUSE_MODE"];
 const gateEnv = gateEnvironment();
 const NAME = gateEnv.SAGAX_GATE_NAME || "mcp";
 const SPILL_DIR = gateEnv.SAGAX_GATE_SPILL_DIR || "";
@@ -389,6 +390,12 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   if (scope && message?.method === "tools/list" && !id) {
     return rejectRequest(message.id, -32600, "Tool listing needs a request ID");
   }
+  if (message?.method === "tools/call" && misuseGateRefusal(params)) {
+    const reason = misuseGateRefusal(params)!;
+    process.stderr.write(`mcp-gate(${NAME}): misuse blocked\n`);
+    if (id) process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { content: [{ type: "text", text: reason }], isError: true } })}\n`);
+    return;
+  }
   if (APPROVAL_SOCKET && message?.method === "tools/call") {
     if (!id || typeof params?.name !== "string") return rejectRequest(message.id, -32602, "Invalid tool call");
     const target = callTarget(params.name, params.arguments);
@@ -411,6 +418,15 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 
 /** Calls waiting for an approval: the upstream's stdin closes only after them. */
 const heldCalls = new Set<Promise<void>>();
+
+/** Hard misuse categories, in enforce mode only. Defensive security work
+ * stays on the approval path. Shadow (the default) does not refuse. */
+function misuseGateRefusal(params: Json | undefined): string | null {
+  const mode = gateEnv.SAGAX_GATE_MISUSE_MODE || process.env.SAGAX_MISUSE_GUARDRAILS || "shadow";
+  const name = typeof params?.name === "string" ? params.name : "";
+  const args = params?.arguments === undefined ? "" : JSON.stringify(params.arguments);
+  return misuseGateBlockText(`${name}\n${args}`, mode);
+}
 
 function forward(line: string, message: Json | undefined, id: string | undefined, params: Json | undefined): void {
   if (id && typeof message?.method === "string") {

@@ -17,6 +17,7 @@ import { existsSync, readFileSync, realpathSync, rmSync, mkdirSync, statSync, wr
 import { ToolGrantStore } from "./tool-grants.ts";
 import { createAgentCardGuard } from "./agent-tool-card-guard.ts";
 import { guardDecision, toolGuardMode } from "./tool-guard.ts";
+import { misusePathRefusal, misuseRefusal, misuseToolFrameText, setMisuseAlert } from "./misuse-guardrails.ts";
 import { writeFileAtomic } from "./atomic.ts";
 import { rm as removeDirectory } from "node:fs/promises";
 import { hostname, userInfo } from "node:os";
@@ -12778,6 +12779,40 @@ function directSendRefusal(botId: string, threadId: string): DirectSendRefused |
   return null;
 }
 
+/** `security.triage` for the person a turn acts for. The operator at this
+ * computer holds it. A service, a guest and a member without the permission
+ * do not. An organization admin holds every key. */
+function misuseActor(principalId: string | undefined | null, origin?: string): { triage: boolean; principalId?: string } {
+  const id = principalId?.trim() || undefined;
+  const triage = origin === "operator" || (id ? can(principalPermissions(id), "security.triage") : false);
+  return { triage, ...(id ? { principalId: id } : {}) };
+}
+
+function misuseTextRefusal(
+  text: string,
+  principalId: string | undefined | null,
+  surface: "message" | "shell" | "file" | "terminal" | "mcp" | "flow",
+  extra?: { botId?: string; threadId?: string; tool?: string; origin?: string },
+): string | null {
+  const actor = misuseActor(principalId, extra?.origin);
+  return misuseRefusal(text, { ...actor, surface, botId: extra?.botId, threadId: extra?.threadId, tool: extra?.tool })?.message ?? null;
+}
+
+setMisuseAlert((alert) => {
+  const bot = alert.botId ? store.bot(alert.botId) : undefined;
+  broadcast({
+    kind: "notify",
+    notification: {
+      kind: "admin-action",
+      botId: alert.botId ?? "",
+      botName: bot?.name ?? "Sagax",
+      threadId: alert.threadId ?? bot?.threadId ?? "",
+      title: "Demande refusée",
+      body: alert.message,
+    },
+  }, { adminOnly: true });
+});
+
 /** The one path a person's direct message takes into a bot turn: spend cap,
  * idempotency, steer into a running turn, queue, or start. Used by
  * POST /api/bots/:id/messages and by Live calls (via "call").
@@ -12841,6 +12876,14 @@ async function acceptDirectSend(
       if (!store.taskByThread(currentAtStart.id, threadId)) {
         throw Object.assign(new Error("the target task no longer exists"), { status: 409 });
       }
+
+      const misuse = misuseRefusal(text, {
+        ...misuseActor(speaker?.origin === "person" || speaker?.origin === "owner-routine" || speaker?.origin === "peer" ? speaker.principalId : undefined, speaker?.origin),
+        surface: "message",
+        botId,
+        threadId,
+      });
+      if (misuse) throw Object.assign(new Error(misuse.message), { status: misuse.status, code: misuse.code });
 
       // Organization server: a turn asking Full access is refused while
       // the organization does not allow it (org-full-access.ts).
@@ -27149,7 +27192,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             overQuota: () => userSandbox.workspaceOverQuota(ownerId),
             // An admin manages this person's plugins and MCP servers: the
             // engines' own plugin and MCP commands do not run for them.
-            commandRefusal: (command) => enginePluginCommandRefusal(personIntegrationsOff(ownerId), command),
+            commandRefusal: (command) => enginePluginCommandRefusal(personIntegrationsOff(ownerId), command)
+              ?? misuseTextRefusal(command, ownerId, "shell", { botId: internalCapability.botId, threadId: internalCapability.threadId, tool: "run_command" }),
+            pathRefusal: (path) => misusePathRefusal(path, { ...misuseActor(ownerId), botId: internalCapability.botId, threadId: internalCapability.threadId, tool: "read_file" })?.message ?? null,
+            textRefusal: (value) => misuseTextRefusal(value, ownerId, "shell", { botId: internalCapability.botId, threadId: internalCapability.threadId }),
           });
           requireActiveInternalCapability();
           return json(res, 200, { result });
@@ -27177,6 +27223,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         };
         // The cap flipped after this turn mounted the server: do not relay,
         // and stop the child that already has the credential.
+        const personalFrame = misuseToolFrameText(frame);
+        if (personalFrame) {
+          const personalMisuse = misuseTextRefusal(personalFrame, person, personalFrame.includes("flow_action") ? "flow" : "mcp", { botId: internalCapability.botId, threadId: internalCapability.threadId, tool: "personal-mcp" });
+          if (personalMisuse) return json(res, 200, answerError(personalMisuse));
+        }
         if (personIntegrationsOff(person)) {
           stdioRelay.closePerson(person, name);
           await syncGithubForTurn(person, internalCapability.generation);
@@ -27246,7 +27297,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               throw error;
             }
           }, {
-            commandRefusal: (command) => enginePluginCommandRefusal(personIntegrationsOff(person), command),
+            commandRefusal: (command) => enginePluginCommandRefusal(personIntegrationsOff(person), command)
+              ?? misuseTextRefusal(command, person, "shell", { botId: internalCapability.botId, threadId: internalCapability.threadId, tool: "run_command" }),
+            payloadRefusal: (value) => misuseTextRefusal(value, person, "shell", { botId: internalCapability.botId, threadId: internalCapability.threadId, tool: "desktop" }),
           });
           requireActiveInternalCapability();
           return json(res, 200, { result });
@@ -27350,6 +27403,17 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return json(res, 403, { error: why === "someone-else" ? LENDING_SOMEONE_ELSE : LENDING_MEMORY_CHANGED });
         }
         const active = () => lendingEnabled() && internalCapabilityIsActive(internalCapability);
+        const terminalText = [parsed.data.command, parsed.data.path, parsed.data.content].filter((part) => typeof part === "string").join("\n");
+        if (terminalText) {
+          const terminalMisuse = misuseRefusal(terminalText, {
+            ...misuseActor(principal),
+            surface: parsed.data.action === "run_command" ? "terminal" : "file",
+            botId: internalCapability.botId,
+            threadId: internalCapability.threadId,
+            tool: parsed.data.action,
+          });
+          if (terminalMisuse) return json(res, terminalMisuse.status, { error: terminalMisuse.message, code: terminalMisuse.code });
+        }
         if (IDENTITY.kind === "perspicax") return json(res, 200, { result: await userComputers.request(personSpeaker(principal), parsed.data, active) });
         return json(res, 200, { result: await sharedComputers.request(parsed.data, principal, active) });
       }
@@ -29369,6 +29433,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return json(res, 403, { error: "this Perspicax profile is not mounted in this turn", code: "profile_not_mounted" });
         }
         const frame = await readInternalBody();
+        const perspicaxText = misuseToolFrameText(frame);
+        if (perspicaxText) {
+          const speakerId = internalCapability.sandboxPrincipalId ?? internalCapability.desktopPrincipalId;
+          const perspicaxMisuse = misuseTextRefusal(perspicaxText, speakerId, perspicaxText.includes("flow_action") ? "flow" : "mcp", { botId: internalCapability.botId, threadId: internalCapability.threadId, tool: "perspicax" });
+          if (perspicaxMisuse) {
+            const id = frame && typeof frame === "object" && "id" in frame ? (frame as { id?: unknown }).id : undefined;
+            return json(res, 200, { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: perspicaxMisuse }], isError: true } });
+          }
+        }
         const answer = await perspicaxMcp.relay({
           threadId: internalCapability.threadId,
           generation: internalCapability.generation,
@@ -31583,6 +31656,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 403, { error: "you may read this channel, not post in it", code: "read_only" });
       }
       if (group.peopleDm) return json(res, 202, sendPeopleDmMessage(group, auth, text, body.sendId, body.replyToId, body.threadId));
+      const groupSpeaker = speakerFor(auth);
+      const groupMisuse = misuseRefusal(text, {
+        ...misuseActor(groupSpeaker.origin === "person" ? groupSpeaker.principalId : undefined, groupSpeaker.origin),
+        surface: "message",
+        threadId: typeof body.threadId === "string" ? body.threadId : group.threadId,
+      });
+      if (groupMisuse) return json(res, groupMisuse.status, { error: groupMisuse.message, code: groupMisuse.code });
       if (body.mode !== undefined && body.mode !== "chat" && body.mode !== "goal") {
         return json(res, 400, { error: "mode must be chat or goal" });
       }
@@ -33759,6 +33839,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // On a call, words said while the bot works always join its turn: a
       // phone has no "run this in parallel" (and no chooser asks).
       const busyMode: BusySendMode = guardedBody || voiceCall ? "steer" : (body.busyMode ?? "steer");
+      const messageSpeaker = speakerFor(auth);
+      const messageMisuse = misuseRefusal(text, {
+        ...misuseActor(messageSpeaker.origin === "person" ? messageSpeaker.principalId : undefined, messageSpeaker.origin),
+        surface: "message",
+        botId: bot.id,
+        threadId,
+      });
+      if (messageMisuse) return json(res, messageMisuse.status, { error: messageMisuse.message, code: messageMisuse.code });
       const receipt = await sendSequencer.run(
         sendId ? `bot:${bot.id}:${threadId}:${sendId}` : undefined,
         sendFingerprint(text, replyTo?.id),
@@ -37071,7 +37159,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
   } catch (e) {
     const status = (e as any)?.status ?? 500;
     const candidateCode = (e as { code?: unknown })?.code;
-    const code = typeof candidateCode === "string" && ["guarded_busy", "guarded_branch", "guarded_permissions", "guarded_request_changed", "guarded_request_untracked", "outside_workspace", "org_full_access_disabled", "parallel_limit", "parallel_nested"].includes(candidateCode)
+    const code = typeof candidateCode === "string" && ["guarded_busy", "guarded_branch", "guarded_permissions", "guarded_request_changed", "guarded_request_untracked", "outside_workspace", "org_full_access_disabled", "parallel_limit", "parallel_nested", "misuse_blocked", "misuse_approval_required", "misuse_locked"].includes(candidateCode)
       ? candidateCode : undefined;
     return json(res, status, { error: e instanceof Error ? e.message : String(e), ...(code ? { code } : {}) });
   } finally {
