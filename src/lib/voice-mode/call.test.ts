@@ -10,8 +10,12 @@ import { cleanCallSettings, DEFAULT_CALL_SETTINGS, type CallSettings } from "./c
 import type { PcmPlayer, Sentence } from "./player";
 import type { SpeakerEmbedder } from "./speaker-id";
 import { voiceprintOf } from "./speaker-id";
+import { SPECULATIVE_REVISE_MS } from "./speculative";
 import { LiveTranscriber } from "./stt-stream";
 import { VAD_FRAME, type VoiceProbability } from "./vad";
+
+/** Voiced frames that cover SPECULATIVE_REVISE_MS at 32 ms/frame. */
+const REVISE_FRAMES = Math.ceil(SPECULATIVE_REVISE_MS / 32);
 
 /** The page's view of the listen socket, answering like the server. */
 class FakeSocket {
@@ -681,6 +685,9 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     expect(t.player.queued).toHaveLength(0);
     t.socket().partial("What is the weather in Toronto");
     await t.settle();
+    expect(t.interrupts).toHaveLength(0);
+    await t.feed(0.95, 0.05, REVISE_FRAMES);
+    await t.settle();
     expect(t.interrupts).toHaveLength(1);
     expect(t.player.queued).toHaveLength(0);
     await t.feed(0.02, 0.001, 12);
@@ -751,12 +758,64 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     await t.settle();
     t.socket().partial("What is the weather in Toronto");
     await t.settle();
+    expect(t.interrupts).toHaveLength(0);
+    await t.feed(0.95, 0.05, REVISE_FRAMES);
+    await t.settle();
     expect(t.interrupts).toHaveLength(1);
     expect(t.interrupts[0]!.utteranceId).toBe(t.utterances[0]!.utteranceId);
     await t.feed(0.02, 0.001, 25);
     await t.settle();
     await new Promise((r) => setTimeout(r, 120));
     expect(t.utterances.at(-1)?.text).toMatch(/Toronto/);
+  });
+
+  it("does not replace a speculative guess until the revised partial is stable", async () => {
+    const t = await setup({
+      transcripts: ["What is the weather in Toronto today?"],
+      settings: { fullDuplex: true },
+      finalDelayMs: 80,
+    });
+    await t.feed(0.95, 0.05, 24);
+    t.socket().partial("What is the weather");
+    await t.settle();
+    t.socket().partial("What is the weather in Toronto");
+    await t.settle();
+    t.socket().partial("What is the weather in Toronto today");
+    await t.settle();
+    expect(t.utterances.map((u) => u.text)).toEqual(["What is the weather"]);
+    expect(t.interrupts).toHaveLength(0);
+    await t.feed(0.95, 0.05, 10);
+    await t.settle();
+    expect(t.utterances.map((u) => [u.text, u.continues])).toEqual([
+      ["What is the weather", undefined],
+      ["What is the weather in Toronto today", true],
+    ]);
+    expect(t.interrupts).toHaveLength(1);
+  });
+
+  it("restating the same revised partial does not restart the debounce", async () => {
+    const t = await setup({
+      transcripts: ["What is the weather in Toronto today?"],
+      settings: { fullDuplex: true },
+      finalDelayMs: 80,
+    });
+    await t.feed(0.95, 0.05, 24);
+    t.socket().partial("What is the weather");
+    await t.settle();
+    t.socket().partial("What is the weather in Toronto");
+    await t.settle();
+    const half = Math.ceil(REVISE_FRAMES / 2);
+    await t.feed(0.95, 0.05, half);
+    await t.settle();
+    expect(t.utterances).toHaveLength(1);
+    t.socket().partial("What is the weather in Toronto");
+    await t.settle();
+    await t.feed(0.95, 0.05, REVISE_FRAMES - half);
+    await t.settle();
+    expect(t.utterances.map((u) => [u.text, u.continues])).toEqual([
+      ["What is the weather", undefined],
+      ["What is the weather in Toronto", true],
+    ]);
   });
 
   it("an incomplete revision of a speculative partial keeps the guess until a complete replacement continues it", async () => {
@@ -774,6 +833,9 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     expect(t.utterances.map((u) => u.text)).toEqual(["What is the weather"]);
     expect(t.interrupts).toHaveLength(0);
     t.socket().partial("What is the weather in Toronto today");
+    await t.settle();
+    expect(t.utterances.map((u) => u.text)).toEqual(["What is the weather"]);
+    await t.feed(0.95, 0.05, REVISE_FRAMES);
     await t.settle();
     expect(t.utterances.map((u) => [u.text, u.continues])).toEqual([
       ["What is the weather", undefined],
@@ -820,6 +882,9 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     await t.settle();
     t.socket().partial("What is the weather in Toronto");
     await t.settle();
+    expect(t.utterances.map((u) => u.text)).toEqual(["What is the weather"]);
+    await t.feed(0.95, 0.05, REVISE_FRAMES);
+    await t.settle();
     expect(t.utterances.map((u) => [u.text, u.continues])).toEqual([
       ["What is the weather", undefined],
       ["What is the weather in Toronto", true],
@@ -841,6 +906,9 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     expect(t.utterances.map((u) => u.text)).toEqual(["What is the weather"]);
     expect(t.utterances[0]!.metrics.earlyStart).toBe(true);
     t.socket().partial("What is the weather in Toronto");
+    await t.settle();
+    expect(t.interrupts).toHaveLength(0);
+    await t.feed(0.95, 0.05, REVISE_FRAMES);
     await t.settle();
     expect(t.interrupts).toHaveLength(1);
     expect(t.interrupts[0]!.utteranceId).toBe(t.utterances[0]!.utteranceId);

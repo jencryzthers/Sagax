@@ -41,7 +41,7 @@ import { attachVoiceCapture, type CaptureContext, type CaptureSource, type Voice
 import { LiveTranscriber } from "./stt-stream";
 import { completeClause, CONTOUR_CONTINUATION_MS, FRAME_MS, incompleteClause, TurnDetector } from "./turns";
 import { formatTimeline, materiallyDifferent, normalizedWords, type TurnMetrics } from "./latency";
-import { discardSpeculation, holdSpeculativePlayback, maySpeculate } from "./speculative";
+import { discardSpeculation, holdSpeculativePlayback, mayReviseSpeculation, maySpeculate } from "./speculative";
 import { ttsLeadStep, type TtsLeadAction } from "./tts-lead";
 import { LevelVad, SileroVad, VAD_FRAME, type VoiceProbability } from "./vad";
 import type { VoiceModeSettings } from "../../../shared/voice-mode";
@@ -239,6 +239,9 @@ export class VoiceCall {
   private partialAt = 0;
   /** duplex: the partial already sent to the LLM, until the person stops or it is discarded */
   private speculated: string | null = null;
+  /** a later complete partial waiting SPECULATIVE_REVISE_MS of stability */
+  private revisionText: string | null = null;
+  private revisionAt = 0;
   /** false while a speculative send waits for speech-end to play TTS */
   private endpointConfirmed = true;
   /** speculative TTS is fetched but not played until speech-end */
@@ -760,6 +763,7 @@ export class VoiceCall {
           this.turnLevel.frames += 1;
         }
         if (this.turns.inSilence) this.considerSpeculation(this.turnPartial);
+        else this.flushRevision();
       } else this.keepPreroll(frame);
       return;
     }
@@ -997,6 +1001,7 @@ export class VoiceCall {
       const text = heard.text.trim() || partial;
       if (text && !isNoiseFragment(text, heard.confidence) && discardSpeculation(this.speculated, text)) this.reissue(turn, text);
       this.speculated = null;
+      this.revisionText = null;
       return;
     }
     if (this.o.earlyStart !== false && turn && stablePartial(partial, this.partialAt, turn.stoppedAt) && !isNoiseFragment(partial)) {
@@ -1083,18 +1088,33 @@ export class VoiceCall {
     if (!this.o.settings().fullDuplex || !this.turns.active || this.closed) return;
     const trimmed = text.trim();
     if (this.speculated) {
-      if (!discardSpeculation(this.speculated, trimmed)) return;
-      // an incomplete mid-revision must not drop the guess: the next
-      // complete partial would send without continues and the bench (and
-      // admit) would skip or fork it. Keep the in-flight send until a
-      // replacement can go out as continues.
+      if (!discardSpeculation(this.speculated, trimmed)) {
+        this.revisionText = null;
+        return;
+      }
+      // keep the in-flight guess until a complete replacement is stable, so
+      // STT restating a long question does not restart grok on every partial.
       if (!maySpeculate(trimmed, this.turns.inSilence) || isNoiseFragment(trimmed)) return;
-      this.dropSpeculation();
-      this.sendSpeculative(trimmed, true);
+      if (this.revisionText !== trimmed) {
+        this.revisionText = trimmed;
+        this.revisionAt = this.now();
+      }
+      this.flushRevision();
       return;
     }
+    this.flushRevision();
     if (!maySpeculate(trimmed, this.turns.inSilence) || isNoiseFragment(trimmed)) return;
     this.sendSpeculative(trimmed);
+  }
+
+  private flushRevision(): void {
+    if (!this.revisionText || this.closed || !this.speculated) return;
+    if (!mayReviseSpeculation(this.revisionAt, this.now())) return;
+    const text = this.revisionText;
+    if (!maySpeculate(text, this.turns.inSilence) || isNoiseFragment(text)) return;
+    this.revisionText = null;
+    this.dropSpeculation();
+    this.sendSpeculative(text, true);
   }
 
   private dropSpeculation(): void {
@@ -1102,6 +1122,7 @@ export class VoiceCall {
     const utteranceId = this.turn?.utteranceId;
     this.emit("interrupt-bot", utteranceId ? { utteranceId } : undefined);
     this.speculated = null;
+    this.revisionText = null;
     this.endpointConfirmed = true;
     this.dropHeldPlayback();
   }
