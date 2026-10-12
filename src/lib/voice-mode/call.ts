@@ -42,6 +42,7 @@ import { LiveTranscriber } from "./stt-stream";
 import { completeClause, CONTOUR_CONTINUATION_MS, FRAME_MS, incompleteClause, TurnDetector } from "./turns";
 import { formatTimeline, materiallyDifferent, normalizedWords, type TurnMetrics } from "./latency";
 import { discardSpeculation, maySpeculate } from "./speculative";
+import { ttsLeadStep, type TtsLeadAction } from "./tts-lead";
 import { LevelVad, SileroVad, VAD_FRAME, type VoiceProbability } from "./vad";
 import type { VoiceModeSettings } from "../../../shared/voice-mode";
 
@@ -215,6 +216,8 @@ export class VoiceCall {
   private lastVoicedAt = 0;
   private speechWaiters: Array<(heard: boolean) => void> = [];
   private reply: SentenceStream | null = null;
+  /** first-clause TTS lead already sent (`text.delta`, not yet `text.done`) */
+  private leadSent: string | null = null;
   /** the call's streaming voice, while it holds (else POST per sentence) */
   private speechSocket: SpeechSocket | null = null;
   /** when the current candidate turn's first voiced frame came */
@@ -445,7 +448,7 @@ export class VoiceCall {
     if (this.turn && this.turn.sentAt !== undefined && this.turn.firstTokenAt === undefined && text.trim()) this.turn.firstTokenAt = this.now();
     this.reply ??= this.sentences();
     this.replyText = spokenPart(text);
-    for (const sentence of this.reply.feed(this.replyText)) this.enqueue(sentence);
+    this.applyTtsLead(this.reply.feed(this.replyText), this.replyText.slice(this.reply.position));
   }
 
   /** The answer (or this block of it) is complete. */
@@ -454,7 +457,11 @@ export class VoiceCall {
     const stream = this.reply ?? this.sentences();
     this.reply = null;
     const rest = stream.finish(spokenPart(text));
-    for (const sentence of rest) this.enqueue(sentence);
+    this.applyTtsLead(rest, "");
+    if (this.leadSent) {
+      this.runTtsLead({ action: "finish" });
+      this.leadSent = null;
+    }
     if (!this.player.busy) return Promise.resolve(true);
     return new Promise((resolve) => this.speechWaiters.push(resolve));
   }
@@ -473,7 +480,36 @@ export class VoiceCall {
     return new SentenceStream(this.streaming ? STREAMING_CLAUSES : {});
   }
 
-  private enqueue(text: string, opts?: { filler?: boolean }): void {
+  private applyTtsLead(emitted: string[], unconsumed: string): void {
+    const { actions, leadSent } = ttsLeadStep({
+      streaming: this.streaming,
+      leadSent: this.leadSent,
+      emitted,
+      unconsumed,
+    });
+    this.leadSent = leadSent;
+    for (const action of actions) this.runTtsLead(action);
+  }
+
+  private runTtsLead(action: TtsLeadAction): void {
+    switch (action.action) {
+      case "speak":
+        this.enqueue(action.text);
+        return;
+      case "begin":
+        this.enqueue(action.text, { more: true });
+        return;
+      case "append":
+        this.speechSocket?.append(action.text);
+        return;
+      case "finish":
+        if (action.append) this.speechSocket?.append(action.append);
+        this.speechSocket?.finish();
+        return;
+    }
+  }
+
+  private enqueue(text: string, opts?: { filler?: boolean; more?: boolean }): void {
     if (this.state.phase === "held" || this.state.phase === "ended") return;
     const turn = this.turn;
     const first = Boolean(!opts?.filler && turn && turn.firstSentenceAt === undefined && turn.sentAt !== undefined);
@@ -481,7 +517,9 @@ export class VoiceCall {
     const controller = new AbortController();
     const socket = this.streaming ? this.speechSocket : null;
     if (first && socket) turn!.streamed = true;
-    const speech = this.o.speech ?? socket?.speak ?? streamVoiceModeSpeech;
+    const speech = opts?.more
+      ? (socket?.begin ?? this.o.speech ?? streamVoiceModeSpeech)
+      : (this.o.speech ?? socket?.speak ?? streamVoiceModeSpeech);
     let audio = speech(this.o.botId, text, this.o.voice(), this.o.threadId(), controller.signal);
     // the first sentence of an answer: when its first audio bytes arrive
     if (first) audio = audio.then((spoken) => (spoken ? { ...spoken, body: firstChunk(spoken.body, () => { turn!.ttsFirstByteAt ??= this.now(); }) } : spoken));
@@ -843,6 +881,7 @@ export class VoiceCall {
         void this.player.cancel();
         this.reply = null;
         this.replyText = "";
+        this.leadSent = null;
         if (this.bargeIn) {
           this.bargeIn.cancelledAt = this.now();
           this.emit("metrics", this.turn, this.bargeIn);
@@ -877,6 +916,7 @@ export class VoiceCall {
         // a new answer starts: what it plays is measured from here
         this.reply = null;
         this.replyText = "";
+        this.leadSent = null;
         this.player.resetLedger();
         return;
       }
@@ -1000,6 +1040,7 @@ export class VoiceCall {
       this.player.resetLedger();
       this.reply = null;
       this.replyText = "";
+      this.leadSent = null;
     }
     const utteranceId = this.newId();
     turn.utteranceId = utteranceId;
@@ -1041,6 +1082,7 @@ export class VoiceCall {
     this.lastSent = { text, endedAt: this.turn.endedAt, botSpoke: false };
     this.reply = null;
     this.replyText = "";
+    this.leadSent = null;
     this.player.resetLedger();
     this.armCue(this.turn);
     this.emit("utterance", text, this.turn, { interrupted: this.cutBot, utteranceId, speculative: true });

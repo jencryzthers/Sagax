@@ -995,6 +995,60 @@ describe("streaming voice in the call (speech-stream.ts)", () => {
     expect(socket.close).toHaveBeenCalledTimes(1);
   });
 
+  it("starts TTS on the first grok token before the first clause is complete", async () => {
+    const said: Array<Record<string, unknown>> = [];
+    const socket = {
+      streaming: true,
+      connect: vi.fn(async () => true),
+      speak: vi.fn(async (_b: string, text: string) => {
+        said.push({ type: "speak", text });
+        return { body: new ReadableStream<Uint8Array>(), sampleRate: 24_000 };
+      }),
+      begin: vi.fn(async (_b: string, text: string) => {
+        said.push({ type: "begin", text });
+        return { body: new ReadableStream<Uint8Array>(), sampleRate: 24_000 };
+      }),
+      append: vi.fn((text: string) => { said.push({ type: "append", text }); }),
+      finish: vi.fn(() => { said.push({ type: "finish" }); }),
+      close: vi.fn(),
+    };
+    const t = await setup({ options: { speech: undefined, speechSocket: socket as never } });
+    t.call.replyProgress("Four");
+    expect(said).toEqual([{ type: "begin", text: "Four" }]);
+    t.call.replyProgress("Four is the sum of two and two.");
+    expect(said).toEqual([
+      { type: "begin", text: "Four" },
+      { type: "append", text: " is" },
+      { type: "finish" },
+    ]);
+    expect(socket.speak).not.toHaveBeenCalled();
+  });
+
+  it("finishes a lead when the answer ends on that first token", async () => {
+    const said: Array<Record<string, unknown>> = [];
+    const socket = {
+      streaming: true,
+      connect: vi.fn(async () => true),
+      speak: vi.fn(async (_b: string, text: string) => {
+        said.push({ type: "speak", text });
+        return { body: new ReadableStream<Uint8Array>(), sampleRate: 24_000 };
+      }),
+      begin: vi.fn(async (_b: string, text: string) => {
+        said.push({ type: "begin", text });
+        return { body: new ReadableStream<Uint8Array>(), sampleRate: 24_000 };
+      }),
+      append: vi.fn((text: string) => { said.push({ type: "append", text }); }),
+      finish: vi.fn(() => { said.push({ type: "finish" }); }),
+      close: vi.fn(),
+    };
+    const t = await setup({ options: { speech: undefined, speechSocket: socket as never } });
+    t.call.replyProgress("Hi");
+    void t.call.replyDone("Hi");
+    expect(said[0]).toEqual({ type: "begin", text: "Hi" });
+    expect(said.at(-1)).toEqual({ type: "finish" });
+    expect(socket.speak).not.toHaveBeenCalled();
+  });
+
   it("once the socket fell back, POST speaks with the usual clause wait", async () => {
     const socket = { streaming: false, connect: vi.fn(async () => false), speak: vi.fn(), close: vi.fn() };
     const t = await setup({ options: { speech: undefined, speechSocket: socket as never } });

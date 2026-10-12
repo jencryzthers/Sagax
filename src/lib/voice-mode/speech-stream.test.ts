@@ -113,6 +113,27 @@ describe("streaming voice socket (page side)", () => {
     expect(server().says().map((m) => m.text)).toEqual(["Tout de suite."]);
   });
 
+  it("a lead clause sends say with more:true, then append and finish, and audio can start before finish", async () => {
+    const { socket, server } = make();
+    void socket.connect();
+    server().ready();
+    const lead = socket.begin("b-1", "Four", voice, "t-1");
+    await tick();
+    expect(server().sent).toEqual([{ type: "say", id: "c1", text: "Four", more: true }]);
+    server().text({ type: "start", id: "c1" });
+    const audio = (await lead)!;
+    server().audio(400);
+    socket.append(" is");
+    socket.finish();
+    expect(server().sent.slice(1)).toEqual([
+      { type: "append", id: "c1", text: " is" },
+      { type: "finish", id: "c1" },
+    ]);
+    server().audio(400);
+    server().text({ type: "done", id: "c1" });
+    expect(await readAll(audio.body)).toBe(800);
+  });
+
   it("barge-in: an aborted clause is cancelled on the server and nothing of it plays after", async () => {
     const { socket, server } = make();
     void socket.connect();

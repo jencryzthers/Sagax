@@ -288,6 +288,11 @@ export interface SpeechStream {
   ready: Promise<void>;
   /** one utterance: its text (`text.delta`), then `text.done` */
   speak(text: string): void;
+  /** a chunk of the current utterance (`text.delta` only). Audio can start
+   * before `done` (xAI buffers until it can pronounce). */
+  delta(text: string): void;
+  /** end the current utterance (`text.done`) */
+  done(): void;
   /** cancel the utterance in progress (`text.clear`); xAI answers `audio.clear` */
   clear(): void;
   close(): void;
@@ -341,7 +346,7 @@ export function openSpeechStream(
       handlers.onError("Could not reach Grok voice. Check your connection.");
       end();
     });
-    return { ready, speak() {}, clear() {}, close() {} };
+    return { ready, speak() {}, delta() {}, done() {}, clear() {}, close() {} };
   }
   socket.binaryType = "arraybuffer";
   socket.addEventListener("open", () => resolveReady());
@@ -368,6 +373,12 @@ export function openSpeechStream(
   };
   return {
     ready,
+    delta(text) {
+      send({ type: "text.delta", delta: text });
+    },
+    done() {
+      send({ type: "text.done" });
+    },
     speak(text) {
       send({ type: "text.delta", delta: text });
       send({ type: "text.done" });

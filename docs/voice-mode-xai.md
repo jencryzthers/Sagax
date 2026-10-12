@@ -295,7 +295,10 @@ What keeps it short:
   a comma after about six words (36 characters). With the streaming voice
   there is no character wait: the first clause goes at a one-word
   punctuated opener ("Well,", "Sure,") or at a space after two words
-  (`STREAMING_CLAUSES`), since the socket is already open.
+  (`STREAMING_CLAUSES`), since the socket is already open. An unpunctuated
+  first grok token ("Four") opens the utterance as a lead (`say` with
+  `more: true`, xAI `text.delta` only) so TTS can start while the rest of
+  that clause is still being written; `append` / `finish` then `text.done`.
 - **Streaming voice (Advanced, on by default).** One socket for the call:
   the page opens `GET /voice/speech` (voice, speed and language in the
   query) when the call starts, and the server opens xAI's streaming text to
@@ -304,7 +307,8 @@ What keeps it short:
   `Authorization` header; `server/tts/grok.ts` `openSpeechStream`). Each
   clause of the answer is sent the moment it is written (`{"type":"say"}`)
   and becomes one xAI utterance (`text.delta`, `text.done`), spoken one after
-  the other on the same socket; its PCM comes back to the page as binary
+  the other on the same socket; a lead token uses `more: true` then
+  `append` / `finish`. PCM comes back to the page as binary
   frames between `start` and `done` and plays through the same player as a
   POST body (`src/lib/voice-mode/speech-stream.ts`). Barge-in, hold, hang-up
   and a reissued turn cancel a clause (`{"type":"cancel"}`): dropped from the
