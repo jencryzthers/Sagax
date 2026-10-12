@@ -172,6 +172,8 @@ export interface OptionCardData {
   questionRequest?: QuestionRequestCardData;
   /** A bot action waiting for this person's Allow. The id matches requestId. */
   botActRequest?: { id: string };
+  /** Shell terminal: opened only after the person taps Ouvrir un terminal. */
+  terminalRequest?: import("../../shared/terminal-request").TerminalRequestCardData;
 }
 
 export interface ConnectorCardData {
@@ -219,6 +221,8 @@ export interface Message {
    * voice notes, documents, audio and video a bot attached with attach_file. */
   attachments?: import("../../shared/wire").WireMessage["attachments"];
   card?: OptionCardData;
+  /** Inline xterm session after a terminal request was allowed. */
+  terminalEmbed?: import("../../shared/terminal-resources").TerminalEmbed;
   connector?: ConnectorCardData;
   secret?: SecretRequestCardData;
   /** Lifecycle mirror for a routine whose real work lives in a fresh task. */

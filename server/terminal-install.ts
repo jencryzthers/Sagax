@@ -1,4 +1,4 @@
-import { readEnvName } from "./environment.ts";
+import { readEnvName } from "../electron/legacy-names.mjs";
 import { augmentedPath } from "./env-path.ts";
 import { prepareVpsSsh } from "./vps-ssh.ts";
 import { isValidSshAlias, type AppConfig } from "./config.ts";
@@ -13,13 +13,14 @@ import { createTerminalInternalRoutes } from "./routes/terminal-internal.ts";
 import type { Store } from "./store.ts";
 import type { RequestAuth } from "./request-auth.ts";
 import type { IncomingMessage } from "node:http";
+import type { RouteHandler } from "./routes/table.ts";
 
 export interface TerminalFeature {
   registry: TerminalResourceRegistry;
   sessions: ReturnType<typeof createTerminalSessionManager>;
   requests: ReturnType<typeof createTerminalRequestService>;
   wire(
-    routes: { push: (handler: unknown) => void },
+    routes: RouteHandler[],
     options: {
       upgrade(req: IncomingMessage): { socket: import("node:net").Socket; head: Buffer; release(): void } | undefined;
       live(auth: RequestAuth): boolean;

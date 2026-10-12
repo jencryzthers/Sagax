@@ -31,7 +31,12 @@ export function createTerminalRequestService(deps: TerminalRequestServiceDeps) {
         ?? deps.store.taskByThread(args.botId, args.threadId)?.ownerPrincipalId
         ?? "";
       const ctx = {
-        auth: { kind: "session", session: { id: "internal", principalId: authPrincipal, scopes: ["client"] } as never, via: "cookie", scopes: ["client"] },
+        auth: {
+          kind: "session" as const,
+          session: { id: "internal", principalId: authPrincipal, scopes: ["client"] } as never,
+          via: "cookie" as const,
+          scopes: ["client"] as const,
+        },
         principalId: authPrincipal,
         botId: args.botId,
         threadId: args.threadId,
@@ -149,7 +154,7 @@ export async function resolveAndSendTerminal(
 ): Promise<boolean> {
   const result = await service.resolve(args);
   if (!result.claimed) return false;
-  if ("status" in result && result.status) {
+  if ("status" in result) {
     res.writeHead(result.status);
     res.end(JSON.stringify({ error: result.error }));
     return true;

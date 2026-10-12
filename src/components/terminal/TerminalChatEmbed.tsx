@@ -8,7 +8,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 
 import type { TerminalEmbed } from "../../../shared/terminal-resources.ts";
-import { api } from "@/lib/api";
+import { api } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 

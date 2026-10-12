@@ -133,7 +133,12 @@ export function createTerminalSessionManager(deps: TerminalSessionManagerDeps) {
         session.attachment = await deps.registry.open(
           { provider: parsed.provider, id: parsed.id },
           {
-            auth: { kind: "session", session: { id: "terminal", principalId: input.principalId, scopes: ["client"] } as never, via: "cookie", scopes: ["client"] },
+            auth: {
+              kind: "session" as const,
+              session: { id: "terminal", principalId: input.principalId, scopes: ["client"] } as never,
+              via: "cookie" as const,
+              scopes: ["client"] as const,
+            },
             principalId: input.principalId,
             botId: input.botId,
             threadId: input.threadId,
