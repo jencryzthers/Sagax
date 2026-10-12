@@ -55,6 +55,12 @@ struct ComputerView: View {
         _controller = StateObject(wrappedValue: ComputerController(botId: bot.id, client: { nil }))
     }
 
+    /// Embedded in the bot panel the card follows the app's navy theme (the
+    /// name card and tab bar colours); the full screen view stays black.
+    private var cardBackdrop: Color { embeddedWidth == nil ? Theme.bgComputer : Theme.card }
+    private var frameBackdrop: Color { embeddedWidth == nil ? Theme.Computer.frameEmpty : Theme.bg }
+    private var glassFill: Color { embeddedWidth == nil ? Theme.Computer.glassFill : Theme.cardRaised }
+
     private var fit: ComputerFit { ComputerFit(rawValue: fitRaw) ?? .fit }
     private var streamFrame: ScreenFrame? { session.state.screens[bot.id] }
     /// The bot as the stream last described it.
@@ -309,14 +315,14 @@ struct ComputerView: View {
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 GlassCircleButton(
-                    systemImage: "questionmark", fill: Theme.Computer.glassFill, accessibilityLabel: "Gestures",
+                    systemImage: "questionmark", fill: glassFill, accessibilityLabel: "Gestures",
                     glyphSize: 20, weight: .regular, glyphColor: Theme.Computer.ink
                 ) { showingHelp = true }
                     .accessibilityIdentifier("computer-help")
                 moreMenu
                 if let onFullScreen {
                     GlassCircleButton(
-                        systemImage: "arrow.up.left.and.arrow.down.right", fill: Theme.Computer.glassFill,
+                        systemImage: "arrow.up.left.and.arrow.down.right", fill: glassFill,
                         accessibilityLabel: "Full screen", glyphSize: 16, weight: .regular, glyphColor: Theme.Computer.ink
                     ) { onFullScreen() }
                         .accessibilityIdentifier("computer-full-screen")
@@ -343,7 +349,7 @@ struct ComputerView: View {
             .accessibilityHidden(true)
         }
         .frame(width: width)
-        .background(Theme.bgComputer, in: RoundedRectangle(cornerRadius: Theme.Metric.cardRadius, style: .continuous))
+        .background(cardBackdrop, in: RoundedRectangle(cornerRadius: Theme.Metric.cardRadius, style: .continuous))
         .overlay(alignment: .top) { toast.padding(.top, 4) }
         .environment(\.colorScheme, .dark)
         .onAppear { controller.frameWidth = inner }
@@ -456,7 +462,7 @@ struct ComputerView: View {
     private var topBar: some View {
         HStack(spacing: 0) {
             GlassCircleButton(
-                systemImage: "chevron.left", fill: Theme.Computer.glassFill, accessibilityLabel: "Back",
+                systemImage: "chevron.left", fill: glassFill, accessibilityLabel: "Back",
                 glyphSize: 18, glyphOffset: CGSize(width: 0.85, height: -0.25), glyphColor: Theme.Computer.ink
             ) { dismiss() }
                 .accessibilityIdentifier("computer-back")
@@ -471,7 +477,7 @@ struct ComputerView: View {
                 .padding(.leading, Theme.Computer.nameLeading)
             Spacer(minLength: 8)
             GlassCircleButton(
-                systemImage: "questionmark", fill: Theme.Computer.glassFill, accessibilityLabel: "Gestures",
+                systemImage: "questionmark", fill: glassFill, accessibilityLabel: "Gestures",
                 glyphSize: 20, weight: .regular, glyphColor: Theme.Computer.ink
             ) { showingHelp = true }
                 .accessibilityIdentifier("computer-help")
@@ -527,7 +533,7 @@ struct ComputerView: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .themeGlass(Circle(), fill: Theme.Computer.glassFill)
+        .themeGlass(Circle(), fill: glassFill)
         .accessibilityLabel(Text("More"))
         .accessibilityIdentifier("computer-more")
     }
@@ -536,7 +542,7 @@ struct ComputerView: View {
 
     private func screen(width: CGFloat, height: CGFloat) -> some View {
         ZStack {
-            Theme.Computer.frameEmpty
+            frameBackdrop
             if let image = controller.image {
                 Image(uiImage: image)
                     .resizable()
@@ -632,7 +638,7 @@ struct ComputerView: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .themeGlass(Circle(), fill: Theme.Computer.glassFill)
+            .themeGlass(Circle(), fill: glassFill)
             .accessibilityLabel(Text("Clipboard"))
             .accessibilityIdentifier("computer-clipboard")
             .disabled(controller.noComputer)
@@ -650,7 +656,7 @@ struct ComputerView: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .themeGlass(Circle(), fill: Theme.Computer.glassFill)
+            .themeGlass(Circle(), fill: glassFill)
             .accessibilityLabel(Text(keyboardUp ? "Hide keyboard" : "Keyboard"))
             .accessibilityIdentifier("computer-keyboard")
             .disabled(controller.noComputer)

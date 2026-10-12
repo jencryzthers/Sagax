@@ -14,6 +14,7 @@ struct SidebarPinSwipe: ViewModifier {
         content
             .offset(x: offset)
             .background(alignment: .trailing) {
+                if SidebarBotPinning.actionVisible(offset: Double(offset)) {
                 Button {
                     pin()
                     withAnimation(.snappy(duration: 0.2)) { offset = 0 }
@@ -31,6 +32,9 @@ struct SidebarPinSwipe: ViewModifier {
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text(pinned ? "Unpin" : "Pin"))
                 .accessibilityIdentifier(pinned ? "sidebar-swipe-unpin" : "sidebar-swipe-pin")
+                .frame(width: CGFloat(SidebarBotPinning.actionWidth(offset: Double(offset))), alignment: .leading)
+                .clipped()
+                }
             }
             .clipped()
             .simultaneousGesture(

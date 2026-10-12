@@ -4,6 +4,14 @@ import XCTest
 /// Pin/unpin in the sidebar. Same storage as Electron: `PATCH /api/bots/:id`
 /// `{ pinned }`. A trailing swipe reveals Pin like Grok Bot.
 final class SidebarPinningTests: XCTestCase {
+    func testPinActionIsNotDrawnAtRest() {
+        XCTAssertFalse(SidebarBotPinning.actionVisible(offset: 0))
+        XCTAssertEqual(SidebarBotPinning.actionWidth(offset: 0), 0)
+        XCTAssertTrue(SidebarBotPinning.actionVisible(offset: -30))
+        XCTAssertEqual(SidebarBotPinning.actionWidth(offset: -30), 30)
+        XCTAssertEqual(SidebarBotPinning.actionWidth(offset: -500), SidebarBotPinning.revealDistance)
+    }
+
     func testAShownBotIsPinnedOnlyWhenPinnedIsTrue() throws {
         XCTAssertTrue(SidebarBotPinning.isPinned(try bot(pinned: true)))
         XCTAssertFalse(SidebarBotPinning.isPinned(try bot(pinned: false)))
