@@ -63,9 +63,21 @@ export const ACCEPTANCE_STOP_SCRIPT: AcceptanceLine[] = [
   { id: "stop", lang: "en", atMs: 14_000, text: "stop" },
 ];
 
-/** Speculative 4-word prefixes complete as short turns and kill the wait. */
-export function shouldPostAcceptanceUtterance(turn: { speculative?: boolean }): boolean {
-  return turn.speculative !== true;
+function acceptanceWords(text: string): string[] {
+  return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[a-z0-9]+/g) ?? [];
+}
+
+/** Speculative prefixes of a wait instruction are skipped. The full sentence,
+ * including a complete speculative of a short question, must POST or the
+ * line never lands (48f D/barge). */
+export function shouldPostAcceptanceUtterance(turn: { speculative?: boolean }, text = ""): boolean {
+  if (turn.speculative !== true) return true;
+  const line = matchAcceptanceLine(text);
+  if (!line) return true;
+  const got = acceptanceWords(text);
+  const want = acceptanceWords(line.text);
+  if (got.length >= want.length) return true;
+  return !got.every((word, i) => word === want[i]);
 }
 
 export function mergeAcceptanceScores(fork: AcceptanceScore[], stop: AcceptanceScore[]): AcceptanceScore[] {
@@ -150,7 +162,7 @@ export function scoreAcceptance(
   const warm = opts.warmTotals ?? [];
   const target = opts.targetMs ?? 800;
   const p50 = percentile(warm, 50);
-  const latPass = typeof p50 === "number" && p50 <= target;
+  const latPass = typeof p50 === "number" && warm.length >= 6 && p50 <= target;
   return [
     { scenario: "a", pass: aPass, reason: aPass ? "A and B both completed, A not cancelled" : "A cancelled or a topic did not finish" },
     { scenario: "b", pass: bPass, reason: bPass ? "A, B and C all completed" : "fewer than three overlapping topics completed" },
@@ -181,7 +193,7 @@ const HINT: Record<string, RegExp> = {
   C: /\b(courriel|bonjour|email)\b/i,
   B: /\btokyo\b/i,
   D: /\b(quebec|québec|how far)\b/i,
-  A: /\b(count|two hundred|montreal|montréal|story|weather|histoire)\b/i,
+  A: /\b(count|two hundred|wait twelve|wait twenty|montreal|montréal|story|weather|histoire)\b/i,
 };
 
 /** One warm EOS->first-audio sample per utterance. Metrics events repeat. */
@@ -252,7 +264,7 @@ export async function waitForAcceptanceSend(
 export function assignAcceptanceTurnIds(events: AcceptanceEvent[]): void {
   const map = new Map<string, string>();
   for (const event of events) {
-    if (event.kind === "send" && event.id && event.threadId && !event.continues) {
+    if (event.kind === "send" && event.id && event.threadId && (!event.continues || event.parallel)) {
       map.set(event.threadId, event.id);
     }
     if ((event.kind === "turn-started" || event.kind === "turn-completed") && event.threadId && !event.id) {
@@ -433,7 +445,7 @@ async function driveAcceptancePhase(input: {
     noteWarmTotal(warmSeen, warmTotals, turn);
   });
   call.on("utterance", (text, turnMetrics, turn) => {
-    if (!shouldPostAcceptanceUtterance(turn)) {
+    if (!shouldPostAcceptanceUtterance(turn, text)) {
       log(`skip speculative ${text.slice(0, 48)}`);
       return;
     }

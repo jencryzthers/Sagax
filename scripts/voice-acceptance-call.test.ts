@@ -22,6 +22,7 @@ import {
 
 it("matches spoken lines to script ids, including stop and correction", () => {
   expect(matchAcceptanceLine("Please wait twelve seconds, then count to two hundred")?.id).toBe("A");
+  expect(matchAcceptanceLine("Please wait twelve seconds")?.id).toBe("A");
   expect(matchAcceptanceLine("Count to two hundred please")?.id).toBe("A");
   expect(matchAcceptanceLine("Please wait fifteen seconds, then what time is it in Tokyo?")?.id).toBe("B");
   expect(matchAcceptanceLine("What time is it in Tokyo?")?.id).toBe("B");
@@ -210,6 +211,15 @@ it("a continues send does not relabel later completions; a new topic on the same
   expect(events.filter((event) => event.kind === "turn-completed").map((event) => event.id)).toEqual(["A", "B", "corr"]);
 });
 
+it("a continues fork still owns later completions on that parallel thread", () => {
+  const events: AcceptanceEvent[] = [
+    { t: 0, kind: "send", id: "lim", threadId: "d", continues: true, parallel: "queued" },
+    { t: 50, kind: "turn-completed", threadId: "d" },
+  ];
+  assignAcceptanceTurnIds(events);
+  expect(events[1]!.id).toBe("lim");
+});
+
 it("a continues interrupt is not scored as barge-in cancelling A", () => {
   expect(scoreAcceptanceInterrupt("A")).toBeUndefined();
   expect(scoreAcceptanceInterrupt(undefined)).toBeUndefined();
@@ -220,8 +230,10 @@ it("a continues interrupt is not scored as barge-in cancelling A", () => {
 });
 
 it("skips speculative posts so a wait instruction is not a 4-word short turn", () => {
-  expect(shouldPostAcceptanceUtterance({ speculative: true })).toBe(false);
-  expect(shouldPostAcceptanceUtterance({ speculative: false })).toBe(true);
+  expect(shouldPostAcceptanceUtterance({ speculative: true }, "Please wait twelve seconds")).toBe(false);
+  expect(shouldPostAcceptanceUtterance({ speculative: true }, "How far is Quebec City from Montreal?")).toBe(true);
+  expect(shouldPostAcceptanceUtterance({ speculative: true }, "hey what time is it in Paris")).toBe(true);
+  expect(shouldPostAcceptanceUtterance({ speculative: false }, "Please wait twelve seconds")).toBe(true);
   expect(shouldPostAcceptanceUtterance({})).toBe(true);
 });
 
@@ -256,10 +268,12 @@ it("marks speculative and continues on an acceptance send like LiveCall", () => 
 });
 
 it("latency reports warm p50 against 800 ms without inventing a pass", () => {
-  const miss = scoreAcceptance([], { warmTotals: [900, 1100, 1300, 1500], targetMs: 800 });
+  const miss = scoreAcceptance([], { warmTotals: [900, 1100, 1300, 1500, 1600, 1700], targetMs: 800 });
   const latency = miss.find((s) => s.scenario === "latency")!;
   expect(latency.pass).toBe(false);
-  expect(latency.detail).toMatch(/p50=1100/);
-  const hit = scoreAcceptance([], { warmTotals: [400, 500, 600, 700], targetMs: 800 });
+  expect(latency.detail).toMatch(/p50=1300 n=6/);
+  const one = scoreAcceptance([], { warmTotals: [787], targetMs: 800 });
+  expect(one.find((s) => s.scenario === "latency")!.pass).toBe(false);
+  const hit = scoreAcceptance([], { warmTotals: [400, 500, 600, 700, 750, 780], targetMs: 800 });
   expect(hit.find((s) => s.scenario === "latency")!.pass).toBe(true);
 });
