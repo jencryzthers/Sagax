@@ -146,12 +146,12 @@ describe("the organization library in the real renderer", () => {
     await evidence("org-library-added.png");
     await press("Escape");
 
-    // The added bot's settings: the provenance line, and Skills → From Customer Co.
-    const state = await ui("snapshot", "--interactive");
-    const profile = Object.entries(state.refs as Record<string, { role: string; name: string }>)
-      .find(([, entry]) => entry.role === "button" && /Open .+ profile/.test(entry.name));
-    expect(profile).toBeDefined();
-    await ui("click", "--ref", `@${profile![0]}`);
+    // Provenance lives on the bot panel Details tab. Select a Sales desk
+    // bot first: after the catalog closes the header may still be on another bot.
+    const deskBot = bots[0] as { id: string; name: string };
+    await evaluate(`document.querySelector(${JSON.stringify(`[data-sidebar-bot-row="${deskBot.id}"]`)})?.click(); true`);
+    await expect.poll(snapshot, { timeout: 10_000 }).toContain(`Open ${deskBot.name} profile`);
+    await click(`Open ${deskBot.name} profile`);
     await expect.poll(snapshot, { timeout: 10_000 }).toContain("From Sales desk 1.3.0 · Acme Partners");
     await click("Edit persona");
     await expect.poll(snapshot, { timeout: 10_000 }).toContain("Skills");
@@ -159,8 +159,7 @@ describe("the organization library in the real renderer", () => {
     await expect.poll(snapshot, { timeout: 10_000 }).toContain("Skills your organization shares");
     await evidence("org-library-bot-skills.png");
     await click("Add follow-up to this bot");
-    const selected = bots.find((bot: { name: string }) => profile![1].name.includes(bot.name));
-    await expect.poll(async () => ((await api(`/api/bots/${selected.id}/skills`)).skills as Array<{ name: string; enabled: boolean }>)
+    await expect.poll(async () => ((await api(`/api/bots/${deskBot.id}/skills`)).skills as Array<{ name: string; enabled: boolean }>)
       .find((skill) => skill.name === "follow-up")?.enabled, { timeout: 10_000 }).toBe(true);
     process.stdout.write(`${JSON.stringify({ fixture: info!, addedSection: "Sales desk", offeredSkill: "follow-up" })}\n`);
   }, launchTimeout + 120_000);

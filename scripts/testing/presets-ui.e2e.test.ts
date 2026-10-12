@@ -112,7 +112,7 @@ describe("Preset bots in the real renderer", () => {
     // Share team: the defaults preset goes in only when ticked.
     await openTemplatesCatalog(catalog);
     await click("Share a team");
-    await click("Share the General team");
+    await click("Share the Unassigned team");
     await expect.poll(snapshot, { timeout: 20_000 }).toContain("What's in the file");
     expect(await snapshot()).not.toContain('term "Preset bots"');
     await click("Include my New bot defaults as a preset");

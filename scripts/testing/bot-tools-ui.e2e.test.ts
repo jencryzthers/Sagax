@@ -51,15 +51,17 @@ describe("bot setup and tools in the real renderer", () => {
     const ui = (verb: string, ...args: string[]) => runControlOmb(["ui", verb, "--ui", info.ui, ...args]) as Promise<Record<string, any>>;
     const evaluate = async (js: string) => (await ui("eval", "--js", js)).result;
     const click = (name: string) => ui("click", "--name", name);
+    const clickWhenFree = (name: string) => expect.poll(() => click(name).then(() => true, () => false), { timeout: 10_000 }).toBe(true);
     const press = (keys: string) => ui("press", "--keys", keys);
     const bots = async (): Promise<SavedBot[]> => (await fetch(`${info.url}/api/bots`).then((response) => response.json())).bots;
     const snapshot = async () => (await ui("snapshot")).snapshot as string;
     const openPersona = async (section: string) => {
-      await click("Open agent profile");
+      await press("Escape");
+      await clickWhenFree("Open agent profile");
       await expect.poll(snapshot, { timeout: 10_000 }).toContain("Edit persona");
-      await click("Edit persona");
+      await clickWhenFree("Edit persona");
       await expect.poll(snapshot, { timeout: 10_000 }).toContain(section);
-      await click(section);
+      await clickWhenFree(section);
     };
     const chooseRole = async (roleId: string) => {
       await expect.poll(snapshot, { timeout: 10_000 }).toContain("Starting role");
