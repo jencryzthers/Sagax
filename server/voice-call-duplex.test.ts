@@ -46,6 +46,18 @@ describe("admitDuplexSend", () => {
     })).toEqual({ action: "background" });
   });
 
+  it("a new topic while the call thread is only thinking forks, it does not replace", () => {
+    expect(admitDuplexSend({
+      duplex: true, botBusy: true, stopping: false, queued: false, backgroundWork: false, newTopic: true,
+    })).toEqual({ action: "background" });
+  });
+
+  it("an explicit stop or correction still replaces a thinking turn", () => {
+    expect(admitDuplexSend({
+      duplex: true, botBusy: true, stopping: false, queued: false, backgroundWork: false, newTopic: false,
+    })).toEqual({ action: "replace", interrupt: true, discardQueue: true });
+  });
+
   it("stop or a correction still replaces, even with background work", () => {
     expect(admitDuplexSend({
       duplex: true, botBusy: true, stopping: false, queued: false, backgroundWork: true, newTopic: false,
