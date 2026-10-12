@@ -524,8 +524,7 @@ function MascotTile({ option, look, color, owlSkin, selected, inUse, lock, disab
       onClick={onSelect}
       onKeyDown={onKeyDown}
       className={cn(
-        "relative flex h-[78px] min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg bg-inset px-1 pt-1 transition-colors hover:bg-control disabled:opacity-50",
-        locked ? "pb-2" : "pb-1",
+        "relative flex h-[88px] min-w-0 flex-col items-center justify-start gap-0.5 rounded-lg bg-inset px-1 pb-2 pt-2 transition-colors hover:bg-control disabled:opacity-50",
         focusRing,
         selected && on,
       )}
@@ -534,7 +533,7 @@ function MascotTile({ option, look, color, owlSkin, selected, inUse, lock, disab
         <option.Thumb color={color} skin={owlSkin} look={{ ...look, character: option.id }} size={36} />
       </span>
       <span className="w-full truncate text-center text-[11.5px] leading-4 text-ink">{name}</span>
-      {!locked && <span className="w-full truncate text-center text-[10px] leading-3 text-ink-tertiary">{option.premium && option.isNew ? option.premium.price : family}</span>}
+      <span className={cn("h-3 w-full truncate text-center text-[10px] leading-3 text-ink-tertiary", locked && "invisible")}>{option.premium && option.isNew ? option.premium.price : family}</span>
       {inUse && (
         <span className="absolute left-1 top-1 grid size-4 place-items-center rounded-full bg-accent text-accent-ink" aria-hidden="true">
           <Check size={10} strokeWidth={3} />
@@ -624,6 +623,7 @@ export default function MascotLookEditor({ bot, disabled, onPatch: savePatch, on
   const [owlMotion, setOwlMotion] = useState<{ kind: Exclude<MausMotion, "none">; nonce: number } | null>(null);
   const [fxMove, setFxMove] = useState<FxMoveRequest | null>(null);
   const moves: { id: string; label: string; clip: string; owl?: OwlMove }[] = characterMoves(shownLook).map((move) => ({ ...move, label: t(move.label) }));
+  const stagePick = useRef(0);
   const play = (move: { clip: string; owl?: OwlMove }) => {
     if (move.owl) {
       const kind = move.owl;
@@ -711,46 +711,52 @@ export default function MascotLookEditor({ bot, disabled, onPatch: savePatch, on
       </div>
 
       <div data-mascot-detail={shown} className="flex min-w-0 flex-col gap-2.5 rounded-xl border border-hairline-weak bg-panel p-2.5">
-        {/* the stage (the real avatar in the bot's color, playing the moves and the equip animation), and beside it the name and the action */}
-        <div className="flex gap-2.5">
-          <div data-mascot-stage="" className="relative grid size-[112px] shrink-0 place-items-center overflow-hidden rounded-lg bg-inset">
-            <span className="absolute bottom-2.5 h-2 w-14 rounded-full bg-ink/15 blur-[3px]" aria-hidden="true" />
+        {/* the stage: the real avatar, large and centred on its own ground; hovering or clicking it previews a move. The name, family and action sit under it. */}
+        <button
+          type="button"
+          data-mascot-stage=""
+          aria-label={t("appearance.preview", { name: shownName })}
+          onMouseEnter={() => { if (moves[0]) play(moves[0]); }}
+          onClick={() => { if (moves.length) { const next = moves[(stagePick.current++) % moves.length]; play(next); } }}
+          className={cn("relative grid h-[176px] w-full place-items-center overflow-hidden rounded-xl bg-[radial-gradient(ellipse_at_50%_45%,var(--color-control)_0%,var(--color-inset)_70%)]", focusRing)}
+        >
+          <span aria-hidden="true" className={cn("pointer-events-none", shownLock.locked && "opacity-60 grayscale")}>
             <BotAvatar
               bot={{ name: bot.name, color: bot.color, mascotSkin: owlSkin, mascotLook: shownLook, avatarCrop: "mascot" }}
-              size={80}
+              size={128}
               state="idle"
               motion={owlMotion?.kind ?? "none"}
               motionKey={owlMotion?.nonce ?? 0}
               characterMove={fxMove}
               label={t("appearance.preview", { name: shownName })}
             />
-            {shownLock.locked && (
-              <span className="absolute right-1.5 top-1.5 grid size-5 place-items-center rounded-full bg-control text-ink-secondary" aria-hidden="true"><Lock size={11} strokeWidth={2.4} /></span>
-            )}
-          </div>
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <div className="min-w-0">
-              <div className="truncate text-[14px] font-medium leading-5 text-ink">{shownName}</div>
-              <div className="truncate text-[11px] leading-4 text-ink-tertiary">
-                {t(MASCOT_FAMILY_LABEL[shownOption.family])} · {t("appearance.moveCount", { count: moves.length })}
-              </div>
+          </span>
+          {shownLock.locked && (
+            <span className="absolute right-2 top-2 grid size-6 place-items-center rounded-full bg-control text-ink-secondary" aria-hidden="true"><Lock size={12} strokeWidth={2.4} /></span>
+          )}
+        </button>
+        <div className="flex flex-col items-center gap-2 text-center">
+          <div className="min-w-0">
+            <div className="truncate text-[15px] font-medium leading-5 text-ink">{shownName}</div>
+            <div className="truncate text-[11px] leading-4 text-ink-tertiary">
+              {t(MASCOT_FAMILY_LABEL[shownOption.family])} · {t("appearance.moveCount", { count: moves.length })}
             </div>
-            {/* the action: what the bot wears, the character to wear, or what unlocks it */}
-            <button
-              type="button"
-              data-mascot-action={shownLock.locked ? "locked" : inUse ? "in-use" : "use"}
-              disabled={disabled || inUse || shownLock.locked}
-              onClick={() => setLook({ character: shown })}
-              className={cn(
-                "mt-auto flex min-h-8 items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-center text-[12px] leading-4",
-                focusRing,
-                !inUse && !shownLock.locked ? "bg-accent font-medium text-accent-ink hover:brightness-110" : "bg-control text-ink-secondary",
-              )}
-            >
-              {shownLock.locked ? <Lock size={12} className="shrink-0" aria-hidden="true" /> : inUse ? <Check size={13} className="shrink-0" aria-hidden="true" /> : null}
-              <span>{shownLock.locked ? lockHint(shownLock) : inUse ? t("appearance.inUse") : t("appearance.use", { name: shownName })}</span>
-            </button>
           </div>
+          {/* the action: what the bot wears, the character to wear, or what unlocks it */}
+          <button
+            type="button"
+            data-mascot-action={shownLock.locked ? "locked" : inUse ? "in-use" : "use"}
+            disabled={disabled || inUse || shownLock.locked}
+            onClick={() => setLook({ character: shown })}
+            className={cn(
+              "flex min-h-8 w-full items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-center text-[12px] leading-4",
+              focusRing,
+              !inUse && !shownLock.locked ? "bg-accent font-medium text-accent-ink hover:brightness-110" : "bg-control text-ink-secondary",
+            )}
+          >
+            {shownLock.locked ? <Lock size={12} className="shrink-0" aria-hidden="true" /> : inUse ? <Check size={13} className="shrink-0" aria-hidden="true" /> : null}
+            <span>{shownLock.locked ? lockHint(shownLock) : inUse ? t("appearance.inUse") : t("appearance.use", { name: shownName })}</span>
+          </button>
         </div>
 
         <div data-character-options={shown} className="flex flex-col gap-2.5">
@@ -925,6 +931,7 @@ export default function MascotLookEditor({ bot, disabled, onPatch: savePatch, on
                   data-character-move={item.id}
                   aria-label={t("mascot.moves.play", { move: item.label })}
                   onClick={() => play(item)}
+                  onMouseEnter={() => play(item)}
                   className={cn("rounded-md bg-control px-2 py-0.5 text-[11px] leading-4 text-ink hover:bg-raised-hover", focusRing)}
                 >
                   {item.label}
