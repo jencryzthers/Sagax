@@ -684,12 +684,16 @@ export class VoiceCall {
     const event = this.turns.feed({ probability, level, botAudible, echo, pitch });
     if (!event) {
       if (this.turns.active) {
-        this.transcriber.push(frame);
+        // Keep sending trailing silence until the partial can start the LLM
+        // (the last word is still landing). Then stop so xAI can speech_final.
+        const ready = maySpeculate(this.turnPartial, true);
+        if (!this.turns.inSilence || !ready) this.transcriber.push(frame);
         if (probability > 0.5) {
           this.lastVoicedAt = this.now();
           this.turnLevel.sum += level;
           this.turnLevel.frames += 1;
         }
+        if (this.turns.inSilence) this.considerSpeculation(this.turnPartial);
       } else this.keepPreroll(frame);
       return;
     }
@@ -1005,7 +1009,7 @@ export class VoiceCall {
       if (!discardSpeculation(this.speculated, trimmed)) return;
       this.dropSpeculation();
     }
-    if (!maySpeculate(trimmed) || isNoiseFragment(trimmed)) return;
+    if (!maySpeculate(trimmed, this.turns.inSilence) || isNoiseFragment(trimmed)) return;
     this.sendSpeculative(trimmed);
   }
 

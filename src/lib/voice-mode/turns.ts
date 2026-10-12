@@ -46,9 +46,9 @@ export const FRAME_MS = 32;
 
 /** The endpoint range for each pause preference (the call's settings). */
 export const PAUSE_PRESETS = {
-  short: { minEndpointMs: 420, endpointMs: 520, maxEndpointMs: 800, incompleteMs: 500, completeMs: 288 },
-  normal: { minEndpointMs: 560, endpointMs: 700, maxEndpointMs: 1_100, incompleteMs: 750, completeMs: 352 },
-  patient: { minEndpointMs: 800, endpointMs: 1_000, maxEndpointMs: 1_500, incompleteMs: 1_000, completeMs: 576 },
+  short: { minEndpointMs: 420, endpointMs: 520, maxEndpointMs: 800, incompleteMs: 500, completeMs: 160 },
+  normal: { minEndpointMs: 560, endpointMs: 700, maxEndpointMs: 1_100, incompleteMs: 750, completeMs: 192 },
+  patient: { minEndpointMs: 800, endpointMs: 1_000, maxEndpointMs: 1_500, incompleteMs: 1_000, completeMs: 288 },
 } as const;
 
 /** Under this voice probability a silent frame is a confident one. */
@@ -66,6 +66,7 @@ const CONTINUING_EN = [
   "and", "or", "but", "so", "because", "to", "the", "a", "an", "of", "in", "on", "at", "for", "with", "from", "about",
   "my", "your", "our", "their", "his", "her", "its", "if", "that", "when", "which", "who", "is", "are", "was", "be",
   "into", "like", "than", "then", "as", "by", "me", "uh", "um", "erm", "hmm", "please",
+  "plus", "minus", "times", "versus", "vs",
 ];
 const CONTINUING_FR = [
   "et", "ou", "mais", "donc", "parce", "que", "qu", "qui", "de", "du", "des", "le", "la", "les", "l", "un", "une",
@@ -118,7 +119,7 @@ export function incompleteClause(text: string): boolean {
   if (!trimmed) return false;
   // a sentence the recognizer closed is complete
   if (/[.!?\u2026]["')\]]*$/.test(trimmed)) return false;
-  if (/[,;:\u2013-]$/.test(trimmed)) return true;
+  if (/[,;:\u2013+\-*/]$/.test(trimmed)) return true;
   const words = trimmed.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[a-z0-9]+/g) ?? [];
   if (!words.length) return false;
   if (CONTINUING_WORDS.has(words.at(-1)!)) return true;
@@ -298,6 +299,12 @@ export class TurnDetector {
 
   get active(): boolean {
     return this.state !== "idle";
+  }
+
+  /** Speaking and already in the endpoint silence. call.ts keeps feeding STT
+   * until the partial can start the LLM, then stops so xAI can speech_final. */
+  get inSilence(): boolean {
+    return this.state === "speaking" && this.silenceMs > 0;
   }
 
   /** The person's usual level, learned from enrollment or accepted turns. */

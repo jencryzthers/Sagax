@@ -575,7 +575,7 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     await t.settle();
     expect(t.utterances.map((u) => u.text)).toEqual(["What time is it in Tokyo?"]);
     const turn = t.utterances[0]!.metrics;
-    // the Normal endpoint is 700 ms; a finished sentence ends at 352
+    // the Normal endpoint is 700 ms; a finished sentence ends at completeMs
     expect(turn.endedAt - turn.stoppedAt).toBeLessThan(420);
     expect(turn.earlyEnd).toBe(true);
     // sent on the partial: no wait for the final's round trip
@@ -639,7 +639,7 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     expect(t.utterances[0]!.metrics.earlyStart).toBeUndefined();
   });
 
-  it("duplex starts the LLM on a four-word partial before the person stops talking", async () => {
+  it("duplex starts the LLM on a stable partial before the person stops talking", async () => {
     const t = await setup({
       transcripts: ["What is the weather in Montreal today?"],
       settings: { fullDuplex: true },
@@ -702,6 +702,27 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     const second = t.metrics.filter((row) => row.turn?.firstAudioAt !== undefined).at(-1)?.turn;
     expect(second?.utteranceId).not.toBe(first?.utteranceId);
     expect(second?.firstAudioAt).toBeGreaterThan(first!.firstAudioAt!);
+  });
+
+  it("duplex keeps feeding STT during silence until the partial can start the LLM, then stops", async () => {
+    const t = await setup({
+      transcripts: ["How is the weather?"],
+      settings: { fullDuplex: true },
+      finalDelayMs: 200,
+    });
+    await t.feed(0.95, 0.05, 24);
+    t.socket().partial("How is the");
+    await t.settle();
+    expect(t.utterances).toHaveLength(0);
+    const bytesAtIncomplete = t.socket().audioBytes;
+    await t.feed(0.02, 0.001, 4);
+    expect(t.socket().audioBytes).toBeGreaterThan(bytesAtIncomplete);
+    t.socket().partial("How is the weather?");
+    await t.settle();
+    expect(t.utterances.map((u) => u.text)).toEqual(["How is the weather?"]);
+    const bytesReady = t.socket().audioBytes;
+    await t.feed(0.02, 0.001, 6);
+    expect(t.socket().audioBytes).toBe(bytesReady);
   });
 
   it("does not start the LLM on a partial when duplex is off", async () => {

@@ -8,6 +8,19 @@ describe("maySpeculate", () => {
     expect(maySpeculate("Quelle heure est il")).toBe(true);
   });
 
+  it("waits on three words even after endpoint silence, including a trailing plus", () => {
+    expect(maySpeculate("what time now")).toBe(false);
+    expect(maySpeculate("What is two")).toBe(false);
+    expect(maySpeculate("What is two plus")).toBe(false);
+    expect(maySpeculate("What is 2 +")).toBe(false);
+    expect(maySpeculate("what time now", true)).toBe(false);
+    expect(maySpeculate("What is two plus two")).toBe(true);
+  });
+
+  it("starts on a closed clause of two or more words", () => {
+    expect(maySpeculate("What time?")).toBe(true);
+  });
+
   it("waits when the partial is short or still an unfinished clause", () => {
     expect(maySpeculate("What is")).toBe(false);
     expect(maySpeculate("What is the")).toBe(false);

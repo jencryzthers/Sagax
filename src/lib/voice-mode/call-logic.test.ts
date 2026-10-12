@@ -260,7 +260,7 @@ describe("turn detection (endpointing)", () => {
 
 describe("an unfinished clause", () => {
   it("is one that stops on a conjunction, a preposition, a comma or after a word or two", () => {
-    for (const text of ["give me a good prompt to", "the weather right now in", "and", "je voudrais que", "envoie-le à", "so I was thinking,", "the weather", "um"]) {
+    for (const text of ["give me a good prompt to", "the weather right now in", "and", "je voudrais que", "envoie-le à", "so I was thinking,", "the weather", "um", "What is two plus"]) {
       expect(incompleteClause(text), text).toBe(true);
     }
     for (const text of ["What is the weather in Montreal?", "Give me a good prompt.", "send it to Max right away", "quelle heure est-il", ""]) {
@@ -385,6 +385,16 @@ describe("a finished sentence ends sooner (docs/voice-mode-xai.md, Latency)", ()
     feed(open, [{ p: 0.9, n: frames(900) }]);
     open.hint("give me a good prompt");
     expect(feed(open, [{ p: 0.05, n: frames(400) }]).some((event) => event.type === "end")).toBe(false);
+  });
+
+  it("inSilence is true only while speaking through the endpoint pause", () => {
+    const detector = new TurnDetector();
+    detector.setPause("normal");
+    expect(detector.inSilence).toBe(false);
+    feed(detector, [{ p: 0.9, n: frames(900) }]);
+    expect(detector.inSilence).toBe(false);
+    feed(detector, [{ p: 0.05, n: 1 }]);
+    expect(detector.inSilence).toBe(true);
   });
 
   it("speaks the first clause of an answer once it has about six words", () => {
