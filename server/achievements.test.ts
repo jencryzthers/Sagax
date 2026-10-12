@@ -93,6 +93,15 @@ describe("achievement engine", () => {
     expect(store.snapshot(ADA).items.find((item) => item.id === "best-friends")).toMatchObject({ current: 400, target: 500 });
   });
 
+  it("refuses a client that posts claude.linked", () => {
+    const { store } = setup();
+    expect(store.record(ADA, [{ type: "claude.linked" }], "client")).toEqual({ accepted: 0, unlocked: [] });
+    const server = store.record(ADA, [{ type: "claude.linked" }], "server");
+    expect(server.unlocked.map((item) => item.id)).toContain("claude-linked");
+    expect(store.snapshot(ADA).rewards).toContain("character:crab");
+    expect(store.record(ADA, [{ type: "claude.linked" }], "server").unlocked).toEqual([]);
+  });
+
   it("unlocks Trombi for good with its command", () => {
     const { dir, store } = setup();
     expect(store.snapshot(ADA).rewards).not.toContain("character:trombi");
@@ -323,6 +332,32 @@ describe("/api/me/achievements", () => {
     expect(JSON.stringify(shared)).not.toContain("Up Up Down Down");
     expect(await call(route, { method: "PUT", path: `${ACHIEVEMENTS_PATH}/settings`, person: ADA, body: { settings: { public: false } } })).toMatchObject({ status: 200, body: { settings: { public: false, toasts: false } } });
     expect(await call(route, { method: "GET", path: `/api/achievements/public?ids=${ADA}`, person: BOB })).toMatchObject({ status: 200, body: { points: {} } });
+  });
+
+  it("records claude.linked on GET when the person is already linked, and does not toast twice", async () => {
+    const { store } = setup();
+    const told: string[] = [];
+    let linked = true;
+    const route = createAchievementRoutes({
+      store,
+      person: (auth) => (auth as unknown as { person?: string | null }).person ?? null,
+      unlocked: (person, unlocks) => told.push(`${person}:${unlocks.map((item) => item.id).join(",")}`),
+      linked: () => linked,
+    });
+    const first = await call(route, { method: "GET", person: ADA });
+    expect(first).toMatchObject({ status: 200 });
+    expect((first as { body: { rewards: string[] } }).body.rewards).toContain("character:crab");
+    expect(told.some((line) => line.includes("claude-linked"))).toBe(true);
+    const before = told.length;
+    await call(route, { method: "GET", person: ADA });
+    expect(told.length).toBe(before);
+    linked = false;
+    const still = await call(route, { method: "GET", person: ADA });
+    expect((still as { body: { rewards: string[] } }).body.rewards).toContain("character:crab");
+    const { store: other } = setup();
+    const quiet = createAchievementRoutes({ store: other, person: () => ADA, unlocked: () => undefined, linked: () => false });
+    const empty = await call(quiet, { method: "GET", person: ADA });
+    expect((empty as { body: { rewards: string[] } }).body.rewards).not.toContain("character:crab");
   });
 
   it("is a member's own route (client scope)", () => {

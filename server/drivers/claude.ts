@@ -17,6 +17,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, wr
 import { createServer as createNetServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join, dirname, isAbsolute, normalize } from "node:path";
+import { LOGIN_MARKER } from "../principal-engine-logins.ts";
 
 import { DATA_DIR, stripWorkspaceCredentialEnv } from "../config.ts";
 import { openStartupModelCatalog, writeStartupModelCache } from "../startup-model-catalog.ts";
@@ -1224,8 +1225,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
   decodeConfig,
   defaultConfig: () => decodeConfig({}),
 
-  async create(input: DriverCreateInput<ClaudeConfig>): Promise<ProviderInstance> {
-    const { instanceId, config } = input;
+  async create(input: DriverCreateInput<ClaudeConfig> & { onClaudeLinked?: () => void }): Promise<ProviderInstance> {
+    const { instanceId, config, onClaudeLinked } = input;
     const environment = (model?: string | null, access?: TurnAccessInput) => {
       // Slice 4: an owner's key rides as instance environment for this one
       // turn (so claudeEnvironment keeps it); a person's own subscription
@@ -2841,7 +2842,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
 
     // Sign in from Settings: the unmodified CLI's own login, driven over pipes
     // (server/drivers/claude-login-auth.ts). Same environment as every turn.
-    const login = new ClaudeLoginController({ cli: config.cli, environment, onAuthenticated: async () => { await refreshModels(); } });
+    const login = new ClaudeLoginController({
+      cli: config.cli,
+      environment,
+      onAuthenticated: async () => {
+        await refreshModels();
+        const dir = resolveClaudeConfigDir(config.configDir, environment());
+        writeFileAtomic(join(dir, LOGIN_MARKER), JSON.stringify({ at: Date.now() }), { mode: 0o600 });
+        onClaudeLinked?.();
+      },
+    });
 
     const snapshot = async (): Promise<ProviderSnapshot> => {
       const env = environment();

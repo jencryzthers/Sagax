@@ -10,7 +10,7 @@ import { LOGIN_MARKER, loginCliFor, PrincipalEngineLogins, type LoginController 
 const A = "pr_00000000-0000-4000-8000-00000000000a";
 const B = "pr_00000000-0000-4000-8000-00000000000b";
 
-function harness() {
+function harness(options: { onClaudeLinked?: (principalId: string) => void } = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), "engine-logins-"));
   const made: Array<{ driver: string; home: string; env: Record<string, string | undefined>; finish: () => Promise<void>; signedOut: boolean }> = [];
   const logins = new PrincipalEngineLogins({
@@ -33,6 +33,7 @@ function harness() {
       };
       return controller;
     },
+    ...(options.onClaudeLinked ? { onClaudeLinked: options.onClaudeLinked } : {}),
   });
   return { dataDir, logins, made };
 }
@@ -102,6 +103,17 @@ describe("PrincipalEngineLogins", () => {
     logins.revokeOwner("session-b");
     await new Promise((resolve) => setTimeout(resolve, 10));
     await expect(logins.status(B, "codex", "session-b", b.flowId!)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("notifies onClaudeLinked only after a Claude login", async () => {
+    const linked: string[] = [];
+    const { logins, made } = harness({ onClaudeLinked: (person) => linked.push(person) });
+    await logins.start(A, "claude", "session-a");
+    await made[0]!.finish();
+    expect(linked).toEqual([A]);
+    await logins.start(A, "codex", "session-a");
+    await made[1]!.finish();
+    expect(linked).toEqual([A]);
   });
 
   it("marks signed in when the status poll sees success first", async () => {

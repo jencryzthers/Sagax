@@ -29,7 +29,8 @@ import { z } from "zod";
 import { boundedContextText, selectReplay, DEFAULT_REBUILD_BYTES, MAX_SUMMARY_BYTES, type CompactionRecord } from "./context-rebuild.ts";
 import { draftSummary, foldPoint } from "./compaction-summary.ts";
 import { compactBudget, contextWindowFor, defaultCompactAt, nativeCompactionPoint, shouldCompact } from "./context-budget.ts";
-import { autoCompactWindow, resolveClaudeConfigDir } from "./drivers/claude.ts";
+import { autoCompactWindow, ClaudeDriver, resolveClaudeConfigDir } from "./drivers/claude.ts";
+import { claudeAccountLinked } from "./claude-account.ts";
 import { provenRequestPerson, SharedComputers, sharedComputerOperation, sharedComputerRegistration } from "./shared-computers.ts";
 import { createUserComputerRouter } from "./user-computers.ts";
 import { SharedComputerControl } from "./shared-computer-control.ts";
@@ -673,7 +674,7 @@ import { cookieMaxAgeSeconds, formatPairingCode, SessionRegistry, type Scope, ty
 import { isAccountEmail, isPrincipalId, PrincipalRegistry, type Principal } from "./principals.ts";
 import { OrgTeams } from "./org-teams.ts";
 import { keyVia, materializeEngineAccess, providersOfDriver, resolveEngineAccess, subscriptionDriver, turnPayer, type AccessPayer, type SubscriptionDriver, type EngineCredentialInput, type EngineCredentialPlan, type NoAccessCause, type TurnAccess } from "./engine-credentials.ts";
-import { isLoginDriver, loginCliFor, PrincipalEngineLogins } from "./principal-engine-logins.ts";
+import { isLoginDriver, LOGIN_MARKER, loginCliFor, PrincipalEngineLogins } from "./principal-engine-logins.ts";
 import { createSectionChannelRoutes, migrationOwner, recordAccess, SectionChannels, sectionShareGrants } from "./section-channels.ts";
 import { createBotGrantRoutes, visibleGrants, wireGrants } from "./bot-grants.ts";
 import { createBotPerspicaxRoutes } from "./bot-perspicax.ts";
@@ -1423,7 +1424,22 @@ function customDomainStatus() {
     serverIpv4: DESKTOP_MANAGED ? null : customDomainIpv4(),
   };
 }
-const registry = new ProviderRegistry(BUILT_IN_DRIVERS);
+const registry = new ProviderRegistry(
+  IDENTITY.kind === "perspicax"
+    ? BUILT_IN_DRIVERS
+    : BUILT_IN_DRIVERS.map((driver) =>
+        driver.driverKind === "claudeAgent"
+          ? {
+              ...ClaudeDriver,
+              create: (input) =>
+                ClaudeDriver.create({
+                  ...input,
+                  onClaudeLinked: () => recordAchievements(localPrincipalId(), [{ type: "claude.linked" }]),
+                }),
+            }
+          : driver,
+      ),
+);
 // The approval gates below hand this their model selection — or a driver
 // view they already hold — and let the registry resolve the driver, instead
 // of each site unwrapping registry.cliTarget(...)?.driverKind itself.
@@ -5556,6 +5572,7 @@ const engineLogins = IDENTITY.kind === "perspicax"
       const cli = loginCliFor(entry.driver, configured, registry.cliTarget(instanceId)?.cli);
       return { driver: entry.driver, cli, environment: entry.environment ?? {} };
     },
+    onClaudeLinked: (person) => recordAchievements(person, [{ type: "claude.linked" }]),
   })
   : null;
 /** Slice 4: shared sidebar sections (section-channels.ts), organization mode. */
@@ -21087,6 +21104,18 @@ ROUTES.push(createAchievementRoutes({
   store: achievementStore,
   person: (auth) => actorPrincipalId(auth) || null,
   unlocked: (person, unlocked) => broadcast({ kind: "achievements", audience: person, unlocked }),
+  linked: (person) => {
+    if (IDENTITY.kind === "perspicax") {
+      const signedIn = engineLogins?.signedIn(person, "claudeAgent") === true;
+      const sub = principals.byId(person)?.subject?.iss === IDENTITY.issuer ? principals.byId(person)?.subject?.sub : undefined;
+      const held = sub ? perspicaxDirectory?.providerKeys(sub) ?? [] : [];
+      const myKey = providersOfDriver("claudeAgent").some((provider) => held.includes(provider));
+      return claudeAccountLinked({ signedIn, myKey, orgKey: false });
+    }
+    const dir = resolveClaudeConfigDir(undefined, process.env);
+    const loginMarker = existsSync(join(dir, LOGIN_MARKER));
+    return claudeAccountLinked({ loginMarker, anthropicConfigured: Boolean(cfg.anthropic?.key) });
+  },
 }));
 ROUTES.push(createDesktopBridgeRoutes({
   organization: () => IDENTITY.kind === "perspicax",
@@ -36457,6 +36486,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (patch.profile && typeof patch.profile.email === "string") {
         if (patch.profile.email.trim()) principals.localOperator(patch.profile.email);
         else principals.setEmail(principals.localOperator().id, "");
+      }
+      if (IDENTITY.kind !== "perspicax" && typeof patch.anthropic?.key === "string" && patch.anthropic.key.trim()) {
+        recordAchievements(localPrincipalId(), [{ type: "claude.linked" }]);
       }
       for (const key of resetKeys) if (key) forgetKey(key);
       // Desktops already counting down move to the new window at once, in
