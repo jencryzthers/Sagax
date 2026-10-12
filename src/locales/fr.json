@@ -4292,6 +4292,7 @@
   "voiceMode.call.forget": "Oublier ma voix",
   "voiceMode.call.fullDuplex": "Conversation en duplex",
   "voiceMode.call.fullDuplexHelp": "Parlez par-dessus le bot à tout moment. Il arrête sa réponse en cours et n'empile jamais les suivantes. Activé par défaut ici. Désactivez pour que les mots dits pendant qu'il travaille rejoignent ce tour.",
+  "voiceMode.call.taskQueued": "Celui-là attend qu'une place se libère.",
   "voiceMode.call.handsFree": "Mains libres",
   "voiceMode.call.input": "Micro",
   "voiceMode.call.latency": "Dernière réponse : première parole {total} ms après la fin de votre phrase",

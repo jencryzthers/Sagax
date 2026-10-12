@@ -47,6 +47,7 @@ import {
   toolFillerText,
 } from "@/lib/voice-mode/tool-filler";
 import { announceTopic, callHasBackgroundWork, howToSpeakTopicResult, sourceUserId, topicLabel } from "@/lib/voice-mode/voice-topics";
+import { nextSpeakSlot, type SpeakItem, type SpeakPriority } from "@/lib/voice-mode/voice-speak-queue";
 import { isRoutineApproval, isSkillApproval, pendingApprovals, spokenApprovalPrompt } from "../PendingApproval";
 import { VoiceModeBar, type VoiceAccessCard } from "./VoiceModeBar";
 
@@ -117,6 +118,22 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
   /** after a barge-in: the old turn's words are not spoken across the next send */
   const fence = useRef<SpeechFence>(createSpeechFence());
   const filler = useRef(createToolFillerState());
+  const pendingSpeak = useRef<Array<SpeakItem & { text: string; kind: "say" | "done" }>>([]);
+  const drainSpeak = useCallback(() => {
+    const live = call;
+    if (!live) return;
+    const slot = nextSpeakSlot({
+      userSpeaking: live.current.phase === "hearing",
+      botSpeaking: live.player.busy || live.current.botAudible,
+      waiting: pendingSpeak.current,
+    });
+    if (slot.action === "hold") return;
+    const item = pendingSpeak.current.find((row) => row.id === slot.id);
+    if (!item) return;
+    pendingSpeak.current = pendingSpeak.current.filter((row) => row.id !== slot.id);
+    const played = item.kind === "done" ? live.replyDone(item.text) : live.say(item.text);
+    void Promise.resolve(played).finally(() => drainSpeak());
+  }, [call]);
 
   // ── the call itself (one per mount; StrictMode's probe gets its own) ──
   useEffect(() => {
@@ -332,13 +349,29 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
         lastUserId: lastUser?.id,
         isParallelResult: row?.parallelTask?.role === "result",
       });
-      if (mode === "announce") {
-        const source = messages.find((message) => message.id === replyUserId);
-        void call.say(announceTopic(topicLabel(source?.text ?? row?.parallelTask?.title ?? "the other thing"), reply.text));
-      } else {
-        void call.replyDone(reply.text);
+      const priority: SpeakPriority = mode === "announce" ? "topic-result" : "user-reply";
+      const text = mode === "announce"
+        ? announceTopic(topicLabel(messages.find((message) => message.id === replyUserId)?.text ?? row?.parallelTask?.title ?? "the other thing"), reply.text)
+        : reply.text;
+      if (!pendingSpeak.current.some((item) => item.id === reply.id)) {
+        pendingSpeak.current.push({ id: reply.id, text, priority, at: Date.now(), kind: mode === "announce" ? "say" : "done" });
       }
     }
+    for (const m of fresh) {
+      if (m.parallelTask?.role === "card" && m.parallelTask.state === "queued") {
+        const id = `queued-${m.id}`;
+        if (!pendingSpeak.current.some((item) => item.id === id)) {
+          pendingSpeak.current.push({
+            id,
+            text: t("voiceMode.call.taskQueued"),
+            priority: "queued-notice",
+            at: Date.now(),
+            kind: "say",
+          });
+        }
+      }
+    }
+    drainSpeak();
     const replies = fresh.filter((m) => m.role === "bot" && m.kind === "text" && m.text?.trim());
     if (!replies.length && call.current.phase === "thinking") {
       for (const m of fresh) {
@@ -360,7 +393,11 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
         void call.say(chip.tool.spoken);
       }
     }
-  }, [call, messages, approval, question, bot.name]);
+  }, [call, messages, approval, question, bot.name, drainSpeak]);
+
+  useEffect(() => {
+    if (state && !state.botAudible) drainSpeak();
+  }, [state, drainSpeak]);
 
   // ── what every surface shows ─────────────────────────────────────────
   const [startedAt] = useState(() => Date.now());

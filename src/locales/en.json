@@ -6211,6 +6211,7 @@
   "voiceMode.call.forget": "Forget my voice",
   "voiceMode.call.fullDuplex": "Full-duplex conversation",
   "voiceMode.call.fullDuplexHelp": "Talk over the bot at any time. It stops its current answer and never stacks the next ones. On by default here. Turn off to have words said while it works join that turn.",
+  "voiceMode.call.taskQueued": "That one is waiting for a free slot.",
   "voiceMode.call.handsFree": "Hands-free",
   "voiceMode.call.input": "Microphone",
   "voiceMode.call.latency": "Last answer: first audio {total} ms after you stopped",
