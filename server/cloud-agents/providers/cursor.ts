@@ -1,7 +1,7 @@
 // Cursor Cloud Agents API v1 (https://cursor.com/docs/cloud-agent/api/endpoints).
 import type { CloudAgentFollowUpInput } from "../../../shared/cloud-agents.ts";
 import { normalizeCloudAgentStatus } from "../../../shared/cloud-agents.ts";
-import { cursorJson, type ProviderHttpError } from "./http.ts";
+import { cursorJson, ProviderHttpError } from "./http.ts";
 import type { CloudAgentProviderAdapter, HttpFetch, ProviderLaunchResult, ProviderRunSnapshot } from "./types.ts";
 
 const DEFAULT_BASE = "https://api.cursor.com";

@@ -47,7 +47,7 @@ describe("CloudAgentManager", () => {
   it("launches and fires completion once when a run finishes", async () => {
     dataDir = tempDataDir();
     const store = new CloudAgentStore(dataDir);
-    const credentials = new CloudAgentCredentialStore(dataDir, { key: vaultKey });
+    const credentials = new CloudAgentCredentialStore(dataDir, () => ({ kind: "key", key: vaultKey }));
     credentials.set("pr_test", "cursor", "tok_test");
     const provider = stubProvider();
     const onComplete = vi.fn();
@@ -75,7 +75,7 @@ describe("CloudAgentManager", () => {
   it("queues follow-up while a run is active", async () => {
     dataDir = tempDataDir();
     const store = new CloudAgentStore(dataDir);
-    const credentials = new CloudAgentCredentialStore(dataDir, { key: vaultKey });
+    const credentials = new CloudAgentCredentialStore(dataDir, () => ({ kind: "key", key: vaultKey }));
     credentials.set("pr_test", "cursor", "tok_test");
     const provider = stubProvider({
       refresh: vi.fn(async () => ({ status: "RUNNING" })),

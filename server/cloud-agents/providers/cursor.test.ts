@@ -6,7 +6,7 @@ describe("cursor cloud agent provider", () => {
   it("launches with basic auth and repo ref", async () => {
     const calls: { url: string; init?: RequestInit }[] = [];
     const fetchImpl: HttpFetch = async (url, init) => {
-      calls.push({ url, init });
+      calls.push({ url: String(url), init });
       return new Response(JSON.stringify({
         agent: { id: "bc-test", name: "Fix bug", status: "CREATING", url: "https://cursor.com/agents/bc-test" },
         run: { id: "run-1", status: "RUNNING" },

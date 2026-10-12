@@ -21686,7 +21686,7 @@ ROUTES.push(createCloudAgentRoutes({
     if (!bot) return false;
     return listedBotVisible(bot, channelFilterViewerId(auth));
   },
-  principalId: (auth) => sessionPrincipalId(auth),
+  principalId: (auth) => sessionPrincipal(auth),
   botName: (botId) => store.bot(botId)?.name,
 }));
 

@@ -34,14 +34,17 @@ export interface CloudAgentCredentialListing {
 }
 
 export class CloudAgentCredentialStore {
-  private readonly key: Buffer;
   private readonly cache = new Map<string, z.infer<typeof documentSchema>>();
 
   constructor(
     private readonly dataDir: string,
-    vault: VaultKeySource,
-  ) {
-    this.key = vault.key;
+    private readonly keySource: () => VaultKeySource,
+  ) {}
+
+  private key(): Buffer {
+    const source = this.keySource();
+    if (source.kind === "unavailable") throw new Error(source.reason);
+    return source.key;
   }
 
   private read(principalId: string): z.infer<typeof documentSchema> {
@@ -52,13 +55,16 @@ export class CloudAgentCredentialStore {
     try {
       raw = readFileSync(path, "utf8");
     } catch {
-      const empty = { version: 1 as const, providers: {} };
+      const empty: z.infer<typeof documentSchema> = {
+        version: 1,
+        providers: {} as z.infer<typeof documentSchema>["providers"],
+      };
       this.cache.set(principalId, empty);
       return empty;
     }
     const [ivB64, tagB64, bodyB64] = raw.split(".");
     if (!ivB64 || !tagB64 || !bodyB64) throw new Error("corrupt cloud-agent credentials");
-    const decipher = createDecipheriv("aes-256-gcm", this.key, Buffer.from(ivB64, "base64"));
+    const decipher = createDecipheriv("aes-256-gcm", this.key(), Buffer.from(ivB64, "base64"));
     decipher.setAuthTag(Buffer.from(tagB64, "base64"));
     decipher.setAAD(AAD);
     const json = Buffer.concat([decipher.update(Buffer.from(bodyB64, "base64")), decipher.final()]).toString("utf8");
@@ -70,7 +76,7 @@ export class CloudAgentCredentialStore {
   private write(principalId: string, doc: z.infer<typeof documentSchema>): void {
     if (!PRINCIPAL_ID.test(principalId)) throw new Error("invalid principal");
     const iv = randomBytes(12);
-    const cipher = createCipheriv("aes-256-gcm", this.key, iv);
+    const cipher = createCipheriv("aes-256-gcm", this.key(), iv);
     cipher.setAAD(AAD);
     const body = Buffer.concat([cipher.update(JSON.stringify(doc), "utf8"), cipher.final()]);
     const tag = cipher.getAuthTag();
