@@ -65,12 +65,12 @@ export type PausePreset = keyof typeof PAUSE_PRESETS;
  * stops on one is still going. */
 const CONTINUING_EN = [
   "and", "or", "but", "so", "because", "to", "the", "a", "an", "of", "in", "on", "at", "for", "with", "from", "about",
-  "my", "your", "our", "their", "his", "her", "its", "if", "that", "when", "which", "who", "is", "are", "was", "be",
+  "my", "your", "our", "their", "his", "her", "its", "if", "that", "what", "when", "which", "who", "is", "are", "was", "be",
   "into", "like", "than", "then", "as", "by", "me", "uh", "um", "erm", "hmm", "please",
   "plus", "minus", "times", "versus", "vs",
 ];
 const CONTINUING_FR = [
-  "et", "ou", "mais", "donc", "parce", "que", "qu", "qui", "de", "du", "des", "le", "la", "les", "l", "un", "une",
+  "et", "ou", "mais", "donc", "parce", "que", "qu", "qui", "quel", "quelle", "quels", "quelles", "de", "du", "des", "le", "la", "les", "l", "un", "une",
   "au", "aux", "pour", "avec", "dans", "sur", "en", "mon", "ma", "mes", "ton", "ta", "tes", "son", "sa", "ses",
   "notre", "votre", "leur", "si", "quand", "est", "c", "ce", "cette", "comme", "euh", "ben", "puis",
 ];

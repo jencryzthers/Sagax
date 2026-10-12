@@ -195,6 +195,23 @@ export function spokenPcm(text: string, voice?: string): Float32Array {
   return readWavPcm16(wav);
 }
 
+/** Keep VAD voiced until the last `tailMs` of the utterance. macOS `say`
+ * inserts pauses that would otherwise false-cut a completeMs endpoint. */
+export function holdVoiceUntilTail(frames: Float32Array[], tailMs = 400): Float32Array[] {
+  if (!frames.length) return frames;
+  const tail = Math.max(1, Math.ceil(tailMs / 32));
+  let lastVoiced = -1;
+  for (let i = 0; i < frames.length; i++) {
+    if ((frames[i]![0] ?? 0) * 1000 > 0.5) lastVoiced = i;
+  }
+  const holdUntil = Math.max(0, lastVoiced - tail + 1);
+  for (let i = 0; i < holdUntil; i++) {
+    const frame = frames[i]!;
+    if ((frame[0] ?? 0) * 1000 < 0.5) frame[0] = 0.92 / 1000;
+  }
+  return frames;
+}
+
 function pcmFrames(pcm: Float32Array): Float32Array[] {
   const frames: Float32Array[] = [];
   for (let i = 0; i + VAD_FRAME <= pcm.length; i += VAD_FRAME) {
@@ -586,7 +603,7 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
     // firstAudio always false).
     const spoken = real ? transcripts.map((q, i) => {
       benchLog(`say ${i + 1}/${transcripts.length} ${q.lang}`);
-      return pcmFrames(spokenPcm(q.text, q.lang === "fr" ? BENCH_SAY_VOICE_FR : undefined));
+      return holdVoiceUntilTail(pcmFrames(spokenPcm(q.text, q.lang === "fr" ? BENCH_SAY_VOICE_FR : undefined)));
     }) : [];
 
     const replySink: BenchReplySink = {
@@ -683,7 +700,7 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
         speaking = false;
       }
       const deadline = performance.now() + (real ? 45_000 : 20_000);
-      while (metrics.firstAudioAt === undefined && performance.now() < deadline) await sleep(20);
+      while ((metrics.firstAudioAt === undefined || metrics.firstSentenceAt === undefined) && performance.now() < deadline) await sleep(20);
       benchLog(`turn ${turn} firstAudio=${metrics.firstAudioAt !== undefined} utterances=${diag.utterances.length} sse=${diag.sse} firstToken=${current.firstToken !== undefined} firstSentence=${metrics.firstSentenceAt !== undefined}`);
       const m = metrics as Record<string, number | undefined> & { earlyEnd?: boolean; contourEnd?: boolean; streamed?: boolean; earlyStart?: boolean; reissued?: boolean };
       // over the socket, the call's own first-bytes mark (the POST wrapper above sees nothing)

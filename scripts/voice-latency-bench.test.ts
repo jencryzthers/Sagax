@@ -13,6 +13,7 @@ import {
   REAL_QUESTIONS,
   ClockPlayer,
   applyBenchRuntimeEvent,
+  holdVoiceUntilTail,
   defaultBenchTurns,
   realVoiceBench,
   runVoiceLatencyBench,
@@ -47,6 +48,18 @@ it("voice-call marks use en or fr, never auto (parseVoiceCallMeta rejects auto)"
     expect(language === "en" || language === "fr").toBe(true);
     expect(parseVoiceCallMeta({ callId: "call-0123456789", language })).toMatchObject({ language });
   }
+});
+
+it("spoken bench frames stay voiced until the tail so say pauses do not false-cut", () => {
+  const voiced = new Float32Array(512);
+  voiced[0] = 0.92 / 1000;
+  const quiet = new Float32Array(512);
+  quiet[0] = 0.03 / 1000;
+  const frames = [...Array(10).fill(voiced), ...Array(12).fill(quiet), ...Array(10).fill(voiced), ...Array(4).fill(quiet)].map((f) => new Float32Array(f));
+  const held = holdVoiceUntilTail(frames, 128);
+  const p = (frame: Float32Array) => (frame[0] ?? 0) * 1000;
+  expect(held.slice(0, -4).every((frame) => p(frame) >= 0.9)).toBe(true);
+  expect(held.slice(-4).every((frame) => p(frame) < 0.2)).toBe(true);
 });
 
 it("ClockPlayer ignores a scheduled sentence start after cancel", async () => {

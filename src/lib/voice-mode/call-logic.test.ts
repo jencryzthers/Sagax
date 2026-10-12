@@ -260,7 +260,7 @@ describe("turn detection (endpointing)", () => {
 
 describe("an unfinished clause", () => {
   it("is one that stops on a conjunction, a preposition, a comma or after a word or two", () => {
-    for (const text of ["give me a good prompt to", "the weather right now in", "and", "je voudrais que", "envoie-le à", "so I was thinking,", "the weather", "um", "What is two plus"]) {
+    for (const text of ["give me a good prompt to", "the weather right now in", "and", "je voudrais que", "envoie-le à", "so I was thinking,", "the weather", "um", "What is two plus", "Can you remind me what", "Peux-tu me rappeler quel"]) {
       expect(incompleteClause(text), text).toBe(true);
     }
     for (const text of ["What is the weather in Montreal?", "Give me a good prompt.", "send it to Max right away", "quelle heure est-il", ""]) {
