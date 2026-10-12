@@ -35,7 +35,17 @@ import { readVoiceModeSettings } from "@/lib/voice-mode/settings";
 import { publishLiveCall, retractLiveCall, useLiveCall, type LiveCallData, type LiveCallMetrics } from "@/lib/voice-mode/live-call-store";
 import { noteVoiceCallEnded, noteVoiceCallRunning } from "@/lib/voice-call-clock";
 import { callBarLines } from "@/lib/voice-call-transcript";
-import { t } from "@/lib/i18n";
+import { activeLocale, t } from "@/lib/i18n";
+import {
+  cancelToolFiller,
+  createToolFillerState,
+  noteToolFillerPlayed,
+  resetToolFiller,
+  shouldPlayToolFiller,
+  shouldSkipToolChip,
+  toolFillerLanguage,
+  toolFillerText,
+} from "@/lib/voice-mode/tool-filler";
 import { isRoutineApproval, isSkillApproval, pendingApprovals, spokenApprovalPrompt } from "../PendingApproval";
 import { VoiceModeBar, type VoiceAccessCard } from "./VoiceModeBar";
 
@@ -105,6 +115,7 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
   const askedQuestion = useRef<{ requestId: string; messageId: string } | null>(null);
   /** after a barge-in: the old turn's words are not spoken across the next send */
   const fence = useRef<SpeechFence>(createSpeechFence());
+  const filler = useRef(createToolFillerState());
 
   // ── the call itself (one per mount; StrictMode's probe gets its own) ──
   useEffect(() => {
@@ -147,6 +158,7 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
         if (cut.unheard) lastCut.current = { unheard: cut.unheard };
         // what was being said is cut: the rest of that answer is not spoken
         fence.current = cancelSpeech(fence.current, streamingRef.current);
+        filler.current = cancelToolFiller(filler.current);
       }),
       live.on("interrupt-bot", () => {
         const current = botRef.current;
@@ -157,7 +169,10 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
         dispatch({ type: "interrupt", botId: current.id, threadId: current.threadId });
       }),
     ];
-    void live.start();
+    void live.start().then(() => {
+      const language = toolFillerLanguage(readVoiceModeSettings().language, activeLocale());
+      void live.prefetchFiller(toolFillerText(language)).catch(() => {});
+    });
     return () => {
       for (const off of offs) off();
       live.end();
@@ -204,6 +219,7 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
       }
       // a new turn: a cut answer that settles after this send stays silent
       fence.current = noteUtteranceSent(fence.current);
+      filler.current = resetToolFiller(filler.current);
       const language = readVoiceModeSettings().language;
       // one id per utterance: the server delivers it once, whatever retries,
       // and logs its stages under it (the call's timeline uses the same)
@@ -298,8 +314,14 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
     for (const reply of settled.speak) void call.replyDone(reply.text);
     const replies = fresh.filter((m) => m.role === "bot" && m.kind === "text" && m.text?.trim());
     if (!replies.length && call.current.phase === "thinking") {
+      const activity = [...fresh].reverse().find((m) => m.kind === "activity" && m.tool);
+      if (activity?.tool && shouldPlayToolFiller(filler.current, { thinking: true, toolStarted: true })) {
+        filler.current = noteToolFillerPlayed(filler.current);
+        const language = toolFillerLanguage(readVoiceModeSettings().language, activeLocale());
+        void call.sayFiller(toolFillerText(language));
+      }
       const chip = [...fresh].reverse().find((m) => m.kind === "activity" && m.tool?.spoken);
-      if (chip?.tool?.spoken && shouldNarrateToolChip({ duplex: readCallSettings().fullDuplex, playerBusy: call.player.busy })) {
+      if (chip?.tool?.spoken && !shouldSkipToolChip(filler.current) && shouldNarrateToolChip({ duplex: readCallSettings().fullDuplex, playerBusy: call.player.busy })) {
         void call.say(chip.tool.spoken);
       }
     }

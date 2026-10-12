@@ -141,7 +141,10 @@ async function setup(options: Setup = {}) {
     transcribe: upload,
     finalTimeoutMs: 200,
   });
-  const speech = vi.fn(async (_botId: string, _text: string, _voice: unknown) => ({ body: new ReadableStream<Uint8Array>(), sampleRate: 24_000 }));
+  const speech = vi.fn(async (_botId: string, _text: string, _voice: unknown) => ({
+    body: new ReadableStream<Uint8Array>({ start(controller) { controller.close(); } }),
+    sampleRate: 24_000,
+  }));
   const settings: CallSettings = { ...DEFAULT_CALL_SETTINGS, earcons: true, ...options.settings };
   const track = { enabled: true, stop: vi.fn() };
   const call = new VoiceCall({
@@ -754,6 +757,21 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("a tool filler speaks cached words, never a tone, and barge-in cancels it", async () => {
+    const t = await setup();
+    const tones = t.player.tones;
+    await t.call.prefetchFiller("Je regarde.");
+    expect(t.speech).toHaveBeenCalledWith("b-1", "Je regarde.", expect.anything(), "t-1", expect.anything());
+    t.speech.mockClear();
+    const heard = t.call.sayFiller("Je regarde.");
+    expect(t.speech).not.toHaveBeenCalled();
+    expect(t.player.tones).toBe(tones);
+    expect(t.player.queued.map((s) => s.text)).toContain("Je regarde.");
+    t.call.interrupt();
+    expect(t.player.cancels).toBeGreaterThan(0);
+    await expect(heard).resolves.toBe(false);
   });
 });
 

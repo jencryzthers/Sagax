@@ -236,6 +236,8 @@ export class VoiceCall {
   private enrolling: { frames: Float32Array[]; levels: number[]; done: (frames: Float32Array[] | null) => void; until: number } | null = null;
   /** the on-device models loaded (else the level detector serves) */
   modelsReady = false;
+  /** pre-synthesized tool filler clips, keyed by the spoken words */
+  private fillerCache = new Map<string, { bytes: Uint8Array; sampleRate: number }>();
 
   constructor(options: VoiceCallOptions) {
     this.o = options;
@@ -389,6 +391,29 @@ export class VoiceCall {
   }
 
   // ── speaking ───────────────────────────────────────────────────────────
+
+  /** Pre-synthesize the tool filler so the first tool has no TTS wait. */
+  async prefetchFiller(text: string): Promise<void> {
+    if (!text.trim() || this.fillerCache.has(text) || this.closed) return;
+    const speech = this.o.speech ?? this.speechSocket?.speak ?? streamVoiceModeSpeech;
+    const spoken = await speech(this.o.botId, text, this.o.voice(), this.o.threadId(), new AbortController().signal);
+    if (!spoken || this.closed) return;
+    this.fillerCache.set(text, { bytes: await readPcm(spoken.body), sampleRate: spoken.sampleRate });
+  }
+
+  /** Speak the local tool filler (cached words when ready). Never a tone. */
+  sayFiller(text: string): Promise<boolean> {
+    if (this.state.phase === "held" || this.state.phase === "ended") return Promise.resolve(false);
+    const cached = this.fillerCache.get(text);
+    if (!cached) return this.say(text);
+    const sentence: Sentence = {
+      text,
+      audio: Promise.resolve({ body: pcmStream(cached.bytes), sampleRate: cached.sampleRate }),
+      abort: () => {},
+    };
+    this.player.enqueue(sentence);
+    return new Promise((resolve) => this.speechWaiters.push(resolve));
+  }
 
   /** Say a whole text (a prompt, a narration chip, a settled answer).
    * Resolves true once heard, false when cut. */
@@ -793,6 +818,8 @@ export class VoiceCall {
         const cut: PlaybackCut = { heard: played.heard, unheard: [played.unheard, unwritten].filter(Boolean).join(" ") };
         if (cut.heard || cut.unheard) this.lastCut = cut;
         this.player.resetLedger();
+        const waiters = this.speechWaiters;
+        this.speechWaiters = [];
         void this.player.cancel();
         this.reply = null;
         this.replyText = "";
@@ -800,8 +827,6 @@ export class VoiceCall {
           this.bargeIn.cancelledAt = this.now();
           this.emit("metrics", this.turn, this.bargeIn);
         }
-        const waiters = this.speechWaiters;
-        this.speechWaiters = [];
         for (const resolve of waiters) resolve(false);
         this.emit("speech-cancelled", cut);
         return;
@@ -1088,4 +1113,34 @@ async function defaultModels(withSpeaker: boolean): Promise<{ vad: VoiceProbabil
     withSpeaker ? SpeakerEmbedder.load(ort, speakerModelUrl).catch(() => null) : Promise.resolve(null),
   ]);
   return { vad, embedder };
+}
+
+async function readPcm(body: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      chunks.push(value);
+      total += value.byteLength;
+    }
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
+function pcmStream(bytes: Uint8Array): ReadableStream<Uint8Array> {
+  return new ReadableStream({
+    start(controller) {
+      if (bytes.byteLength) controller.enqueue(bytes);
+      controller.close();
+    },
+  });
 }
