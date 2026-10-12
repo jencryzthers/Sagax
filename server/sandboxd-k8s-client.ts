@@ -3,6 +3,8 @@
 // picked up. TLS verification stays on unless a lab flag is set on the auth.
 import { readFileSync } from "node:fs";
 import { request as httpsRequest } from "node:https";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { Duplex } from "node:stream";
 import WebSocket from "ws";
 import { parse as parseYaml } from "yaml";
@@ -91,8 +93,18 @@ export function inClusterAuth(env: NodeJS.ProcessEnv = process.env): K8sAuth {
   };
 }
 
+/** Out-of-cluster file, or empty when the process should use its ServiceAccount.
+ * `SAGAX_SANDBOX_K8S_USE_KUBECONFIG=1` with no `KUBECONFIG` is `~/.kube/config`,
+ * which is where `kind export kubeconfig` writes. */
+export function kubeconfigFileFromEnv(env: NodeJS.ProcessEnv, fallback = join(homedir(), ".kube", "config")): string {
+  const explicit = env.SAGAX_SANDBOX_K8S_KUBECONFIG?.trim() || "";
+  if (explicit) return explicit;
+  if (env.SAGAX_SANDBOX_K8S_USE_KUBECONFIG === "1") return env.KUBECONFIG?.trim() || fallback;
+  return "";
+}
+
 export function kubernetesClientFromEnv(env: NodeJS.ProcessEnv = process.env): K8sClient {
-  const kubeconfig = env.SAGAX_SANDBOX_K8S_KUBECONFIG?.trim() || (env.SAGAX_SANDBOX_K8S_USE_KUBECONFIG === "1" ? env.KUBECONFIG?.trim() : "");
+  const kubeconfig = kubeconfigFileFromEnv(env);
   if (kubeconfig) return kubernetesClient(authFromKubeconfig(kubeconfig, env));
   return kubernetesClient(inClusterAuth(env));
 }

@@ -60,7 +60,7 @@ emptyDir, because that policy allows no other egress.
 | `SAGAX_SANDBOX_K8S_DNS` | no | 1 to 3 public IPv4 resolvers |
 | `SAGAX_SANDBOX_K8S_QUOTA_NAME` | no | default `sagax-sandbox-quota` |
 | `SAGAX_SANDBOX_K8S_API` | no | default `https://kubernetes.default.svc` |
-| `SAGAX_SANDBOX_K8S_KUBECONFIG` | no | out-of-cluster auth; otherwise the Pod's ServiceAccount |
+| `SAGAX_SANDBOX_K8S_KUBECONFIG` | no | out-of-cluster auth; otherwise the Pod's ServiceAccount. `SAGAX_SANDBOX_K8S_USE_KUBECONFIG=1` uses `KUBECONFIG`, or `~/.kube/config` when that is unset |
 | `SAGAX_SANDBOX_AUDIT_LOG` | no | default `/var/log/sagax/sandbox-audit.jsonl` |
 | `SAGAX_SANDBOX_AUDIT_SHIP_URL` | no | https collector; credentials in the URL are refused |
 | `SAGAX_SANDBOXD_TLS_CERT` / `SAGAX_SANDBOXD_TLS_KEY` | yes | provisioner certificate; `SAGAX_SANDBOXD_TLS_INSECURE=1` is a lab bypass and is audited |

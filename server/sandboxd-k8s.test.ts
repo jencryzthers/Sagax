@@ -11,7 +11,7 @@ import { createSandboxAudit } from "./sandbox-audit.ts";
 import { SandboxService } from "./sandboxd-core.ts";
 import { createSandboxdHandler } from "./sandboxd.ts";
 import { SandboxdVerifier } from "./sandboxd-auth.ts";
-import type { K8sClient, K8sResponse } from "./sandboxd-k8s-client.ts";
+import { kubeconfigFileFromEnv, type K8sClient, type K8sResponse } from "./sandboxd-k8s-client.ts";
 import { kubernetesApi } from "./sandboxd-k8s.ts";
 import { PAUSED_ANNOTATION, kubernetesSandboxConfigFromEnv } from "./sandboxd-k8s-spec.ts";
 import { FakeDocker } from "./testing/fake-docker.ts";
@@ -119,6 +119,19 @@ function harness(dir: string) {
   const service = new SandboxService(api, sandbox);
   return { sandbox, k8s, audit, auditFile, api, service, objects: cluster.objects };
 }
+
+describe("kubernetes client auth", () => {
+  it("uses ~/.kube/config when the kind flag is set and KUBECONFIG is unset", () => {
+    expect(kubeconfigFileFromEnv({ SAGAX_SANDBOX_K8S_USE_KUBECONFIG: "1" }, "/home/me/.kube/config")).toBe("/home/me/.kube/config");
+    expect(kubeconfigFileFromEnv({ SAGAX_SANDBOX_K8S_USE_KUBECONFIG: "1", KUBECONFIG: "/tmp/k" }, "/home/me/.kube/config")).toBe("/tmp/k");
+    expect(kubeconfigFileFromEnv({
+      SAGAX_SANDBOX_K8S_KUBECONFIG: "/tmp/explicit",
+      SAGAX_SANDBOX_K8S_USE_KUBECONFIG: "1",
+      KUBECONFIG: "/tmp/k",
+    }, "/home/me/.kube/config")).toBe("/tmp/explicit");
+    expect(kubeconfigFileFromEnv({}, "/home/me/.kube/config")).toBe("");
+  });
+});
 
 describe("kubernetes sandbox lifecycle", () => {
   it("applies egress as a NetworkPolicy and never a privileged pod", async () => {

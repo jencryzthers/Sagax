@@ -23,11 +23,23 @@ kubectl apply -f deploy/k8s/provisioner/networkpolicy-provisioner.yaml
 kubectl apply -f deploy/k8s/provisioner/resourcequota.yaml
 docker pull debian:bookworm-slim
 docker tag debian:bookworm-slim ghcr.io/pulsatrixtechnologies/sagax-sandbox:kind
-kind load docker-image ghcr.io/pulsatrixtechnologies/sagax-sandbox:kind --name "$name"
+image=ghcr.io/pulsatrixtechnologies/sagax-sandbox:kind
+# kind load asks containerd to import every platform. A retagged
+# multi-arch image can name a blob the save does not contain. Import
+# the archive directly in that case; the tag is the same.
+if ! kind load docker-image "$image" --name "$name"; then
+  echo "kind load failed; importing the image without --all-platforms"
+  docker save "$image" | docker exec -i "${name}-control-plane" ctr --namespace=k8s.io images import -
+fi
+export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config}"
 export SAGAX_SANDBOX_K8S_INTEGRATION=1
 export SAGAX_SANDBOX_K8S_USE_KUBECONFIG=1
 export SAGAX_SANDBOX_IMAGE=ghcr.io/pulsatrixtechnologies/sagax-sandbox:kind
-export SAGAX_SANDBOX_K8S_STORAGE_CLASS=local-path
+# Older kind names this class local-path. kind 0.33 names it standard.
+# Both use rancher.io/local-path. Neither encrypts.
+storage_class=$(kubectl get storageclass -o jsonpath='{range .items[?(@.provisioner=="rancher.io/local-path")]}{.metadata.name}{"\n"}{end}' | head -n 1)
+export SAGAX_SANDBOX_K8S_STORAGE_CLASS="${storage_class:-local-path}"
+echo "storage class: $SAGAX_SANDBOX_K8S_STORAGE_CLASS"
 export SAGAX_SANDBOX_K8S_REQUIRE_SIGNED=0
 export SAGAX_SANDBOX_K8S_REQUIRE_ENCRYPTION=false
 pnpm exec vitest run server/sandboxd-k8s.integration.test.ts

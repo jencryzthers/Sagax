@@ -105,9 +105,19 @@ export function kubernetesApi(sandbox: SandboxdConfig, k8s: K8sSandboxConfig, cl
   }
 
   async function remove(path: string): Promise<void> {
-    const response = await client.request("DELETE", path);
-    if (response.status === 200 || response.status === 202 || response.status === 404) return;
-    throw new Error(`kubernetes delete failed (${response.status})`);
+    // The default 30s grace leaves a deleted Pod phase Running, so a pause
+    // would still read as running. Zero grace, then wait until the object
+    // is gone. The workspace is the claim, which this does not delete.
+    const response = await client.request("DELETE", `${path}?gracePeriodSeconds=0`);
+    if (response.status !== 200 && response.status !== 202 && response.status !== 404) {
+      throw new Error(`kubernetes delete failed (${response.status})`);
+    }
+    const deadline = now() + 20_000;
+    for (;;) {
+      if (!(await read(path))) return;
+      if (now() > deadline) throw new Error("kubernetes delete did not finish");
+      await sleep(200);
+    }
   }
 
   async function merge(path: string, patch: Obj): Promise<void> {
