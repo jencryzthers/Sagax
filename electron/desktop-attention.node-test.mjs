@@ -146,3 +146,21 @@ test("a request without a usable target clicks through with null", () => {
   assert.equal(normalizeAttentionRequest({ title: "A", target: {} }).target, null);
   assert.equal(normalizeAttentionRequest({ title: "A", target: "thread" }).target, null);
 });
+
+test("an approval answered elsewhere takes its notification down", () => {
+  const closed = [];
+  class FakeNote {
+    constructor(options) { this.options = options; this.handlers = {}; }
+    show() {}
+    close() { closed.push(this.options.title); this.handlers.close?.(); }
+    on(event, fn) { this.handlers[event] = fn; }
+  }
+  const attention = createDesktopAttention({ platform: "linux", app: {}, Notification: FakeNote, getWindow: () => null, onClick: () => {} });
+  attention.notify({ id: "a", title: "Allow Nib to run a command?", body: "Run echo hi.", withdrawKey: "approval:t1:r1" });
+  attention.notify({ id: "b", title: "Nib finished", body: "done" });
+  assert.equal(attention.withdraw("approval:t1:r2"), 0);
+  assert.equal(attention.withdraw("approval:t1:r1"), 1);
+  assert.deepEqual(closed, ["Allow Nib to run a command?"]);
+  assert.equal(attention.withdraw("approval:t1:r1"), 0);
+  assert.equal(attention.keptCount(), 1);
+});

@@ -96,7 +96,7 @@ import { ShareTeamDialog } from "./ShareTeamDialog";
 import { TeamDialog } from "./TeamDialog";
 import { RenameTitle } from "./RenameTitle";
 import { BotProjectDialog, FolderActions, FolderIcon, navigateThreadMenu } from "./BotProjects";
-import { draggedFolder, FOLDER_DRAG_TYPE, moveFolder, placeFolder } from "@/lib/folder-order";
+import { draggedFolder, draggedThread, FOLDER_DRAG_TYPE, THREAD_DRAG_TYPE, moveFolder, placeFolder } from "@/lib/folder-order";
 import { folderUnreadThreadIds, markFolderRead, markGroupFolderRead } from "@/lib/folder-read";
 import { personPickerThreads } from "@/lib/person-threads";
 import { approvalModeFor } from "../../shared/approval-mode";
@@ -152,7 +152,7 @@ import { SidebarSectionHeader } from "./SidebarSectionHeader";
 import { useShowThreads, useThreadsLocationChoice } from "@/lib/thread-preferences";
 import { openBotConversationActions } from "./thread-home";
 import { useShowSidebarLogo } from "@/lib/sidebar-logo-preferences";
-import { botShowsUnread } from "@/lib/bot-unread";
+import { botShowsUnread, isInterBotThread } from "@/lib/bot-unread";
 import { SidebarBotActivity, sidebarBotActivityTasks } from "./SidebarBotActivity";
 import { citationPreviewText } from "@/lib/citations";
 import { groupMemberBots } from "@/lib/group-members";
@@ -377,17 +377,16 @@ export function GroupListItem({
     if (showThreads && selected && !wasSelected.current) setThreadsOpen(true);
     wasSelected.current = selected;
   }, [selected, showThreads, setThreadsOpen]);
-  // A conversation with a person lists its threads like a bot does: under
-  // the row only in the sidebar location (the chat header's thread button
-  // otherwise, never both), and once there is a list (a second thread or a
-  // folder) to open.
+  // A room and a conversation with a person list their threads like a bot
+  // does: under the row only in the sidebar location (the chat header's
+  // thread button otherwise, never both), and once there is a list (a
+  // second thread, or a person's folder) to open. So every row kind sits at
+  // one inset in the header location, the avatar and the name aligned.
   const threadsLocation = useThreadsLocationChoice();
-  const personInSidebar = Boolean(group.peopleDm) && showThreads && threadsLocation === "sidebar";
-  // one thread is the room itself; the disclosure and the list only earn
-  // their place once there is a second thread to show
-  const hasThreadList = group.peopleDm
-    ? personInSidebar && ((group.tasks?.length ?? 1) > 1 || (group.projects?.length ?? 0) > 0 || Boolean(query))
-    : showThreads && ((group.tasks?.length ?? 1) > 1 || Boolean(query));
+  const inSidebar = showThreads && threadsLocation === "sidebar";
+  const hasThreadList = inSidebar && (group.peopleDm
+    ? (group.tasks?.length ?? 1) > 1 || (group.projects?.length ?? 0) > 0 || Boolean(query)
+    : (group.tasks?.length ?? 1) > 1 || Boolean(query));
   const expanded = !group.dm && threadsOpen && density !== "icons" && hasThreadList;
   // quiet rows keep the line only while the room reports work in progress
   const groupStatus = Boolean(group.busyBotId) || Boolean(group.working);
@@ -423,12 +422,11 @@ export function GroupListItem({
       }}
       className={cn(
         "relative flex w-full items-center rounded-lg text-left outline-none focus-visible:ring-1 focus-visible:ring-accent/60",
-        density === "icons" ? "justify-center px-1 py-1.5" : density === "compact" ? "gap-2 py-1.5 pr-9" : "min-h-[56px] gap-1.5 py-1.5 pr-2",
-        // Same inset as BotListItem so the group and its bots line up; a
-        // room's disclosure chevron sits inside its thread-mode inset. A
-        // person's row moves like a bot row (#152): only in the sidebar
-        // location, where its chevron sits.
-        density !== "icons" && ((group.peopleDm ? personInSidebar : showThreads) ? "pl-6" : density === "compact" ? "pl-2" : "pl-1"),
+        density === "icons" ? "justify-center px-1 py-1.5" : density === "compact" ? cn(inSidebar ? "gap-1.5 py-1" : "gap-2 py-1.5", "pr-9") : "min-h-[56px] gap-1.5 py-1.5 pr-2",
+        // The same box and inset as BotListItem, so every row's avatar and
+        // name line up: a room or a person moves like a bot row (#152),
+        // only in the sidebar location, where its chevron sits.
+        density !== "icons" && (inSidebar ? "pl-6" : density === "compact" ? "pl-2" : "pl-1"),
         selected && !expanded ? "bg-sidebar-selected" : "hover:bg-sidebar-hover",
       )}
       title={density === "icons" ? rowName : undefined}
@@ -1410,13 +1408,15 @@ function useVisibleMessages(bot: Bot): Message[] {
 type ThreadTreeTask = Parameters<typeof SidebarThreadRow>[0]["task"] & { projectId?: string; routineRunId?: string };
 type ThreadTreeActions = Omit<Parameters<typeof SidebarThreadRow>[0], "task" | "ownerId" | "current" | "compact" | "folders" | "activityLabel" | "now" | "locale">;
 
-/** The thread tree under one sidebar row: project folders, then ungrouped
- * rows. Visibility folds old threads away. Pins stay, then the newest
- * update. Waiting and working stay visible as status, not as a sort key.
+/** The thread tree under one sidebar row: project folders (collapsed until
+ * opened, or until the selected thread is in that folder), then ungrouped
+ * rows. No section titles. Visibility folds old threads away. Pins stay,
+ * then the newest update. Waiting and working stay visible as status, not
+ * as a sort key.
  * One tree for every owner of threads: a bot (BotThreadList) and a
  * conversation with a person (PersonThreadList); the owner decides only
  * where its actions go. */
-function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, tasks, projects, selected, density, query, hidden, mine, actions, rowState, activeActivityLabel, onNew, onReorder, canMarkRead, markRead, children }: {
+function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, tasks, projects, selected, density, query, hidden, actions, rowState, activeActivityLabel, onNew, onReorder, canMarkRead, markRead, children }: {
   ownerId: string;
   ownerName: string;
   owner: FolderOwnerKind;
@@ -1429,7 +1429,6 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
   density: SidebarDensity;
   query: string;
   hidden: boolean;
-  mine: boolean;
   actions: ThreadTreeActions;
   /** Live state a row shows beside the stored thread (a bot thread's turn). */
   rowState?: (task: ThreadTreeTask) => Partial<ThreadTreeTask>;
@@ -1442,7 +1441,7 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
 }) {
   const { state } = useStore();
   const now = useRelativeNow();
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set(projects.map((project) => project.id)));
   const [editingProject, setEditingProject] = useState<string | null>(null);
   const [folderMenu, setFolderMenu] = useState<{ projectId: string; left: number; top: number } | null>(null);
   const [markingRead, setMarkingRead] = useState(false);
@@ -1453,6 +1452,7 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
   const [reorderStatus, setReorderStatus] = useState("");
   const [folderDrop, setFolderDrop] = useState<{ id: string; place: "before" | "after" } | null>(null);
   const draggingFolder = useRef<string | null>(null);
+  const [threadDrop, setThreadDrop] = useState<string | "out" | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
   const [listMenu, setListMenu] = useState<{ left: number; top: number } | null>(null);
@@ -1508,6 +1508,34 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
       setReadStatus("");
     } finally { setMarkingRead(false); }
   };
+  const taskIds = tasks.map((task) => task.threadId);
+  const acceptThreadDrop = (event: React.DragEvent, target: string | "out") => {
+    if (!event.dataTransfer?.types.includes(THREAD_DRAG_TYPE) || !actions.onMove) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
+    setThreadDrop(target);
+    return true;
+  };
+  const dropThreadOn = (event: React.DragEvent, folderId: string | null) => {
+    if (!event.dataTransfer?.types.includes(THREAD_DRAG_TYPE) || !actions.onMove) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    const threadId = draggedThread(event.dataTransfer.getData(THREAD_DRAG_TYPE), ownerId, taskIds);
+    setThreadDrop(null);
+    if (!threadId) return true;
+    const task = tasks.find((entry) => entry.threadId === threadId);
+    if (!task) return true;
+    const current = projects.some((project) => project.id === task.projectId) ? task.projectId ?? null : null;
+    if (current === folderId) return true;
+    actions.onMove(task, folderId);
+    return true;
+  };
+  useEffect(() => {
+    const clear = () => setThreadDrop(null);
+    window.addEventListener("dragend", clear);
+    return () => window.removeEventListener("dragend", clear);
+  }, []);
   useEffect(() => {
     if (!listMenu) return;
     listMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
@@ -1527,16 +1555,23 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
     top: Math.max(8, Math.min(listMenuMotion.value.top, window.innerHeight - 120)),
   };
   return (
-    <div hidden={hidden} className="mb-2 space-y-0.5" role="group" aria-label={t("task.namedList", { name: ownerName })}
+    <div hidden={hidden} role="group" aria-label={t("task.namedList", { name: ownerName })}
       onContextMenu={(event) => {
         if (event.defaultPrevented) return;
         event.preventDefault();
         setListMenu({ left: event.clientX, top: event.clientY });
       }}
-      onDragOver={(event) => { if (event.dataTransfer.types.includes(FOLDER_DRAG_TYPE)) event.stopPropagation(); }}
-      onDrop={(event) => { if (event.dataTransfer.types.includes(FOLDER_DRAG_TYPE)) { event.preventDefault(); event.stopPropagation(); resetFolderDrag(); } }}>
+      onDragOver={(event) => {
+        if (acceptThreadDrop(event, "out")) return;
+        if (event.dataTransfer.types.includes(FOLDER_DRAG_TYPE)) event.stopPropagation();
+      }}
+      onDrop={(event) => {
+        if (dropThreadOn(event, null)) return;
+        if (event.dataTransfer.types.includes(FOLDER_DRAG_TYPE)) { event.preventDefault(); event.stopPropagation(); resetFolderDrag(); }
+      }}
+      data-sidebar-thread-drop={threadDrop === "out" ? "out" : undefined}
+      className={cn("mb-2 space-y-0.5", threadDrop === "out" && "rounded-md ring-1 ring-inset ring-accent/40")}>
       {!hidden && <>
-      {mine && <div data-sidebar-my-threads className="px-2 pt-1 text-[11px] font-medium text-sidebar-ink-secondary">{t("sidebar.threads.mine")}</div>}
       {orderedProjects.map((project) => {
         const index = projects.indexOf(project);
         const projectTasks = tasks.filter((task) => task.projectId === project.id);
@@ -1546,7 +1581,7 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
         const waiting = projectTasks.some((task) => task.activity === "waiting-on-you");
         const working = projectTasks.some((task) => task.busy);
         return <div key={project.id} data-sidebar-project={project.id}>
-          <div data-sidebar-folder-row={project.id} draggable={!reordering}
+          <div data-sidebar-folder-row={project.id} data-sidebar-thread-drop={threadDrop === project.id ? "in" : undefined} draggable={!reordering}
             onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); setFolderMenu({ projectId: project.id, left: event.clientX, top: event.clientY }); }}
             onDragStart={(event) => {
               event.stopPropagation();
@@ -1556,6 +1591,7 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
             }}
             onDragEnd={(event) => { event.stopPropagation(); resetFolderDrag(); }}
             onDragOver={(event) => {
+              if (acceptThreadDrop(event, project.id)) return;
               if (!event.dataTransfer.types.includes(FOLDER_DRAG_TYPE)) return;
               event.stopPropagation();
               if (!draggingFolder.current || reordering) { event.dataTransfer.dropEffect = "none"; return; }
@@ -1563,8 +1599,14 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
               const rect = event.currentTarget.getBoundingClientRect();
               setFolderDrop({ id: project.id, place: event.clientY < rect.top + rect.height / 2 ? "before" : "after" });
             }}
-            onDragLeave={(event) => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setFolderDrop(null); }}
+            onDragLeave={(event) => {
+              if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) {
+                setFolderDrop(null);
+                setThreadDrop((current) => current === project.id ? null : current);
+              }
+            }}
             onDrop={(event) => {
+              if (dropThreadOn(event, project.id)) return;
               if (!event.dataTransfer.types.includes(FOLDER_DRAG_TYPE)) return;
               event.preventDefault(); event.stopPropagation();
               const from = draggedFolder(event.dataTransfer.getData(FOLDER_DRAG_TYPE), ownerId, projectIds);
@@ -1573,6 +1615,7 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
               resetFolderDrag();
             }}
             className={cn("group/folder flex items-center gap-0.5 rounded-md pl-0.5 text-sidebar-ink-secondary hover:bg-sidebar-hover",
+              threadDrop === project.id && "bg-sidebar-hover ring-1 ring-inset ring-accent/50",
               folderDrop?.id === project.id && draggingFolder.current !== project.id && (folderDrop.place === "before" ? "shadow-[0_-2px_var(--color-accent)]" : "shadow-[0_2px_var(--color-accent)]"))}>
             <button type="button" aria-expanded={open} onClick={() => setCollapsed((previous) => {
               const next = new Set(previous);
@@ -1599,9 +1642,10 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
               onMarkRead={(onSaved) => { void readFolder(project.id, onSaved); }}
               onNewThread={() => onNew(project.id)} />
           </div>
-          {open && <div role="group" aria-label={t("task.namedList", { name: project.name })}>
+          {open && <div role="group" aria-label={t("task.namedList", { name: project.name })}
+            onDragOver={(event) => { acceptThreadDrop(event, project.id); }}
+            onDrop={(event) => { dropThreadOn(event, project.id); }}>
             {visible.map(renderThread)}
-            {projectTasks.length === 0 && <p className="px-2.5 py-1 text-[11px] text-sidebar-ink-secondary/70">{t("task.empty")}</p>}
           </div>}
         </div>;
       })}
@@ -1609,7 +1653,6 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
       <span role="status" className="sr-only">{reorderStatus}</span>
       {readError && <p role="alert" className="px-2.5 py-1 text-[12px] text-danger">{readError}</p>}
       <span role="status" className="sr-only">{readStatus}</span>
-      {projects.length > 0 && ungrouped.length > 0 && <div className="pl-6 pr-3 pb-1 pt-2 text-[10.5px] text-sidebar-ink-secondary/70">{t("task.list")}</div>}
       {ungrouped.map(renderThread)}
       {!query && !showAll && tasks.length > visibleTasks.length && <button type="button" onClick={() => setShowAll(true)} className="pl-6 pr-3 py-1.5 text-[11px] text-sidebar-ink-secondary hover:text-sidebar-ink">{t("task.showAll", { count: tasks.length })}</button>}
       {children}
@@ -1629,15 +1672,13 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
 
 /** The thread tree under one bot row (Settings > Threads location > In the
  * sidebar). */
-export function BotThreadList({ bot, selected, density = "comfortable", query = "", hidden = false, mine = false }: {
+export function BotThreadList({ bot, selected, density = "comfortable", query = "", hidden = false }: {
   bot: Bot; selected: boolean; density?: SidebarDensity; query?: string; hidden?: boolean;
-  /** An organization server sends each person only their own threads with
-   * a bot: the list says so. */
-  mine?: boolean;
 }) {
   const { state, dispatch } = useStore();
   const tasks = (bot.tasks ?? [{ threadId: bot.threadId, title: t("task.newShort"), createdAt: 0 }])
-    .filter((task) => !task.routineRunId)
+    // bot-to-bot threads never show (the selected one stays reachable)
+    .filter((task) => !task.routineRunId && (task.threadId === bot.threadId || !isInterBotThread(bot.id, task)))
     .map((task) => ({ ...task, queued: Boolean(state.pendingQueued[task.threadId]?.length) }));
   const [permissionRefresh, setPermissionRefresh] = useState<{ threadId: string; kind: "full" | "local-auto" } | null>(null);
   // the same live verb the chat pane derives from the visible tail
@@ -1677,7 +1718,7 @@ export function BotThreadList({ bot, selected, density = "comfortable", query = 
   };
   return (
     <ThreadTree ownerId={bot.id} ownerName={bot.name} owner="bot" folderOwner={bot} openThreadId={bot.threadId} tasks={tasks} projects={bot.projects ?? []}
-      selected={selected} density={density} query={query} hidden={hidden} mine={mine} actions={actions} rowState={rowState} activeActivityLabel={activeActivityLabel}
+      selected={selected} density={density} query={query} hidden={hidden} actions={actions} rowState={rowState} activeActivityLabel={activeActivityLabel}
       onNew={(projectId) => dispatch({ type: "newTask", botId: bot.id, ...(projectId ? { projectId } : {}) })}
       onReorder={(projectIds, onSaved, onError) => dispatch({ type: "reorderProjects", botId: bot.id, projectIds, onSaved, onError })}
       canMarkRead={(projectId) => folderUnreadThreadIds(bot, projectId).length > 0}
@@ -1735,7 +1776,7 @@ export function PersonThreadList({ group, name, selected, density = "comfortable
   }, [groupId, dispatch]);
   return (
     <ThreadTree ownerId={group.id} ownerName={name} owner="group" folderOwner={group} openThreadId={group.threadId} tasks={tasks} projects={group.projects ?? []}
-      selected={selected} density={density} query={query} hidden={hidden} mine={false} actions={actions}
+      selected={selected} density={density} query={query} hidden={hidden} actions={actions}
       onNew={(projectId) => dispatch({ type: "newGroupTask", groupId: group.id, ...(projectId ? { projectId } : {}) })}
       onReorder={(projectIds, onSaved, onError) => dispatch({ type: "reorderProjects", botId: group.id, owner: "group", projectIds, onSaved, onError })}
       canMarkRead={(projectId) => folderUnreadThreadIds(group, projectId).length > 0}
@@ -1751,12 +1792,9 @@ export function BotListItem({
   onMenu,
   startRename = false,
   onRenameStarted,
-  mine = false,
 }: {
   bot: Bot;
   density: SidebarDensity;
-  /** Organization server: the thread list holds only the viewer's own. */
-  mine?: boolean;
   query?: string;
   /** Quiet rows: name and status only (see sidebar-preferences). */
   quiet?: boolean;
@@ -1782,7 +1820,7 @@ export function BotListItem({
   useEffect(() => { if (revealHere && inSidebar) setThreadsOpen(true); }, [reveal, revealHere, inSidebar]);
   // one thread is the bot itself; the disclosure only earns its place once
   // there is a list (a second thread or a folder) to open
-  const hasThreadList = (bot.tasks?.filter((task) => !task.routineRunId).length ?? 1) > 1 || (bot.projects?.length ?? 0) > 0 || Boolean(query);
+  const hasThreadList = (bot.tasks?.filter((task) => !task.routineRunId && !isInterBotThread(bot.id, task)).length ?? 1) > 1 || (bot.projects?.length ?? 0) > 0 || Boolean(query);
   const deleting = state.deletingBots[bot.id] === true;
   const mascotMotion = selected && state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
   const pendingQueued = state.pendingQueued;
@@ -1813,7 +1851,11 @@ export function BotListItem({
     // The Primary Bot is called out by the star on its avatar, not by
     // tinting the whole row: an accent border and fill read as "selected"
     // even when another bot was active.
-    selected ? "bg-sidebar-selected" : "hover:bg-sidebar-hover",
+    // Unfolded, the selected thread below carries the one highlight; the
+    // bot row keeps only a subtle state (no second stacked block), as the
+    // group rows above do.
+    selected && !expanded ? "bg-sidebar-selected" : "hover:bg-sidebar-hover",
+    selected && expanded && "text-sidebar-ink",
   );
   const activityTasks = sidebarBotActivityTasks(bot, pendingQueued);
   const waiting = bot.activity === "waiting-on-you" || activityTasks.some((task) => task.activity === "waiting-on-you");
@@ -1983,7 +2025,7 @@ export function BotListItem({
         thread button is the one place for its threads. Sidebar mode lists
         them here and the header button is hidden, never both. Threads off:
         only the activity rows. */}
-    {!iconOnly && threadsOpen && hasThreadList && inSidebar && <BotThreadList bot={bot} selected={selected} density={density} mine={mine} query={bot.name.toLowerCase().includes(query.toLowerCase()) || bot.title.toLowerCase().includes(query.toLowerCase()) ? "" : query} />}
+    {!iconOnly && threadsOpen && hasThreadList && inSidebar && <BotThreadList bot={bot} selected={selected} density={density} query={bot.name.toLowerCase().includes(query.toLowerCase()) || bot.title.toLowerCase().includes(query.toLowerCase()) ? "" : query} />}
     {!showThreads && <SidebarBotActivity bot={bot} density={density} pendingQueued={pendingQueued} dispatch={dispatch} />}
     </>
   );
@@ -2725,7 +2767,7 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
     draggable: true,
     "data-sidebar-item-drag": kind,
     onDragStart: (event: React.DragEvent<HTMLDivElement>) => {
-      if (event.target instanceof Element && event.target.closest("[data-sidebar-folder-row],[data-sidebar-folder-label]")) return;
+      if (event.target instanceof Element && event.target.closest("[data-sidebar-folder-row],[data-sidebar-folder-label],[data-sidebar-thread-row],[data-sidebar-thread-drag]")) return;
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData(ITEM_DRAG_TYPE, JSON.stringify({ kind, id: itemId }));
     },
@@ -2750,7 +2792,7 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
   };
 
   const dropSection = (event: React.DragEvent<HTMLDivElement>) => {
-    if (event.dataTransfer.types.includes(FOLDER_DRAG_TYPE)) return;
+    if (event.dataTransfer.types.includes(FOLDER_DRAG_TYPE) || event.dataTransfer.types.includes(THREAD_DRAG_TYPE)) return;
     event.preventDefault();
     const from =
       event.dataTransfer.getData("application/x-openmausbot-sidebar-section") ||
@@ -3045,7 +3087,6 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
                           density={density}
                           quiet={quietRows}
                           query={q}
-                          mine={orgMode}
                           onMenu={setMenu}
                           startRename={renameBotId === bot.id}
                           onRenameStarted={() => setRenameBotId(null)}
@@ -3070,7 +3111,6 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
                           density={density}
                           quiet={quietRows}
                           query={q}
-                          mine={orgMode}
                           onMenu={setMenu}
                           startRename={renameBotId === bot.id}
                           onRenameStarted={() => setRenameBotId(null)}

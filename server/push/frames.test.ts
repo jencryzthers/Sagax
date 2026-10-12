@@ -13,13 +13,17 @@ const deps = (patch: Partial<FramePushDeps> = {}): FramePushDeps => ({
 
 describe("frames to pushes", () => {
   it("a person's direct message goes to its audience only", () => {
-    const out = pushesForFrame({ kind: "notify", notification: { kind: "message", botId: "", botName: "Alice", threadId: "t1", groupId: "g1", title: "Alice", body: "Hi", audience: ["PR_BOB"] } }, deps());
-    expect(out).toEqual([{ kind: "message", personId: "pr_bob", title: "Alice", body: "Hi", threadId: "t1", groupId: "g1", at: 42 }]);
+    const out = pushesForFrame({ kind: "notify", notification: { kind: "message", botId: "", botName: "Alice", threadId: "t1", groupId: "g1", title: "Alice", body: "Hi", audience: ["PR_BOB"], avatarUrl: "/api/people/pr_alice/avatar?v=1" } }, deps());
+    expect(out).toEqual([{
+      kind: "message", personId: "pr_bob", title: "Alice", body: "Hi", threadId: "t1", groupId: "g1",
+      senderName: "Alice", avatarUrl: "/api/people/pr_alice/avatar?v=1", at: 42,
+    }]);
   });
 
   it("a bot notification without audience goes to the thread's person, unless they muted that bot", () => {
-    const frame = { kind: "notify", notification: { kind: "done", botId: "b1", botName: "Max", threadId: "t2", title: "Max", body: "Done" } };
-    expect(pushesForFrame(frame, deps()).map((push) => [push.kind, push.personId, push.botId])).toEqual([["message", "pr_owner", "b1"]]);
+    const avatarUrl = "/api/attachments/123e4567-e89b-12d3-a456-426614174000.webp";
+    const frame = { kind: "notify", notification: { kind: "done", botId: "b1", botName: "Max", threadId: "t2", title: "Max", body: "Done", avatarUrl } };
+    expect(pushesForFrame(frame, deps()).map((push) => [push.kind, push.personId, push.botId, push.senderName, push.avatarUrl])).toEqual([["message", "pr_owner", "b1", "Max", avatarUrl]]);
     expect(pushesForFrame(frame, deps({ muted: () => true }))).toEqual([]);
   });
 
@@ -34,7 +38,7 @@ describe("frames to pushes", () => {
     expect(out).toEqual([{
       kind: "nudge", personId: "pr_bob", title: "Alice sent you a nudge", body: "Open the conversation to answer.",
       titleLocKey: "%@ sent you a nudge", titleLocArgs: ["Alice"], bodyLocKey: "Open the conversation to answer.",
-      threadId: "t1", groupId: "g1", fromId: "pr_alice", id: "n1", at: 7,
+      threadId: "t1", groupId: "g1", fromId: "pr_alice", id: "n1", senderName: "Alice", senderId: "pr_alice", at: 7,
     }]);
     // the sender's own echo is not a push
     expect(pushesForFrame({ kind: "nudge.sent", audience: "pr_alice", id: "n1" }, deps())).toEqual([]);

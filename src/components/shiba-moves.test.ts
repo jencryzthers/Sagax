@@ -14,14 +14,17 @@ import {
   SHIBA_MOVE_TIMING,
   SHIBA_MOVES,
   SHIBA_SPINS,
+  SHIBA_TURN_HOP,
   ShibaRig,
   shibaMoveAt,
   shibaMoveFor,
   shibaMoveWeight,
   shibaTransforms,
+  wholeTransform,
   type ShibaMove,
 } from "./shiba-moves";
 import { CLIP_MS } from "./floating-bots/clips";
+import { FLAT_MIN_WIDTH, flatTurn } from "./floating-bots/flat-turn";
 import { cueClipFor, MASCOTS, SHIBA_MENU_MOVES, SHIBA_MOVE_LABELS, shibaHeldFor } from "./floating-bots/mascots";
 import { characterMoves, isMoveClip } from "./floating-bots/moves";
 import en from "@/locales/en.json";
@@ -105,15 +108,28 @@ describe("Shiba's poses", () => {
     expect(at("walk", 0.64).legs.frontNear.angle).toBeCloseTo(at("walk", 0).legs.frontNear.angle, 5);
   });
 
-  it("turns in circles twice, facing the other way halfway round, then sits", () => {
+  it("turns in circles twice with the owl's hop and squash-mirror, never edge-on, then sits", () => {
     const { count, each, sitAt } = SHIBA_SPINS;
     expect(count * each).toBe(sitAt);
+    expect(SHIBA_TURN_HOP).toBe(CLIP_MS.turn / 1000);
+    expect(sitAt / SHIBA_TURN_HOP).toBe(4);
     expect(at("turnCircles", 0.5).turn).toBeLessThan(0);
     expect(at("turnCircles", 1).turn).toBeGreaterThan(0.9);
     expect(at("turnCircles", 1.5).turn).toBeLessThan(0);
     expect(at("turnCircles", 0.5).stance).toBe("stand");
     expect(at("turnCircles", 2.4).stance).toBe("sit");
-    expect(Math.abs(at("turnCircles", 0.25).turn)).toBeGreaterThanOrEqual(0.3);
+    // the owl's turn clip: a small hop (clips.ts y + squash), not a walk around a circle
+    const midHop = at("turnCircles", SHIBA_TURN_HOP / 2);
+    expect(midHop.y).toBeLessThan(0);
+    expect(midHop.x).toBe(0);
+    expect(midHop.sy).toBeLessThan(1);
+    for (let ms = 0; ms <= sitAt * 1000; ms += 50) {
+      const pose = at("turnCircles", ms / 1000);
+      expect(Math.abs(pose.turn), `t=${ms}`).toBeGreaterThanOrEqual(FLAT_MIN_WIDTH);
+      expect(Math.abs(flatTurn(pose.turn).sx)).toBeGreaterThanOrEqual(FLAT_MIN_WIDTH);
+      const scaleX = Number(wholeTransform(pose, [50, 90]).match(/scale\((-?[\d.]+)/)?.[1]);
+      expect(Math.abs(scaleX), `scaleX t=${ms}`).toBeGreaterThanOrEqual(FLAT_MIN_WIDTH);
+    }
   });
 
   it("barks three times, mouth wide open each time, with a small hop", () => {
@@ -201,6 +217,7 @@ describe("what the desktop Shiba plays", () => {
       expect(shibaMoveFor(clip), clip).not.toBeNull();
     }
     expect(shibaMoveFor("hoot")).toBe("bark");
+    expect(shibaMoveFor("turn")).toBe("bounce");
     expect(shibaMoveFor("celebrate")).toBe("turnCircles");
     expect(shibaMoveFor("tilt")).toBe("headTilt");
     expect(shibaMoveFor("nothing")).toBeNull();

@@ -22,6 +22,16 @@ public enum RosterDensity: String, CaseIterable, Codable, Sendable {
     /// What a new install shows.
     public static let `default`: RosterDensity = .standard
 
+    /// What the iOS picker offers: the standard display only.
+    public static let selectable: [RosterDensity] = [.standard]
+
+    /// What the home shows: a stored choice the picker no longer offers
+    /// (comfortable, compact) lands on the standard display.
+    public static func shown(stored: String?) -> RosterDensity {
+        let density = RosterDensity(stored: stored)
+        return selectable.contains(density) ? density : .default
+    }
+
     /// A stored choice, read defensively: anything this build cannot read —
     /// a density a later version adds, or a damaged store — lands on the
     /// default rather than a surprise.

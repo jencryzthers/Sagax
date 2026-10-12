@@ -22,6 +22,8 @@ describe("APNs payload", () => {
     expect(body.aps.sound).toBe("default");
     expect(body.aps["content-available"]).toBe(1);
     expect(body.aps["mutable-content"]).toBeUndefined();
+    expect(body.senderName).toBeUndefined();
+    expect(body.avatarUrl).toBeUndefined();
     // a conversation between people opens by its group
     expect(body).toMatchObject({ kind: "message", threadId: "t_people_1", botId: "g_people_1", groupId: "g_people_1" });
     expect(request.headers).toMatchObject({
@@ -64,5 +66,104 @@ describe("APNs payload", () => {
     expect(Buffer.byteLength(id)).toBeLessThanOrEqual(64);
     expect(id.startsWith("sagax.h.")).toBe(true);
     expect(collapseId({ kind: "achievement" })).toBe("sagax.achievement");
+  });
+
+  it("a bot message is a communication notification: mutable-content, sender name, avatar path", () => {
+    const request = buildApnsRequest({
+      message: message({
+        kind: "message",
+        title: "Scout finished",
+        body: "Pushed the branch.",
+        threadId: "t_scout",
+        botId: "scout",
+        groupId: undefined,
+        senderName: "Scout",
+        senderId: "scout",
+        avatarUrl: "/api/attachments/123e4567-e89b-12d3-a456-426614174000.webp",
+      }),
+      bundleId: "ca.pulsatrix.sagax",
+      nowMs: 2_000_000,
+    });
+    const body = JSON.parse(request.body);
+    expect(body.aps["mutable-content"]).toBe(1);
+    expect(body.aps.alert).toEqual({ title: "Scout", body: "Pushed the branch." });
+    expect(body.aps["thread-id"]).toBe("t_scout");
+    expect(body).toMatchObject({
+      kind: "message",
+      threadId: "t_scout",
+      botId: "scout",
+      senderName: "Scout",
+      senderId: "scout",
+      avatarUrl: "/api/attachments/123e4567-e89b-12d3-a456-426614174000.webp",
+    });
+  });
+
+  it("still names the bot when the avatar path is missing or not a stored image", () => {
+    const noAvatar = JSON.parse(buildApnsRequest({
+      message: message({ botId: "scout", senderName: "Scout", title: "Scout finished" }),
+      bundleId: "x",
+      nowMs: 0,
+    }).body);
+    expect(noAvatar.aps["mutable-content"]).toBe(1);
+    expect(noAvatar.aps.alert.title).toBe("Scout");
+    expect(noAvatar.senderName).toBe("Scout");
+    expect(noAvatar.avatarUrl).toBeUndefined();
+
+    const tracker = JSON.parse(buildApnsRequest({
+      message: message({
+        botId: "scout",
+        senderName: "Scout",
+        avatarUrl: "https://tracker.example.test/pixel.png",
+      }),
+      bundleId: "x",
+      nowMs: 0,
+    }).body);
+    expect(tracker.avatarUrl).toBeUndefined();
+    expect(tracker.aps["mutable-content"]).toBe(1);
+    expect(tracker.senderName).toBe("Scout");
+  });
+
+  it("accepts a person's versioned avatar on this server", () => {
+    const body = JSON.parse(buildApnsRequest({
+      message: message({
+        senderName: "Alice",
+        senderId: "pr_alice",
+        avatarUrl: "/api/people/pr_alice/avatar?v=0a1b2c",
+      }),
+      bundleId: "x",
+      nowMs: 0,
+    }).body);
+    expect(body.avatarUrl).toBe("/api/people/pr_alice/avatar?v=0a1b2c");
+    expect(body.aps["mutable-content"]).toBe(1);
+    expect(body.aps.alert.title).toBe("Alice");
+  });
+
+  it("an achievement is not a communication notification", () => {
+    const body = JSON.parse(buildApnsRequest({
+      message: message({ kind: "achievement", title: "Achievement unlocked", body: "First chat", threadId: undefined, groupId: undefined }),
+      bundleId: "x",
+      nowMs: 0,
+    }).body);
+    expect(body.aps["mutable-content"]).toBeUndefined();
+    expect(body.aps.alert.title).toBe("Achievement unlocked");
+    expect(body.senderName).toBeUndefined();
+  });
+});
+
+describe("an approval push", () => {
+  it("shows the bot as sender and, under it, what it would allow; the tap carries the request", () => {
+    const request = buildApnsRequest({
+      message: message({ kind: "approval", title: "Allow Cryptic to run a command?", body: "Run echo hi.", senderName: "Cryptic", botId: "b1", requestId: "req-1" }),
+      bundleId: "ca.pulsatrix.sagax", nowMs: 2_000_000,
+    });
+    const body = JSON.parse(request.body);
+    expect(body.aps.alert).toEqual({ title: "Cryptic", subtitle: "Allow Cryptic to run a command?", body: "Run echo hi." });
+    expect(body.aps.category).toBe("SAGAX_APPROVAL");
+    expect(body.requestId).toBe("req-1");
+  });
+  it("adds no subtitle to other pushes", () => {
+    const body = JSON.parse(buildApnsRequest({ message: message({ senderName: "Alice" }), bundleId: "ca.pulsatrix.sagax", nowMs: 2_000_000 }).body);
+    expect(body.aps.alert.subtitle).toBeUndefined();
+    expect(body.requestId).toBeUndefined();
   });
 });

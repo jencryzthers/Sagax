@@ -305,8 +305,12 @@ final class SagaxAppDelegate: UIResponder, UIApplicationDelegate {
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
-        guard PushPayload(userInfo: userInfo) != nil else { return completionHandler(.noData) }
+        guard let push = PushPayload(userInfo: userInfo) else { return completionHandler(.noData) }
         Task { @MainActor in
+            // read on another device: its banner goes before the recount
+            if push.kind == .read, let threadId = push.threadId {
+                await NotificationCoordinator.shared.withdraw(threadId: threadId)
+            }
             let refreshed = await PushRegistrar.shared.backgroundRefresh?() ?? false
             completionHandler(refreshed ? .newData : .noData)
         }

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { RULES_MAX_BYTES as SERVER_MAX_BYTES, RULES_MAX_LINES as SERVER_MAX_LINES, RULES_TEMPLATE as SERVER_TEMPLATE, effectiveRulesText as serverEffective } from "../../server/workspace-files.ts";
 import { RULES_TEMPLATE } from "../components/bot-settings/RulesSection";
-import { RULES_MAX_BYTES, RULES_MAX_LINES, docPathFromName, effectiveRulesText, entryDepth, entryName, rulesCount } from "./workspace-files";
+import { RULES_MAX_BYTES, RULES_MAX_LINES, docPathFromName, effectiveRulesText, entryAncestors, entryDepth, entryName, entryParent, entryVisible, rulesCount } from "./workspace-files";
 
 describe("workspace files (client)", () => {
   it("keeps the starter template and the budget equal to the server's", () => {
@@ -37,5 +37,19 @@ describe("workspace files (client)", () => {
     expect(entryDepth("MEMORY.md")).toBe(0);
     expect(entryDepth("memory/log/2026-10-09.md")).toBe(2);
     expect(entryName("docs/a.md")).toBe("a.md");
+  });
+
+  it("hides a file until every listed ancestor folder is expanded", () => {
+    expect(entryParent("MEMORY.md")).toBeNull();
+    expect(entryParent("memory/log/2026-10-09.md")).toBe("memory/log");
+    expect(entryAncestors("memory/log/2026-10-09.md")).toEqual(["memory", "memory/log"]);
+    const dirs = new Set(["docs", "memory", "memory/log"]);
+    expect(entryVisible("MEMORY.md", new Set(), dirs)).toBe(true);
+    expect(entryVisible("memory", new Set(), dirs)).toBe(true);
+    expect(entryVisible("memory/boards.md", new Set(), dirs)).toBe(false);
+    expect(entryVisible("memory/boards.md", new Set(["memory"]), dirs)).toBe(true);
+    expect(entryVisible("memory/log/2026-10-09.md", new Set(["memory"]), dirs)).toBe(false);
+    expect(entryVisible("memory/log/2026-10-09.md", new Set(["memory", "memory/log"]), dirs)).toBe(true);
+    expect(entryVisible("memory/log/2026-10-09.md", new Set(["memory"]), new Set(["memory"]))).toBe(true);
   });
 });

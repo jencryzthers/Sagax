@@ -150,6 +150,8 @@ export const CLIP_MS = {
   sideEye: 2400,
   blinkOne: 1100,
   longJump: 1400,
+  // a crab's own (Crab, crab-moves.ts); the other characters keep their idle life through it
+  scuttle: 1440,
 } as const;
 
 export type TimedClip = keyof typeof CLIP_MS;

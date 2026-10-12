@@ -9,6 +9,7 @@ import { nextRename } from "@/lib/rename";
 import { threadRefUrl } from "@/lib/thread-refs";
 import { copyText } from "@/lib/copy-text";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { THREAD_DRAG_TYPE } from "@/lib/folder-order";
 
 type ThreadRowTask = Pick<Task, "threadId" | "title" | "projectId" | "busy" | "activity" | "unread" | "openedBy" | "closedBy" | "archivedAt" | "snoozedUntil" | "waitingForTeammates"> & {
   queued?: boolean;
@@ -297,6 +298,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow({ task, ownerId, 
   const archived = isArchived(task);
   const snoozed = isSnoozed(task);
   const openMenu = (x: number, y: number) => setMenu({ left: Math.max(8, Math.min(x, window.innerWidth - 228)), top: Math.max(8, Math.min(y, window.innerHeight - 230)) });
+  const canDrag = Boolean(onMove) && !renaming;
   const startRename = () => { finishing.current = false; setDraft(task.title); setRenaming(true); setMenu(null); };
   const copyLink = () => {
     setMenu(null);
@@ -344,7 +346,18 @@ export const SidebarThreadRow = memo(function SidebarThreadRow({ task, ownerId, 
     return () => { observer?.disconnect(); window.removeEventListener("resize", keepOnScreen); };
   }, [menu]);
   return <>
-    <div className={cn("group/thread relative flex min-w-0 items-center rounded-md", current ? "bg-sidebar-selected" : "hover:bg-sidebar-hover")}>
+    <div
+      draggable={canDrag}
+      data-sidebar-thread-drag={canDrag ? "" : undefined}
+      onDragStart={(event) => {
+        if (!canDrag) return;
+        event.stopPropagation();
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData(THREAD_DRAG_TYPE, JSON.stringify({ ownerId, threadId: task.threadId }));
+      }}
+      onDragEnd={(event) => event.stopPropagation()}
+      className={cn("group/thread relative flex min-w-0 items-center rounded-lg", canDrag && "cursor-grab active:cursor-grabbing", current ? "bg-sidebar-selected" : "hover:bg-sidebar-hover")}
+    >
       {renaming ? <input autoFocus value={draft} maxLength={80} aria-label={t("task.renameAria")}
         onFocus={(event) => event.currentTarget.select()} onChange={(event) => setDraft(event.target.value)} onBlur={() => finishRename(true)}
         onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); finishRename(true); } else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); finishRename(false); } }}
@@ -354,7 +367,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow({ task, ownerId, 
         onClick={() => onSelect(task)} onDoubleClick={startRename}
         onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); openMenu(event.clientX, event.clientY); }}
         onKeyDown={(event) => { if (event.key === "ContextMenu" || event.shiftKey && event.key === "F10") { event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect(); openMenu(rect.left, rect.bottom); } }}
-        className={cn("flex min-w-0 flex-1 items-center gap-2 rounded-md pl-6 pr-1 text-left text-[13px] font-medium outline-none focus-visible:ring-1 focus-visible:ring-accent/60", compact ? "min-h-7 py-1" : "min-h-8 py-1.5", current ? "font-semibold text-sidebar-ink" : "text-sidebar-ink-secondary hover:text-sidebar-ink")}>
+        className={cn("flex min-w-0 flex-1 items-center gap-2 rounded-lg pl-6 pr-1 text-left text-[13px] font-medium outline-none focus-visible:ring-1 focus-visible:ring-accent/60", compact ? "min-h-7 py-1" : "min-h-8 py-1.5", current ? "font-semibold text-sidebar-ink" : "text-sidebar-ink-secondary hover:text-sidebar-ink")}>
         <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
           {/* dir=auto keeps an Arabic title's start and ellipsizes its end.
               max-w-max keeps flex-1 from pushing a byline off a short English title. */}

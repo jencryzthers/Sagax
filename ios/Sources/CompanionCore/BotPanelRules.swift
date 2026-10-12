@@ -171,19 +171,25 @@ public enum SkinTier: String, CaseIterable, Hashable, Sendable {
 public struct MascotUnlocks: Hashable, Sendable {
     public var enforced: Bool
     public var keys: Set<String>
+    /// Demo mode: only the owl (Hibou) is offered, whatever is unlocked.
+    public var onlyOwl: Bool
 
-    public init(enforced: Bool, keys: Set<String> = []) {
+    public init(enforced: Bool, keys: Set<String> = [], onlyOwl: Bool = false) {
         self.enforced = enforced
         self.keys = keys
+        self.onlyOwl = onlyOwl
     }
 
     public static let nothingLocked = MascotUnlocks(enforced: false)
+    /// What the demo offers: the owl and its skins only.
+    public static let demo = MascotUnlocks(enforced: false, onlyOwl: true)
 
-    /// The character every person has (`DEFAULT_CHARACTERS`): the owl.
-    public static let defaultCharacters: Set<MascotCharacter> = [.owl]
+    /// The character every person has (`DEFAULT_CHARACTERS`): the owl and the crab.
+    public static let defaultCharacters: Set<MascotCharacter> = [.owl, .crab]
 
     public func characterUnlocked(_ character: MascotCharacter) -> Bool {
-        !enforced || Self.defaultCharacters.contains(character) || keys.contains("character:\(character.rawValue)")
+        if onlyOwl { return character == .owl }
+        return !enforced || Self.defaultCharacters.contains(character) || keys.contains("character:\(character.rawValue)")
     }
 
     /// Earned or grandfathered, or Common on an unlocked character.
@@ -262,6 +268,14 @@ public struct MascotUnlocks: Hashable, Sendable {
             case "neon", "chrome", "glitch": return .epic
             case "holo", "molten": return .legendary
             default: return .rare
+            }
+        case .crab:
+            // `CRAB_SKIN_TIER`: Plain and the named fills come with it; the rest match Shapes
+            switch skin {
+            case "gold", "pearl": return .rare
+            case "neon", "chrome", "crystal", "circuit": return .epic
+            case "holo", "molten", "galaxy": return .legendary
+            default: return .common
             }
         }
     }

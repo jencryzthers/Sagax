@@ -4,8 +4,9 @@
 // tabs), full screen over the chat.
 //
 //   header   the mascot (a tap opens the avatar editor, a long press the
-//            owl's moves and style), the name, label and description,
-//            each edited where it shows and saved on leaving the field
+//            owl's moves and style), the name and label, each edited where
+//            it shows and saved on leaving the field. Description lives
+//            in Edit persona.
 //   top bar  Close, Export conversation, and "..." with the bot's own
 //            actions (Share as Template, Copy ID, Duplicate, Primary Bot,
 //            Delete), each once
@@ -13,9 +14,9 @@
 //            conversation's files by kind and the bot's links; Skills;
 //            Plugins) | Computer (the live computer, embedded), the
 //            desktop's three (no More tab)
-//   Edit persona  under the tabs, as on the desktop: a page with the
-//            searchable list of every other section in the desktop's
-//            order; each row pushes its page (also first in "...")
+//   Edit persona  under "..." and as a pencil on the mascot (the desktop
+//            has no labeled button under the tabs). Each other section
+//            opens from that editor's list.
 //
 // Which tabs and sections a pairing shows is `DesktopPanelTab` /
 // `DesktopPanelSection` / `DesktopPersonaEditor` (CompanionCore, from
@@ -33,9 +34,11 @@ import UIKit
 struct PhoneBotPanel: View {
     let bot: Bot
     var tab: DesktopPanelTab = .details
+    /// Opens straight on an Edit persona section (Edit rule: Access).
+    var section: DesktopPanelSection? = nil
 
     var body: some View {
-        AnyView(PhoneBotPanelContent(bot: bot, startTab: tab)).id(bot.id)
+        AnyView(PhoneBotPanelContent(bot: bot, startTab: tab, startSection: section)).id(bot.id)
     }
 }
 
@@ -73,9 +76,17 @@ private struct PhoneBotPanelContent: View {
     @State private var runLogs = false
     @State private var deletingRoutine: Routine?
 
-    init(bot: Bot, startTab: DesktopPanelTab) {
+    init(bot: Bot, startTab: DesktopPanelTab, startSection: DesktopPanelSection? = nil) {
         self.bot = bot
         _tab = State(initialValue: startTab)
+        // a deep link lands on the section with Edit persona under it (Back
+        // returns to the persona list, as a tap through it would)
+        var start = NavigationPath()
+        if let startSection {
+            start.append(PanelPersonaRoute())
+            start.append(startSection)
+        }
+        _path = State(initialValue: start)
         _draft = State(initialValue: CharacterDraft(bot: bot))
         _activity = StateObject(wrappedValue: BotActivityModel(botId: bot.id))
     }
@@ -170,10 +181,6 @@ private struct PhoneBotPanelContent: View {
                             AnyView(identity)
                             AnyView(tabBar)
                                 .padding(.top, 24)
-                            if !sections.isEmpty {
-                                AnyView(editPersonaButton)
-                                    .padding(.top, 12)
-                            }
                             AnyView(tabBody(width: proxy.size.width))
                                 .padding(.top, 20)
                             Color.clear.frame(height: 1).id("panel-end")
@@ -294,25 +301,39 @@ private struct PhoneBotPanelContent: View {
 
     private var identity: some View {
         VStack(spacing: 0) {
-            BotMascotView(bot: current, size: Theme.Profile.mascot, state: MausState.forChat(.bot(current), in: session.state),
-                          animated: true, owlHandle: owlHandle)
-                .contentShape(Rectangle())
-                // a tap opens the character editor, as the desktop's mascot does
-                .onTapGesture {
-                    Haptics.selection()
-                    editingAvatar = true
+            ZStack(alignment: .topTrailing) {
+                BotMascotView(bot: current, size: Theme.Profile.mascot, state: MausState.forChat(.bot(current), in: session.state),
+                              animated: true, owlHandle: owlHandle)
+                    .contentShape(Rectangle())
+                    // a tap opens the character editor, as the desktop's mascot does
+                    .onTapGesture {
+                        Haptics.selection()
+                        editingAvatar = true
+                    }
+                    .contextMenu {
+                        CharacterMovesMenu(
+                            look: draft.complete,
+                            onMove: { owlHandle.flourish($0) },
+                            onShapeMove: { owlHandle.shape($0) }
+                        )
+                    }
+                    .accessibilityLabel(Text("Edit avatar"))
+                    .accessibilityIdentifier("profile-mascot")
+                    .accessibilityAddTraits(.isButton)
+                if !sections.isEmpty {
+                    Button(action: openPersona) {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Theme.textPrimary)
+                            .frame(width: 28, height: 28)
+                            .background(Theme.card, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .offset(x: 6, y: -4)
+                    .accessibilityLabel(Text("Edit persona"))
+                    .accessibilityIdentifier("panel-edit-persona")
                 }
-                .contextMenu {
-                    // the character's moves: the owl's wings, the Shapes moves
-                    CharacterMovesMenu(
-                        look: draft.complete,
-                        onMove: { owlHandle.flourish($0) },
-                        onShapeMove: { owlHandle.shape($0) }
-                    )
-                }
-                .accessibilityLabel(Text("Edit avatar"))
-                .accessibilityIdentifier("profile-mascot")
-                .accessibilityAddTraits(.isButton)
+            }
             ProfileCard {
                 PhoneInlineText(value: current.name, placeholder: nil, label: "Edit name", font: Theme.Font.profileName,
                                 required: true, limit: 100, id: "profile-name") { save(name: $0) }
@@ -321,12 +342,6 @@ private struct PhoneBotPanelContent: View {
                 PhoneInlineText(value: current.title, placeholder: "Add a label", label: "Edit label",
                                 font: .system(size: 13), muted: true, limit: 200, id: "profile-role") { save(title: $0) }
                     .frame(minHeight: Theme.Profile.roleRow)
-                ProfileDivider(leading: Theme.Profile.textInset)
-                PhoneInlineText(value: current.description, placeholder: "One line on what this bot is for", label: "Description",
-                                font: Theme.Profile.labelFont, muted: true, limit: 4000, multiline: true, id: "profile-description") {
-                    save(description: $0)
-                }
-                .frame(minHeight: Theme.Profile.roleRow)
             }
             .padding(.top, 20)
         }
@@ -375,29 +390,6 @@ private struct PhoneBotPanelContent: View {
             }
             .frame(maxWidth: .infinity))
         }
-    }
-
-    /// "Edit persona" under the tabs (the desktop's `data-edit-persona`
-    /// button): the persona editor's list, pushed as its own page.
-    private var editPersonaButton: some View {
-        Button(action: openPersona) {
-            HStack(spacing: 6) {
-                Image(systemName: "pencil")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Theme.textSecondary)
-                Text("Edit persona")
-                    .font(Theme.Font.body)
-                    .foregroundStyle(Theme.textPrimary)
-            }
-            .padding(.horizontal, 14)
-            .frame(height: 36)
-            .background(Theme.card, in: Capsule())
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, Theme.Profile.cardMargin)
-        .accessibilityIdentifier("panel-edit-persona")
     }
 
     private func openPersona() {
@@ -674,6 +666,7 @@ private struct PhoneBotPanelContent: View {
         case .profileLinks: libraryStart = .links; tab = .library
         case .profileMedia: libraryStart = .files(.image); tab = .library
         case .profileFiles: tab = .library
+        case .profileComputer: tab = .computer
         case .profileInfoScrolled, .profileMoreMenu:
             try? await Task.sleep(nanoseconds: 600_000_000)
             scrollToRoutines += 1

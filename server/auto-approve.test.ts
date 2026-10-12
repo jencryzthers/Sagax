@@ -218,4 +218,15 @@ describe("delegatedApprovalMode", () => {
     expect(delegationInheritsFullAccess({ senderIsChief: true, senderHasFullAccess: true, sameBot: false, recipientDriverKind: "claudeAgent", recipientMemberOwned: true })).toBe(false);
     expect(delegationInheritsFullAccess({ senderIsChief: true, senderHasFullAccess: true, sameBot: false, recipientDriverKind: "claudeAgent", recipientMemberOwned: false })).toBe(true);
   });
+  it("never answers a Sagax approval-gate card, even in Full", () => {
+    for (const mode of ["full", "auto", "custom", "edits", "ask"] as const) {
+      expect(autoVerdict(mode, "other", { sagaxGate: true }).approve).toBeNull();
+    }
+  });
+  it("answers a gate card only from the person's own saved Allow rule", () => {
+    for (const mode of ["full", "auto", "custom", "edits", "ask"] as const) {
+      expect(autoVerdict(mode, "other", { sagaxGate: true, ruleAllowed: true }).source).toBe("allow-rule");
+      expect(autoVerdict(mode, "other", { sagaxGate: true, ruleAllowed: false }).approve).toBeNull();
+    }
+  });
 });

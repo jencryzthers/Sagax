@@ -90,6 +90,27 @@ and `server/routes/group-folders.ts`. Keep these rules, covered by
 - The picker follows Threads location like a bot's: header or sidebar, never
   both.
 
+## AI clients' conversations are hidden; reading clears everywhere (2026-10-11, #291)
+
+- An AI client writing through the member API (Pulsatrix `sagax_send`,
+  any actor but the Sagax console) uses its own **hidden** conversation
+  with the bot (`task.hidden`, `server/org-member-routes.ts`): never in the
+  person's sidebar, previews, typing dots, unread, badge or notifications,
+  and it never moves their selected conversation. It stays reachable from
+  the bot's Activity panel and links. The server drops hidden tasks from
+  every bot projection unless that thread is the one selected
+  (`listedTasks`, `shownBotActivity`, `notify()`), so older clients benefit
+  without a rebuild; web and iOS filter too (`taskHiddenFromSidebar`,
+  `BotTask.isHiddenFromPerson`). Earlier `newThread` conversations from the
+  admin activity log were hidden once at startup (`hideEarlierAgentThreads`,
+  marker `agent-threads-hidden.v1`). A card waiting in a hidden
+  conversation is answered by the AI client (`sagax_approve`), not shown
+  to the person.
+- A conversation that buzzed the phones and is then read anywhere sends
+  each phone one silent `read` push; the phone withdraws its banner and
+  recounts the badge, and withdraws settled bot banners whenever its unread
+  count drops (`docs/ios-push.md`).
+
 ## Organization memory cache (Settings > Memory)
 
 Settings > Memory (`src/components/OrgMemorySettings.tsx`,
@@ -1918,8 +1939,9 @@ the bot engine's (`shared/harness-commands.ts`, `server/harness-commands.ts`,
 ## Bot panel
 
 The bot's side panel (`src/components/BotSettingsDialog.tsx`, tabs in
-`bot-settings/panel-tabs.ts`) shows Details | Library | Computer, then an
-"Edit persona" button that opens every other section in the persona editor
+`bot-settings/panel-tabs.ts`) shows Details | Library | Computer under the
+mascot, which carries the "Edit persona" pencil (`data-edit-persona`, since
+0.4.19) that opens every other section in the persona editor
 (`PersonaEditorModal.tsx`); there is no More tab. iPhone and iPad match it
 (2026-10-11): the same three tabs (`DesktopPanelTab`), then "Edit persona"
 under them (`DesktopPersonaEditor.offered`), a pushed page on the phone
@@ -2556,9 +2578,9 @@ rules, each covered by `shared/achievements-catalog.test.ts`,
   `src/lib/public-achievements.test.ts`, `PersonPanel.test.ts`,
   `achievements-ui.test.ts`, `SidebarProfileMenu.footer.test.ts`.
 - People rows in the sidebar sit at the bot rows' inset (`pl-1`, `pl-2` compact) with thread
-  mode on or off and carry no thread chevron, like bot rows since #152; only
-  room rows keep the thread-mode `pl-6` for their chevron
-  (`Sidebar.simple-mode.test.ts`).
+  mode on or off and carry no thread chevron, like bot rows since #152; room
+  rows too since 2026-10-12: every row takes `pl-6` and its chevron only in
+  the sidebar location (`Sidebar.simple-mode.test.ts`).
 - The toast never shows while the person types, one at a time, its chime
   follows Notification sounds, and reduced motion stills it.
 
@@ -2605,8 +2627,13 @@ and `sidebar-logo-preferences.test.ts`:
 - Rows (comfortable): a 44px portrait at `pl-1`, 6px before the name, 56px
   tall; the name 14px medium, then the last message 13px; the title is not
   drawn (avatar tooltip and `sr-only` with the name). Group and people rows
-  share the inset and the 44px footprint; people rows keep their custom
-  label (a Sagax feature upstream does not have). The row actions show on
+  share the inset and the 44px box (a room's stacked mascots fit inside
+  it), so every row's avatar and name start at one x in every density;
+  people rows keep their custom label (a Sagax feature upstream does not
+  have). A room follows Threads location like a bot and a person: its
+  threads are listed under its row (`pl-6`, the chevron) only in the
+  sidebar location, and its header picker (`GroupTaskPicker`) shows only
+  in the header location, never both. The row actions show on
   hover or focus only, and on touch screens.
 - Midnight's rail secondary ink is `#fcfcfca1` (#a5a5a5 on the rail, the
   window's preview and header grey); the default skin stays Pulsatrix.
@@ -2683,6 +2710,27 @@ it after an upstream merge instead of renaming by hand.
   package names change only with a store release of their own.
 - Legal and history: `LICENSE-APACHE`, the OpenMausBot lines of `NOTICE`, the README attribution,
   About's "Based on OpenMausBot", "Where work goes" and "Upstream sync" below.
+
+## iOS communication notifications (2026-10-11)
+
+A closed-app APNs push from a bot (or a person) is an iOS Communication
+Notification: the banner names the bot and shows its avatar, not the Sagax
+app icon (`docs/ios-push.md`). The server sets `aps.mutable-content` and
+`senderName` / `senderId` / `avatarUrl`; the Notification Service Extension
+(`ios/NotificationService`) downloads the avatar with the pairing bearer and
+donates `INSendMessageIntent`. The App ID `ca.pulsatrix.sagax` and the
+extension App ID `ca.pulsatrix.sagax.notification` need the Communication
+Notifications capability in the Apple Developer portal. Tests:
+`server/push/payload.test.ts`, `server/push/frames.test.ts`,
+`ios/Tests/CompanionCoreTests/PushTests.swift`.
+
+While the Sagax app is in front, APNs must not banner or sound: the live
+stream already showed the line. `userNotificationCenter(_:willPresent:)`
+returns `[]` when the app is active. The phone names its APNs token on
+`GET /api/events` (`x-sagax-push-token`); the hub skips that device and
+still pushes the person's other phones. Tests: `server/push/hub.test.ts`,
+`server/push/devices.test.ts`,
+`ios/Tests/CompanionCoreTests/PeoplePresenceTests.swift`.
 
 ## Upstream sync
 

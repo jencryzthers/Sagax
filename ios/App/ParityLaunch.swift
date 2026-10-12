@@ -41,6 +41,8 @@ enum ParityScreen: String, CaseIterable {
     /// Not a reference: Settings > Appearance, for the theme captures.
     case appearance = "22-appearance"
     case themeGallery = "theme-gallery"
+    /// Not a reference: the profile sheet's Computer tab (its screen picker).
+    case profileComputer = "profile-computer"
 
     /// Accepts the full name, the number ("02") or the name ("chat").
     init?(argument: String) {
@@ -57,7 +59,7 @@ enum ParityScreen: String, CaseIterable {
     var opensAraChat: Bool {
         switch self {
         case .chat, .profileInfo, .profileInfoScrolled, .profileMoreMenu, .profileLinks, .profileMedia,
-             .profileFiles, .computer, .computerTrackpadToast, .routineDetail, .routineInstruction:
+             .profileFiles, .computer, .computerTrackpadToast, .routineDetail, .routineInstruction, .profileComputer:
             true
         default:
             false
@@ -80,7 +82,7 @@ enum ParityScreen: String, CaseIterable {
     var opensProfile: Bool {
         switch self {
         case .profileInfo, .profileInfoScrolled, .profileMoreMenu, .profileLinks, .profileMedia, .profileFiles,
-             .routineDetail, .routineInstruction:
+             .routineDetail, .routineInstruction, .profileComputer:
             true
         default:
             false

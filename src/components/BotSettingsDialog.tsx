@@ -199,16 +199,30 @@ export function BotSettingsDialog({ bot, onOpenVmWorkspace }: {
           )}
           {/* Who this is, then the tabs */}
           <div className="flex shrink-0 flex-col items-center px-4 pb-3">
-            <BotProfileAvatarCard
-              bot={bot}
-              activeState={derived.activeState}
-              mascotMotion={derived.mascotMotion}
-              onPatch={derived.patch}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                setMascotMenu({ botId: bot.id, x: event.clientX, y: event.clientY });
-              }}
-            />
+            {/* The persona pencil sits on the mascot (0.4.19): it opens the
+                persona editor; the mascot itself opens Appearance. */}
+            <div className="relative">
+              <BotProfileAvatarCard
+                bot={bot}
+                activeState={derived.activeState}
+                mascotMotion={derived.mascotMotion}
+                onPatch={derived.patch}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setMascotMenu({ botId: bot.id, x: event.clientX, y: event.clientY });
+                }}
+              />
+              <button
+                type="button"
+                data-edit-persona=""
+                aria-label={t("botPanel.editPersona")}
+                title={t("botPanel.editPersona")}
+                onClick={() => dispatch({ type: "openPersonaEditor", botId: bot.id, section: "overview" })}
+                className="absolute bottom-3 right-0 flex size-8 items-center justify-center rounded-full border border-hairline-weak bg-elevated text-ink transition-colors hover:bg-elevated-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+              >
+                <Pencil size={14} aria-hidden="true" />
+              </button>
+            </div>
             {/* Name and label are edited where they show; the name stays
                 centered on its own line. The description is not shown here. */}
             <div className="mt-2 flex max-w-full items-center justify-center">
@@ -264,15 +278,6 @@ export function BotSettingsDialog({ bot, onOpenVmWorkspace }: {
                 </button>
               ))}
             </div>
-            <button
-              type="button"
-              data-edit-persona=""
-              onClick={() => dispatch({ type: "openPersonaEditor", botId: bot.id, section: "overview" })}
-              className="mt-3 flex items-center gap-1.5 rounded-lg border border-hairline-weak bg-elevated px-3 py-1.5 text-[13px] text-ink transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
-            >
-              <Pencil size={13} aria-hidden="true" className="text-ink-secondary" />
-              {t("botPanel.editPersona")}
-            </button>
           </div>
 
           {tab === "details" && (

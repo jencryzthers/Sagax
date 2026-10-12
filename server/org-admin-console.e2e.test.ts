@@ -215,7 +215,7 @@ posixOnly("Perspicax console: the Sagax admin routes", () => {
     expect(caps.headers.get("x-sagax-admin-api")).toBe("1");
     const pkg = JSON.parse(readFileSync(join(SERVER_DIR, "..", "package.json"), "utf8")) as { forkVersion: string };
     expect(caps.body).toMatchObject({ version: pkg.forkVersion, api: 5, permissionsVersion: 1 });
-    expect(caps.body.mascots.map((entry: { id: string }) => entry.id)).toEqual(["owl", "shape", "trombi", "bunbu", "shiba", "grump", "ogre", "frog"]);
+    expect(caps.body.mascots.map((entry: { id: string }) => entry.id)).toEqual(["owl", "crab", "shape", "trombi", "bunbu", "shiba", "grump", "ogre", "frog"]);
     expect(caps.body.permissions.length).toBeGreaterThan(20);
     // api 4: every engine with its Cloud or Local group and how people get access
     expect(caps.body.engines.length).toBeGreaterThan(0);
@@ -464,7 +464,11 @@ posixOnly("Perspicax console: the Sagax admin routes", () => {
     expect((await admin("GET", `routines/${routineId}`, ALICE)).body.routine.lastRun).toMatchObject({ status: "ok" });
     const paused = await admin("POST", `routines/${routineId}/pause`, ALICE, { paused: true });
     expect(paused.body.routine.enabled).toBe(false);
-    const audit = (await admin("GET", `audit?category=bot&target=${routineId}`, ALICE)).body.rows as Array<any>;
+    // the pause row can land a moment after its answer: read until it shows
+    const audit = await waitFor(async () => {
+      const rows = (await admin("GET", `audit?category=bot&target=${routineId}`, ALICE)).body.rows as Array<any>;
+      return rows.some((row) => row.action === "routine.pause") ? rows : null;
+    }, 10_000);
     expect(audit.map((row) => row.action)).toEqual(expect.arrayContaining(["routine.resume", "routine.run_now", "routine.pause"]));
     expect(audit.find((row) => row.action === "routine.run_now")).toMatchObject({ actor: { via: "console", principalId: ids.alice } });
   }, 60_000);

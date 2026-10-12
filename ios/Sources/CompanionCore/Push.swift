@@ -69,6 +69,10 @@ public struct PushRegistration: Codable, Equatable, Hashable, Sendable {
 }
 
 public enum PushToken {
+    /// On `GET /api/events`: this phone's APNs token, so the server skips
+    /// a push to a device that is already reading the live stream.
+    public static let header = "x-sagax-push-token"
+
     /// The device token as the server stores it: lowercase hex.
     public static func hex(_ data: Data) -> String {
         data.map { String(format: "%02x", $0) }.joined()
@@ -81,6 +85,9 @@ public enum PushKind: String, Sendable {
     case approval
     case achievement
     case routine
+    /// Silent: the conversation was read on another device; withdraw its
+    /// banner and recount the badge.
+    case read
 }
 
 /// One conversation, one notification: the server's `apns-collapse-id`
@@ -97,6 +104,24 @@ public enum PushCollapse {
     }
 }
 
+/// Who a communication notification should name as the sender: a bot or a
+/// person, never the Sagax app icon. The Notification Service Extension
+/// builds an `INSendMessageIntent` from this.
+public struct PushSenderIdentity: Equatable, Sendable {
+    public var id: String
+    public var displayName: String
+    public var conversationId: String
+    /// Relative path on this server, only when `AccountAvatar` accepts it.
+    public var avatarUrl: String?
+
+    public init(id: String, displayName: String, conversationId: String, avatarUrl: String? = nil) {
+        self.id = id
+        self.displayName = displayName
+        self.conversationId = conversationId
+        self.avatarUrl = avatarUrl
+    }
+}
+
 /// What a received push carries next to `aps`.
 public struct PushPayload: Equatable, Sendable {
     public var kind: PushKind
@@ -105,6 +130,9 @@ public struct PushPayload: Equatable, Sendable {
     public var groupId: String?
     public var fromId: String?
     public var id: String?
+    public var senderName: String?
+    public var senderId: String?
+    public var avatarUrl: String?
     /// Milliseconds since 1970.
     public var at: Double?
 
@@ -123,7 +151,28 @@ public struct PushPayload: Equatable, Sendable {
         groupId = string("groupId")
         fromId = string("fromId")
         id = string("id")
+        senderName = string("senderName")
+        senderId = string("senderId")
+        // Only this server's own avatar routes. A tracking pixel in the
+        // payload is dropped so the extension never fetches it.
+        if let rawAvatar = string("avatarUrl"), AccountAvatar(rawAvatar) != nil {
+            avatarUrl = rawAvatar
+        } else {
+            avatarUrl = nil
+        }
         at = (userInfo["at"] as? NSNumber)?.doubleValue
+    }
+
+    /// Present when this push should show as a communication notification.
+    public var senderIdentity: PushSenderIdentity? {
+        guard let displayName = senderName else { return nil }
+        let id = senderId ?? botId ?? fromId ?? displayName
+        return PushSenderIdentity(
+            id: id,
+            displayName: displayName,
+            conversationId: threadId ?? id,
+            avatarUrl: avatarUrl
+        )
     }
 
     /// Where a tap goes (the same target a local notification carries).

@@ -196,12 +196,14 @@ describe("ModelPicker with a signed-out or missing Claude", () => {
     expect(html).not.toContain("Local models will appear");
   });
 
-  it("keeps a signed-out Claude on the rail and shows its sign-in card instead of pickable cloud models", () => {
+  it("hands a signed-out Claude to the rail, hidden, and shows its sign-in card instead of pickable cloud models", () => {
     fixture.instances = [codex, signedOut()];
     const onCodex = bot("codex", "gpt-5.6");
     const opened = open(onCodex);
     expect(rail(opened)!.props.instances.map((instance) => instance.instanceId)).toEqual(["codex", "claude"]);
-    expect(opened.html).toContain('aria-label="Claude"');
+    // 0.4.19: an unready provider is hidden in the rail until Appearance
+    // shows them; the rail still receives it and selects it when asked.
+    expect(opened.html).not.toContain('aria-label="Claude"');
 
     (rail(opened)!.props.onSelect as (instance: InstanceInfo) => void)(fixture.instances[1]);
     const browsing = menu(render(onCodex).html);

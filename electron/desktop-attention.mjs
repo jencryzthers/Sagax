@@ -39,6 +39,7 @@ export function normalizeAttentionRequest(value) {
     bounce,
     flash: value.flash === true,
     target: normalizeTarget(value.target),
+    withdrawKey: typeof value.withdrawKey === "string" && value.withdrawKey.length <= MAX_ID * 3 ? value.withdrawKey : "",
   };
 }
 
@@ -77,7 +78,10 @@ export function createDesktopAttention(deps) {
 
   const forget = (key) => {
     kept.delete(key);
+    withdrawable.delete(key);
   };
+  /** kept key → the page's withdraw key (an approval answered elsewhere) */
+  const withdrawable = new Map();
 
   /** Bounce the Dock icon (macOS) or flash the taskbar button (Windows,
    * Linux) until the window is focused. Nothing when it already is. */
@@ -118,6 +122,7 @@ export function createDesktopAttention(deps) {
     // it until it is clicked or closed (a bounded number, oldest first).
     const key = Symbol(request.id || "notification");
     kept.set(key, note);
+    if (request.withdrawKey) withdrawable.set(key, request.withdrawKey);
     if (kept.size > MAX_KEPT) forget(kept.keys().next().value);
     note.on("click", () => {
       forget(key);
@@ -151,5 +156,19 @@ export function createDesktopAttention(deps) {
     if (win && deps.platform !== "darwin" && typeof win.flashFrame === "function") win.flashFrame(false);
   }
 
-  return { notify, requestAttention, setBadge, settle, keptCount: () => kept.size };
+  /** Take down every notification shown for this withdraw key: the approval
+   * it asked about was answered on another device, or expired. */
+  function withdraw(withdrawKey) {
+    if (typeof withdrawKey !== "string" || !withdrawKey) return 0;
+    let closed = 0;
+    for (const [key, value] of withdrawable) {
+      if (value !== withdrawKey) continue;
+      const note = kept.get(key);
+      forget(key);
+      try { note?.close?.(); closed++; } catch { /* already gone */ }
+    }
+    return closed;
+  }
+
+  return { notify, withdraw, requestAttention, setBadge, settle, keptCount: () => kept.size };
 }

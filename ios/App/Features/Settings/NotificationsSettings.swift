@@ -46,7 +46,7 @@ final class AttentionCenter {
     }
 
     /// An APNs push that arrived while the app is in front.
-    func presentation(for push: PushPayload) -> UNNotificationPresentationOptions {
+    func presentation(for push: PushPayload, appActive: Bool) -> UNNotificationPresentationOptions {
         let sound: UNNotificationPresentationOptions = NotificationSounds.isEnabled ? [.sound] : []
         switch push.kind {
         case .nudge:
@@ -56,12 +56,15 @@ final class AttentionCenter {
             var rang = false
             if settings.nudgeSound { rang = playWizz() }
             if settings.nudgeHaptic { buzz() }
-            let looking = viewingThreadId != nil && viewingThreadId == push.threadId
-            if looking { return [] }
+            if !ForegroundNotification.showsSystemBanner(appActive: appActive, viewingThreadId: viewingThreadId, threadId: push.threadId) {
+                return []
+            }
             let shown: UNNotificationPresentationOptions = [.banner, .list]
             return rang ? shown : shown.union(sound)
         default:
-            if let thread = push.threadId, thread == viewingThreadId { return [] }
+            if !ForegroundNotification.showsSystemBanner(appActive: appActive, viewingThreadId: viewingThreadId, threadId: push.threadId) {
+                return []
+            }
             let shown: UNNotificationPresentationOptions = [.banner, .list, .badge]
             return shown.union(sound)
         }
@@ -112,7 +115,8 @@ extension NotificationCoordinator {
     func deliverNudge(_ nudge: NudgeFrame, ring: Bool) {
         let content = UNMutableNotificationContent()
         let name = nudge.fromName.trimmingCharacters(in: .whitespacesAndNewlines)
-        content.title = String(localized: "\(name.isEmpty ? String(localized: "Someone") : name) sent you a nudge")
+        let display = name.isEmpty ? String(localized: "Someone") : name
+        content.title = display
         content.body = String(localized: "Open the conversation to answer.")
         content.sound = ring ? .default : nil
         content.interruptionLevel = .timeSensitive
@@ -120,9 +124,16 @@ extension NotificationCoordinator {
             content.threadIdentifier = open.threadId
             content.userInfo = ["threadId": open.threadId, "botId": open.groupId, "kind": "nudge"]
         }
+        let sender = PushSenderIdentity(
+            id: nudge.fromId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? display : nudge.fromId,
+            displayName: display,
+            conversationId: nudge.open?.threadId ?? nudge.fromId,
+            avatarUrl: nil
+        )
+        let posted = CommunicationNotification.applyingIntent(content, sender: sender, imageData: nil)
         // the APNs push for the same nudge (apns-collapse-id) replaces it
         let identifier = PushCollapse.identifier(threadId: nudge.open?.threadId, kind: "nudge")
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: identifier, content: posted, trigger: nil))
     }
 }
 

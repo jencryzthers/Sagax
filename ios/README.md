@@ -133,6 +133,7 @@ ios/
     MarkdownText.swift           the supported Markdown presentation layer
     SettingsView.swift           status, computer switcher, and pairing removal
   ShareExtension/                native Share-sheet picker, item loading, upload, and send
+  NotificationService/           APNs mutable-content: bot name and avatar on the banner
 ```
 
 ## Building

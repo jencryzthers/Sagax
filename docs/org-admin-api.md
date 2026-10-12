@@ -406,9 +406,9 @@ console draws the character itself from it.
   character or a skin; `default` when they chose nothing: the owl in the
   bot's color, as every bot wore before. The character fields are always
   there: they are what the app draws when the picture fails to load.
-- `character`: `owl`, `shape`, `trombi`, `bunbu`, `shiba`, `grump`, `ogre`
-  or `frog`. `family`: `classics` (owl, trombi), `shapes` (shape) or
-  `animals` (bunbu, shiba, grump, ogre, frog).
+- `character`: `owl`, `crab`, `shape`, `trombi`, `bunbu`, `shiba`,
+  `grump`, `ogre` or `frog`. `family`: `classics` (owl, trombi), `shapes`
+  (shape) or `animals` (crab, bunbu, shiba, grump, ogre, frog).
 - `color`: the bot's color name (`shared/mascot-colors.ts`, six palettes);
   `colorHex` its value, null for a name this server does not know. Trombi
   ignores it.
@@ -417,8 +417,8 @@ console draws the character itself from it.
   `chrome`, `inferno`, `holo`, `galaxy`, `spirit`); the other characters'
   are listed per character in `GET capabilities` `mascots[].skins`
   (shape: `plain` ... `galaxy`; trombi: `classic` ... `molten`; bunbu,
-  shiba, grump, ogre and frog: `plain`, their own coats, then the premium
-  set). An older stored name reads as its current id.
+  shiba, grump, ogre, frog and crab: `plain`, their own coats, then the
+  premium set). An older stored name reads as its current id.
 - `shape`: the shape character's shape (`circle`, `bean` the heart,
   `squircle`, `pill` the capsule, `pick` the triangle, `hexagon`, `cloud`,
   `drop` the teardrop), else null.

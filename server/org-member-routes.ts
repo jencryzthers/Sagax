@@ -12,6 +12,8 @@
 //   POST /api/org/member/approvals/{id}        allow or deny a card
 //   POST /api/org/member/people/{id}/nudge     nudge a person
 //   GET  /api/org/member/threads/{id}/stream   watch a running turn (NDJSON)
+//   POST /api/org/member/agents/{tool}          the agent-to-agent API
+//                                               (server/agent-api.ts, docs/agent-api.md)
 //
 // Lot C.3 (the subagent experience): `POST bots/{id}/messages` with
 // `stream: true`, and `GET threads/{id}/stream`, answer NDJSON: progress at
@@ -62,6 +64,9 @@ export const MEMBER_PARTIAL_MAX = 600;
 /** The most tool calls and files a turn summary lists. */
 export const MEMBER_SUMMARY_LIST_MAX = 50;
 const MAX_BODY_BYTES = 64 * 1024;
+/** send_prompt carries files (base64): up to 8 of 25 MiB each is checked by
+ * the tool; one request is capped here. */
+const AGENT_SEND_BODY_BYTES = 64 * 1024 * 1024;
 const MAX_TOKEN_CHARS = 8_192;
 const SEND_ID = /^[A-Za-z0-9_-]{8,80}$/;
 const THREAD_ID = /^[\w-]{1,160}$/;
@@ -125,8 +130,15 @@ export interface OrgMemberRouteDeps {
   approvalAnswerer?(threadId: string, requestId: string): ApprovalAnswerer | null;
   /** The bot whose thread this is, or null (a room, or gone). */
   botOfThread?(threadId: string): string | null;
+  /** The person's open hidden conversation with this bot (#291), the one an
+   * AI client continues when it names no thread; null when they have none. */
+  hiddenThreadOf?(botId: string, principalId: string): string | null;
   /** One admin activity row, category `client`, actor the person. */
   record(person: MemberPerson, entry: { action: string; target: { kind: string; id?: string; name?: string }; after?: Record<string, unknown> }): void;
+  /** The agent-to-agent API (server/agent-api.ts) for this person: the
+   * tool checks its scope (from the person's clients.* keys), its rate and
+   * audits every call itself. */
+  agentApi?(person: MemberPerson, tool: string, args: unknown, signal?: AbortSignal): Promise<{ status: number; body: Record<string, unknown> }>;
   version?(): string;
   now?(): number;
   sleep?(ms: number): Promise<void>;
@@ -170,6 +182,8 @@ interface MemberContext {
   params: Record<string, string>;
   url: URL;
   body: unknown;
+  /** Aborted when the client goes away. */
+  signal?: AbortSignal;
 }
 
 interface MemberRoute {
@@ -638,8 +652,15 @@ function memberRoutes(deps: OrgMemberRouteDeps): MemberRoute[] {
         if (input.stream !== undefined && typeof input.stream !== "boolean") return fail(400, "bad_request", "stream is true or false.");
         const botId = params.id!;
         let threadId = input.threadId as string | undefined;
-        if (input.newThread === true) {
-          const created = await deps.perform(person, { method: "POST", path: `/api/bots/${encodeURIComponent(botId)}/tasks`, body: {} });
+        // An AI client works in a hidden conversation (#291), the way Grok
+        // Bot keeps its subagents out of the chat: never the person's open
+        // chat, never their sidebar, unread or notifications. A named
+        // threadId is honored as given. The Perspicax console is the person
+        // typing, so it keeps their own conversation.
+        const hidden = person.actor !== "console";
+        if (!threadId && hidden && input.newThread !== true) threadId = deps.hiddenThreadOf?.(botId, person.principalId) ?? undefined;
+        if (input.newThread === true || (hidden && !threadId)) {
+          const created = await deps.perform(person, { method: "POST", path: `/api/bots/${encodeURIComponent(botId)}/tasks`, body: hidden ? { hidden: true } : {} });
           if (!okStatus(created)) return passThrough(created, "A new conversation could not be started.");
           threadId = str(objectOf(objectOf(created.body)?.task)?.threadId) ?? undefined;
           if (!threadId) return fail(502, "server_error", "The new conversation has no id.");
@@ -653,7 +674,7 @@ function memberRoutes(deps: OrgMemberRouteDeps): MemberRoute[] {
         const receipt = objectOf(sent.body) ?? {};
         const finalThread = str(receipt.threadId) ?? threadId ?? null;
         const messageId = str(objectOf(receipt.message)?.id);
-        deps.record(person, { action: "client.message", target: { kind: "bot", id: botId }, after: { threadId: finalThread, waited: wait > 0, ...(input.newThread ? { newThread: true } : {}) } });
+        deps.record(person, { action: "client.message", target: { kind: "bot", id: botId }, after: { threadId: finalThread, waited: wait > 0, ...(input.newThread ? { newThread: true } : {}), ...(hidden && !input.threadId ? { hidden: true } : {}) } });
         if (!finalThread) return answer({ botId, threadId: null, messageId, status: "working", pending: true, reply: null, approvals: [], cursor: null, summary: null });
         if (input.stream === true) {
           return {
@@ -778,6 +799,17 @@ function memberRoutes(deps: OrgMemberRouteDeps): MemberRoute[] {
       },
     },
     {
+      // The agent-to-agent API. No route-level key: each tool needs its own
+      // scope (read: clients.botsRead, send_prompt: clients.botsMessage,
+      // create_agent: clients.agentsCreate), checked and audited by the tool.
+      method: "POST", path: "agents/{tool}",
+      async handle({ person, params, body, signal }) {
+        if (!deps.agentApi) return fail(404, "not_found", "This server does not offer the agent API.");
+        const reply = await deps.agentApi(person, params.tool!, body ?? {}, signal);
+        return answer(reply.body, reply.status);
+      },
+    },
+    {
       method: "POST", path: "people/{id}/nudge", permission: "clients.peopleNudge",
       async handle({ person, params }) {
         const principalId = deps.resolvePerson(params.id!);
@@ -897,13 +929,16 @@ export function createOrgMemberRoutes(deps: OrgMemberRouteDeps): (req: IncomingM
     }
     let body: unknown = null;
     if (method === "POST") {
+      const max = sub === "agents/send_prompt" ? AGENT_SEND_BODY_BYTES : MAX_BODY_BYTES;
       const declared = Number(req.headers["content-length"] ?? 0);
-      if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return refuse(413, "too_large", `The body is larger than ${MAX_BODY_BYTES} bytes.`);
-      body = await readSmallJson(req);
-      if (body === undefined) return refuse(400, "bad_request", `The body is not JSON, or larger than ${MAX_BODY_BYTES} bytes.`);
+      if (Number.isFinite(declared) && declared > max) return refuse(413, "too_large", `The body is larger than ${max} bytes.`);
+      body = await readSmallJson(req, max);
+      if (body === undefined) return refuse(400, "bad_request", `The body is not JSON, or larger than ${max} bytes.`);
     }
     try {
-      const reply = await route.handle({ person, params: hit.params, url, body });
+      const aborted = new AbortController();
+      res.on("close", () => aborted.abort());
+      const reply = await route.handle({ person, params: hit.params, url, body, signal: aborted.signal });
       if ("stream" in reply) {
         await streamAnswer(res, reply);
         return true;

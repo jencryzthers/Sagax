@@ -11,13 +11,16 @@ import type { ApnsConfigResult } from "./config.ts";
 import { maskSecret } from "./config.ts";
 import { PUSH_SEEN_GRACE_MS, PushRateLimiter, shouldPush, waitsForGrace } from "./decide.ts";
 import type { PushDeviceStore } from "./devices.ts";
-import { buildApnsRequest, collapseId, type PushMessage } from "./payload.ts";
+import { buildApnsRequest, buildReadSyncRequest, collapseId, type PushMessage } from "./payload.ts";
 
 export interface PushHubDeps {
   config: ApnsConfigResult;
   store: PushDeviceStore;
   /** A client of this person is connected right now (presence, or a live stream). */
   connected(person: string): boolean;
+  /** APNs tokens of this person's devices that have a live stream right now.
+   * Those devices already got the line: skip the push to them. */
+  activeTokens?(person: string): string[];
   /** The person's synced "Notification sounds" (true when unset). */
   personSound?(person: string): boolean;
   transport?: ApnsTransport;
@@ -53,6 +56,10 @@ export class PushHub {
   /** When a client of that person last marked that thread read. */
   private readonly reads = new Map<string, number>();
   private readonly inflight = new Set<Promise<void>>();
+  /** Conversations a push went out for, not yet read: a read of one tells
+   * the phones (noteRead). In memory; bounded. */
+  private readonly pushed = new Set<string>();
+  private readonly readLimiter = new PushRateLimiter(30, 5 * 60_000);
   private notConfiguredLogged = false;
 
   constructor(deps: PushHubDeps) {
@@ -116,7 +123,10 @@ export class PushHub {
     }
   }
 
-  /** A client of this person marked this conversation read. */
+  /** A client of this person marked this conversation read. A push for it
+   * still waiting its grace is dropped, and when that conversation had
+   * buzzed their phones, the phones hear it was read (a silent push), so the
+   * badge and the banner go on every device, not only the one that read. */
   noteRead(person: string, threadId: string): void {
     const who = person.trim().toLowerCase();
     if (!who || !threadId) return;
@@ -125,6 +135,47 @@ export class PushHub {
       const cutoff = this.now() - 10 * 60_000;
       for (const [entry, at] of this.reads) if (at < cutoff) this.reads.delete(entry);
     }
+    const pushedKey = key(who, threadId);
+    if (!this.pushed.has(pushedKey)) return;
+    this.pushed.delete(pushedKey);
+    this.syncRead(who, threadId);
+  }
+
+  /** An approval or question on this conversation was answered (on any
+   * device) or expired. Its banner still waiting the grace is dropped, and
+   * the phones it buzzed hear it silently, so they withdraw the banner the
+   * same way a read does. */
+  noteSettled(threadId: string): void {
+    if (!threadId) return;
+    for (const [pendingKey, entry] of this.pending) {
+      if (entry.message.threadId !== threadId || entry.message.kind !== "approval") continue;
+      entry.cancel();
+      this.pending.delete(pendingKey);
+    }
+    for (const pushedKey of this.pushed) {
+      const split = pushedKey.indexOf("\0");
+      if (split <= 0 || pushedKey.slice(split + 1) !== threadId) continue;
+      this.pushed.delete(pushedKey);
+      this.syncRead(pushedKey.slice(0, split), threadId);
+    }
+  }
+
+  /** The silent "read" push, at most READ_SYNC_MAX per person per window. */
+  private syncRead(person: string, threadId: string): void {
+    const sender = this.sender;
+    if (!sender || !this.deps.store.list(person).length) return;
+    if (!this.readLimiter.tryTake(person, this.now())) return;
+    const bundleId = this.deps.config.configured ? this.deps.config.config.bundleId : "";
+    const run = (async () => {
+      for (const device of this.deps.store.list(person)) {
+        const outcome = await sender.send(device, buildReadSyncRequest({ threadId, bundleId, nowMs: this.now() }));
+        if (!outcome.ok && outcome.prune) this.deps.store.prune(device.token);
+      }
+    })().catch((error) => {
+      this.log.warn(`push: read sync failed (${error instanceof Error ? error.message : String(error)})`);
+    });
+    this.inflight.add(run);
+    void run.finally(() => this.inflight.delete(run));
   }
 
   /** Waits for every send started so far (tests, shutdown). */
@@ -142,8 +193,18 @@ export class PushHub {
     if (shouldPush({ kind: message.kind, connected: true, seen })) this.dispatch(message);
   }
 
+  private devicesToSend(person: string) {
+    const active = new Set((this.deps.activeTokens?.(person) ?? []).map((token) => token.trim().toLowerCase()));
+    return this.deps.store.list(person).filter((device) => !active.has(device.token));
+  }
+
   private dispatch(message: PushMessage): void {
+    if (!this.devicesToSend(message.personId).length) return;
     if (!this.limiter.tryTake(message.personId, this.now())) return;
+    if (message.threadId && message.kind !== "nudge") {
+      if (this.pushed.size >= 5_000) this.pushed.clear();
+      this.pushed.add(key(message.personId, message.threadId));
+    }
     const run = this.deliver(message).catch((error) => {
       this.log.warn(`push: send failed (${error instanceof Error ? error.message : String(error)})`);
     });
@@ -155,7 +216,7 @@ export class PushHub {
     const sender = this.sender;
     if (!sender) return;
     const personSound = this.deps.personSound?.(message.personId) ?? true;
-    for (const device of this.deps.store.list(message.personId)) {
+    for (const device of this.devicesToSend(message.personId)) {
       const request = buildApnsRequest({ message, bundleId: this.deps.config.configured ? this.deps.config.config.bundleId : "", settings: device.settings, personSound, nowMs: this.now() });
       const outcome = await sender.send(device, request);
       if (!outcome.ok && outcome.prune) {

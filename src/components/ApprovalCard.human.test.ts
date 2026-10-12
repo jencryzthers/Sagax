@@ -43,7 +43,7 @@ describe("human approval card", () => {
   it("shows a plain title, summary and risk chip, and hides the raw id and JSON while open", () => {
     setLocale("fr");
     const html = renderToStaticMarkup(createElement(ApprovalCard, { bot, message: ask("a", TOOL, ARGS) }));
-    expect(html).toContain("Cryptic veut consulter l&#x27;horaire dans ConnectWise PSA");
+    expect(html).toContain("Autoriser Cryptic à consulter l&#x27;horaire dans ConnectWise PSA ?");
     expect(html).toContain("jcproulx");
     expect(html).toContain("Lecture seule");
     expect(html).toContain("En attente de votre réponse ci-dessous");
@@ -51,14 +51,14 @@ describe("human approval card", () => {
     expect(html).not.toContain("conditions");
     expect(html).not.toContain("mcp perspicax");
     // the open card defers the details to the composer: no duplicate
-    expect(html).not.toContain("Voir les détails techniques");
+    expect(html).not.toContain("Voir la demande complète");
   });
 
   it("offers the collapsed technical details once settled", () => {
     const message = ask("a", TOOL, ARGS);
     message.card!.answered = "allow";
     const html = renderToStaticMarkup(createElement(ApprovalCard, { bot, message }));
-    expect(html).toContain("See technical details");
+    expect(html).toContain("View the full request");
     expect(html).toContain('aria-expanded="false"');
     expect(html).not.toContain("conditions");
   });
@@ -69,7 +69,7 @@ describe("human approval card", () => {
       card: { title: "Approval needed", subtitle: "pnpm test", options: ["Allow", "Deny"], requestId: "req-cmd", tool: "Bash" },
     };
     const html = renderToStaticMarkup(createElement(ApprovalCard, { bot, message }));
-    expect(html).toContain("Cryptic wants to run a command");
+    expect(html).toContain("Allow Cryptic to run a command?");
     expect(html).toContain("pnpm test");
     expect(html).toContain("Runs an action");
   });
@@ -92,12 +92,12 @@ describe("risk chips", () => {
 describe("technical details toggle", () => {
   it("is collapsed by default and shows tool, server and colored JSON when open", () => {
     const closed = renderToStaticMarkup(createElement(TechnicalDetails, { tool: TOOL, server: "perspicax_pulsatrix_flow_jc", args: ARGS }));
-    expect(closed).toContain("See technical details");
+    expect(closed).toContain("View the full request");
     expect(closed).toContain('data-technical-details="closed"');
     expect(closed).not.toContain(TOOL);
 
     const open = renderToStaticMarkup(createElement(TechnicalDetails, { tool: TOOL, server: "perspicax_pulsatrix_flow_jc", args: ARGS, defaultOpen: true }));
-    expect(open).toContain("Hide technical details");
+    expect(open).toContain("Hide the full request");
     expect(open).toContain(TOOL);
     expect(open).toContain("perspicax_pulsatrix_flow_jc");
     expect(open).toContain('<span class="text-accent">&quot;conditions&quot;</span>');
@@ -107,7 +107,7 @@ describe("technical details toggle", () => {
   it("speaks French", () => {
     setLocale("fr");
     const html = renderToStaticMarkup(createElement(TechnicalDetails, { tool: TOOL, args: ARGS }));
-    expect(html).toContain("Voir les détails techniques");
+    expect(html).toContain("Voir la demande complète");
   });
 });
 
@@ -122,10 +122,10 @@ describe("composer panel and stepper", () => {
     setLocale("fr");
     const approvals = pendingApprovals(messages);
     const html = renderToStaticMarkup(createElement(PendingApprovalPanel, { pending: approvals[0]!, count: 3, index: 0, bot, onNext: () => {} }));
-    expect(html).toContain("Cryptic veut consulter l&#x27;horaire dans ConnectWise PSA");
+    expect(html).toContain("Autoriser Cryptic à consulter l&#x27;horaire dans ConnectWise PSA ?");
     expect(html).toContain("1 sur 3");
     expect(html).toContain('aria-label="Demande précédente"');
-    expect(html).toContain("Voir les détails techniques");
+    expect(html).toContain("Voir la demande complète");
     expect(html).not.toContain("conditions");
     expect(html).not.toContain("PENDING");
   });

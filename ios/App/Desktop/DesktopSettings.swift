@@ -54,6 +54,7 @@ final class DesktopSettingsModel: ObservableObject {
         defer { saving.remove(key) }
         do {
             config = try await client.updateDesktopSettings(change)
+            DesktopSidebarFlags.shared.apply(config)
             return nil
         } catch {
             let message = error.localizedDescription

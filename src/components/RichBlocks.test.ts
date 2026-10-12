@@ -78,6 +78,24 @@ describe("widget", () => {
     expect(html).not.toContain("<iframe");
     expect(html).toContain("still being written");
   });
+
+  it("lifts a Claude antArtifact HTML tag into the sandboxed widget", () => {
+    const html = render('Here:\n<antArtifact type="text/html" title="Box"><button>Go</button></antArtifact>');
+    expect(html).toContain("<iframe");
+    expect(html).toContain("Interactive widget");
+    expect(html).not.toContain("&lt;antArtifact");
+  });
+});
+
+describe("artifact page card", () => {
+  it("renders a title and Open for a real URL, and never invents a link", () => {
+    const html = render('```artifact\n{"title":"Quarterly review","url":"https://claude.ai/code/artifact/abc"}\n```');
+    expect(html).toContain("Quarterly review");
+    expect(html).toContain("Open");
+    expect(html).toContain('href="https://claude.ai/code/artifact/abc"');
+    expect(html).not.toContain("<iframe");
+    expect(render('```artifact\n{"title":"Nope","url":"javascript:alert(1)"}\n```')).not.toContain("javascript:");
+  });
 });
 
 describe("chart", () => {

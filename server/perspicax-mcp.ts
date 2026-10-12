@@ -26,6 +26,7 @@
 //   - no token is ever logged or put in an error.
 import type { SubjectTokenOutcome } from "./idp-session.ts";
 import type { DirectoryProfile, ExchangeResult } from "./perspicax-link.ts";
+import { PERSPICAX_READ_ONLY_TOOLS } from "./drivers/acp/grok-read-only-tools.ts";
 
 export type PerspicaxUnavailableReason = "not_held" | "no_session" | "unreachable" | "rate_limited" | "no_delegation" | "unknown_speaker" | "unknown_profile";
 
@@ -100,6 +101,34 @@ export const PERSPICAX_TOKEN_MIN_LIFE_MS = 60_000;
 export const PERSPICAX_RELAY_TIMEOUT_MS = 10 * 60_000;
 export const PERSPICAX_RELAY_MAX_BYTES = 20 * 1024 * 1024;
 export const PERSPICAX_ACCESS_ENDED = "Perspicax access for this turn ended";
+/** A call Sagax did not replay after Perspicax dropped the MCP session: it can
+ * change data, so the bot decides (the call never reached Perspicax's tool). */
+export const PERSPICAX_SESSION_RESET = "Perspicax had dropped this MCP session (idle or restarted). Sagax opened a new one, but did not replay this call because it can change data: it did not run. Call it again if it is still wanted.";
+
+/** Requests that only read, safe to send again on a new session. */
+const READ_ONLY_METHODS = new Set(["tools/list", "resources/list", "resources/templates/list", "resources/read", "prompts/list", "prompts/get", "ping", "completion/complete"]);
+
+/** Whether a frame may be sent again after a new session: a read-only method,
+ * or tools/call of a Perspicax tool reviewed as read-only (grok-read-only-tools.ts).
+ * Writes, actions, sends and unknown tools are never replayed. */
+export function perspicaxReplayable(frame: Record<string, unknown>): boolean {
+  const method = frame.method;
+  if (typeof method !== "string") return false;
+  if (READ_ONLY_METHODS.has(method)) return true;
+  if (method !== "tools/call") return false;
+  const params = frame.params;
+  const name = params && typeof params === "object" && !Array.isArray(params) ? (params as Record<string, unknown>).name : undefined;
+  return typeof name === "string" && PERSPICAX_READ_ONLY_TOOLS.has(name);
+}
+
+/** Perspicax (rmcp streamable HTTP, legacy session mode) answers 404
+ * "Session not found" for a session it no longer has (idle past its keep-alive,
+ * or a restart), and 422 "Unexpected message, expect initialize request" for a
+ * call that carries no session. Both mean: initialize again. */
+export function perspicaxSessionLost(status: number, text: string): boolean {
+  if (status === 404) return true;
+  return status === 422 && /expect initialize/i.test(text);
+}
 
 interface Entry {
   threadId: string;
@@ -113,6 +142,8 @@ interface Entry {
   token: string;
   expiresAt: number;
   mcpSessionId?: string;
+  /** One re-initialize at a time (relay, a session Perspicax dropped). */
+  reopening?: Promise<boolean>;
   /** The person is out, or the access could not be renewed: every call ends. */
   ended?: boolean;
   renewing?: Promise<boolean>;
@@ -125,6 +156,12 @@ export interface PerspicaxRelayAnswer {
 }
 
 const key = (threadId: string, generation: string, profileId: string) => `${threadId}\u0000${generation}\u0000${profileId}`;
+const initKey = (threadId: string, profileId: string) => `${threadId}\u0000${profileId}`;
+/** Bounds the kept initialize params (one per thread and profile). */
+const MAX_INIT_PARAMS = 2_000;
+/** The protocol a reopened session asks for when the engine's own initialize
+ * was never seen (a bridge initialized before this server started). */
+export const PERSPICAX_PROTOCOL_VERSION = "2025-06-18";
 const warmKey = (threadId: string, profileId: string, principalId: string, source: Entry["source"]) =>
   `${threadId}\u0000${profileId}\u0000${principalId}\u0000${source}`;
 /** A refusal worth one more try a moment later. */
@@ -190,6 +227,9 @@ export class PerspicaxMcp {
   private readonly entries = new Map<string, Entry>();
   /** tokens a call keeps between turns (keepWarm), by thread, profile and speaker */
   private readonly warm = new Map<string, Entry>();
+  /** The engine's last initialize params per thread and profile (reopen). */
+  private readonly initParams = new Map<string, Json>();
+  private reopens = 0;
 
   constructor(options: PerspicaxMcpOptions) {
     this.options = options;
@@ -338,33 +378,35 @@ export class PerspicaxMcp {
       const params = isObject(frame.params) ? { ...frame.params } : {};
       params.clientInfo = { name: `Pulsa Bot (${input.botId})`, version: this.options.version };
       frame.params = params;
+      this.rememberInit(entry, params);
     }
     const link = this.options.link();
     if (!link) return ended();
-    let response: Response;
-    try {
-      response = await this.post(link.mcpEndpoint(), entry, frame);
-      if (response.status === 401) {
-        void response.body?.cancel().catch(() => {});
-        if (!(await this.renew(entry))) return ended();
-        response = await this.post(link.mcpEndpoint(), entry, frame);
-        if (response.status === 401) {
-          void response.body?.cancel().catch(() => {});
-          this.end(entry);
-          return ended();
-        }
-      }
-    } catch (error) {
-      this.log(`perspicax mcp: a call could not reach Perspicax (${error instanceof Error ? error.name : "error"})`);
-      return notification ? { status: 202 } : { status: 200, body: rpcError(id, -32000, "Perspicax is unavailable") };
+    // A turn's entry starts without a session while the engine may keep the
+    // bridge it initialized on an earlier turn: open one first, or Perspicax
+    // answers 422 "expect initialize request".
+    if (frame.method !== "initialize" && !notification && !entry.mcpSessionId && this.initParams.has(initKey(entry.threadId, entry.profileId))) {
+      await this.reopen(link, entry);
     }
-    const session = response.headers.get("mcp-session-id");
-    if (session && session.length <= 256) entry.mcpSessionId = session;
-    let text: string;
-    try {
-      text = await readBounded(response, PERSPICAX_RELAY_MAX_BYTES);
-    } catch {
-      return notification ? { status: 202 } : { status: 200, body: rpcError(id, -32000, "Perspicax is unavailable") };
+    const usedSession = entry.mcpSessionId;
+    const sent = await this.send(link, entry, frame);
+    if (sent === "ended") return ended();
+    if (sent === "unreachable") return notification ? { status: 202 } : { status: 200, body: rpcError(id, -32000, "Perspicax is unavailable") };
+    let { response, text } = sent;
+    if (frame.method !== "initialize" && perspicaxSessionLost(response.status, text)) {
+      // Perspicax dropped the session (idle past its keep-alive, a restart):
+      // initialize again, once; send a read again, never a write.
+      // a concurrent call may have opened the new session already
+      const reopened = entry.mcpSessionId !== undefined && entry.mcpSessionId !== usedSession ? true : await this.reopen(link, entry);
+      const replay = reopened && !notification && perspicaxReplayable(frame);
+      this.log(`perspicax mcp: profile ${entry.profileId} session lost (HTTP ${response.status}); ${reopened ? "a new one is open" : "a new one could not be opened"}; ${replay ? "read sent again" : notification ? "notification dropped" : "call not replayed"}`);
+      if (notification) return { status: 202 };
+      if (!reopened) return { status: 200, body: rpcError(id, -32000, `Perspicax answered HTTP ${response.status}`) };
+      if (!replay) return { status: 200, body: rpcError(id, -32000, PERSPICAX_SESSION_RESET) };
+      const again = await this.send(link, entry, frame);
+      if (again === "ended") return ended();
+      if (again === "unreachable") return { status: 200, body: rpcError(id, -32000, "Perspicax is unavailable") };
+      ({ response, text } = again);
     }
     if (notification) return { status: 202 };
     if (!response.ok) {
@@ -383,6 +425,64 @@ export class PerspicaxMcp {
     } catch {
       return { status: 200, body: rpcError(id, -32000, "Perspicax sent an answer that is not JSON") };
     }
+  }
+
+  /** POST one frame with the entry's token and session; a 401 renews the
+   * token once. The answer is read whole (bounded); the session it names is kept. */
+  private async send(link: PerspicaxMcpLink, entry: Entry, frame: Json): Promise<{ response: Response; text: string } | "ended" | "unreachable"> {
+    let response: Response;
+    try {
+      response = await this.post(link.mcpEndpoint(), entry, frame);
+      if (response.status === 401) {
+        void response.body?.cancel().catch(() => {});
+        if (!(await this.renew(entry))) return "ended";
+        response = await this.post(link.mcpEndpoint(), entry, frame);
+        if (response.status === 401) {
+          void response.body?.cancel().catch(() => {});
+          this.end(entry);
+          return "ended";
+        }
+      }
+    } catch (error) {
+      this.log(`perspicax mcp: a call could not reach Perspicax (${error instanceof Error ? error.name : "error"})`);
+      return "unreachable";
+    }
+    const session = response.headers.get("mcp-session-id");
+    if (session && session.length <= 256) entry.mcpSessionId = session;
+    try {
+      return { response, text: await readBounded(response, PERSPICAX_RELAY_MAX_BYTES) };
+    } catch {
+      return "unreachable";
+    }
+  }
+
+  /** Open a new MCP session for the entry (initialize, then initialized),
+   * one at a time; true when Perspicax named a session. */
+  private reopen(link: PerspicaxMcpLink, entry: Entry): Promise<boolean> {
+    entry.reopening ??= this.reopenOnce(link, entry).finally(() => { entry.reopening = undefined; });
+    return entry.reopening;
+  }
+
+  private async reopenOnce(link: PerspicaxMcpLink, entry: Entry): Promise<boolean> {
+    if (entry.ended) return false;
+    entry.mcpSessionId = undefined;
+    const params = this.initParams.get(initKey(entry.threadId, entry.profileId)) ?? {
+      protocolVersion: PERSPICAX_PROTOCOL_VERSION,
+      capabilities: {},
+      clientInfo: { name: `Pulsa Bot (${entry.botId})`, version: this.options.version },
+    };
+    const opened = await this.send(link, entry, { jsonrpc: "2.0", id: `sagax-reopen-${++this.reopens}`, method: "initialize", params });
+    if (typeof opened === "string" || !opened.response.ok || !entry.mcpSessionId) return false;
+    const done = await this.send(link, entry, { jsonrpc: "2.0", method: "notifications/initialized" });
+    return typeof done !== "string" && Boolean(entry.mcpSessionId);
+  }
+
+  /** The engine's own initialize, kept so a new session looks like its first. */
+  private rememberInit(entry: Entry, params: Json): void {
+    const at = initKey(entry.threadId, entry.profileId);
+    this.initParams.delete(at);
+    this.initParams.set(at, params);
+    while (this.initParams.size > MAX_INIT_PARAMS) this.initParams.delete(this.initParams.keys().next().value!);
   }
 
   /** The turn's generation ended: revoke every token it holds and close its

@@ -175,8 +175,8 @@ struct ExperimentalSettingsView: View {
                             : "Off by default. Enable it to let supported bots use a browser tab you can watch and take over.",
                         on: config?.features?.browser == true)
                 CardHairline(leadingInset: SettingsMetrics.rowInset)
-                feature("templates", title: "Templates",
-                        detail: "Off by default. Shows Templates in the sidebar menu, to install a ready-made team of bots.",
+                feature("templates", title: "Browse Bots",
+                        detail: "Off by default. Shows Browse Bots in the sidebar menu, to find and add ready-made bots and teams.",
                         on: config?.features?.templates == true)
                 CardHairline(leadingInset: SettingsMetrics.rowInset)
                 feature("connectedApps", title: "Connected apps",
@@ -211,6 +211,7 @@ struct ExperimentalSettingsView: View {
             defer { saving = false }
             do {
                 config = try await client.updateDesktopSettings(.feature(key, on))
+                DesktopSidebarFlags.shared.apply(config)
                 error = nil
             } catch {
                 self.error = error.localizedDescription
@@ -228,20 +229,28 @@ struct DisplaySettingsCard: View {
     @AppStorage(PrefKey.activityDetail) private var activityDetail = ActivityDetail.full.rawValue
     @AppStorage(PrefKey.islandIntro) private var islandIntro = IslandIntro.oncePerBot.rawValue
     @AppStorage(PrefKey.rosterDensity) private var rosterDensity = RosterDensity.default.rawValue
+    @AppStorage(PrefKey.updatesButton) private var updatesButton = false
 
     var body: some View {
         SettingsSectionLabel(text: "Display")
         SettingsCard {
             Menu {
-                Picker(selection: Binding(get: { RosterDensity(stored: rosterDensity) }, set: { rosterDensity = $0.rawValue })) {
-                    ForEach(RosterDensity.allCases, id: \.self) { density in
+                Picker(selection: Binding(get: { RosterDensity.shown(stored: rosterDensity) }, set: { rosterDensity = $0.rawValue })) {
+                    ForEach(RosterDensity.selectable, id: \.self) { density in
                         Text(LocalizedStringKey(density.label)).tag(density)
                     }
                 } label: { EmptyView() }
             } label: {
-                SettingsRow(title: "List density", accessory: .valueChevron(String(localized: String.LocalizationValue(RosterDensity(stored: rosterDensity).label))), height: 43.67)
+                SettingsRow(title: "List density", accessory: .valueChevron(String(localized: String.LocalizationValue(RosterDensity.shown(stored: rosterDensity).label))), height: 43.67)
             }
             .accessibilityIdentifier("list-density")
+            CardHairline(leadingInset: SettingsMetrics.rowInset)
+            SettingsRow(
+                title: "Updates button",
+                subtitle: "A large Updates button at the bottom of the home, to see what the bots did at a glance.",
+                accessory: .toggle($updatesButton),
+                identifier: "settings.updatesButton"
+            )
             CardHairline(leadingInset: SettingsMetrics.rowInset)
             Menu {
                 Picker(selection: $activityDetail) {
@@ -265,6 +274,6 @@ struct DisplaySettingsCard: View {
             }
             .accessibilityIdentifier("settings-bot-intro")
         }
-        SettingsFooter(text: LocalizedStringKey(RosterDensity(stored: rosterDensity).caption))
+        SettingsFooter(text: LocalizedStringKey(RosterDensity.shown(stored: rosterDensity).caption))
     }
 }

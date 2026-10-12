@@ -161,15 +161,22 @@ app.whenReady().then(async () => {
   assert.equal(created.status, 201);
   const id = created.body.bot.id;
   assert.equal((await api(`/api/bots/${id}`, "PATCH", { approvalMode: "full", acknowledgeFullAccess: true })).status, 403);
+  // A new bot's first thread starts on Approve for me (51647a630) and keeps
+  // that snapshot when the bot default changes. A thread opened after the
+  // change inherits the new default, so each level is verified there.
+  const firstThread = created.body.bot.threadId;
+  const readCreated = async () => (await api("/api/bots?messages=0")).body.bots.find((bot) => bot.id === id);
   for (const [mode, native] of [["full", "bypassPermissions"], ["auto", "auto"], ["edits", "acceptEdits"], ["ask", "default"]]) {
     await coordinator.request(child, id, mode);
-    await until(async () => (await api("/api/bots?messages=0")).body.bots.find((bot) => bot.id === id)?.approvalMode === mode);
-    assert.equal((await api(`/api/bots/${id}/messages`, "POST", { text: `Verify ${mode}` })).status, 202);
-    await until(async () => !(await api("/api/bots?messages=0")).body.bots.find((bot) => bot.id === id)?.busy);
+    await until(async () => (await readCreated())?.approvalMode === mode);
+    const fresh = (await api(`/api/bots/${id}/tasks`, "POST", { title: `Verify ${mode}` })).body.task;
+    assert.equal(fresh.approvalMode, mode);
+    assert.equal((await api(`/api/bots/${id}/messages`, "POST", { text: `Verify ${mode}`, threadId: fresh.threadId })).status, 202);
+    await until(async () => !(await readCreated()).tasks.find((task) => task.threadId === fresh.threadId)?.busy);
     const argv = JSON.parse(readFileSync(dump, "utf8")).argv;
     assert.equal(argv[argv.indexOf("--permission-mode") + 1], native);
-    if (mode !== "full") assert.ok(argv.includes("--resume"));
-    console.log(JSON.stringify({ mode, native, privateGrant: true, turnSettled: true }));
+    if (firstThread) assert.equal((await readCreated()).tasks.find((task) => task.threadId === firstThread)?.approvalMode, "auto");
+    console.log(JSON.stringify({ mode, native, privateGrant: true, newThreadInherits: true, firstThreadKept: Boolean(firstThread), turnSettled: true }));
   }
   await assert.rejects(coordinator.request(child, id, "custom"), /only for Codex/);
   // Existing conversations retain their snapshot when the bot default
@@ -253,6 +260,9 @@ app.whenReady().then(async () => {
     const bot = (await api("/api/bots", "POST", { name: "Approval fixture", modelSelection: { instanceId: "grok-reads", model } })).body.bot;
     for (const [turn, mode] of ["auto", "auto", "ask"].entries()) {
       await coordinator.request(child, bot.id, mode);
+      // The first thread keeps its own snapshot when the bot default changes,
+      // so lowering it to Ask is the thread's own (always allowed) change.
+      if (mode === "ask") assert.equal((await api(`/api/bots/${bot.id}/tasks/${bot.threadId}`, "PATCH", { approvalMode: "ask" })).status, 200);
       const before = (await api("/api/bots")).body.bots.find((candidate) => candidate.id === bot.id).messages.length;
       assert.equal((await api(`/api/bots/${bot.id}/messages`, "POST", { text: `Approval fixture ${model} ${mode}` })).status, 202);
       if (mode === "auto") {
@@ -303,6 +313,15 @@ app.whenReady().then(async () => {
     for (const [turn, mode] of ["full", "full", "ask", "auto"].entries()) {
       await coordinator.request(child, agyBot.id, mode);
       await until(async () => (await api("/api/bots?messages=0")).body.bots.find((bot) => bot.id === agyBot.id)?.approvalMode === mode);
+      // The first thread keeps its snapshot when the bot default changes:
+      // Full reaches it only through the private thread grant, and a lower
+      // level is the thread's own change.
+      const firstMode = (await api("/api/bots?messages=0")).body.bots.find((bot) => bot.id === agyBot.id).tasks.find((task) => task.threadId === agyBot.threadId)?.approvalMode;
+      if (firstMode !== mode) {
+        if (mode === "full") await coordinator.request(child, agyBot.id, "full", { threadId: agyBot.threadId });
+        else assert.equal((await api(`/api/bots/${agyBot.id}/tasks/${agyBot.threadId}`, "PATCH", { approvalMode: mode })).status, 200);
+        await until(async () => (await api("/api/bots?messages=0")).body.bots.find((bot) => bot.id === agyBot.id).tasks.find((task) => task.threadId === agyBot.threadId)?.approvalMode === mode);
+      }
       const before = (await api("/api/bots")).body.bots.find((bot) => bot.id === agyBot.id).messages.length;
       assert.equal((await api(`/api/bots/${agyBot.id}/messages`, "POST", { text: `Verify ${model} ${mode} turn ${turn}` })).status, 202);
       if (mode === "full") {

@@ -12,6 +12,8 @@
 import {
   BUNBU_DEFAULT_COLOR,
   BUNBU_SKINS,
+  CRAB_DEFAULT_COLOR,
+  CRAB_SKINS,
   FROG_DEFAULT_COLOR,
   FROG_SKINS,
   GRUMP_SKINS,
@@ -34,6 +36,7 @@ export type MascotCatalogFamily = (typeof MASCOT_CATALOG_FAMILIES)[number];
 /** Each character's family, as the registry files it. */
 export const MASCOT_FAMILY_OF: Readonly<Record<MascotCharacter, MascotCatalogFamily>> = {
   owl: "classics",
+  crab: "animals",
   shape: "shapes",
   trombi: "classics",
   bunbu: "animals",
@@ -59,6 +62,7 @@ export interface MascotCatalogEntry {
 
 const SKINS: Readonly<Record<MascotCharacter, { skins: readonly string[]; defaultSkin: string; colors: boolean; defaultColor: string | null }>> = {
   owl: { skins: MASCOT_SKIN_IDS, defaultSkin: "none", colors: true, defaultColor: null },
+  crab: { skins: CRAB_SKINS, defaultSkin: "plain", colors: true, defaultColor: CRAB_DEFAULT_COLOR },
   shape: { skins: SHAPE_SKINS, defaultSkin: "plain", colors: true, defaultColor: null },
   trombi: { skins: TROMBI_SKINS, defaultSkin: "classic", colors: false, defaultColor: null },
   bunbu: { skins: BUNBU_SKINS, defaultSkin: "plain", colors: true, defaultColor: BUNBU_DEFAULT_COLOR },

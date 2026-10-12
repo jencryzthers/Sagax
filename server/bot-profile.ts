@@ -10,7 +10,7 @@ import {
 import { BOT_PROFILE_LIMITS, fitsOnOneLine } from "../shared/bot-profile.ts";
 import { MASCOT_BODY_IDS, mascotBodySchema } from "../shared/mascot-bodies.ts";
 import { MASCOT_SKIN_IDS, mascotSkinSchema } from "../shared/mascot-skins.ts";
-import { mascotLookSchema } from "../shared/mascot-look.ts";
+import { MASCOT_CHARACTERS, mascotLookSchema } from "../shared/mascot-look.ts";
 
 import type { BotRecord } from "./store.ts";
 
@@ -131,7 +131,9 @@ export function parseBotProfilePatch(input: BotProfilePatchInput, strict = false
       return { ok: false, error: `mascotBody must be ${options}` };
     }
     if (issue?.path[0] === "mascotLook") {
-      return { ok: false, error: "mascotLook must be { character: owl, shape, trombi, bunbu, shiba, grump, ogre or frog, style, shape, skins }" };
+      const names = MASCOT_CHARACTERS;
+      const options = names.length <= 1 ? names[0] : `${names.slice(0, -1).join(", ")}, or ${names.at(-1)}`;
+      return { ok: false, error: `mascotLook must be { character: ${options}, style, shape, skins }` };
     }
     if (issue?.path[0] === "mascotSkin") {
       const options = `${MASCOT_SKIN_IDS.slice(0, -1).join(", ")}, or ${MASCOT_SKIN_IDS.at(-1)}`;

@@ -11,8 +11,9 @@
 // docs/ can be created, uploaded (.md), renamed and deleted here.
 //
 // Simple mode keeps the list and the badges, and leaves out their details
-// (budgets, dates, last use).
-import { Download, File as FileIcon, FilePlus, Folder, Pencil, Trash2, Upload } from "lucide-react";
+// (budgets, dates, last use). Folders start collapsed; a chevron opens
+// them like a file manager.
+import { ChevronRight, Download, File as FileIcon, FilePlus, Folder, Pencil, Trash2, Upload } from "lucide-react";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 
 import { cn } from "@/lib/cn";
@@ -23,8 +24,10 @@ import {
   DOCS_DIR,
   deleteWorkspaceDoc,
   docPathFromName,
+  entryAncestors,
   entryDepth,
   entryName,
+  entryVisible,
   fetchWorkspace,
   fetchWorkspaceDoc,
   isRulesOrDoc,
@@ -128,6 +131,7 @@ export function WorkspaceFilesSection({
   active,
   onOpenSection,
   initial,
+  initialExpanded,
   memoryEditable = false,
 }: {
   bot: Bot;
@@ -137,6 +141,8 @@ export function WorkspaceFilesSection({
   onOpenSection: (target: BotSettingsSection) => void;
   /** a listing to start from (tests); otherwise fetched when active */
   initial?: WorkspaceListing;
+  /** folders start collapsed; tests pass the open ones */
+  initialExpanded?: Iterable<string>;
 }) {
   const advanced = useAdvancedMode();
   const [listing, setListing] = useState<WorkspaceListing | null>(initial ?? null);
@@ -146,6 +152,7 @@ export function WorkspaceFilesSection({
   const [newName, setNewName] = useState("");
   const [renaming, setRenaming] = useState<{ path: string; value: string } | null>(null);
   const [conflict, setConflict] = useState<{ current: string; currentHash: string } | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(initialExpanded));
   const uploadRef = useRef<HTMLInputElement>(null);
 
   const reload = () =>
@@ -158,10 +165,40 @@ export function WorkspaceFilesSection({
     );
 
   useEffect(() => {
+    setExpanded(new Set(initialExpanded));
+    // Folders start collapsed per bot; initialExpanded is a test seed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bot.id]);
+
+  useEffect(() => {
     if (!active) return;
     void reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, bot.id]);
+
+  const reveal = (path: string) => {
+    setExpanded((current) => {
+      const next = new Set(current);
+      for (const ancestor of entryAncestors(path)) next.add(ancestor);
+      return next;
+    });
+  };
+
+  const toggleDir = (path: string) => {
+    const closing = expanded.has(path);
+    const hidesOpen = Boolean(open && (open.path === path || open.path.startsWith(`${path}/`)));
+    if (closing && hidesOpen && open?.dirty && !window.confirm(t("persona.files.dropDraft"))) return;
+    if (closing && hidesOpen && open?.dirty) {
+      setOpen(null);
+      setConflict(null);
+    }
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
 
   const run = async (work: () => Promise<unknown>) => {
     setBusy(true);
@@ -182,6 +219,7 @@ export function WorkspaceFilesSection({
     if (open?.dirty && !window.confirm(t("persona.files.dropDraft"))) return;
     setConflict(null);
     if (open?.path === entry.path) return setOpen(null);
+    reveal(entry.path);
     void run(async () => {
       if (editableHere(entry)) {
         const doc = isRulesOrDoc(entry.path) ? await fetchWorkspaceDoc(bot.id, entry.path) : await fetchMemoryDoc(bot.id, entry.path);
@@ -221,6 +259,7 @@ export function WorkspaceFilesSection({
       if (!result.ok) throw new Error(t("persona.files.exists", { path }));
       setNewName("");
       await reload();
+      reveal(path);
       setOpen({ path, text: result.doc.text, hash: result.doc.hash, dirty: false, readOnly: false });
     });
 
@@ -260,7 +299,8 @@ export function WorkspaceFilesSection({
   };
 
   const now = listing?.now ?? Date.now();
-  const rows = listing ? [listing.soul, ...listing.entries] : [];
+  const listedDirs = new Set((listing?.entries ?? []).filter((entry) => entry.kind === "dir").map((entry) => entry.path));
+  const rows = listing ? [listing.soul, ...listing.entries].filter((entry) => entryVisible(entry.path, expanded, listedDirs)) : [];
   const isDoc = (entry: WorkspaceEntry) => entry.kind === "file" && entry.path.startsWith(`${DOCS_DIR}/`) && entry.path.split("/").length === 2;
 
   return (
@@ -317,15 +357,28 @@ export function WorkspaceFilesSection({
           const depth = entryDepth(entry.path);
           const name = entryName(entry.path);
           const isOpen = open?.path === entry.path;
+          const folderOpen = entry.kind === "dir" && expanded.has(entry.path);
           return (
-            <li key={entry.path} data-file-row={entry.path} data-forgotten={entry.forgotten ? "" : undefined} className="px-3 py-2">
+            <li key={entry.path} data-file-row={entry.path} data-forgotten={entry.forgotten ? "" : undefined} data-folder-expanded={entry.kind === "dir" ? (folderOpen ? "true" : "false") : undefined} className="px-3 py-2">
               <div className="flex items-center gap-2" style={{ paddingLeft: depth * 16 }}>
-                {entry.kind === "dir"
-                  ? <Folder size={14} aria-hidden="true" className="shrink-0 text-ink-secondary" />
-                  : <FileIcon size={14} aria-hidden="true" className="shrink-0 text-ink-secondary" />}
                 {entry.kind === "dir" ? (
-                  <span className="min-w-0 flex-1 truncate text-[13px] text-ink-secondary">{name}/</span>
-                ) : renaming?.path === entry.path ? (
+                  <button
+                    type="button"
+                    data-folder-toggle={entry.path}
+                    aria-expanded={folderOpen}
+                    aria-label={t(folderOpen ? "persona.files.collapse" : "persona.files.expand", { name })}
+                    onClick={() => toggleDir(entry.path)}
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left text-ink-secondary hover:text-ink"
+                  >
+                    <ChevronRight size={12} aria-hidden="true" className={cn("shrink-0 transition-transform", folderOpen && "rotate-90")} />
+                    <Folder size={14} aria-hidden="true" className="shrink-0" />
+                    <span className="min-w-0 flex-1 truncate text-[13px]">{name}/</span>
+                  </button>
+                ) : (
+                  <span className="w-3 shrink-0" aria-hidden="true" />
+                )}
+                {entry.kind === "file" && <FileIcon size={14} aria-hidden="true" className="shrink-0 text-ink-secondary" />}
+                {entry.kind === "dir" ? null : renaming?.path === entry.path ? (
                   <input
                     autoFocus
                     value={renaming.value}
@@ -371,7 +424,7 @@ export function WorkspaceFilesSection({
                 )}
               </div>
               {advanced && entry.kind === "file" && (
-                <div className={cn("mt-0.5 text-[11.5px] text-ink-tertiary", entry.budget?.over && "text-danger")} style={{ paddingLeft: depth * 16 + 22 }} data-file-details="">
+                <div className={cn("mt-0.5 text-[11.5px] text-ink-tertiary", entry.budget?.over && "text-danger")} style={{ paddingLeft: depth * 16 + 42 }} data-file-details="">
                   {entryDetails(entry, now)}
                 </div>
               )}

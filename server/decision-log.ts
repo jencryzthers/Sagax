@@ -63,6 +63,10 @@ export type DecisionKind =
  * by editing a bot's connectorTools, so the call itself needed no card. */
 export type DecisionSource =
   | AutoVerdictSource
+  /** nobody answered an AI client's hidden-thread approval in time */
+  | "expired"
+  /** an approval left open when Sagax restarted: its request died with the process */
+  | "restart"
   | "self"
   | "question"
   | "auto-fallback"

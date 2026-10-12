@@ -38,6 +38,9 @@ export interface Notification {
   /** The bot's stored profile image, when it has one; clients show it as
    * the OS notification's icon so every banner carries its bot's face. */
   avatarUrl?: string;
+  /** The approval or question this is about: a tap opens its card, and the
+   * banner is withdrawn once it is answered anywhere. */
+  requestId?: string;
   /** The room this came out of, when the bot was speaking in one. Routing
    * already works off `threadId` alone; this is what lets a client say which
    * room, and stack a room's banners together instead of under the bot. */

@@ -76,7 +76,7 @@ export function engineStatus(instance: InstanceInfo): string {
   return instance.snapshot.version ?? t("model.ready");
 }
 
-/** Sign-in required, no access yet, or not installed: folded in the rail unless the person asked to see them. */
+/** Sign-in required, no access yet, or not installed: hidden in the rail unless the person asked to see them. */
 export function providerRailUnready(instance: InstanceInfo, status?: { attention: boolean }): boolean {
   if (status) return status.attention;
   return needsCli(instance) || needsSignIn(instance);
@@ -310,8 +310,8 @@ export function ModelEngineRail({ instances, selectedInstance, claudeInstance, o
   /** Organization server: a provider the organization does not allow,
    * listed once (the person connected it before) and never selectable. */
   notAllowed?: (instance: InstanceInfo) => boolean;
-  /** Appearance setting: expand sign-in required / no access in every group.
-   * Off by default; the picker passes the saved preference. */
+  /** Appearance setting: list sign-in required / no access in every group.
+   * Off by default: they stay hidden. The picker passes the saved preference. */
   showUnready?: boolean;
 }) {
   const showUnready = showUnreadyProp === true;
@@ -402,33 +402,17 @@ export function ModelEngineRail({ instances, selectedInstance, claudeInstance, o
     return providerRailUnready(target, statusOf?.(target));
   };
   const renderGroup = (label: string, rows: InstanceInfo[], extra?: ReactNode, headingClass?: string) => {
-    if (rows.length === 0 && !extra) return null;
-    const folded = showUnready ? [] : rows.filter((instance) => isUnready(instance) && !isSelectedProvider(instance));
-    const visible = rows.filter((instance) => !folded.includes(instance));
-    if (visible.length === 0 && folded.length === 0 && !extra) return null;
+    const visible = showUnready
+      ? rows
+      : rows.filter((instance) => !isUnready(instance) || isSelectedProvider(instance));
+    if (visible.length === 0 && !extra) return null;
     const heading = headingClass
       ? <EngineGroupLabel className={headingClass}>{label}</EngineGroupLabel>
       : <EngineGroupLabel className="hidden px-2.5 pb-0.5 pt-2 text-[10px] first:pt-0.5 sm:block">{label}</EngineGroupLabel>;
-    const unreadyLabel = folded.length === 1 ? t("model.rail.unreadyOne") : t("model.rail.unready", { count: folded.length });
     return (
       <Fragment key={`rail-${label}`}>
         {heading}
         {visible.map(railButton)}
-        {folded.length > 0 && (
-          <details data-rail-unready data-rail-unready-count={folded.length} className={cn("group/unready min-w-0", wide ? "sm:w-full" : "flex flex-col items-center")}>
-            <summary
-              aria-label={wide ? undefined : unreadyLabel}
-              className={cn(
-                "flex cursor-pointer list-none items-center gap-1 text-ink-secondary outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-accent [&::-webkit-details-marker]:hidden marker:content-none",
-                wide ? "rounded-lg px-2.5 py-1.5 text-[11px]" : "justify-center px-0.5 py-1 text-[10px] tabular-nums",
-              )}
-            >
-              <ChevronDown size={wide ? 12 : 10} aria-hidden="true" className="shrink-0 transition-transform group-open/unready:rotate-180 motion-reduce:transition-none" />
-              <span className={wide ? "min-w-0 truncate" : undefined}>{wide ? unreadyLabel : folded.length}</span>
-            </summary>
-            <div className={cn("flex", wide ? "flex-col" : "flex-col items-center gap-1")}>{folded.map(railButton)}</div>
-          </details>
-        )}
         {extra}
       </Fragment>
     );

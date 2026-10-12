@@ -1,10 +1,8 @@
-// The character editor the panel's mascot opens (`Edit avatar`,
-// `BotProfileAvatarCard.tsx` with `MascotLookEditor.tsx`): character,
-// colour, skin, the picture row (upload, generate, frame, remove), the
-// picture's shape, and Reset. Each choice saves at once, as on the desktop.
-// Moved from the profile's Info tab "Character" card and the retired
-// "Bot settings" sheet's Avatar and Generate sections.
+// The character editor the panel's mascot opens (`Edit avatar`). Same tabs
+// as the desktop popover and the iPad `BotAvatarEditor`: Bot / Generate /
+// Upload and Reset. Each choice saves at once.
 import CompanionCore
+import PhotosUI
 import SwiftUI
 import UIKit
 
@@ -15,29 +13,41 @@ struct PhoneBotAvatarSheet: View {
     let bot: Bot
     @Binding var draft: CharacterDraft
 
+    enum Tab: String, CaseIterable { case bot, generate, upload }
+
+    @State private var tab: Tab = .bot
     @State private var unlocks: MascotUnlocks = .nothingLocked
     @State private var generating = false
     @State private var generatePrompt = ""
-    @State private var askingGenerate = false
     @State private var framing = false
+    @State private var photo: PhotosPickerItem?
+    @State private var config: ConfigStatus?
 
     private var current: Bot { session.state.bot(bot.id) ?? bot }
+    private var canGenerate: Bool { session.canAdminister && config?.imageGen?.configured == true }
+    private var working: Bool { generating }
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 0) {
-                    BotMascotView(bot: current, size: Theme.Profile.mascot, state: .idle, animated: true)
-                        .padding(.top, 12)
-                        .padding(.bottom, 20)
-                    AnyView(editorCard)
-                    if current.avatarUrl != nil {
-                        AnyView(shapeCard).padding(.top, Theme.Profile.cardGap)
+            VStack(alignment: .leading, spacing: 0) {
+                tabBar
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                ScrollView {
+                    Group {
+                        switch tab {
+                        case .bot: botTab
+                        case .generate: generateTab
+                        case .upload: uploadTab
+                        }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                    .padding(.bottom, 40)
                 }
-                .padding(.bottom, 40)
             }
             .background(Theme.bg)
+            .overlay { if working { ProgressView().controlSize(.large) } }
             .navigationTitle(Text("Edit avatar"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -51,49 +61,51 @@ struct PhoneBotAvatarSheet: View {
                 Task { await edit(BotProfileEdit(avatarZoom: zoom, avatarFocusX: x, avatarFocusY: y)) }
             }
         }
-        .alert(String(localized: "Generate a picture"), isPresented: $askingGenerate) {
-            TextField(String(localized: "Art direction"), text: $generatePrompt)
-            Button(String(localized: "Generate")) { Task { await generatePicture() } }
-            Button(String(localized: "Cancel"), role: .cancel) {}
-        } message: {
-            Text("Describe the picture. It is made with the image provider set up on your computer.")
+        .onAppear { draft = CharacterDraft(bot: current) }
+        .onValueChange(of: CharacterDraft(bot: current)) { server in if !working { draft = server } }
+        .onValueChange(of: photo) { item in
+            guard let item else { return }
+            Task { await upload(item) }
         }
         .task {
-            if let earned = try? await session.profileClient?.mascotUnlocks() { unlocks = earned }
+            config = await session.configStatus()
+            if session.surfaceGate.allows(.characterExtras), session.surfaceGate.allows(.achievements),
+               let earned = try? await session.profileClient?.mascotUnlocks() {
+                unlocks = earned
+            }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("Edit avatar"))
+        .accessibilityIdentifier("phone-avatar-editor")
     }
 
-    private var editorCard: some View {
-        ProfileCard {
-            CharacterEditor(
-                draft: Binding(get: { draft }, set: { saveLook($0) }),
-                metrics: .profileCard,
-                showsPhotoRow: true,
-                showsReset: false,
-                hasPhoto: current.avatarUrl != nil,
-                onPhotoPicked: { data in Task { await uploadPicture(data) } },
-                onRemovePhoto: { Task { await edit(BotProfileEdit(avatarCrop: .mascot, avatarUrl: .clear)) } },
-                onGeneratePhoto: { generatePrompt = ""; askingGenerate = true },
-                onFramePhoto: { framing = true },
-                unlocks: session.surfaceGate.allows(.characterExtras) ? unlocks : .nothingLocked
-            )
-            // the owl's rows end where reference 03's divider is (252 pt); a
-            // shape adds its shape rows and the Clay switch, so the card
-            // grows instead of cutting the colours off
-            .frame(minHeight: 252, alignment: .top)
-            .overlay { if generating { ProgressView().controlSize(.large) } }
-            ProfileDivider(leading: Theme.Profile.textInset)
+    private var tabBar: some View {
+        HStack(spacing: 4) {
+            ForEach(Tab.allCases, id: \.self) { item in
+                Button { tab = item } label: {
+                    Text(title(item))
+                        .font(Theme.Font.profileLabel)
+                        .foregroundStyle(tab == item ? Theme.textPrimary : Theme.textSecondary)
+                        .padding(.horizontal, 10)
+                        .frame(height: 28)
+                        .background(tab == item ? Theme.cardRaised : Color.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(tab == item ? .isSelected : [])
+                .accessibilityIdentifier("avatar-tab.\(item.rawValue)")
+            }
+            Spacer(minLength: 0)
             Button {
                 Haptics.selection()
                 draft = .default
                 Task { await edit(.resetLook) }
             } label: {
-                Text("Reset to default")
-                    .font(Theme.Font.body)
-                    .foregroundStyle(Theme.accentText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, Theme.Profile.textInset)
-                    .frame(height: Theme.Profile.row)
+                Text("Reset")
+                    .font(Theme.Font.profileLabel)
+                    .foregroundStyle(Theme.textSecondary)
+                    .padding(.horizontal, 10)
+                    .frame(height: 28)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -101,23 +113,105 @@ struct PhoneBotAvatarSheet: View {
         }
     }
 
-    /// The picture's shape (the desktop's crop choice).
-    private var shapeCard: some View {
-        ProfileCard {
-            Picker(String(localized: "Shape"), selection: Binding(get: { current.avatarCrop ?? .circle }, set: { crop in
-                var patch = BotProfilePatch()
-                patch.avatarCrop = crop
-                let target = current
-                Task { _ = await session.updateProfile(patch, for: target) }
-            })) {
-                Text("Circle").tag(AvatarCrop.circle)
-                Text("Rounded").tag(AvatarCrop.rounded)
-                Text("Square").tag(AvatarCrop.square)
-            }
-            .pickerStyle(.segmented)
-            .padding(12)
-            .accessibilityIdentifier("avatar-shape")
+    private func title(_ tab: Tab) -> LocalizedStringKey {
+        switch tab {
+        case .bot: "Bot"
+        case .generate: "Generate"
+        case .upload: "Upload"
         }
+    }
+
+    private var botTab: some View {
+        VStack(spacing: 16) {
+            BotMascotView(bot: current, size: 72, state: .idle, animated: true)
+            CharacterEditor(
+                draft: Binding(get: { draft }, set: { saveLook($0) }),
+                metrics: .createSheet,
+                showsPhotoRow: false,
+                showsReset: false,
+                unlocks: session.isDemo ? .demo : session.surfaceGate.allows(.characterExtras) ? unlocks : .nothingLocked
+            )
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var generateTab: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(canGenerate
+                 ? "Describe the picture. It is made with the image provider set up on your computer."
+                 : "To generate pictures, set up the shared image provider in Sagax on your computer. Provider keys cannot be added from this device.")
+                .font(Theme.Font.body)
+                .foregroundStyle(Theme.textSecondary)
+            TextField(String(localized: "Art direction"), text: $generatePrompt, axis: .vertical)
+                .lineLimit(4...8)
+                .padding(12)
+                .background(Theme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .accessibilityIdentifier("avatar-generate-prompt")
+            Button {
+                Task { await generatePicture() }
+            } label: {
+                Label("Generate", systemImage: "sparkles")
+                    .font(Theme.Font.bodyMedium)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(working || generatePrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .accessibilityIdentifier("character-photo-generate")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 8)
+    }
+
+    private var uploadTab: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("PNG, JPEG, GIF, or WebP, up to 10 MB. Images are stored on your paired computer.")
+                .font(Theme.Font.body)
+                .foregroundStyle(Theme.textSecondary)
+            HStack(spacing: 8) {
+                PhotosPicker(selection: $photo, matching: .images) {
+                    Label("Choose a picture", systemImage: "photo.badge.plus")
+                        .font(Theme.Font.bodyMedium)
+                        .foregroundStyle(Theme.textPrimary)
+                        .padding(.horizontal, 12)
+                        .frame(height: 36)
+                        .background(Theme.cardRaised, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .disabled(working)
+                .accessibilityIdentifier("character-photo-upload")
+                if current.avatarUrl != nil {
+                    Button {
+                        Task { await edit(BotProfileEdit(avatarCrop: .mascot, avatarUrl: .clear)) }
+                    } label: {
+                        Label("Use the character", systemImage: "trash")
+                            .font(Theme.Font.bodyMedium)
+                    }
+                    .disabled(working)
+                    .accessibilityIdentifier("character-photo-remove")
+                    Button { framing = true } label: {
+                        Label("Frame", systemImage: "crop")
+                            .font(Theme.Font.bodyMedium)
+                    }
+                    .accessibilityIdentifier("character-photo-frame")
+                }
+            }
+            if current.avatarUrl != nil {
+                Picker(String(localized: "Shape"), selection: Binding(get: { current.avatarCrop ?? .circle }, set: { crop in
+                    var patch = BotProfilePatch()
+                    patch.avatarCrop = crop
+                    let target = current
+                    Task { _ = await session.updateProfile(patch, for: target) }
+                })) {
+                    Text("Circle").tag(AvatarCrop.circle)
+                    Text("Rounded").tag(AvatarCrop.rounded)
+                    Text("Square").tag(AvatarCrop.square)
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("avatar-shape")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 8)
     }
 
     /// Shown at once, saved at once, put back if the server refuses.
@@ -146,7 +240,10 @@ struct PhoneBotAvatarSheet: View {
         }
     }
 
-    private func uploadPicture(_ data: Data) async {
+    private func upload(_ item: PhotosPickerItem) async {
+        generating = true
+        defer { generating = false; photo = nil }
+        guard let data = try? await item.loadTransferable(type: Data.self) else { return }
         guard let mime = Self.imageMIME(data) else {
             session.actionError = String(localized: "Choose a PNG, JPEG, GIF, or WebP image.")
             return
@@ -165,6 +262,7 @@ struct PhoneBotAvatarSheet: View {
         generating = true
         defer { generating = false }
         _ = await session.generateAvatar(prompt: String(prompt.prefix(400)), for: current)
+        if current.avatarUrl != nil { tab = .upload }
     }
 
     static func imageMIME(_ data: Data) -> String? {

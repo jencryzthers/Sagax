@@ -71,6 +71,16 @@ describe("buildNotification", () => {
   });
 });
 
+describe("an approval notification", () => {
+  it("takes the card's plain title and carries its request", () => {
+    const n = buildNotification("approval", { id: "b", name: "Cryptic", threadId: "t" }, "t", "Run echo hi.", { title: "Allow Cryptic to run a command?", requestId: "r1", avatarUrl: "/api/bots/b/avatar" });
+    expect(n).toMatchObject({ kind: "approval", title: "Allow Cryptic to run a command?", body: "Run echo hi.", requestId: "r1", avatarUrl: "/api/bots/b/avatar" });
+  });
+  it("keeps the old title without one", () => {
+    expect(buildNotification("approval", { id: "b", name: "Cryptic", threadId: "t" }, "t", "x")?.title).toBe("Cryptic needs approval");
+  });
+});
+
 describe("blockedTarget", () => {
   const room = { id: "room-1", name: "Launch", threadId: "room-thread", busyBotId: "bot-1" };
 

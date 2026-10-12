@@ -1,7 +1,8 @@
 // The iPhone bot panel's Library tab as the current desktop draws it
-// (`bot-settings/LibraryTab.tsx`): the bot's files, its skills and its
-// Claude Code plugins, one at a time (Files | Skills | Plugins). Which views
-// a pairing reaches is `BotLibraryView.visible` (CompanionCore).
+// (`bot-settings/LibraryTab.tsx`): the bot's files only, no sub-tabs. Skills
+// live on the Personas page; the bot's Claude Code plugins open from a link
+// under the files where the pairing forwards them
+// (`BotLibraryView.pluginsLink`, CompanionCore).
 import CompanionCore
 import SwiftUI
 
@@ -13,6 +14,7 @@ struct PhoneBotLibrary: View {
     let onShowInChat: (ThreadFile) -> Void
 
     @State private var view: BotLibraryView = .files
+    @State private var showingPlugins = false
 
     private var views: [BotLibraryView] { BotLibraryView.visible(gate: session.surfaceGate) }
 
@@ -26,6 +28,19 @@ struct PhoneBotLibrary: View {
             case .skills: AnyView(PhoneLibrarySkills(bot: bot))
             case .plugins: AnyView(PhoneBotPlugins(bot: bot))
             }
+            if BotLibraryView.pluginsLink(gate: session.surfaceGate) {
+                Button { showingPlugins = true } label: {
+                    Label("Plugins", systemImage: "puzzlepiece.extension")
+                        .font(Theme.Profile.labelFont)
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, Theme.Profile.cardMargin)
+                .accessibilityIdentifier("library-open-plugins")
+            }
+        }
+        .sheet(isPresented: $showingPlugins) {
+            NavigationStack { ScrollView { PhoneBotPlugins(bot: bot).padding(.vertical, 16) }.navigationTitle(Text("Plugins")) }
         }
     }
 

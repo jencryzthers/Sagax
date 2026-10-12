@@ -193,23 +193,21 @@ final class ProfileUITests: XCTestCase {
         try api("PATCH", "/api/bots/\(id)", ["avatarUrl": NSNull(), "avatarCrop": "mascot"])
         let app = launchAvatarEditor()
 
+        element("avatar-tab.generate", in: app).tap()
         let generate = element("character-photo-generate", in: app)
         XCTAssertTrue(generate.waitForExistence(timeout: 10))
         XCTAssertFalse(element("character-photo-frame", in: app).exists, "no picture yet, nothing to frame")
-        generate.tap()
-        let alert = app.alerts.firstMatch
-        XCTAssertTrue(alert.waitForExistence(timeout: 5))
-        let field = alert.textFields.firstMatch
+        let field = element("avatar-generate-prompt", in: app)
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         field.tap()
         field.typeText("Une chouette calme")
-        // Cancel and Generate: the action is the button that is not Cancel.
-        alert.buttons.matching(NSPredicate(format: "label != 'Cancel'")).firstMatch.tap()
+        generate.tap()
 
         try eventually("Ara has a generated picture on the server", timeout: 30) {
             (try bot(named: "Ara")?["avatarUrl"] as? String)?.hasPrefix("/api/attachments/") == true
         }
         XCTAssertEqual(try bot(named: "Ara")?["avatarCrop"] as? String, "circle")
+        element("avatar-tab.upload", in: app).tap()
         XCTAssertTrue(element("character-photo-frame", in: app).waitForExistence(timeout: 10))
         XCTAssertTrue(element("character-photo-remove", in: app).exists)
 
@@ -232,6 +230,7 @@ final class ProfileUITests: XCTestCase {
         try api("POST", "/api/bots/\(id)/avatar/generate", ["prompt": "Une chouette calme"])
         try api("PATCH", "/api/bots/\(id)", ["avatarZoom": 1, "avatarFocusX": 0.5, "avatarFocusY": 0.5])
         let app = launchAvatarEditor()
+        element("avatar-tab.upload", in: app).tap()
 
         let frame = element("character-photo-frame", in: app)
         XCTAssertTrue(frame.waitForExistence(timeout: 10))
@@ -260,6 +259,7 @@ final class ProfileUITests: XCTestCase {
     @MainActor
     func testUploadOpensThePhotoPicker() throws {
         let app = launchAvatarEditor()
+        element("avatar-tab.upload", in: app).tap()
         let upload = element("character-photo-upload", in: app)
         XCTAssertTrue(upload.waitForExistence(timeout: 10))
         XCTAssertTrue(upload.isHittable)

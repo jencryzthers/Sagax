@@ -14,6 +14,7 @@ import { SkinnedTrombi } from "@/components/skin-fx/SkinnedTrombi";
 import "@/components/skin-fx/skin-fx.css";
 import { isMasteryCharacter } from "../../../shared/mascot-unlocks";
 import { MasteryArt } from "./mastery-art";
+import { CrabRewardArt } from "@/components/CrabMascot";
 
 export default function RewardPreview({ reward, size = 34, animated = true }: { reward: AchievementReward; size?: number; animated?: boolean }) {
   if (reward.kind === "title") return <Award size={size * 0.7} aria-hidden="true" />;
@@ -25,5 +26,6 @@ export default function RewardPreview({ reward, size = 34, animated = true }: { 
   if (character === "owl") return <MausAvatar color="blue" skin={(skin ?? "none") as MascotSkinId} state="idle" size={size} animated={false} skinAnimated={animated} trackPointer={false} />;
   if (character === "shape") return <ShapeMascot shape="circle" skin={(skin ?? "plain") as ShapeSkin} color="blue" size={size} animated={animated} detail="full" label={null} />;
   if (character === "bunbu") return <BunbuMascot skin={(skin ?? "plain") as BunbuSkin} color="mint" size={size} animated={animated} detail="full" label={null} />;
+  if (character === "crab") return <CrabRewardArt skin={skin ?? "plain"} size={size} animated={animated} />;
   return <SkinnedTrombi skin={skin ?? "classic"} pose="idle" size={size} width={size * 0.75} animated={animated} detail="full" label={null} />;
 }

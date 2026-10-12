@@ -46,16 +46,19 @@ export function RoutineList({ routines, viewerPrincipalId, loading, error, onOpe
           // Someone else's routine (a wider scope): its owner, read-only
           // unless the server says this person may edit it.
           const otherOwner = routine.owner?.id && routine.owner.id.toLowerCase() !== viewerPrincipalId?.toLowerCase() ? routine.owner : null;
+          // Owner and Runs as are the same person on most cards. Keep Runs as
+          // only when the job acts as someone other than the owner.
+          const runAsOther = routine.runAs && routine.runAs.principalId.toLowerCase() !== routine.owner?.id?.toLowerCase() ? routine.runAs : null;
           const readOnly = routine.canEdit === false;
           return (
             <div key={routine.id} data-routine-row className={grouped ? "flex items-center gap-2.5 border-b border-hairline-weak px-3 py-2.5 last:border-b-0 hover:bg-hover" : "flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-hover"}>
               <button type="button" onClick={() => onOpen(routine)} className="min-w-0 flex-1 text-left">
                 <span className="block truncate text-[13px] leading-[18px] text-ink">{routine.name}</span>
                 <span data-routine-when={when} title={when} className="line-clamp-2 text-[13px] leading-[18px] text-ink-secondary">{when}</span>
-                {(routine.runAs || routine.suspended || otherOwner) && (
+                {(runAsOther || routine.suspended || otherOwner) && (
                   <span className="mt-0.5 flex flex-wrap gap-1.5">
                     {otherOwner && <RoutineOwnerBadge owner={otherOwner} size={14} className="max-w-full rounded-md bg-inset px-1.5 text-[11.5px] leading-[18px] text-ink-secondary" />}
-                    {routine.runAs && <span data-routine-run-as className="truncate rounded-md bg-inset px-1.5 text-[11.5px] leading-[18px] text-ink-secondary">{t("routines.runAs", { name: routine.runAs.name || routine.runAs.principalId })}</span>}
+                    {runAsOther && <span data-routine-run-as className="truncate rounded-md bg-inset px-1.5 text-[11.5px] leading-[18px] text-ink-secondary">{t("routines.runAs", { name: runAsOther.name || runAsOther.principalId })}</span>}
                     {routine.suspended && <span data-routine-suspended={routine.suspended.reason} className={`truncate rounded-md ${PILL_INFO} px-1.5 text-[11.5px] leading-[18px]`}>{routineSuspendedText(routine.suspended.reason)}</span>}
                   </span>
                 )}

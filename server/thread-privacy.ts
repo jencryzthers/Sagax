@@ -45,6 +45,8 @@ export interface ThreadRecord {
   threadId: string;
   ownerPrincipalId?: unknown;
   routineRunId?: unknown;
+  /** An AI client's hidden conversation (#291). */
+  hidden?: unknown;
   archivedAt?: unknown;
   createdAt?: unknown;
   updatedAt?: unknown;
@@ -87,7 +89,9 @@ export function ownThreads<T extends Pick<ThreadRecord, "ownerPrincipalId">>(tas
 /** The thread a viewer lands on when they open a bot: the one they last
  * chose, else the bot's selected thread when it is theirs, else their
  * newest open conversation (not a routine's execution, not archived), else
- * any of theirs. Undefined: they have none yet (the caller starts one). */
+ * any of theirs. Undefined: they have none yet (the caller starts one).
+ * An AI client's hidden conversation (#291) is never landed on unless the
+ * person chose it themselves: with only hidden ones they have none yet. */
 export function viewerThread(input: {
   tasks: readonly ThreadRecord[];
   viewerId: string;
@@ -95,10 +99,11 @@ export function viewerThread(input: {
   selected?: string;
   current?: string;
 }): string | undefined {
-  const mine = ownThreads(input.tasks, input.viewerId, input.botOwnerPrincipalId);
+  const owned = ownThreads(input.tasks, input.viewerId, input.botOwnerPrincipalId);
+  if (owned.some((task) => task.threadId === input.selected)) return input.selected;
+  const mine = owned.filter((task) => task.hidden !== true);
   if (!mine.length) return undefined;
   const has = (threadId: string | undefined) => threadId !== undefined && mine.some((task) => task.threadId === threadId);
-  if (has(input.selected)) return input.selected;
   if (has(input.current)) return input.current;
   const at = (task: ThreadRecord) => (typeof task.updatedAt === "number" ? task.updatedAt : typeof task.createdAt === "number" ? task.createdAt : 0);
   const open = mine.filter((task) => !task.routineRunId && task.archivedAt === undefined).sort((a, b) => at(b) - at(a));

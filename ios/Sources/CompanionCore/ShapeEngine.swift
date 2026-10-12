@@ -664,7 +664,7 @@ public enum ShapeFrames {
             let a = b.angle * ShapeMath.rad
             let edge = ShapeMath.radiusToward(input.radii, sin(a), -cos(a)) * 0.93
             let p = ShapeMath.toBox(CGPoint(x: sin(a) * edge, y: -cos(a) * edge))
-            badge = (p.x, p.y, b.r * unit * b.scale * w, 0.054 * unit * w)
+            badge = (x: Double(p.x), y: Double(p.y), r: b.r * unit * b.scale * w, notch: 0.054 * unit * w)
         }
         let rings = (pose?.rings ?? []).map { ShapeMoves.ringAt($0.spec, input.t, $0.opacity * w, center: CGPoint(x: input.body.x, y: input.body.y)) }
         let ribbons = (pose?.ribbons ?? []).map { ribbon -> ShapeRibbonDraw in

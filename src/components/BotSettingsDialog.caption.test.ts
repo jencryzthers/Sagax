@@ -52,12 +52,13 @@ describe("bot panel header and tabs", () => {
     expect(close).toBe(CIRCLE_BUTTON);
   });
 
-  it("offers one Edit persona button after the tab bar, outside the tab list", () => {
+  it("offers one Edit persona pencil on the mascot, before the tab bar", () => {
     vi.stubGlobal("window", { ogb: { platform: "darwin" } });
     const html = renderToStaticMarkup(createElement(DesktopCapabilitiesProvider, null, createElement(BotSettingsDialog, { bot })));
     expect(html.match(/data-edit-persona=""/g)).toHaveLength(1);
-    expect(html).toContain("Edit persona");
-    expect(html.indexOf('data-edit-persona=""')).toBeGreaterThan(html.indexOf('role="tablist"'));
+    expect(html).toContain('aria-label="Edit persona"');
+    expect(html.indexOf('data-edit-persona=""')).toBeLessThan(html.indexOf('role="tablist"'));
+    expect(html).not.toMatch(/role="tablist"[\s\S]*data-edit-persona=""/);
   });
 
   const panel = () => {

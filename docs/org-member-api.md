@@ -47,6 +47,7 @@ Code: `server/org-member-routes.ts`, wired in `server/index.ts`
 | `clients.routinesRun` | off | run a routine now, read a run |
 | `clients.approvalsAnswer` | off (the bot's owner holds it for their own bots) | allow or deny a card |
 | `clients.peopleNudge` | off | nudge a person |
+| `clients.agentsCreate` | off | create an agent with `agents/create_agent` |
 
 Keys have two segments (`group.name`): Perspicax refuses a catalogue with
 any other shape, so the plan's `clients.bots.read` is written
@@ -66,6 +67,7 @@ any other shape, so the plan's `clients.bots.read` is written
 | `GET approvals/{id}?threadId` | `clients.botsRead` | may the person answer this card (lot C.3) |
 | `POST approvals/{id}` | `clients.approvalsAnswer`, or owning the bot | allow or deny |
 | `POST people/{id}/nudge` | `clients.peopleNudge` | nudge |
+| `POST agents/{tool}` | per tool (below) | the agent-to-agent tools |
 
 ### `GET capabilities`
 
@@ -105,6 +107,15 @@ any other shape, so the plan's `clients.bots.read` is written
   conversation with the bot (Sagax's rule on an organization server).
 - `threadId`: one of their conversations with this bot; `newThread: true`
   starts a new one instead (not both).
+- Without `threadId`, an AI client (any actor but the Sagax console) writes
+  in its own **hidden** conversation with the bot (#291): the newest one it
+  opened, or a new one. A hidden conversation belongs to the person and stays
+  reachable (the bot's Activity panel, a link, `GET threads/{id}`), but it is
+  never in their sidebar, previews, typing dots, unread count or
+  notifications, and it never moves the conversation they have open.
+  `newThread: true` starts a new hidden one. An explicit `threadId` is used
+  as given, visibly. The task API takes the same flag (`POST
+  /api/bots/{id}/tasks {"hidden": true}`).
 - `wait`: 0 to 120 seconds (default 0). The request stays open until the bot
   has answered, a card waits, or the time is up.
 - `sendId`: 8 to 80 of `[A-Za-z0-9_-]`; a retry with the same id is the same
@@ -242,3 +253,19 @@ AI client" beside the outcome), and the admin activity log keeps one
 
 `{}`; `{id}` is a Sagax principal id or a Perspicax user id. Answers `{ok,
 id, at}`. The nudge cooldown and refusals are Sagax's.
+
+### `POST agents/{tool}`
+
+The ten agent-to-agent tools ([agent-api.md](agent-api.md)) for the person's
+AI client. The body is the tool's arguments. Each tool checks its own scope:
+
+| Permission | Tools |
+|---|---|
+| `clients.botsRead` | the read tools |
+| `clients.botsMessage` | `send_prompt` |
+| `clients.agentsCreate` | `create_agent` |
+
+A missing scope answers 403 `forbidden_scope`. `send_prompt` accepts up to
+64 MiB, so it can carry files as base64. Every other body stays capped at
+64 KiB.
+
