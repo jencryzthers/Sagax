@@ -228,8 +228,8 @@ describe("independent bot tasks through the isolated control surface", () => {
     await expect.poll(() => unanswered.find((answer) => answer.id === "unanswered-approval")).toMatchObject({ behavior: "deny", source: "timeout" });
     rmSync(expiry, { force: true });
     await expect.poll(async () => (await chiefChips()).map((chip) => [chip.tool.name, chip.tool.ok])).toEqual([
-      ["@Release Peer's request was denied", false],
-      ["Nobody answered @Release Peer's approval in time — that step did not run", false],
+      ["You declined @Release Peer's request", true],
+      ["@Release Peer's approval request expired", true],
     ]);
     expect((await card("unanswered-approval")).card).toMatchObject({ answered: "deny", dismissed: true });
 
@@ -245,9 +245,9 @@ describe("independent bot tasks through the isolated control surface", () => {
     expect((await api("POST", `/api/threads/${workThread}/respond`, { requestId: "lint-retry", behavior: "allow" })).status).toBeLessThan(300);
     await expect.poll(() => retried.find((answer) => answer.id === "lint-retry")).toMatchObject({ behavior: "allow" });
     await expect.poll(async () => (await chiefChips()).map((chip) => [chip.tool.name, chip.tool.ok])).toEqual([
-      ["@Release Peer's request was denied", false],
-      ["Nobody answered @Release Peer's approval in time — that step did not run", false],
-      ["Nobody answered @Release Peer's approval in time — that step did not run", false],
+      ["You declined @Release Peer's request", true],
+      ["@Release Peer's approval request expired", true],
+      ["@Release Peer's approval request expired", true],
       ["@Release Peer got your approval", true],
     ]);
 
