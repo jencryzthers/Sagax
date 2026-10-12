@@ -30,6 +30,10 @@ describe("production image sources", () => {
     expect(workflow).toContain("/healthz");
     expect(workflow).toContain("cursor-agent");
     expect(workflow).not.toContain("docker build -t openmausbot:ci .");
+    // The Cloud Pro home Dockerfile is not in this tree. A step that builds
+    // it fails the job after the engine gate.
+    expect(workflow).not.toMatch(/docker build -f deploy\/fly\/Dockerfile/);
+    expect(workflow).not.toMatch(/file: deploy\/fly\/Dockerfile/);
   });
 
   it("forwards the engine set from compose with an empty legacy ENGINES list", () => {
