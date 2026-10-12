@@ -800,8 +800,10 @@ export class VoiceCall {
 
   private beginTurnMetrics(stoppedAt: number, earlyEnd = false, contourEnd = false): void {
     this.disarmCue();
-    // only the in-flight speculation for THIS utterance keeps its sentAt
-    if (this.speculated && this.turn?.earlyStart && this.turn.firstAudioAt === undefined) {
+    // only the in-flight speculation for THIS utterance keeps its sentAt.
+    // firstAudioAt may already be set (held TTS bytes, a ClockPlayer stamp):
+    // dropping sentAt here is what stalls the next firstSentenceAt.
+    if (this.speculated && this.turn?.earlyStart) {
       this.turn.stoppedAt = stoppedAt;
       this.turn.endedAt = this.now();
       if (earlyEnd) this.turn.earlyEnd = true;
@@ -1070,6 +1072,7 @@ export class VoiceCall {
     turn.firstTokenAt = undefined;
     turn.firstSentenceAt = undefined;
     turn.ttsFirstByteAt = undefined;
+    turn.firstAudioAt = undefined;
     this.lastSent = { text, endedAt: turn.endedAt, botSpoke: false };
     this.emit("utterance", text, turn, { interrupted: false, continues: true, utteranceId });
   }
@@ -1081,8 +1084,12 @@ export class VoiceCall {
     const trimmed = text.trim();
     if (this.speculated) {
       if (!discardSpeculation(this.speculated, trimmed)) return;
-      this.dropSpeculation();
+      // an incomplete mid-revision must not drop the guess: the next
+      // complete partial would send without continues and the bench (and
+      // admit) would skip or fork it. Keep the in-flight send until a
+      // replacement can go out as continues.
       if (!maySpeculate(trimmed, this.turns.inSilence) || isNoiseFragment(trimmed)) return;
+      this.dropSpeculation();
       this.sendSpeculative(trimmed, true);
       return;
     }

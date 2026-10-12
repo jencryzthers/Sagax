@@ -759,6 +759,56 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     expect(t.utterances.at(-1)?.text).toMatch(/Toronto/);
   });
 
+  it("an incomplete revision of a speculative partial keeps the guess until a complete replacement continues it", async () => {
+    const t = await setup({
+      transcripts: ["What is the weather in Toronto today?"],
+      settings: { fullDuplex: true },
+      finalDelayMs: 80,
+    });
+    await t.feed(0.95, 0.05, 24);
+    t.socket().partial("What is the weather");
+    await t.settle();
+    expect(t.utterances.map((u) => u.text)).toEqual(["What is the weather"]);
+    t.socket().partial("What is the weather in");
+    await t.settle();
+    expect(t.utterances.map((u) => u.text)).toEqual(["What is the weather"]);
+    expect(t.interrupts).toHaveLength(0);
+    t.socket().partial("What is the weather in Toronto today");
+    await t.settle();
+    expect(t.utterances.map((u) => [u.text, u.continues])).toEqual([
+      ["What is the weather", undefined],
+      ["What is the weather in Toronto today", true],
+    ]);
+    expect(t.interrupts).toHaveLength(1);
+  });
+
+  it("speech-end keeps the speculative sentAt after first audio, and reissue clears firstAudioAt", async () => {
+    const t = await setup({
+      transcripts: ["What is the weather in Toronto today?"],
+      settings: { fullDuplex: true },
+      finalDelayMs: 80,
+    });
+    await t.feed(0.95, 0.05, 24);
+    t.socket().partial("What is the weather");
+    await t.settle();
+    t.call.replyProgress("Sure. Four.");
+    await t.feed(0.02, 0.001, 12);
+    await t.settle();
+    const before = t.metrics.filter((row) => row.turn?.earlyStart && row.turn.sentAt !== undefined).at(-1)?.turn;
+    expect(before?.sentAt).toBeDefined();
+    expect(before?.firstAudioAt).toBeDefined();
+    await new Promise((r) => setTimeout(r, 120));
+    const reissued = t.utterances.find((u) => u.continues);
+    expect(reissued?.text).toMatch(/Toronto/);
+    expect(reissued?.metrics.firstAudioAt).toBeUndefined();
+    expect(reissued?.metrics.sentAt).toBeDefined();
+    t.call.replyProgress("Sure. Snow in Toronto.");
+    await t.settle();
+    const after = t.metrics.filter((row) => row.turn?.firstSentenceAt !== undefined && row.turn.reissued).at(-1)?.turn;
+    expect(after?.firstSentenceAt).toBeDefined();
+    expect(after?.sentAt).toBeDefined();
+  });
+
   it("revising a speculative partial re-sends as continues so the guess is replaced, not forked", async () => {
     const t = await setup({
       transcripts: ["What is the weather in Toronto today?"],
