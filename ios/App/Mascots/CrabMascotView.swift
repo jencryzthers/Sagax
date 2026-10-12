@@ -121,6 +121,7 @@ enum CrabRenderer {
 
     static func draw(in context: inout GraphicsContext, canvas: CGSize, box: CGFloat, skin: CrabSkin, hex: String, mood: CrabMood, time: Double?) {
         let paint = CrabArt.paint(skin, hex: hex)
+        let marks = CrabArt.marks(skin, hex: hex)
         let drawn = CrabArt.eyes(mood.face)
         let bust = box <= CrabArt.bustMax
         var ctx = context
@@ -184,21 +185,23 @@ enum CrabRenderer {
             c.fill(Path(rect.cg), with: .color(Color(hex: hex)))
         }
 
+        for mark in marks.under { fill(mark.r, mark.fill, in: whole, opacity: mark.opacity) }
         fill(CrabArt.body, paint.fill, in: whole)
+        for mark in marks.inner { fill(mark.r, mark.fill, in: whole, opacity: mark.opacity) }
 
         var leftArm = whole
         leftArm.pivot(CrabArt.armLPivot, rotate: rotL)
-        fill(CrabArt.armL, paint.fill, in: leftArm)
+        fill(CrabArt.armL, paint.accent, in: leftArm)
         var leftPincer = leftArm
         leftPincer.translateBy(x: pinchLeft[0], y: pinchLeft[1])
-        fill(CrabArt.pincerL, paint.fill, in: leftPincer)
+        fill(CrabArt.pincerL, paint.accent, in: leftPincer)
 
         var rightArm = whole
         rightArm.pivot(CrabArt.armRPivot, rotate: rotR)
-        fill(CrabArt.armR, paint.fill, in: rightArm)
+        fill(CrabArt.armR, paint.accent, in: rightArm)
         var rightPincer = rightArm
         rightPincer.translateBy(x: pinchRight[0], y: pinchRight[1])
-        fill(CrabArt.pincerR, paint.fill, in: rightPincer)
+        fill(CrabArt.pincerR, paint.accent, in: rightPincer)
 
         if !bust {
             for (i, leg) in CrabArt.legs.enumerated() {
@@ -225,5 +228,6 @@ enum CrabRenderer {
                 fill(dot, CrabArt.spark, in: whole, opacity: sparkOpacity)
             }
         }
+        for mark in marks.around { fill(mark.r, mark.fill, in: whole, opacity: mark.opacity) }
     }
 }

@@ -210,6 +210,15 @@ export const CRAB_SKIN_LABEL = {
   sand: "mascot.crabSkin.sand",
   ink: "mascot.crabSkin.ink",
   mint: "mascot.crabSkin.mint",
+  gold: "mascot.crabSkin.gold",
+  pearl: "mascot.crabSkin.pearl",
+  neon: "mascot.crabSkin.neon",
+  chrome: "mascot.crabSkin.chrome",
+  crystal: "mascot.crabSkin.crystal",
+  circuit: "mascot.crabSkin.circuit",
+  holo: "mascot.crabSkin.holo",
+  molten: "mascot.crabSkin.molten",
+  galaxy: "mascot.crabSkin.galaxy",
 } satisfies Record<(typeof CRAB_SKINS)[number], LocaleKey>;
 
 export const SKIN_TIER_LABEL = {

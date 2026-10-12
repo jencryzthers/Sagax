@@ -127,9 +127,27 @@ export type FrogSkin = (typeof FROG_SKINS)[number];
 
 /**
  * Skins for Crab: the bot's colour tinted into the coral (Plain, free with
- * it), then the crab's own fills (Coral, Sand, Ink, Mint), all common.
+ * it), then the crab's own fills (Coral, Sand, Ink, Mint), all common; then
+ * the premium set Shapes wears (Gold, Pearl; Neon, Chrome, Crystal, Circuit;
+ * Holographic, Molten, Galaxy) with pixel marks and the shared skin-fx
+ * bursts (src/components/skin-fx/crab-skins.tsx).
  */
-export const CRAB_SKINS = ["plain", "coral", "sand", "ink", "mint"] as const;
+export const CRAB_SKINS = [
+  "plain",
+  "coral",
+  "sand",
+  "ink",
+  "mint",
+  "gold",
+  "pearl",
+  "neon",
+  "chrome",
+  "crystal",
+  "circuit",
+  "holo",
+  "molten",
+  "galaxy",
+] as const;
 export type CrabSkin = (typeof CRAB_SKINS)[number];
 
 /** How rare a skin is: the picker's label and card. */
@@ -248,6 +266,15 @@ export const CRAB_SKIN_TIER: Readonly<Record<CrabSkin, SkinTier>> = {
   sand: "common",
   ink: "common",
   mint: "common",
+  gold: "rare",
+  pearl: "rare",
+  neon: "epic",
+  chrome: "epic",
+  crystal: "epic",
+  circuit: "epic",
+  holo: "legendary",
+  molten: "legendary",
+  galaxy: "legendary",
 };
 
 /**
@@ -356,6 +383,19 @@ export const LEGACY_CRAB_SKINS: Readonly<Record<string, CrabSkin>> = {
   cream: "sand",
   black: "ink",
   green: "mint",
+  royal: "gold",
+  treasure: "gold",
+  nacre: "pearl",
+  opal: "pearl",
+  frost: "pearl",
+  metal: "chrome",
+  "liquid-metal": "chrome",
+  glass: "crystal",
+  cyber: "circuit",
+  iridescent: "holo",
+  holographic: "holo",
+  lava: "molten",
+  nebula: "galaxy",
 };
 
 export const LEGACY_FROG_SKINS: Readonly<Record<string, FrogSkin>> = {
