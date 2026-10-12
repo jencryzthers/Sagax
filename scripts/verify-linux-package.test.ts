@@ -14,4 +14,13 @@ describe("verify-linux-package cloudflared pin", () => {
     expect(license).not.toBe(apache);
     expect(apache).toContain("Apache License");
   });
+
+  it("pins DEB Maintainer to electron-builder.yml, not the upstream author", () => {
+    const src = readFileSync(new URL("./verify-linux-package.mjs", import.meta.url), "utf8");
+    const yml = readFileSync(`${root}/electron-builder.yml`, "utf8");
+    const maintainer = yml.match(/^\s*maintainer:\s*(.+)$/m)?.[1]?.trim();
+    expect(maintainer).toBeTruthy();
+    expect(src).toContain(`Maintainer: ${maintainer}`);
+    expect(src).not.toContain("Maintainer: Milind Soni");
+  });
 });
