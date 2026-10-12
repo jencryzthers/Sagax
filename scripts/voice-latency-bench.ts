@@ -220,6 +220,14 @@ export function stampClockPlayback(metrics: {
   }
 }
 
+/** A metrics event from VoiceCall does not carry a ClockPlayer fallback
+ * stamp. Keep the one we already have unless the turn itself stamped. */
+export function mergeBenchMetrics<T extends { firstAudioAt?: number | boolean }>(prev: T, next: T): T {
+  const out = { ...next };
+  if (out.firstAudioAt === undefined && prev.firstAudioAt !== undefined) out.firstAudioAt = prev.firstAudioAt;
+  return out;
+}
+
 /** Keep VAD voiced until the last `tailMs` of the utterance. macOS `say`
  * inserts pauses that would otherwise false-cut a completeMs endpoint. */
 export function holdVoiceUntilTail(frames: Float32Array[], tailMs = 400): Float32Array[] {
@@ -237,7 +245,7 @@ export function holdVoiceUntilTail(frames: Float32Array[], tailMs = 400): Float3
   return frames;
 }
 
-function pcmFrames(pcm: Float32Array): Float32Array[] {
+export function pcmFrames(pcm: Float32Array): Float32Array[] {
   const frames: Float32Array[] = [];
   for (let i = 0; i + VAD_FRAME <= pcm.length; i += VAD_FRAME) {
     const slice = pcm.subarray(i, i + VAD_FRAME);
@@ -608,13 +616,13 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
     });
     const live = call;
     let metrics: Record<string, number | boolean | undefined> = {};
-    live.on("metrics", (turn) => { if (turn) metrics = { ...turn } as never; });
+    live.on("metrics", (turn) => { if (turn) metrics = mergeBenchMetrics(metrics, { ...turn } as never); });
     live.on("partial", (text) => { if (diag.partials.at(-1) !== text) diag.partials.push(text); });
     live.on("rejected", (reason) => diag.rejects.push(reason));
     live.on("error", (reason) => diag.errors.push(reason));
     let currentLang: "en" | "fr" = "en";
     live.on("utterance", (text, turnMetrics, turn) => {
-      metrics = { ...metrics, ...turnMetrics } as never;
+      metrics = mergeBenchMetrics(metrics, { ...metrics, ...turnMetrics } as never);
       current.sentAt ??= performance.now();
       diag.utterances.push(text);
       if (!shouldSendBenchUtterance(current)) {
@@ -740,8 +748,10 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
         await sleep(20);
       }
       stampClockPlayback(metrics);
-      benchLog(`turn ${turn} firstAudio=${metrics.firstAudioAt !== undefined} utterances=${diag.utterances.length} sse=${diag.sse} firstToken=${current.firstToken !== undefined} firstSentence=${metrics.firstSentenceAt !== undefined}`);
-      const m = metrics as Record<string, number | undefined> & { earlyEnd?: boolean; contourEnd?: boolean; streamed?: boolean; earlyStart?: boolean; reissued?: boolean };
+      const m = { ...metrics } as Record<string, number | undefined> & { earlyEnd?: boolean; contourEnd?: boolean; streamed?: boolean; earlyStart?: boolean; reissued?: boolean };
+      stampClockPlayback(m);
+      if (m.firstAudioAt !== undefined) metrics.firstAudioAt = m.firstAudioAt;
+      benchLog(`turn ${turn} firstAudio=${m.firstAudioAt !== undefined} utterances=${diag.utterances.length} sse=${diag.sse} firstToken=${current.firstToken !== undefined} firstSentence=${m.firstSentenceAt !== undefined}`);
       // over the socket, the call's own first-bytes mark (the POST wrapper above sees nothing)
       current.ttsFirstByte ??= m.ttsFirstByteAt;
       const d = (a?: number, b?: number) => (a === undefined || b === undefined ? undefined : Math.round(b - a));

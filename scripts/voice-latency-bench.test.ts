@@ -15,6 +15,7 @@ import {
   applyBenchRuntimeEvent,
   holdVoiceUntilTail,
   shouldSendBenchUtterance,
+  mergeBenchMetrics,
   stampClockPlayback,
   defaultBenchTurns,
   realVoiceBench,
@@ -104,6 +105,13 @@ it("drops a reissued utterance on the same bench turn so admit does not fork a s
   expect(shouldSendBenchUtterance(turn)).toBe(true);
   expect(shouldSendBenchUtterance(turn)).toBe(false);
   expect(shouldSendBenchUtterance({ text: "" })).toBe(true);
+});
+
+it("keeps a stamped firstAudio when a later metrics event omits it", () => {
+  const prev = { firstAudioAt: 1015, ttsFirstByteAt: 1000, firstSentenceAt: 900 };
+  const next = mergeBenchMetrics(prev, { ttsFirstByteAt: 1000, firstSentenceAt: 900, sentAt: 500 });
+  expect(next.firstAudioAt).toBe(1015);
+  expect(mergeBenchMetrics(prev, { firstAudioAt: 1080, ttsFirstByteAt: 1000 }).firstAudioAt).toBe(1080);
 });
 
 it("stamps ClockPlayer firstAudio 15 ms after TTS first byte when the player missed the start", () => {
