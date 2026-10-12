@@ -44,3 +44,28 @@ The classifier gap is the time between `pending_interaction kind=permission` and
 On GOX, the live ACP wire log shows `pending_interaction` for `agents__list_bots` from 00:25:43.001 to 00:25:51.474 UTC, with `--allow MCPTool(agents__list_bots)` on argv.
 
 PreToolUse hooks cannot pre-approve: per the docs, a hook "allow" only means "not blocked".
+
+## Production finding: Grok's `use_tool` ask (2026-10-11)
+
+The first live gated turn (Cryptic, thread 84c81700…, 2026-10-12T01:04Z)
+showed that with many MCP tools mounted (158 in production) Grok defers them
+behind its `use_tool` meta tool, whose `_meta["x.ai/tool"].read_only` is
+false. In `default` mode Grok therefore sends `session/request_permission`
+for every MCP call, reads included:
+
+```json
+{"toolCall":{"kind":"other","title":"agents__list_bots",
+  "rawInput":{"variant":"UseTool","tool_name":"agents__list_bots","tool_input":{}},
+  "_meta":{"x.ai/tool":{"name":"use_tool","kind":"use_tool","read_only":false}}},
+ "options":[{"optionId":"always-allow","kind":"allow_always"},
+            {"optionId":"allow-once","kind":"allow_once"},
+            {"optionId":"reject-once","kind":"reject_once"}]}
+```
+
+The local repro had a handful of tools, so Grok called them directly and never
+asked. On a gated turn the driver now answers that ask **allow once** (never
+always) only when every name in it resolves to one of the turn's gated mounts
+(`server/drivers/acp/gated-mcp-ask.ts`): the call then reaches the MCP gate,
+which runs it only if it is a reviewed read and otherwise holds it for the
+person's card. Built-in tools, commands, file changes, unmounted servers and a
+`use_tool` without a target keep their card.

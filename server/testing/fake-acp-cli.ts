@@ -70,7 +70,7 @@
 //                     with grok 1.0.25's initialize (FAKE_ACP_MCP_HANDSHAKE JSON
 //                     overrides it), list its tools, and reply one line per
 //                     server: "<name>: <tool>,<tool>" or "<name> failed: <why>")
-//                   | mcp-call (FAKE_ACP_MCP_CALLS="server:tool,server:tool":
+//                   | mcp-call (FAKE_ACP_MCP_CALLS="server:tool,server:tool"; FAKE_ACP_ASK_BEFORE_MCP=use_tool asks first like grok's use_tool:
 //                     call each tool once, in order, on that stdio server from
 //                     session/new's mcpServers, as the agent's own MCP client
 //                     would with no permission check of its own (Grok's
@@ -1182,6 +1182,23 @@ function handle(msg: any) {
             const [server, tool] = call.split(":");
             const entry = sessionMcp.find((candidate) => candidate.name === server);
             if (!entry?.command || !tool) { results.push(`${call} -> error not mounted`); continue; }
+            // FAKE_ACP_ASK_BEFORE_MCP=use_tool: ask first the way grok 1.0.46
+            // does in default mode when its MCP tools sit behind use_tool
+            if (process.env.FAKE_ACP_ASK_BEFORE_MCP === "use_tool") {
+              const allowed = await new Promise<boolean>((resolve) => {
+                pendingPermissionId = 9200 + results.length;
+                onPermissionAnswered = resolve;
+                out({ jsonrpc: "2.0", id: pendingPermissionId, method: "session/request_permission", params: {
+                  toolCall: {
+                    toolCallId: `call-fake-${results.length}`, kind: "other", title: `${server}__${tool}`,
+                    rawInput: { variant: "UseTool", tool_name: `${server}__${tool}`, tool_input: { note: "fake" } },
+                    _meta: { "x.ai/tool": { version: 1, name: "use_tool", kind: "use_tool", namespace: "grok_build", label: "Use Tool", read_only: false } },
+                  },
+                  options: [{ optionId: "always-allow", kind: "allow_always" }, { optionId: "allow-once", kind: "allow_once" }, { optionId: "reject-once", kind: "reject_once" }],
+                } });
+              });
+              if (!allowed) { results.push(`${call} -> refused at the agent's prompt`); continue; }
+            }
             try {
               results.push(`${call} -> ${await driveMcp({ command: entry.command, args: entry.args, env: entry.env }, [{ name: tool, args: () => ({ note: "fake" }) }])}`);
             } catch (error) {

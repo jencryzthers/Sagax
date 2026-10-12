@@ -1389,6 +1389,55 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     afterEach(() => {
       rmSync(flagFile, { force: true });
       delete process.env.FAKE_ACP_MCP_CALLS;
+      delete process.env.FAKE_ACP_ASK_BEFORE_MCP;
+      delete process.env.FAKE_ACP_PERMISSION_ANSWER;
+    });
+
+    it("answers Grok's own use_tool ask allow-once on a gated turn, so only the gate's cards reach the person (production shape)", async () => {
+      writeFileSync(flagFile, JSON.stringify({ bots: ["bot-gated"] }));
+      process.env.FAKE_ACP_ASK_BEFORE_MCP = "use_tool";
+      process.env.FAKE_ACP_PERMISSION_ANSWER = join(scratch, "agent-answer.txt");
+      process.env.FAKE_ACP_MCP_CALLS = "agents:list_bots,agents:create_bot,third:anything";
+      await create(GrokAgentDriver, "mcp-call");
+      const { turnId } = await instance.adapter.sendTurn({
+        threadId: "t-gate-use-tool", botId: "bot-gated", text: "go", model: "grok-4.5", approvalMode: "auto",
+        integrations: { agents: server("agents"), custom: { third: server("third") } },
+      });
+      // the first card is the gate's, for the write: the read ran with none
+      const write = await nextCard(turnId, 1);
+      expect(write).toMatchObject({ mcpTool: "agents__create_bot" });
+      expect(ran()).toEqual(["agents:list_bots"]);
+      // Grok's own ask was answered allow ONCE, never always
+      expect(readFileSync(process.env.FAKE_ACP_PERMISSION_ANSWER!, "utf8")).toBe("allow-once");
+      expect(await instance.adapter.respondToRequest("t-gate-use-tool", write.requestId, { behavior: "deny" })).toBe("rejected");
+      const unknown = await nextCard(turnId, 2);
+      expect(unknown).toMatchObject({ mcpTool: "third__anything" });
+      await instance.adapter.respondToRequest("t-gate-use-tool", unknown.requestId, { behavior: "deny" });
+      await recorder.until((e) => e.type === "turn.completed" && e.turnId === turnId);
+      // exactly the gate's two cards: none for Grok's three use_tool asks
+      expect(opened(turnId)).toHaveLength(2);
+      expect(ran()).toEqual(["agents:list_bots"]);
+      const lines = reply(turnId).split("\n");
+      expect(lines[0]).toBe("agents:list_bots -> ran list_bots");
+      expect(lines[1]).toContain("Not approved: agents__create_bot did not run");
+      expect(lines[2]).toContain("Not approved: third__anything did not run");
+    });
+
+    it("keeps Grok's use_tool ask as a card for a bot without the flag", async () => {
+      writeFileSync(flagFile, JSON.stringify({ bots: ["bot-gated"] }));
+      process.env.FAKE_ACP_ASK_BEFORE_MCP = "use_tool";
+      process.env.FAKE_ACP_MCP_CALLS = "agents:list_bots";
+      await create(GrokAgentDriver, "mcp-call");
+      const { turnId } = await instance.adapter.sendTurn({
+        threadId: "t-ungated-use-tool", botId: "other-bot", text: "go", model: "grok-4.5", approvalMode: "auto",
+        integrations: { agents: server("agents") },
+      });
+      const card = await nextCard(turnId, 1);
+      expect(card).toMatchObject({ requestType: "permission", mcpTool: "agents__list_bots" });
+      await instance.adapter.respondToRequest("t-ungated-use-tool", card.requestId, { behavior: "deny" });
+      await recorder.until((e) => e.type === "turn.completed" && e.turnId === turnId);
+      expect(ran()).toEqual([]);
+      expect(reply(turnId)).toContain("agents:list_bots -> refused at the agent's prompt");
     });
 
     it("runs Grok in default mode; reviewed reads run unasked, a write and an unknown third-party tool each wait for a card, and declining blocks", async () => {
