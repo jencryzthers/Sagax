@@ -76,9 +76,9 @@ jobs:
           done
           # the renderer is served by the server itself (SAGAX_STATIC_DIR)
           docker exec omb curl -sf http://127.0.0.1:8799/ | grep -qi "<html" || { docker logs omb; echo "UI not served"; exit 1; }
-          docker exec omb curl -sf http://127.0.0.1:8799/healthz > /tmp/healthz.json
-          grep -q '"ok":true' /tmp/healthz.json
-          grep -q openmausbot /tmp/healthz.json
+          docker exec omb curl -sf http://127.0.0.1:8799/healthz > /tmp/healthz.json || { docker logs omb; echo "healthz request failed"; exit 1; }
+          grep -q '"ok":true' /tmp/healthz.json || { echo "healthz body:"; cat /tmp/healthz.json; exit 1; }
+          grep -q openmausbot /tmp/healthz.json || { echo "healthz body:"; cat /tmp/healthz.json; exit 1; }
           for i in $(seq 1 60); do
             if docker logs omb 2>&1 | grep -q '\[engines\] self-check:'; then break; fi
             sleep 2
