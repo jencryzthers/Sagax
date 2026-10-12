@@ -736,22 +736,49 @@ the same composer row in Simple and Advanced mode"),
 
 ## Model picker
 
-The model chip (composer and chat header, `src/components/ModelPicker.tsx`)
-opens a modal like Settings, portalled to `<body>`: providers with their
-status on the left, account, scope, models, effort and payers on the right,
-a bottom sheet on a narrow window; focus stays inside and Escape closes it.
-`contained` (the bot settings dialog) keeps the label and the pill and opens
-the same modal. Thread scope and Effort stay out of that modal. Effort stays
-on its own card. On an organization server it shows the speaker's engine
-card, the same minimal one as Settings (`ModelPickerPayers.tsx` around
-`EngineConnect.tsx`, 2026-10-08): one "Pays with" line from the server's
-`myTurns` (the order of `server/engine-credentials.ts`, never recomputed
-and no longer drawn as a list; a routine thread shows the owner's
-credentials), one Connect button or Connected with Disconnect, signing in
-their own subscription through `/api/me/engines/<id>/login`, never the
-server's engine login; the server's local models are not offered. Tests: `ModelPicker.interaction.test.ts`,
-`src/lib/model-payers.test.ts`; real Electron: `scripts/verify-server-mode.ts`
-(org).
+Two surfaces, one list (JC, 2026-10-12, after Cursor's composer menu):
+
+- The composer's model chip (`src/components/ModelPicker.tsx`, `inComposer`)
+  opens a compact menu above it, never the window: a search field on top
+  (filters as one types, accents folded; arrow keys and Enter, Escape
+  closes and gives the focus back to the chip), Auto first with its check,
+  the bot's model when the thread can follow it ("<bot>'s model", one row),
+  then the models of every engine the bot can use grouped by engine (its own
+  first, then the others the server allows; an engine to install, blocked by
+  a policy, or on an organization server paid by nothing yet unless it is
+  the bot's, stays in the window). Each row is the model's name, then muted
+  what a pick runs it with (the effort kept on the same engine, the
+  variant, Local). A pick applies at once and closes. Below: the effort as
+  one compact line (Advanced), then "Edit…" ("Modifier…"), which opens the
+  window. The desktop mascot's model chip opens the same menu.
+- The model window (a modal like Settings, portalled to `<body>`, a bottom
+  sheet on a narrow window, focus kept inside, Escape closes) opens only from
+  the menu's Edit…, the sidebar's bot menu ("Model…", `openModelWindow` in
+  `src/lib/model-window.ts`, drawn by `ModelWindowHost.tsx` in App), and the
+  persona's Model tab (`contained`, `bot-settings/ModelSection.tsx`). Its
+  rail lists Auto first (every allowed engine's models together, one line of
+  help, the rest behind the info button, the reason of the last pick), then
+  each provider with its status. An engine's mode shows its header,
+  sign-in or setup card, the list always open (the same search, Cloud then
+  Local), the effort and, on an organization server, the payer card.
+- The list is `ModelMenu.tsx` (`ModelSearchList`, popover tokens in the
+  menu, page tokens in the window); its rules are `src/lib/model-menu.ts`.
+  Effort words are translated (`effortLabel`, `model.effortLevel.*`).
+
+Thread scope stays out of both. On an organization server the window shows
+the speaker's engine card, the same minimal one as Settings
+(`ModelPickerPayers.tsx` around `EngineConnect.tsx`, 2026-10-08): one "Pays
+with" line from the server's `myTurns` (the order of
+`server/engine-credentials.ts`, never recomputed and no longer drawn as a
+list; a routine thread shows the owner's credentials), one Connect button or
+Connected with Disconnect, signing in their own subscription through
+`/api/me/engines/<id>/login`, never the server's engine login; the server's
+local models are not offered. Tests: `ModelPicker.interaction.test.ts`,
+`ModelPicker.simple.test.ts`, `ModelMenu.test.ts`, `src/lib/model-menu.test.ts`,
+`BotContextMenu.model.test.ts`, `src/lib/model-payers.test.ts`; real
+Electron: `scripts/verify-server-mode.ts` (org). iPad: `DesktopModelPicker`
+lists every model, always open, under its search (no Suggested or Show all);
+the composer menu and the Auto mode are not ported there yet.
 
 ### Local models in the picker
 
@@ -871,8 +898,9 @@ model in the chip clears it (a pin). Rules:
 - A viewer's own model pin on a shared bot drops the owner's Auto for them.
   A Primary Bot on Auto creates specialists on Auto (`create_bot` without a
   model, team setup creates: the card reads "Auto, on engine/model").
-- Seen: the chip "Auto · model" (`src/lib/auto-model.ts`), the picker's Auto
-  row and sentence (`GET /api/bots/:id/auto-model`), the worker's status row
+- Seen: the chip "Auto · model" (`src/lib/auto-model.ts`), the Auto row of
+  the composer menu and the window's Auto mode with its sentence
+  (`GET /api/bots/:id/auto-model`), the worker's status row
   and the delegation card (`Message.autoModel`), `check_delegation` receipts
   (`workerModel`), Settings > Model providers (one paragraph).
 
