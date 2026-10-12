@@ -90,6 +90,7 @@ it("duplex on and off: memory, MCP and billing stay identical for the same speak
     const outcomes: Array<{ duplex: boolean; memory: boolean; mcp: boolean; trigger: unknown }> = [];
     for (const duplex of [false, true]) {
       const before = (await t.messages()).filter((m) => m.role === "bot" && m.turnTerminal).length;
+      const beforeRows = t.ledger().length;
       rmSync(t.dumpPath, { force: true });
       await t.send({
         text: "what do you remember, and list the bots",
@@ -99,6 +100,8 @@ it("duplex on and off: memory, MCP and billing stay identical for the same speak
       await expect.poll(async () => (await t.messages()).filter((m) => m.role === "bot" && m.turnTerminal).length, { timeout: 20_000 }).toBe(before + 1);
       const reply = (await t.messages()).filter((m) => m.role === "bot" && m.kind === "text" && m.turnTerminal).at(-1);
       const haystack = JSON.stringify(t.dump() ?? {});
+      // appendUsage is fire-and-forget; wait until this turn's row is on disk.
+      await expect.poll(() => t.ledger().length, { timeout: 10_000 }).toBe(beforeRows + 1);
       outcomes.push({
         duplex,
         memory: haystack.includes(MEMORY_FACT),
