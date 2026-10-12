@@ -22,7 +22,7 @@ public enum DesktopSettingsSection: String, CaseIterable, Hashable, Sendable {
             ["company", "organization", "organisation", "sign in", "managed", "server", "servers", "connect", "pair", "switch", "computer"]
         case .appearance:
             ["skin", "theme", "appearance", "threads", "show threads", "sidebar", "density", "compact", "comfortable",
-             "display", "notifications", "sound", "sounds", "mascot", "owl", "app icon", "icon"]
+             "display", "notifications", "sound", "sounds", "mascot", "owl", "app icon", "icon", "logo"]
         case .experimental: ["early", "preview", "learn", "skill", "authoring", "browser", "templates"]
         case .connections:
             ["keys", "api", "api key", "api keys", "connections", "composio", "xai", "mistral", "router", "openrouter",
