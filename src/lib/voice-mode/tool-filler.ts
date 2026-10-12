@@ -1,7 +1,8 @@
 // Local spoken filler at tool start: words in the call language, never a
-// tone. Played on the first tool of a thinking turn so there is no dead air
-// while the harness works. The model's own chip is skipped once the filler
-// has been said. Barge-in cancels it; the next user turn can play again.
+// tone. Played once per tool activity key on a thinking turn so there is no
+// dead air while the harness works. The model's own chip is skipped once any
+// filler has been said this turn. Barge-in cancels it; the next user turn
+// can play again.
 
 export const TOOL_FILLER_COPY = {
   en: "Let me look.",
@@ -10,12 +11,12 @@ export const TOOL_FILLER_COPY = {
 } as const;
 
 export interface ToolFillerState {
-  played: boolean;
+  playedKeys: string[];
   cancelled: boolean;
 }
 
 export function createToolFillerState(): ToolFillerState {
-  return { played: false, cancelled: false };
+  return { playedKeys: [], cancelled: false };
 }
 
 export function toolFillerLanguage(voiceLanguage?: string, uiLocale?: string): string {
@@ -36,20 +37,27 @@ export function isSpokenFiller(text: string): boolean {
   return /[a-zà-ÿ]/i.test(text);
 }
 
-export function shouldPlayToolFiller(state: ToolFillerState, opts: { thinking: boolean; toolStarted: boolean }): boolean {
-  return opts.thinking && opts.toolStarted && !state.played && !state.cancelled;
+export function shouldPlayToolFiller(
+  state: ToolFillerState,
+  opts: { thinking: boolean; toolStarted: boolean; toolKey?: string },
+): boolean {
+  if (!opts.thinking || !opts.toolStarted || state.cancelled) return false;
+  if (opts.toolKey) return !state.playedKeys.includes(opts.toolKey);
+  return state.playedKeys.length === 0;
 }
 
 export function shouldSkipToolChip(state: ToolFillerState): boolean {
-  return state.played;
+  return state.playedKeys.length > 0;
 }
 
-export function noteToolFillerPlayed(state: ToolFillerState): ToolFillerState {
-  return { played: true, cancelled: state.cancelled };
+export function noteToolFillerPlayed(state: ToolFillerState, toolKey?: string): ToolFillerState {
+  const key = toolKey ?? "";
+  if (key && state.playedKeys.includes(key)) return state;
+  return { playedKeys: [...state.playedKeys, key], cancelled: state.cancelled };
 }
 
 export function cancelToolFiller(state: ToolFillerState): ToolFillerState {
-  return { played: state.played, cancelled: true };
+  return { playedKeys: state.playedKeys, cancelled: true };
 }
 
 export function resetToolFiller(_state?: ToolFillerState): ToolFillerState {

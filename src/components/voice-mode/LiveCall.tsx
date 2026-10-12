@@ -335,11 +335,14 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
     }
     const replies = fresh.filter((m) => m.role === "bot" && m.kind === "text" && m.text?.trim());
     if (!replies.length && call.current.phase === "thinking") {
-      const activity = [...fresh].reverse().find((m) => m.kind === "activity" && m.tool);
-      if (activity?.tool && shouldPlayToolFiller(filler.current, { thinking: true, toolStarted: true })) {
-        filler.current = noteToolFillerPlayed(filler.current);
-        const language = toolFillerLanguage(readVoiceModeSettings().language, activeLocale());
-        void call.sayFiller(toolFillerText(language));
+      for (const m of fresh) {
+        if (m.kind !== "activity" || !m.tool) continue;
+        const toolKey = m.tool.itemId ?? m.id;
+        if (shouldPlayToolFiller(filler.current, { thinking: true, toolStarted: true, toolKey })) {
+          filler.current = noteToolFillerPlayed(filler.current, toolKey);
+          const language = toolFillerLanguage(readVoiceModeSettings().language, activeLocale());
+          void call.sayFiller(toolFillerText(language));
+        }
       }
       const chip = [...fresh].reverse().find((m) => m.kind === "activity" && m.tool?.spoken);
       if (chip?.tool?.spoken && !shouldSkipToolChip(filler.current) && shouldNarrateToolChip({ duplex: readCallSettings().fullDuplex, playerBusy: call.player.busy })) {

@@ -35,13 +35,21 @@ describe("tool filler copy", () => {
 describe("when to play", () => {
   it("plays on the first tool of a thinking turn, even when the model said nothing", () => {
     const idle = createToolFillerState();
-    expect(shouldPlayToolFiller(idle, { thinking: true, toolStarted: true })).toBe(true);
-    expect(shouldPlayToolFiller(idle, { thinking: true, toolStarted: false })).toBe(false);
-    expect(shouldPlayToolFiller(idle, { thinking: false, toolStarted: true })).toBe(false);
-    const played = noteToolFillerPlayed(idle);
-    expect(shouldPlayToolFiller(played, { thinking: true, toolStarted: true })).toBe(false);
+    expect(shouldPlayToolFiller(idle, { thinking: true, toolStarted: true, toolKey: "bash-1" })).toBe(true);
+    expect(shouldPlayToolFiller(idle, { thinking: true, toolStarted: false, toolKey: "bash-1" })).toBe(false);
+    expect(shouldPlayToolFiller(idle, { thinking: false, toolStarted: true, toolKey: "bash-1" })).toBe(false);
+    const played = noteToolFillerPlayed(idle, "bash-1");
+    expect(shouldPlayToolFiller(played, { thinking: true, toolStarted: true, toolKey: "bash-1" })).toBe(false);
     expect(shouldSkipToolChip(played)).toBe(true);
     expect(shouldSkipToolChip(idle)).toBe(false);
+  });
+
+  it("plays again at the start of a later tool call on the same turn", () => {
+    const first = noteToolFillerPlayed(createToolFillerState(), "bash-1");
+    expect(shouldPlayToolFiller(first, { thinking: true, toolStarted: true, toolKey: "read-2" })).toBe(true);
+    const second = noteToolFillerPlayed(first, "read-2");
+    expect(shouldPlayToolFiller(second, { thinking: true, toolStarted: true, toolKey: "read-2" })).toBe(false);
+    expect(shouldSkipToolChip(second)).toBe(true);
   });
 
   it("barge-in cancels the filler; a new turn can play again", () => {
