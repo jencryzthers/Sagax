@@ -28,6 +28,8 @@ export interface PushMessage {
   fromId?: string;
   /** The event's own id (a nudge's id), for the phone's dedup. */
   id?: string;
+  /** The approval a push is about: the tap opens its card. */
+  requestId?: string;
   /** When it happened, milliseconds since 1970. */
   at: number;
   /** A string of the app's own catalog (ios/App/Localizable.xcstrings) the
@@ -157,6 +159,11 @@ export function buildApnsRequest(input: {
     if (message.titleLocArgs?.length) alert["title-loc-args"] = message.titleLocArgs.map((arg) => clip(arg, TITLE_MAX));
   }
   if (message.bodyLocKey) alert["loc-key"] = message.bodyLocKey;
+  // The banner's title is the bot (name and face); an approval says under it
+  // what it would allow, in the card's own words.
+  if (message.kind === "approval" && senderName && message.title.trim() && message.title.trim() !== senderName) {
+    alert.subtitle = clip(message.title, TITLE_MAX);
+  }
   const aps: Record<string, unknown> = {
     alert,
     // the phone wakes in the background to count its unread (the badge)
@@ -179,6 +186,7 @@ export function buildApnsRequest(input: {
   if (message.groupId) payload.groupId = message.groupId;
   if (message.fromId) payload.fromId = message.fromId;
   if (message.id) payload.id = message.id;
+  if (message.requestId) payload.requestId = message.requestId;
   if (senderName) payload.senderName = senderName;
   if (senderId) payload.senderId = senderId;
   if (avatarUrl) payload.avatarUrl = avatarUrl;

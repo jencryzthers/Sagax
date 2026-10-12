@@ -141,6 +141,25 @@ export class PushHub {
     this.syncRead(who, threadId);
   }
 
+  /** An approval or question on this conversation was answered (on any
+   * device) or expired. Its banner still waiting the grace is dropped, and
+   * the phones it buzzed hear it silently, so they withdraw the banner the
+   * same way a read does. */
+  noteSettled(threadId: string): void {
+    if (!threadId) return;
+    for (const [pendingKey, entry] of this.pending) {
+      if (entry.message.threadId !== threadId || entry.message.kind !== "approval") continue;
+      entry.cancel();
+      this.pending.delete(pendingKey);
+    }
+    for (const pushedKey of this.pushed) {
+      const split = pushedKey.indexOf("\0");
+      if (split <= 0 || pushedKey.slice(split + 1) !== threadId) continue;
+      this.pushed.delete(pushedKey);
+      this.syncRead(pushedKey.slice(0, split), threadId);
+    }
+  }
+
   /** The silent "read" push, at most READ_SYNC_MAX per person per window. */
   private syncRead(person: string, threadId: string): void {
     const sender = this.sender;

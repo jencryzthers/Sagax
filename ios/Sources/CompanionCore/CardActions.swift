@@ -709,6 +709,22 @@ public enum ApprovalHeading: Hashable, Sendable {
         return .wantsTo(.of(tool: card.tool))
     }
 
+    /// The server's plain title ("Allow Cryptic to view the schedule in
+    /// ConnectWise PSA?") for a plain tool ask, when the phone reads English:
+    /// those words are English, and a mixed sentence is worse than the app's
+    /// own localized "wants to" heading.
+    public static func plainTitle(_ card: OptionCard, language: String? = Locale.preferredLanguages.first) -> String? {
+        guard case .wantsTo = of(card), let title = card.plain?.title.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else { return nil }
+        guard (language ?? "en").lowercased().hasPrefix("en") else { return nil }
+        return title
+    }
+
+    /// The server's plain line under the title, on the same terms.
+    public static func plainLine(_ card: OptionCard, language: String? = Locale.preferredLanguages.first) -> String? {
+        guard plainTitle(card, language: language) != nil, let line = card.plain?.line.trimmingCharacters(in: .whitespacesAndNewlines), !line.isEmpty else { return nil }
+        return line
+    }
+
     /// What the dock prints in its monospace block: a proposal's text, a
     /// command (the exact one when the card offers to remember it), or the
     /// card's plain summary. Raw JSON arguments stay out.
@@ -718,7 +734,7 @@ public enum ApprovalHeading: Hashable, Sendable {
         let text = card.subtitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
         guard text.hasPrefix("{") || text.hasPrefix("[") else { return card.subtitle }
-        return argumentSummary(card.toolInput ?? card.subtitle)
+        return argumentSummary(card.toolInput ?? card.subtitle) ?? plainLine(card)
     }
 
     /// Raw JSON arguments are not shown as such: the one argument a person

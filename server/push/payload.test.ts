@@ -149,3 +149,21 @@ describe("APNs payload", () => {
     expect(body.senderName).toBeUndefined();
   });
 });
+
+describe("an approval push", () => {
+  it("shows the bot as sender and, under it, what it would allow; the tap carries the request", () => {
+    const request = buildApnsRequest({
+      message: message({ kind: "approval", title: "Allow Cryptic to run a command?", body: "Run echo hi.", senderName: "Cryptic", botId: "b1", requestId: "req-1" }),
+      bundleId: "ca.pulsatrix.sagax", nowMs: 2_000_000,
+    });
+    const body = JSON.parse(request.body);
+    expect(body.aps.alert).toEqual({ title: "Cryptic", subtitle: "Allow Cryptic to run a command?", body: "Run echo hi." });
+    expect(body.aps.category).toBe("SAGAX_APPROVAL");
+    expect(body.requestId).toBe("req-1");
+  });
+  it("adds no subtitle to other pushes", () => {
+    const body = JSON.parse(buildApnsRequest({ message: message({ senderName: "Alice" }), bundleId: "ca.pulsatrix.sagax", nowMs: 2_000_000 }).body);
+    expect(body.aps.alert.subtitle).toBeUndefined();
+    expect(body.requestId).toBeUndefined();
+  });
+});

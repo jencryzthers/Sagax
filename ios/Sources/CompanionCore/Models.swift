@@ -40,6 +40,18 @@ public struct SkillRequestCardData: Codable, Hashable, Sendable {
     }
 }
 
+/// `OptionCardData.plain` on the wire.
+public struct ApprovalPlainWords: Codable, Hashable, Sendable {
+    public var title: String
+    public var line: String
+    public var risk: String? = nil
+    public init(title: String, line: String, risk: String? = nil) {
+        self.title = title
+        self.line = line
+        self.risk = risk
+    }
+}
+
 public struct OptionCard: Codable, Hashable, Sendable {
     public var title: String
     public var subtitle: String
@@ -69,6 +81,13 @@ public struct OptionCard: Codable, Hashable, Sendable {
     public var expired: Bool? = nil
     /// Catalog key for `held` when it is one of the fixed notes.
     public var heldCode: String? = nil
+    /// The server's plain English words for a permission card ("Allow
+    /// Cryptic to run a command?" and one line), the same generator as its
+    /// push (shared/approval-describe.ts). Nil on older servers.
+    public var plain: ApprovalPlainWords? = nil
+    /// When the server declines it if nobody answers (milliseconds since
+    /// 1970): an AI client's hidden conversation.
+    public var expiresAt: Double? = nil
     /// The provider can remember an allow for the rest of its session
     /// ("Always allow this session").
     public var allowSession: Bool? = nil

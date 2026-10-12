@@ -251,6 +251,7 @@ import { entitled } from "./enterprise.ts";
 import { HOSTED_CONTRACT_HEADER, HOSTED_CONTRACT_METADATA, HOSTED_CONTRACT_VERSION } from "./hosted-contract.ts";
 import { cliCommandRefusal, describeSpawnFailure, execCli } from "./procs.ts";
 import { blockedTarget, buildSpendNotification, deliverableNotification, quietForCall, summarize, type Notification } from "./notify.ts";
+import { approvalPlain } from "../shared/approval-describe.ts";
 import {
   isModelVariant,
   TurnNotStartedError,
@@ -8835,13 +8836,63 @@ const providerLabel = (provider: string): string => {
  * desktop notification now, a push to a paired phone later. */
 function notify(notification: Notification | null) {
   // An AI client's hidden conversation (#291) never buzzes the person: the
-  // client that started it reads the answer (and asks for any approval).
-  if (notification && notificationInHiddenThread(notification.threadId)) return;
+  // client that started it reads the answer. An approval is the exception:
+  // only the person can give it, and the conversation is in no sidebar.
+  if (notification && notification.kind !== "approval" && notificationInHiddenThread(notification.threadId)) return;
   // the conversation on a live voice call is heard, not buzzed (notify.ts)
   if (notification && quietForCall(notification, lastPersonMessage(notification.threadId), Date.now(), Boolean(voiceCalls.active(notification.threadId)))) return;
   // nested rather than spread — the frame's own `kind` names the frame,
   // exactly like {kind:"message", message} and {kind:"bot", bot}
   if (notification) broadcast({ kind: "notify", notification });
+}
+
+/** How long an approval in an AI client's hidden conversation waits. */
+const HIDDEN_APPROVAL_TTL_MS = (() => {
+  const configured = Number(process.env.SAGAX_HIDDEN_APPROVAL_TTL_MS);
+  return Number.isFinite(configured) && configured >= 1_000 ? configured : 15 * 60_000;
+})();
+
+/** Decline an approval nobody answered by its expiresAt: the engine hears a
+ * refusal (the action never runs), the card reads Expired, and the audit
+ * log says why. Answered, dismissed or already expired cards are left alone. */
+function scheduleApprovalExpiry(
+  target: { threadId: string; requestId: string; messageId: string; instanceId: string; botId: string; botName: string },
+  ms: number,
+): void {
+  const timer = setTimeout(() => {
+    const { threadId, requestId, messageId } = target;
+    const open = () => {
+      const card = store.messagesFor(threadId).find((m) => m.id === messageId)?.card;
+      return card && card.requestId === requestId && !card.answered && !card.dismissed && !card.expired ? card : undefined;
+    };
+    const card = open();
+    if (!card) return;
+    void (async () => {
+      const instance = runningTurnEngines.get(threadId) ?? registry.get(target.instanceId);
+      try {
+        await instance?.adapter.respondToRequest(threadId, requestId, { behavior: "deny", message: "Nobody answered this approval in time, so it was declined." });
+      } catch { /* the request is gone either way: nothing ran */ }
+      const settled = store.messagesFor(threadId).find((m) => m.id === messageId)?.card;
+      if (settled && !settled.expired && (!settled.answered || settled.answered === "deny")) {
+        store.patchMessage(threadId, messageId, { card: { ...settled, expired: true, options: [] } });
+      }
+      askMessageByRequest.delete(`${threadId}:${requestId}`);
+      pendingCommandRules.delete(`${threadId}:${requestId}`);
+      withdrawApprovalNotice(threadId, requestId);
+      appendDecision(DATA_DIR, {
+        threadId, requestId, botId: target.botId, botName: target.botName,
+        tool: card.tool, summary: card.subtitle, decision: "auto-denied", source: "expired",
+      });
+    })().catch(() => console.error("[approval] Could not expire an unanswered approval."));
+  }, ms);
+  timer.unref?.();
+}
+
+/** An approval was answered somewhere (or expired): every client takes its
+ * banner down, and phones it buzzed hear it silently (server/push/hub.ts). */
+function withdrawApprovalNotice(threadId: string, requestId: string): void {
+  broadcast({ kind: "notify-withdraw", threadId, requestId });
+  pushHub.noteSettled(threadId);
 }
 
 /** Whether a notification belongs to an AI client's hidden conversation. */
@@ -10639,6 +10690,13 @@ bus.subscribe((event: RuntimeEvent) => {
       // the provider routed it as: it has no allow/deny answer, only the
       // model's own options. The card carries them so the person can choose.
       const questions = event.questions?.length ? event.questions : undefined;
+      // One generator for the card and its push (shared/approval-describe.ts):
+      // "Allow Cryptic to run a command?" and one plain line, never a raw id.
+      const plain = permission ? approvalPlain({ botName: asker?.name, tool: event.mcpTool ?? event.tool, toolInput: event.input, detail: event.summary }) : undefined;
+      // An AI client's hidden conversation (#291) is not in anyone's sidebar:
+      // its approval still reaches the person, and is declined when nobody
+      // answers in time instead of holding the turn forever.
+      const hiddenApproval = Boolean(permission && event.requestId && notificationInHiddenThread(event.threadId));
       const message = pushMessage({
         role: "bot",
         kind: "options",
@@ -10672,9 +10730,16 @@ bus.subscribe((event: RuntimeEvent) => {
           held: approvalHeldReason(heldContext),
           heldCode: approvalHeldNote(heldContext),
           approvalScope: event.approvalScope,
+          ...(plain ? { plain: { title: plain.title, line: plain.line, ...(plain.risk ? { risk: plain.risk } : {}) } } : {}),
+          ...(permission && event.mcpTool ? { mcpTool: event.mcpTool } : {}),
+          ...(hiddenApproval ? { expiresAt: Date.now() + HIDDEN_APPROVAL_TTL_MS } : {}),
         },
       });
       if (event.requestId) askMessageByRequest.set(`${event.threadId}:${event.requestId}`, message.id);
+      if (hiddenApproval && asker) scheduleApprovalExpiry({
+        threadId: event.threadId, requestId: event.requestId!, messageId: message.id,
+        instanceId: event.providerInstanceId ?? asker.modelSelection.instanceId, botId: asker.id, botName: asker.name,
+      }, HIDDEN_APPROVAL_TTL_MS);
       if (command && asker && event.requestId) pendingCommandRules.set(`${event.threadId}:${event.requestId}`, { botId: asker.id, candidate: command });
       // Every card that reaches a human is a decision too: "the provider
       // left this for you, in this mode". `question` marks the cards no
@@ -10708,7 +10773,12 @@ bus.subscribe((event: RuntimeEvent) => {
             permission ? "approval" : "question",
             notificationBot,
             (routineRun && routineSourceThread(routineRun)) || event.threadId,
-            event.summary,
+            plain ? plain.line : event.summary,
+            {
+              ...(notificationBot.avatarUrl ? { avatarUrl: notificationBot.avatarUrl } : {}),
+              ...(plain ? { title: plain.title } : {}),
+              ...(event.requestId ? { requestId: event.requestId } : {}),
+            },
           ));
         }
       }
@@ -10716,6 +10786,7 @@ bus.subscribe((event: RuntimeEvent) => {
     }
     case "request.resolved": {
       if (event.requestId) pendingCommandRules.delete(`${event.threadId}:${event.requestId}`);
+      if (event.requestId) withdrawApprovalNotice(event.threadId, event.requestId);
       if (event.requestId) settleWaitingOnPersonChips(event.threadId, event.requestId, { behavior: event.behavior, source: event.source });
       // answered (by whoever): the turn is working again, unless it settled
       const waiting = bot ?? (speaker ? store.bot(speaker.botId) : undefined);

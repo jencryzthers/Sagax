@@ -103,6 +103,33 @@ describe("push hub", () => {
     expect(sent).toHaveLength(1);
   });
 
+  it("an approval answered elsewhere withdraws its banner: a queued one never goes, a delivered one is told silently", async () => {
+    const { store, hub, sent, fire } = setup({ connected: true });
+    store.register("pr_bob", { token: TOKEN_A, platform: "ios", environment: "production", appVersion: "", deviceName: "" });
+    // still in its grace: dropped
+    hub.submit(message({ kind: "approval", title: "Allow Nib to run a command?", body: "Run echo hi." }));
+    hub.noteSettled("t1");
+    await fire();
+    expect(sent).toHaveLength(0);
+    // delivered (no client connected), then answered on the desktop
+    const offline = setup({ connected: false });
+    offline.store.register("pr_bob", { token: TOKEN_A, platform: "ios", environment: "production", appVersion: "", deviceName: "" });
+    offline.hub.submit(message({ kind: "approval", title: "Allow Nib to run a command?", body: "Run echo hi." }));
+    await offline.fire();
+    expect(offline.sent).toHaveLength(1);
+    offline.hub.noteSettled("t2");
+    await offline.hub.drain();
+    expect(offline.sent).toHaveLength(1);
+    offline.hub.noteSettled("t1");
+    await offline.hub.drain();
+    expect(offline.sent).toHaveLength(2);
+    expect(offline.sent[1]!.body).toMatchObject({ kind: "read", threadId: "t1" });
+    // already told
+    offline.hub.noteSettled("t1");
+    await offline.hub.drain();
+    expect(offline.sent).toHaveLength(2);
+  });
+
   it("a conversation read after it buzzed the phones tells them, silently, once", async () => {
     const { store, hub, sent, fire, tick } = setup({ connected: false });
     store.register("pr_bob", { token: TOKEN_A, platform: "ios", environment: "production", appVersion: "", deviceName: "" });
