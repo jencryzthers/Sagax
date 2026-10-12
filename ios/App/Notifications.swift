@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import UserNotifications
 import CompanionCore
 
@@ -44,11 +45,33 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
         ]
         if notification.isBlocking { content.interruptionLevel = .timeSensitive }
 
+        let posted = communicationContent(content, name: notification.botName, id: notification.botId, conversationId: notification.threadId)
         // One conversation, one banner: a replayed frame, the next line of
         // the same conversation and the APNs push for it (whose
         // apns-collapse-id is this same identifier) replace it.
         let identifier = PushCollapse.identifier(threadId: notification.threadId, kind: notification.kind)
-        center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
+        center.add(UNNotificationRequest(identifier: identifier, content: posted, trigger: nil))
+    }
+
+    /// Name the bot (or person) as the sender when we have a display name.
+    private func communicationContent(
+        _ content: UNMutableNotificationContent,
+        name: String,
+        id: String,
+        conversationId: String
+    ) -> UNNotificationContent {
+        let display = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !display.isEmpty else { return content }
+        content.title = display
+        let handle = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        let conversation = conversationId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sender = PushSenderIdentity(
+            id: handle.isEmpty ? display : handle,
+            displayName: display,
+            conversationId: conversation.isEmpty ? display : conversation,
+            avatarUrl: nil
+        )
+        return CommunicationNotification.applyingIntent(content, sender: sender, imageData: nil)
     }
 
     /// Settings > Notifications > Unread count on the app icon (#222).
@@ -92,16 +115,24 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
         let userInfo = notification.request.content.userInfo
         let threadId = userInfo["threadId"] as? String
         if CallQuiet.shared.silences(threadId: threadId) { return completionHandler([]) }
-        // An APNs push while the app is in front: the live stream usually
-        // got there first. A nudge rings once; a conversation already on
-        // screen shows nothing.
-        if let push = PushPayload(userInfo: userInfo) {
-            Task { @MainActor in
-                completionHandler(AttentionCenter.shared.presentation(for: push))
+        // App in front: return [] (no banner, no sound). The live stream already
+        // showed the line; a nudge still rings in-app once.
+        Task { @MainActor in
+            let appActive = UIApplication.shared.applicationState == .active
+            if let push = PushPayload(userInfo: userInfo) {
+                completionHandler(AttentionCenter.shared.presentation(for: push, appActive: appActive))
+                return
             }
-            return
+            if !ForegroundNotification.showsSystemBanner(
+                appActive: appActive,
+                viewingThreadId: AttentionCenter.shared.viewingThreadId,
+                threadId: threadId
+            ) {
+                completionHandler([])
+                return
+            }
+            completionHandler(NotificationSounds.isEnabled ? [.banner, .list, .sound, .badge] : [.banner, .list, .badge])
         }
-        completionHandler(NotificationSounds.isEnabled ? [.banner, .list, .sound, .badge] : [.banner, .list, .badge])
     }
 
     func userNotificationCenter(

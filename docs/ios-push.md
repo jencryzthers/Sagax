@@ -25,6 +25,13 @@ So when one of your clients is connected (presence), the push waits 8
 seconds and is dropped if one of them marked that conversation read; when
 none is connected it goes at once (`server/push/decide.ts`).
 
+A phone whose live stream is open (`GET /api/events` with
+`x-sagax-push-token`) already has the line: the hub skips APNs to that
+device even if another of your phones or the desktop still gets the push.
+On the phone, `userNotificationCenter(_:willPresent:)` returns `[]` while
+the app is in front, so a push that still arrives (a race, a token that
+had not yet been named) shows no banner and plays no sound.
+
 Once a conversation that buzzed the phones is read on any device, the server
 sends each phone one silent push (`kind: "read"`, `content-available`,
 priority 5, `buildReadSyncRequest`): the phone withdraws that conversation's
@@ -46,6 +53,24 @@ Each push follows:
 
 The alert text of a message is the message itself (clipped to 240
 characters): it travels through Apple to the phone like any messaging app.
+
+A push from a bot or a person is an iOS **communication notification**. The
+banner names the bot (or the person) as the sender and shows their avatar as
+the icon, the way Messages and Grok Bot look, instead of "Sagax" with the
+app icon. The server sets `aps.mutable-content` to 1 and sends `senderName`,
+`senderId` and a relative `avatarUrl` (`/api/attachments/...` or
+`/api/people/<id>/avatar?v=...`). The Notification Service Extension
+downloads the picture with the pairing bearer, donates
+`INSendMessageIntent`, and calls `content.updating(from:)`. If the picture
+cannot load, the sender name is still the title. Achievements stay ordinary
+alerts.
+
+This needs the **Communication Notifications** capability on both App IDs
+(`ca.pulsatrix.sagax` and `ca.pulsatrix.sagax.notification`) in the Apple
+Developer portal. Xcode automatic signing then puts
+`com.apple.developer.usernotifications.communication` in the profile. Until
+that is on, the extension still sets the alert title to the bot's name, but
+iOS keeps showing the Sagax app icon.
 
 ## Code
 
@@ -70,6 +95,9 @@ characters): it travels through Apple to the phone like any messaging app.
   opens the conversation; a nudge received in front shakes and rings like
   the in-app nudge, once; a push wakes the app for a moment
   (`content-available`) to recount the icon badge.
+- `ios/NotificationService`: Notification Service Extension. A
+  `mutable-content` push downloads the avatar and attaches
+  `INSendMessageIntent` so the banner uses the bot's name and face.
 
 The APNs hosts appear only in the server bundle: `check:no-phone-home`
 refuses `api.push.apple.com` and `api.sandbox.push.apple.com` everywhere
@@ -90,6 +118,11 @@ except the server's host table in `dist-server/`.
 6. Identifiers > `ca.pulsatrix.sagax`: check that **Push Notifications** is
    enabled (Xcode's automatic signing usually turns it on with the
    `aps-environment` entitlement; check after the next archive).
+7. On the same App ID, enable **Communication Notifications**. Create (or
+   let Xcode create) the extension App ID `ca.pulsatrix.sagax.notification`
+   and enable Communication Notifications there too. Regenerate the
+   development and distribution provisioning profiles after that, or let
+   automatic signing refresh them on the next archive.
 
 Important: an APNs key is **not** the App Store Connect API key, even though
 both are `.p8` files from the same account. The App Store Connect key
@@ -188,7 +221,15 @@ VM and a TestFlight build:
 2. Close the app (swipe it away), then from another account send a direct
    message, then a nudge. The phone shows both; the nudge plays the nudge
    sound. A tap opens the conversation.
-3. Keep the desktop app open on that conversation while a message arrives:
+3. Close the app, then have a bot finish a turn in a thread of yours. The
+   banner must show that bot's name as the sender and, when the bot has a
+   stored picture, that picture as the icon. Without a picture, the name is
+   still the sender and the icon may stay empty or fall back to initials.
+   A tap opens that thread.
+4. Keep the desktop app open on that conversation while a message arrives:
    no push.
-4. The server log shows no `InvalidProviderToken`. If it does, the `.p8` is
+5. Keep the phone app in front, on that bot's conversation (or any screen):
+   no banner and no sound. A second phone of yours that is locked still
+   gets the push.
+6. The server log shows no `InvalidProviderToken`. If it does, the `.p8` is
    the App Store Connect key, or the Key ID or Team ID is wrong.
