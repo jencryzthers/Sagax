@@ -308,6 +308,28 @@ public struct ServerEnvironmentStatus: Decodable, Equatable, Sendable {
     public var pendingDeletionAt: Double?
     public var error: String?
 
+    public init(
+        configured: Bool,
+        state: String? = nil,
+        lastUsedAt: Double? = nil,
+        workspaceBytes: Double? = nil,
+        overQuota: Bool? = nil,
+        limits: Limits? = nil,
+        idleMinutes: Int? = nil,
+        pendingDeletionAt: Double? = nil,
+        error: String? = nil
+    ) {
+        self.configured = configured
+        self.state = state
+        self.lastUsedAt = lastUsedAt
+        self.workspaceBytes = workspaceBytes
+        self.overQuota = overQuota
+        self.limits = limits
+        self.idleMinutes = idleMinutes
+        self.pendingDeletionAt = pendingDeletionAt
+        self.error = error
+    }
+
     /// "Disk space" on the Bot Computer screen.
     public enum DiskSpace: String, Sendable { case normal, almostFull, full, unknown }
 
@@ -325,6 +347,29 @@ public struct ServerEnvironmentStatus: Decodable, Equatable, Sendable {
 
 struct ServerEnvironmentResetBody: Encodable {
     let confirm = true
+}
+
+public enum ServerEnvironmentPowerAction: String, Sendable {
+    case start, shutdown, pause, resume
+}
+
+struct ServerEnvironmentPowerBody: Encodable {
+    var action: String
+    var confirm: Bool?
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(action, forKey: .action)
+        if let confirm { try c.encode(confirm, forKey: .confirm) }
+    }
+
+    private enum CodingKeys: String, CodingKey { case action, confirm }
+}
+
+/// `GET /api/desktop-viewer/sandbox/me` (SandboxDesktopView).
+public struct SandboxViewerConfig: Decodable, Equatable, Sendable {
+    public var password: String?
+    public var viewOnly: Bool?
 }
 
 // MARK: - GET /api/mcp/servers

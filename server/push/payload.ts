@@ -113,6 +113,24 @@ export interface ApnsRequest {
   body: string;
 }
 
+/** A silent push (no banner, no sound) telling the person's phones that a
+ * conversation was read on another device: the app wakes in the background,
+ * counts its unread again for the icon badge and withdraws that
+ * conversation's notifications (ios PushKind.read). */
+export function buildReadSyncRequest(input: { threadId: string; bundleId: string; nowMs: number }): ApnsRequest {
+  const payload = { aps: { "content-available": 1 }, kind: "read", threadId: input.threadId, at: input.nowMs };
+  return {
+    headers: {
+      "apns-push-type": "background",
+      "apns-topic": input.bundleId,
+      // APNs requires priority 5 for a background push
+      "apns-priority": "5",
+      "apns-expiration": String(Math.floor(input.nowMs / 1000) + 60 * 60),
+    },
+    body: JSON.stringify(payload),
+  };
+}
+
 export function buildApnsRequest(input: {
   message: PushMessage;
   bundleId: string;

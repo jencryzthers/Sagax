@@ -94,6 +94,19 @@ export const LOCAL_VM_SCREENSHOT_ROUTE = {
   path: /^\/api\/bots\/[\w-]+\/local-computer\/screenshot$/,
 } as const;
 
+/** The person's server-environment desktop (Electron SandboxDesktopView).
+ * Screenshot of a bot computer 409s with org_user_sandbox; this is the live
+ * view instead. */
+export const SANDBOX_VIEWER_ROUTE = {
+  method: "GET",
+  path: /^\/api\/desktop-viewer\/sandbox\/me(?:\/websockify)?$/,
+} as const;
+
+export const SERVER_ENVIRONMENT_POWER_ROUTE = {
+  method: "POST",
+  path: /^\/api\/me\/server-environment\/power$/,
+} as const;
+
 export function isCloudDesktopJoin(method: string, path: string): boolean {
   return method === CLOUD_DESKTOP_JOIN_ROUTE.method && CLOUD_DESKTOP_JOIN_ROUTE.path.test(path);
 }
@@ -104,12 +117,18 @@ export function isMessageFileDownload(method: string, path: string): boolean {
 
 /** Every route that shows or drives a bot's computer — cloud or Local VM —
  * and so needs the device's computer-access capability, not just a token. */
+export function isSandboxViewerAccess(method: string, path: string): boolean {
+  return method === SANDBOX_VIEWER_ROUTE.method && SANDBOX_VIEWER_ROUTE.path.test(path);
+}
+
 export function isCloudDesktopAccess(method: string, path: string): boolean {
   return isCloudDesktopJoin(method, path)
     || (method === CLOUD_DESKTOP_CONTROL_ROUTE.method && CLOUD_DESKTOP_CONTROL_ROUTE.path.test(path))
     || CLOUD_DESKTOP_INPUT_ROUTES.some((route) => route.method === method && route.path.test(path))
     || (method === LOCAL_VM_SCREENSHOT_ROUTE.method && LOCAL_VM_SCREENSHOT_ROUTE.path.test(path))
-    || (method === LOCAL_VM_JOIN_ROUTE.method && LOCAL_VM_JOIN_ROUTE.path.test(path));
+    || (method === LOCAL_VM_JOIN_ROUTE.method && LOCAL_VM_JOIN_ROUTE.path.test(path))
+    || isSandboxViewerAccess(method, path)
+    || (method === SERVER_ENVIRONMENT_POWER_ROUTE.method && SERVER_ENVIRONMENT_POWER_ROUTE.path.test(path));
 }
 
 /** Both halves of browser control, behind one capability. Watching the frames
@@ -248,7 +267,9 @@ const ALLOWED: ReadonlyArray<{ method: string; path: RegExp }> = [
   { method: "GET", path: /^\/api\/me\/appearance$/ },
   { method: "PUT", path: /^\/api\/me\/appearance$/ },
   { method: "GET", path: /^\/api\/me\/server-environment$/ },
-  { method: "POST", path: /^\/api\/me\/server-environment\/(?:reset|update)$/ },
+  { method: "GET", path: /^\/api\/me\/server-environment\/stats$/ },
+  { method: "POST", path: /^\/api\/me\/server-environment\/(?:reset|update|power)$/ },
+  { method: "GET", path: /^\/api\/desktop-viewer\/sandbox\/me(?:\/websockify)?$/ },
   { method: "PATCH", path: /^\/api\/groups\/[\w-]+$/ },
 
   // Desktop remote-client parity (docs/ios-companion.md, "Same surface as

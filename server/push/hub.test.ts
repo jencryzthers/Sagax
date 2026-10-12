@@ -103,6 +103,30 @@ describe("push hub", () => {
     expect(sent).toHaveLength(1);
   });
 
+  it("a conversation read after it buzzed the phones tells them, silently, once", async () => {
+    const { store, hub, sent, fire, tick } = setup({ connected: false });
+    store.register("pr_bob", { token: TOKEN_A, platform: "ios", environment: "production", appVersion: "", deviceName: "" });
+    // a read of a conversation that never buzzed sends nothing
+    hub.noteRead("pr_bob", "t1");
+    await hub.drain();
+    expect(sent).toHaveLength(0);
+    hub.submit(message());
+    await fire();
+    expect(sent).toHaveLength(1);
+    tick(5_000);
+    hub.noteRead("PR_BOB", "t1");
+    await hub.drain();
+    expect(sent).toHaveLength(2);
+    expect(sent[1]!.headers).toMatchObject({ "apns-push-type": "background", "apns-priority": "5", "apns-topic": "ca.pulsatrix.sagax" });
+    expect(sent[1]!.body).toEqual({ aps: { "content-available": 1 }, kind: "read", threadId: "t1", at: 15_000 });
+    // no banner, no sound, no badge number: the phone recounts its own
+    expect(JSON.stringify(sent[1]!.body)).not.toMatch(/alert|sound|badge/);
+    // read again: already told
+    hub.noteRead("pr_bob", "t1");
+    await hub.drain();
+    expect(sent).toHaveLength(2);
+  });
+
   it("collapses a burst in one conversation into one push with the newest line", async () => {
     const { store, hub, sent, fire } = setup();
     store.register("pr_bob", { token: TOKEN_A, platform: "ios", environment: "production", appVersion: "", deviceName: "" });

@@ -1,11 +1,11 @@
 // The Computer tab's screen picker on an organization server
-// (`ComputerPicker` in OrgComputerTab.tsx): Cloud, then each of the person's
-// own computers by its name (the host name its Sagax app registered), so a
-// person with two PCs sees two Local VMs. A dot marks the screen the bot
-// works on. Picking one changes only what is shown, and where that Local
-// VM's buttons go (`desktopId`), never the bot's Works on. Browser mode is
-// its last chip where the server has the built-in browser (Screen and
-// Browser on a solo server). Shown only when there is more than one choice.
+// (`ComputerPicker` in OrgComputerTab.tsx). Electron names each host
+// (truncated 132px). iPhone chips overflow, so iOS shows Cloud, Other VMs
+// and Browser; the chosen host sits under the picker, with a menu when
+// there is more than one (JC 2026-10-11). A dot marks the screen the bot
+// works on. Picking one changes only what is shown, never the bot's Works
+// on. Browser mode is the last chip where the server has the built-in
+// browser. Shown only when there is more than one choice.
 import SwiftUI
 import CompanionCore
 
@@ -74,22 +74,68 @@ struct ComputerChooser: View {
 
     /// The key of browser mode's chip.
     static let browserKey = "browser"
+    /// Every Local VM shares this chip. Electron lists each host by name.
+    static let vmsKey = "vms"
 
-    /// The chips: on an organization server Cloud and each computer by
-    /// name, else Screen alone; then Browser when the bot can show one.
+    /// The chips: on an organization server Cloud and Other VMs, else Screen
+    /// alone; then Browser when the bot can show one.
     static func items(bridge: PersonDesktopBridge?, organization: Bool, worksOnLocal: Bool, browser: Bool) -> [Item] {
         var items: [Item]
         if organization, let bridge {
-            let here = bridge.worksOn(local: worksOnLocal)?.key
-            items = bridge.computerChoices().map { choice in
-                Item(key: choice.key, label: choice.name ?? String(localized: "Cloud"),
-                     systemImage: choice == .cloud ? "cloud" : "laptopcomputer", here: choice.key == here)
+            let here = bridge.worksOn(local: worksOnLocal)
+            items = [Item(key: ComputerChoice.cloud.key, label: String(localized: "Cloud"),
+                          systemImage: "cloud", here: here == .cloud)]
+            if bridge.iosChooserHasVMs() {
+                items.append(Item(key: vmsKey, label: String(localized: "Other VMs"),
+                                  systemImage: "laptopcomputer", here: here != nil && here != .cloud))
             }
         } else {
             items = [Item(key: "screen", label: String(localized: "Screen"), systemImage: "display")]
         }
         if browser { items.append(Item(key: browserKey, label: String(localized: "Browser"), systemImage: "globe")) }
         return items
+    }
+
+    static func selectedKey(showsBrowser: Bool, chosen: ComputerChoice?) -> String {
+        if showsBrowser { return browserKey }
+        if let chosen { return chosen == .cloud ? chosen.key : vmsKey }
+        return "screen"
+    }
+
+    /// Other VMs stores a desktop key (`desktop:<id>`), never `vms`.
+    static func resolvePick(_ key: String, bridge: PersonDesktopBridge?, current: ComputerChoice?) -> String {
+        guard key == vmsKey else { return key }
+        if let current, current != .cloud { return current.key }
+        return bridge?.computerChoices().first { $0 != .cloud }?.key ?? key
+    }
+
+    /// The host name under Other VMs, and a menu when several desktops are online.
+    @ViewBuilder
+    static func provenance(bridge: PersonDesktopBridge?, chosen: ComputerChoice?, pick: @escaping (String) -> Void, secondary: Color) -> some View {
+        let desktops = bridge?.computerChoices().filter { $0 != .cloud } ?? []
+        if let chosen, chosen != .cloud, !desktops.isEmpty {
+            if desktops.count > 1 {
+                Menu {
+                    ForEach(desktops, id: \.key) { desktop in
+                        Button(desktop.name ?? String(localized: "Computer")) { pick(desktop.key) }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(verbatim: chosen.name ?? String(localized: "Computer"))
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .font(.system(size: 12))
+                    .foregroundStyle(secondary)
+                }
+                .accessibilityIdentifier("computer-vm-menu")
+            } else {
+                Text(verbatim: chosen.name ?? String(localized: "Computer"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(secondary)
+                    .accessibilityIdentifier("computer-vm-name")
+            }
+        }
     }
 
     let items: [Item]

@@ -191,7 +191,7 @@ final class ShapeEngineTests: XCTestCase {
 /// the colour worn (`colorTabFor`).
 final class ClayPickerTests: XCTestCase {
     func testClayIsOfferedForShapesShibaGrumpOgreFrogOrAClayColour() {
-        for character in [MascotCharacter.shape, .shiba, .grump, .ogre, .frog] {
+        for character in [MascotCharacter.shape, .shiba, .grump, .ogre, .frog, .crab] {
             XCTAssertTrue(MausColors.offersClay(character, color: "green"), "\(character)")
         }
         for character in [MascotCharacter.owl, .trombi, .bunbu] {

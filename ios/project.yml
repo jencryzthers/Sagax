@@ -62,8 +62,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ca.pulsatrix.sagax
-        MARKETING_VERSION: "0.4.19"
-        CURRENT_PROJECT_VERSION: "18"
+        MARKETING_VERSION: "0.4.22"
+        CURRENT_PROJECT_VERSION: "22"
         SWIFT_VERSION: "5.9"
         TARGETED_DEVICE_FAMILY: "1,2"
         # The catalog lives in App/, which is already a source path.
@@ -211,8 +211,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ca.pulsatrix.sagax.share
-        MARKETING_VERSION: "0.4.19"
-        CURRENT_PROJECT_VERSION: "18"
+        MARKETING_VERSION: "0.4.22"
+        CURRENT_PROJECT_VERSION: "22"
         SWIFT_VERSION: "5.9"
         TARGETED_DEVICE_FAMILY: "1,2"
         APPLICATION_EXTENSION_API_ONLY: YES
@@ -269,8 +269,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ca.pulsatrix.sagax.notification
-        MARKETING_VERSION: "0.4.19"
-        CURRENT_PROJECT_VERSION: "18"
+        MARKETING_VERSION: "0.4.22"
+        CURRENT_PROJECT_VERSION: "22"
         SWIFT_VERSION: "5.9"
         TARGETED_DEVICE_FAMILY: "1,2"
         APPLICATION_EXTENSION_API_ONLY: YES
@@ -334,6 +334,7 @@ targets:
       - path: App/Mascots/GrumpMascotView.swift
       - path: App/Mascots/OgreMascotView.swift
       - path: App/Mascots/FrogMascotView.swift
+      - path: App/Mascots/CrabMascotView.swift
       # MascotState resolves the face for the post-answer refresh a widget
       # performs; it is self-contained above Core, so it rides along.
       - path: App/MascotState.swift
@@ -346,8 +347,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ca.pulsatrix.sagax.widgets
-        MARKETING_VERSION: "0.4.19"
-        CURRENT_PROJECT_VERSION: "18"
+        MARKETING_VERSION: "0.4.22"
+        CURRENT_PROJECT_VERSION: "22"
         SWIFT_VERSION: "5.9"
         TARGETED_DEVICE_FAMILY: "1,2"
         APPLICATION_EXTENSION_API_ONLY: YES

@@ -78,6 +78,8 @@ export interface ProbeResult {
   tools?: Array<{ name: string; description?: string }>;
   /** how many tools the server advertised, when `tools` shows only the first */
   total?: number;
+  /** tools Grok registers under another name or cannot register (server/mcp-probe.ts) */
+  engineNames?: { grok: { renamed: Array<{ upstream: string; registered: string; reason: string }>; unregistrable: Array<{ upstream: string; reason: string }> } };
   error?: string;
 }
 

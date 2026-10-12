@@ -90,6 +90,27 @@ and `server/routes/group-folders.ts`. Keep these rules, covered by
 - The picker follows Threads location like a bot's: header or sidebar, never
   both.
 
+## AI clients' conversations are hidden; reading clears everywhere (2026-10-11, #291)
+
+- An AI client writing through the member API (Pulsatrix `sagax_send`,
+  any actor but the Sagax console) uses its own **hidden** conversation
+  with the bot (`task.hidden`, `server/org-member-routes.ts`): never in the
+  person's sidebar, previews, typing dots, unread, badge or notifications,
+  and it never moves their selected conversation. It stays reachable from
+  the bot's Activity panel and links. The server drops hidden tasks from
+  every bot projection unless that thread is the one selected
+  (`listedTasks`, `shownBotActivity`, `notify()`), so older clients benefit
+  without a rebuild; web and iOS filter too (`taskHiddenFromSidebar`,
+  `BotTask.isHiddenFromPerson`). Earlier `newThread` conversations from the
+  admin activity log were hidden once at startup (`hideEarlierAgentThreads`,
+  marker `agent-threads-hidden.v1`). A card waiting in a hidden
+  conversation is answered by the AI client (`sagax_approve`), not shown
+  to the person.
+- A conversation that buzzed the phones and is then read anywhere sends
+  each phone one silent `read` push; the phone withdraws its banner and
+  recounts the badge, and withdraws settled bot banners whenever its unread
+  count drops (`docs/ios-push.md`).
+
 ## Organization memory cache (Settings > Memory)
 
 Settings > Memory (`src/components/OrgMemorySettings.tsx`,

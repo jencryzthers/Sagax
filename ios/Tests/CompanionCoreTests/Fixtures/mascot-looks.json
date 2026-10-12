@@ -125,7 +125,16 @@
     "coral",
     "sand",
     "ink",
-    "mint"
+    "mint",
+    "gold",
+    "pearl",
+    "neon",
+    "chrome",
+    "crystal",
+    "circuit",
+    "holo",
+    "molten",
+    "galaxy"
   ],
   "owlSkins": [
     "none",
@@ -3312,6 +3321,141 @@
       }
     },
     {
+      "name": "crab gold",
+      "input": {
+        "character": "crab",
+        "skins": {
+          "crab": "gold"
+        }
+      },
+      "expected": {
+        "character": "crab",
+        "skins": {
+          "crab": "gold"
+        }
+      }
+    },
+    {
+      "name": "crab pearl",
+      "input": {
+        "character": "crab",
+        "skins": {
+          "crab": "pearl"
+        }
+      },
+      "expected": {
+        "character": "crab",
+        "skins": {
+          "crab": "pearl"
+        }
+      }
+    },
+    {
+      "name": "crab neon",
+      "input": {
+        "character": "crab",
+        "skins": {
+          "crab": "neon"
+        }
+      },
+      "expected": {
+        "character": "crab",
+        "skins": {
+          "crab": "neon"
+        }
+      }
+    },
+    {
+      "name": "crab chrome",
+      "input": {
+        "character": "crab",
+        "skins": {
+          "crab": "chrome"
+        }
+      },
+      "expected": {
+        "character": "crab",
+        "skins": {
+          "crab": "chrome"
+        }
+      }
+    },
+    {
+      "name": "crab crystal",
+      "input": {
+        "character": "crab",
+        "skins": {
+          "crab": "crystal"
+        }
+      },
+      "expected": {
+        "character": "crab",
+        "skins": {
+          "crab": "crystal"
+        }
+      }
+    },
+    {
+      "name": "crab circuit",
+      "input": {
+        "character": "crab",
+        "skins": {
+          "crab": "circuit"
+        }
+      },
+      "expected": {
+        "character": "crab",
+        "skins": {
+          "crab": "circuit"
+        }
+      }
+    },
+    {
+      "name": "crab holo",
+      "input": {
+        "character": "crab",
+        "skins": {
+          "crab": "holo"
+        }
+      },
+      "expected": {
+        "character": "crab",
+        "skins": {
+          "crab": "holo"
+        }
+      }
+    },
+    {
+      "name": "crab molten",
+      "input": {
+        "character": "crab",
+        "skins": {
+          "crab": "molten"
+        }
+      },
+      "expected": {
+        "character": "crab",
+        "skins": {
+          "crab": "molten"
+        }
+      }
+    },
+    {
+      "name": "crab galaxy",
+      "input": {
+        "character": "crab",
+        "skins": {
+          "crab": "galaxy"
+        }
+      },
+      "expected": {
+        "character": "crab",
+        "skins": {
+          "crab": "galaxy"
+        }
+      }
+    },
+    {
       "name": "editor owl",
       "input": {
         "character": "owl",
@@ -5577,6 +5721,201 @@
         "character": "crab",
         "skins": {
           "crab": "mint"
+        }
+      }
+    },
+    {
+      "name": "legacy crab skin royal",
+      "input": {
+        "character": "crab",
+        "skins": {
+          "crab": "royal"
+        }
+      },
+      "expected": {
+        "character": "crab",
+        "skins": {
+          "crab": "gold"
+        }
+      }
+    },
+    {
+      "name": "legacy crab skin treasure",
+      "input": {
+        "character": "crab",
+        "skins": {
+          "crab": "treasure"
+        }
+      },
+      "expected": {
+        "character": "crab",
+        "skins": {
+          "crab": "gold"
+        }
+      }
+    },
+    {
+      "name": "legacy crab skin nacre",
+      "input": {
+        "character": "crab",
+        "skins": {
+          "crab": "nacre"
+        }
+      },
+      "expected": {
+        "character": "crab",
+        "skins": {
+          "crab": "pearl"
+        }
+      }
+    },
+    {
+      "name": "legacy crab skin opal",
+      "input": {
+        "character": "crab",
+        "skins": {
+          "crab": "opal"
+        }
+      },
+      "expected": {
+        "character": "crab",
+        "skins": {
+          "crab": "pearl"
+        }
+      }
+    },
+    {
+      "name": "legacy crab skin frost",
+      "input": {
+        "character": "crab",
+        "skins": {
+          "crab": "frost"
+        }
+      },
+      "expected": {
+        "character": "crab",
+        "skins": {
+          "crab": "pearl"
+        }
+      }
+    },
+    {
+      "name": "legacy crab skin metal",
+      "input": {
+        "character": "crab",
+        "skins": {
+          "crab": "metal"
+        }
+      },
+      "expected": {
+        "character": "crab",
+        "skins": {
+          "crab": "chrome"
+        }
+      }
+    },
+    {
+      "name": "legacy crab skin liquid-metal",
+      "input": {
+        "character": "crab",
+        "skins": {
+          "crab": "liquid-metal"
+        }
+      },
+      "expected": {
+        "character": "crab",
+        "skins": {
+          "crab": "chrome"
+        }
+      }
+    },
+    {
+      "name": "legacy crab skin glass",
+      "input": {
+        "character": "crab",
+        "skins": {
+          "crab": "glass"
+        }
+      },
+      "expected": {
+        "character": "crab",
+        "skins": {
+          "crab": "crystal"
+        }
+      }
+    },
+    {
+      "name": "legacy crab skin cyber",
+      "input": {
+        "character": "crab",
+        "skins": {
+          "crab": "cyber"
+        }
+      },
+      "expected": {
+        "character": "crab",
+        "skins": {
+          "crab": "circuit"
+        }
+      }
+    },
+    {
+      "name": "legacy crab skin iridescent",
+      "input": {
+        "character": "crab",
+        "skins": {
+          "crab": "iridescent"
+        }
+      },
+      "expected": {
+        "character": "crab",
+        "skins": {
+          "crab": "holo"
+        }
+      }
+    },
+    {
+      "name": "legacy crab skin holographic",
+      "input": {
+        "character": "crab",
+        "skins": {
+          "crab": "holographic"
+        }
+      },
+      "expected": {
+        "character": "crab",
+        "skins": {
+          "crab": "holo"
+        }
+      }
+    },
+    {
+      "name": "legacy crab skin lava",
+      "input": {
+        "character": "crab",
+        "skins": {
+          "crab": "lava"
+        }
+      },
+      "expected": {
+        "character": "crab",
+        "skins": {
+          "crab": "molten"
+        }
+      }
+    },
+    {
+      "name": "legacy crab skin nebula",
+      "input": {
+        "character": "crab",
+        "skins": {
+          "crab": "nebula"
+        }
+      },
+      "expected": {
+        "character": "crab",
+        "skins": {
+          "crab": "galaxy"
         }
       }
     },
@@ -10634,6 +10973,330 @@
       "color": "mint",
       "fill": "#7EC8A3",
       "eyes": "#111111"
+    },
+    {
+      "skin": "gold",
+      "color": "orange",
+      "fill": "#E2AE34",
+      "eyes": "#3A2404"
+    },
+    {
+      "skin": "gold",
+      "color": "blue",
+      "fill": "#E2AE34",
+      "eyes": "#3A2404"
+    },
+    {
+      "skin": "gold",
+      "color": "white",
+      "fill": "#E2AE34",
+      "eyes": "#3A2404"
+    },
+    {
+      "skin": "gold",
+      "color": "butter",
+      "fill": "#E2AE34",
+      "eyes": "#3A2404"
+    },
+    {
+      "skin": "gold",
+      "color": "black",
+      "fill": "#E2AE34",
+      "eyes": "#3A2404"
+    },
+    {
+      "skin": "gold",
+      "color": "mint",
+      "fill": "#E2AE34",
+      "eyes": "#3A2404"
+    },
+    {
+      "skin": "pearl",
+      "color": "orange",
+      "fill": "#F3EBE3",
+      "eyes": "#5A4A55"
+    },
+    {
+      "skin": "pearl",
+      "color": "blue",
+      "fill": "#F3EBE3",
+      "eyes": "#5A4A55"
+    },
+    {
+      "skin": "pearl",
+      "color": "white",
+      "fill": "#F3EBE3",
+      "eyes": "#5A4A55"
+    },
+    {
+      "skin": "pearl",
+      "color": "butter",
+      "fill": "#F3EBE3",
+      "eyes": "#5A4A55"
+    },
+    {
+      "skin": "pearl",
+      "color": "black",
+      "fill": "#F3EBE3",
+      "eyes": "#5A4A55"
+    },
+    {
+      "skin": "pearl",
+      "color": "mint",
+      "fill": "#F3EBE3",
+      "eyes": "#5A4A55"
+    },
+    {
+      "skin": "neon",
+      "color": "orange",
+      "fill": "#0D0F15",
+      "eyes": "#B7BC84"
+    },
+    {
+      "skin": "neon",
+      "color": "blue",
+      "fill": "#0D0F15",
+      "eyes": "#57B9E8"
+    },
+    {
+      "skin": "neon",
+      "color": "white",
+      "fill": "#0D0F15",
+      "eyes": "#BEF9F0"
+    },
+    {
+      "skin": "neon",
+      "color": "butter",
+      "fill": "#0D0F15",
+      "eyes": "#BDEAB6"
+    },
+    {
+      "skin": "neon",
+      "color": "black",
+      "fill": "#0D0F15",
+      "eyes": "#48837C"
+    },
+    {
+      "skin": "neon",
+      "color": "mint",
+      "fill": "#0D0F15",
+      "eyes": "#8CECCF"
+    },
+    {
+      "skin": "chrome",
+      "color": "orange",
+      "fill": "#8C98A6",
+      "eyes": "#10151B"
+    },
+    {
+      "skin": "chrome",
+      "color": "blue",
+      "fill": "#8C98A6",
+      "eyes": "#10151B"
+    },
+    {
+      "skin": "chrome",
+      "color": "white",
+      "fill": "#8C98A6",
+      "eyes": "#10151B"
+    },
+    {
+      "skin": "chrome",
+      "color": "butter",
+      "fill": "#8C98A6",
+      "eyes": "#10151B"
+    },
+    {
+      "skin": "chrome",
+      "color": "black",
+      "fill": "#8C98A6",
+      "eyes": "#10151B"
+    },
+    {
+      "skin": "chrome",
+      "color": "mint",
+      "fill": "#8C98A6",
+      "eyes": "#10151B"
+    },
+    {
+      "skin": "crystal",
+      "color": "orange",
+      "fill": "#F4C8A2",
+      "eyes": "#1B1F27"
+    },
+    {
+      "skin": "crystal",
+      "color": "blue",
+      "fill": "#A5C5F4",
+      "eyes": "#1B1F27"
+    },
+    {
+      "skin": "crystal",
+      "color": "white",
+      "fill": "#FAFAFA",
+      "eyes": "#1B1F27"
+    },
+    {
+      "skin": "crystal",
+      "color": "butter",
+      "fill": "#F9EDCB",
+      "eyes": "#1B1F27"
+    },
+    {
+      "skin": "crystal",
+      "color": "black",
+      "fill": "#999A9C",
+      "eyes": "#1B1F27"
+    },
+    {
+      "skin": "crystal",
+      "color": "mint",
+      "fill": "#D1F0E0",
+      "eyes": "#1B1F27"
+    },
+    {
+      "skin": "circuit",
+      "color": "orange",
+      "fill": "#08161B",
+      "eyes": "#F5CEAD"
+    },
+    {
+      "skin": "circuit",
+      "color": "blue",
+      "fill": "#08161B",
+      "eyes": "#AFCCF5"
+    },
+    {
+      "skin": "circuit",
+      "color": "white",
+      "fill": "#08161B",
+      "eyes": "#FBFBFB"
+    },
+    {
+      "skin": "circuit",
+      "color": "butter",
+      "fill": "#08161B",
+      "eyes": "#F9EFD1"
+    },
+    {
+      "skin": "circuit",
+      "color": "black",
+      "fill": "#08161B",
+      "eyes": "#A5A5A7"
+    },
+    {
+      "skin": "circuit",
+      "color": "mint",
+      "fill": "#08161B",
+      "eyes": "#D6F1E3"
+    },
+    {
+      "skin": "holo",
+      "color": "orange",
+      "fill": "#ECE9FB",
+      "eyes": "#2A2140"
+    },
+    {
+      "skin": "holo",
+      "color": "blue",
+      "fill": "#ECE9FB",
+      "eyes": "#2A2140"
+    },
+    {
+      "skin": "holo",
+      "color": "white",
+      "fill": "#ECE9FB",
+      "eyes": "#2A2140"
+    },
+    {
+      "skin": "holo",
+      "color": "butter",
+      "fill": "#ECE9FB",
+      "eyes": "#2A2140"
+    },
+    {
+      "skin": "holo",
+      "color": "black",
+      "fill": "#ECE9FB",
+      "eyes": "#2A2140"
+    },
+    {
+      "skin": "holo",
+      "color": "mint",
+      "fill": "#ECE9FB",
+      "eyes": "#2A2140"
+    },
+    {
+      "skin": "molten",
+      "color": "orange",
+      "fill": "#2A120C",
+      "eyes": "#FFD36B"
+    },
+    {
+      "skin": "molten",
+      "color": "blue",
+      "fill": "#2A120C",
+      "eyes": "#FFD36B"
+    },
+    {
+      "skin": "molten",
+      "color": "white",
+      "fill": "#2A120C",
+      "eyes": "#FFD36B"
+    },
+    {
+      "skin": "molten",
+      "color": "butter",
+      "fill": "#2A120C",
+      "eyes": "#FFD36B"
+    },
+    {
+      "skin": "molten",
+      "color": "black",
+      "fill": "#2A120C",
+      "eyes": "#FFD36B"
+    },
+    {
+      "skin": "molten",
+      "color": "mint",
+      "fill": "#2A120C",
+      "eyes": "#FFD36B"
+    },
+    {
+      "skin": "galaxy",
+      "color": "orange",
+      "fill": "#120A2E",
+      "eyes": "#F3EFFF"
+    },
+    {
+      "skin": "galaxy",
+      "color": "blue",
+      "fill": "#120A2E",
+      "eyes": "#F3EFFF"
+    },
+    {
+      "skin": "galaxy",
+      "color": "white",
+      "fill": "#120A2E",
+      "eyes": "#F3EFFF"
+    },
+    {
+      "skin": "galaxy",
+      "color": "butter",
+      "fill": "#120A2E",
+      "eyes": "#F3EFFF"
+    },
+    {
+      "skin": "galaxy",
+      "color": "black",
+      "fill": "#120A2E",
+      "eyes": "#F3EFFF"
+    },
+    {
+      "skin": "galaxy",
+      "color": "mint",
+      "fill": "#120A2E",
+      "eyes": "#F3EFFF"
     }
   ]
 }

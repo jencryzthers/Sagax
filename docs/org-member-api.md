@@ -105,6 +105,15 @@ any other shape, so the plan's `clients.bots.read` is written
   conversation with the bot (Sagax's rule on an organization server).
 - `threadId`: one of their conversations with this bot; `newThread: true`
   starts a new one instead (not both).
+- Without `threadId`, an AI client (any actor but the Sagax console) writes
+  in its own **hidden** conversation with the bot (#291): the newest one it
+  opened, or a new one. A hidden conversation belongs to the person and stays
+  reachable (the bot's Activity panel, a link, `GET threads/{id}`), but it is
+  never in their sidebar, previews, typing dots, unread count or
+  notifications, and it never moves the conversation they have open.
+  `newThread: true` starts a new hidden one. An explicit `threadId` is used
+  as given, visibly. The task API takes the same flag (`POST
+  /api/bots/{id}/tasks {"hidden": true}`).
 - `wait`: 0 to 120 seconds (default 0). The request stays open until the bot
   has answered, a card waits, or the time is up.
 - `sendId`: 8 to 80 of `[A-Za-z0-9_-]`; a retry with the same id is the same

@@ -33,7 +33,7 @@ extension Chat {
     /// there is a list (a second thread or a folder).
     var desktopHasThreadList: Bool {
         guard case let .bot(bot) = self else { return false }
-        return (bot.tasks?.filter { $0.routineRunId == nil }.count ?? 1) > 1 || !(bot.projects ?? []).isEmpty
+        return (bot.tasks?.filter { !$0.isHiddenFromPerson }.count ?? 1) > 1 || !(bot.projects ?? []).isEmpty
     }
 }
 

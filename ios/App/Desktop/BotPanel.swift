@@ -3,11 +3,11 @@
 // (`max-lg:absolute`). Its tabs are the current desktop's
 // (`bot-settings/panel-tabs.ts`): Details (Coding, Activity, Routines),
 // Library (Files, Skills, Plugins: BotPanelLibrary.swift), Computer; no More
-// tab. Under the tabs, "Edit persona" (the desktop's `data-edit-persona`)
-// opens every other section behind a searchable list in a sheet, the
-// persona editor (`PersonaEditorModal.tsx`). The name, label and
-// description are edited where they show, under the mascot
-// (`InlineEditableText.tsx`). Which tabs and sections a pairing shows is
+// tab. Edit persona is a pencil on the mascot and the mascot's menu, as
+// on the desktop (no labeled button under the tabs). It opens every other
+// section behind a searchable list in a sheet, the persona editor
+// (`PersonaEditorModal.tsx`). The name and label are edited where they
+// show, under the mascot (`InlineEditableText.tsx`). Which tabs and sections a pairing shows is
 // `DesktopPanelTab` / `DesktopPanelSection` / `DesktopPersonaEditor`
 // (CompanionCore), from `SurfaceGate`.
 //
@@ -77,10 +77,6 @@ private struct BotPanelContent: View {
                     AnyView(tabRow)
                         .padding(.top, 16)
                         .padding(.bottom, 12)
-                    if DesktopPersonaEditor.offered(gate: session.surfaceGate, slack: slackURL != nil) {
-                        AnyView(editPersonaButton)
-                            .padding(.bottom, 12)
-                    }
                     AnyView(tabBody)
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
@@ -212,30 +208,6 @@ private struct BotPanelContent: View {
         model.panelTab = item
     }
 
-    /// "Edit persona" under the tabs, as the desktop draws it: a bordered
-    /// 13 pt button with a pencil, opening the persona editor on its list.
-    private var editPersonaButton: some View {
-        Button { model.showPersona() } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "pencil")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(theme.inkSecondary)
-                Text("Edit persona")
-                    .font(theme.font(13))
-                    .foregroundStyle(theme.ink)
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 30)
-            .background(theme.elevated, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(theme.hairlineWeak, lineWidth: 1))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .hoverEffect(.highlight)
-        .frame(maxWidth: .infinity)
-        .accessibilityIdentifier("desktop-panel-edit-persona")
-    }
-
     @ViewBuilder
     private var tabBody: some View {
         switch tab {
@@ -300,8 +272,8 @@ enum DesktopInspectorButton {
 }
 
 /// The 112 pt mascot (the Edit avatar button, 112x119 at y 72), then the
-/// name (17/24 medium), the label (12.5/16, "Add a label" when empty) and
-/// the description (11.5/16), each edited where it shows.
+/// name (17/24 medium) and the label (12.5/16, "Add a label" when empty),
+/// each edited where it shows. The description lives in Edit persona.
 private struct BotPanelIdentity: View {
     @Environment(\.desktopTheme) private var theme
     @EnvironmentObject private var session: Session
@@ -312,22 +284,38 @@ private struct BotPanelIdentity: View {
     @StateObject private var owlHandle = OwlMascotHandle()
     @State private var open: Field?
 
-    private enum Field { case name, label, description }
+    private enum Field { case name, label }
 
     var body: some View {
         VStack(spacing: 0) {
-            Button {
-                withAnimation(.easeOut(duration: 0.15)) { model.avatarEditorOpen.toggle() }
-            } label: {
-                BotMascotView(bot: bot, size: 112, state: MausState.forChat(.bot(bot), in: session.state), animated: true, owlHandle: owlHandle)
-                    .frame(width: 112, height: 112)
-                    .frame(width: 112, height: 119, alignment: .top)
-                    .contentShape(Rectangle())
+            ZStack(alignment: .topTrailing) {
+                Button {
+                    withAnimation(.easeOut(duration: 0.15)) { model.avatarEditorOpen.toggle() }
+                } label: {
+                    BotMascotView(bot: bot, size: 112, state: MausState.forChat(.bot(bot), in: session.state), animated: true, owlHandle: owlHandle)
+                        .frame(width: 112, height: 112)
+                        .frame(width: 112, height: 119, alignment: .top)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Edit avatar"))
+                .accessibilityIdentifier("desktop-panel-avatar")
+                if DesktopPersonaEditor.offered(gate: session.surfaceGate) {
+                    Button { model.showPersona() } label: {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(theme.ink)
+                            .frame(width: 28, height: 28)
+                            .background(theme.elevated, in: Circle())
+                            .overlay(Circle().strokeBorder(theme.hairlineWeak, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .offset(x: -4, y: 28)
+                    .accessibilityLabel(Text("Edit persona"))
+                    .accessibilityIdentifier("desktop-panel-edit-persona")
+                }
             }
-            .buttonStyle(.plain)
             .padding(.top, 24)
-            .accessibilityLabel(Text("Edit avatar"))
-            .accessibilityIdentifier("desktop-panel-avatar")
             PanelInlineText(value: bot.name, placeholder: nil, label: "Edit name", size: 17, lineHeight: 24, weight: .medium,
                             limit: 100, required: true, isEditing: binding(.name)) { save(name: $0) }
                 .padding(.top, 20)
@@ -336,10 +324,6 @@ private struct BotPanelIdentity: View {
                             muted: true, limit: 200, isEditing: binding(.label)) { save(title: $0) }
                 .padding(.top, 2)
                 .accessibilityIdentifier("desktop-panel-title")
-            PanelInlineText(value: bot.description, placeholder: "One line on what this bot is for", label: "Description",
-                            size: 11.5, lineHeight: 16, muted: true, limit: 4000, isEditing: binding(.description)) { save(description: $0) }
-                .padding(.top, 2)
-                .accessibilityIdentifier("desktop-panel-blurb")
         }
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity)

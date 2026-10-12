@@ -373,7 +373,10 @@ describe("iOS parity routes", () => {
       ["GET", "/api/bots/bot_1/command-allowlist"], ["DELETE", "/api/bots/bot_1/command-allowlist/0b1c-2d"],
       ["GET", "/api/me/preferences"], ["PUT", "/api/me/preferences"],
       ["GET", "/api/me/appearance"], ["PUT", "/api/me/appearance"],
-      ["GET", "/api/me/server-environment"], ["POST", "/api/me/server-environment/reset"], ["POST", "/api/me/server-environment/update"],
+      ["GET", "/api/me/server-environment"], ["GET", "/api/me/server-environment/stats"],
+      ["POST", "/api/me/server-environment/reset"], ["POST", "/api/me/server-environment/update"],
+      ["POST", "/api/me/server-environment/power"],
+      ["GET", "/api/desktop-viewer/sandbox/me"], ["GET", "/api/desktop-viewer/sandbox/me/websockify"],
       ["PATCH", "/api/groups/room_1"], ["POST", "/api/bots"],
       ["POST", "/api/bots/bot_1/computer/input"], ["GET", "/api/bots/bot_1/computer/clipboard"], ["PUT", "/api/bots/bot_1/computer/clipboard"],
     ] as const) expect(allowed(method, path), `${method} ${path}`).toBe(true);
@@ -394,6 +397,9 @@ describe("iOS parity routes", () => {
     expect(isCloudDesktopAccess("POST", "/api/bots/bot_1/computer/input")).toBe(true);
     expect(isCloudDesktopAccess("GET", "/api/bots/bot_1/computer/clipboard")).toBe(true);
     expect(isCloudDesktopAccess("PUT", "/api/bots/bot_1/computer/clipboard")).toBe(true);
+    expect(isCloudDesktopAccess("GET", "/api/desktop-viewer/sandbox/me")).toBe(true);
+    expect(isCloudDesktopAccess("GET", "/api/desktop-viewer/sandbox/me/websockify")).toBe(true);
+    expect(isCloudDesktopAccess("POST", "/api/me/server-environment/power")).toBe(true);
     expect(isCloudDesktopAccess("GET", "/api/bots/bot_1/links")).toBe(false);
   });
 

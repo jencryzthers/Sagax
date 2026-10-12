@@ -32,6 +32,14 @@ On the phone, `userNotificationCenter(_:willPresent:)` returns `[]` while
 the app is in front, so a push that still arrives (a race, a token that
 had not yet been named) shows no banner and plays no sound.
 
+Once a conversation that buzzed the phones is read on any device, the server
+sends each phone one silent push (`kind: "read"`, `content-available`,
+priority 5, `buildReadSyncRequest`): the phone withdraws that conversation's
+banner and recounts its badge. Whenever its unread count drops (or it
+loads the fleet), the phone also withdraws banners older than 10 seconds for
+bot conversations that are no longer unread or waiting on the person
+(`ios/Sources/CompanionCore/DeliveredNotifications.swift`).
+
 Each push follows:
 
 - the phone's Settings > Notifications (notification sounds, nudge sound),

@@ -303,3 +303,19 @@ describe("cloudHomePrompt", () => {
     expect(cloudHomePrompt(false)).toContain("You cannot see or use their Mac or PC, its screen or its files from here.");
   });
 });
+
+describe("buildSystemPrompt volatile sections", () => {
+  it("returns the volatile half by section, in prompt order, for per-section delivery", () => {
+    const built = buildSystemPrompt("I am Testy.", "", [
+      { id: "memory", label: "Memory", text: "\n\nMemory: tea." },
+      { id: "tools", label: "Tools", text: "\n\nTools: shell." },
+      { id: "recent", label: "Recent work", text: "\n\nRecent: pong." },
+      { id: "docs", label: "Documents index", text: "" },
+    ]);
+    expect(built.volatileSections).toEqual([
+      { id: "memory", text: "\n\nMemory: tea." },
+      { id: "recent", text: "\n\nRecent: pong." },
+    ]);
+    expect(built.volatile).toBe(built.volatileSections.map((section) => section.text).join(""));
+  });
+});

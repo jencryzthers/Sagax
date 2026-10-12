@@ -125,6 +125,9 @@ export interface OrgMemberRouteDeps {
   approvalAnswerer?(threadId: string, requestId: string): ApprovalAnswerer | null;
   /** The bot whose thread this is, or null (a room, or gone). */
   botOfThread?(threadId: string): string | null;
+  /** The person's open hidden conversation with this bot (#291), the one an
+   * AI client continues when it names no thread; null when they have none. */
+  hiddenThreadOf?(botId: string, principalId: string): string | null;
   /** One admin activity row, category `client`, actor the person. */
   record(person: MemberPerson, entry: { action: string; target: { kind: string; id?: string; name?: string }; after?: Record<string, unknown> }): void;
   version?(): string;
@@ -638,8 +641,15 @@ function memberRoutes(deps: OrgMemberRouteDeps): MemberRoute[] {
         if (input.stream !== undefined && typeof input.stream !== "boolean") return fail(400, "bad_request", "stream is true or false.");
         const botId = params.id!;
         let threadId = input.threadId as string | undefined;
-        if (input.newThread === true) {
-          const created = await deps.perform(person, { method: "POST", path: `/api/bots/${encodeURIComponent(botId)}/tasks`, body: {} });
+        // An AI client works in a hidden conversation (#291), the way Grok
+        // Bot keeps its subagents out of the chat: never the person's open
+        // chat, never their sidebar, unread or notifications. A named
+        // threadId is honored as given. The Perspicax console is the person
+        // typing, so it keeps their own conversation.
+        const hidden = person.actor !== "console";
+        if (!threadId && hidden && input.newThread !== true) threadId = deps.hiddenThreadOf?.(botId, person.principalId) ?? undefined;
+        if (input.newThread === true || (hidden && !threadId)) {
+          const created = await deps.perform(person, { method: "POST", path: `/api/bots/${encodeURIComponent(botId)}/tasks`, body: hidden ? { hidden: true } : {} });
           if (!okStatus(created)) return passThrough(created, "A new conversation could not be started.");
           threadId = str(objectOf(objectOf(created.body)?.task)?.threadId) ?? undefined;
           if (!threadId) return fail(502, "server_error", "The new conversation has no id.");
@@ -653,7 +663,7 @@ function memberRoutes(deps: OrgMemberRouteDeps): MemberRoute[] {
         const receipt = objectOf(sent.body) ?? {};
         const finalThread = str(receipt.threadId) ?? threadId ?? null;
         const messageId = str(objectOf(receipt.message)?.id);
-        deps.record(person, { action: "client.message", target: { kind: "bot", id: botId }, after: { threadId: finalThread, waited: wait > 0, ...(input.newThread ? { newThread: true } : {}) } });
+        deps.record(person, { action: "client.message", target: { kind: "bot", id: botId }, after: { threadId: finalThread, waited: wait > 0, ...(input.newThread ? { newThread: true } : {}), ...(hidden && !input.threadId ? { hidden: true } : {}) } });
         if (!finalThread) return answer({ botId, threadId: null, messageId, status: "working", pending: true, reply: null, approvals: [], cursor: null, summary: null });
         if (input.stream === true) {
           return {

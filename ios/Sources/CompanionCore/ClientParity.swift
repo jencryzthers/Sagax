@@ -102,6 +102,36 @@ public extension CompanionClient {
         )
     }
 
+    /// `POST /api/me/server-environment/power`. A 409 `confirm_running` returns nil.
+    func powerServerEnvironment(_ action: ServerEnvironmentPowerAction, confirm: Bool = false) async throws -> ServerEnvironmentStatus? {
+        do {
+            return try await send(
+                makeRequest("POST", "/api/me/server-environment/power",
+                            encodedBody: ServerEnvironmentPowerBody(action: action.rawValue, confirm: confirm ? true : nil)),
+                as: ServerEnvironmentStatus.self
+            )
+        } catch let APIError.status(code, _) where code == 409 {
+            return nil
+        }
+    }
+
+    /// `GET /api/desktop-viewer/sandbox/me` (password for noVNC).
+    func sandboxViewer(control: Bool = false) async throws -> SandboxViewerConfig {
+        let query = control ? [URLQueryItem(name: "control", value: "1")] : []
+        return try await send(makeRequest("GET", "/api/desktop-viewer/sandbox/me", query: query), as: SandboxViewerConfig.self)
+    }
+
+    /// Native WebSocket to `/api/desktop-viewer/sandbox/me/websockify` (no Origin).
+    func sandboxViewerSocketRequest(control: Bool = false) throws -> URLRequest {
+        let query = control ? [URLQueryItem(name: "control", value: "1")] : []
+        var request = try makeRequest("GET", "/api/desktop-viewer/sandbox/me/websockify", query: query)
+        guard var components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false) else { throw APIError.badURL }
+        if components.scheme == "https" { components.scheme = "wss" }
+        else { components.scheme = "ws" }
+        request.url = components.url
+        return request
+    }
+
     /// `GET /api/mcp/servers`.
     func mcpServers() async throws -> MCPServersResponse {
         try await send(makeRequest("GET", "/api/mcp/servers"), as: MCPServersResponse.self)
