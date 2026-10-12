@@ -789,7 +789,7 @@ import { createDesktopAppearanceStore } from "./desktop-appearance.ts";
 import { achievementFrameAllowed, achievementRequestEvents, achievementSendEvents, activityEvents, createAchievementStore, routineRunEvents, type AchievementEvent } from "./achievements.ts";
 import { createAchievementRoutes } from "./routes/achievements.ts";
 import { lockedLookChange, masteryDelegationFacts, masteryFrameFacts, masteryRequestFacts, masterySendFacts, modelFamily, threadCensus, type LookRefusal, type PersonFact } from "./achievements-mastery.ts";
-import { grandfatheredFromBots } from "../shared/achievements.ts";
+import { grandfatheredFromBots, migratedCrabFromBots } from "../shared/achievements.ts";
 import { createBotMemoryRoutes } from "./routes/bot-memory.ts";
 import { createToolGrantRoutes } from "./routes/tool-grants.ts";
 import { createBotWorkspaceRoutes } from "./routes/bot-workspace.ts";
@@ -1021,12 +1021,13 @@ const viewerBotOverrideStore = createViewerBotOverrideStore(DATA_DIR);
 // Each person's achievements (server/achievements.ts). On first use a
 // person keeps every character and skin their bots already wear
 // (grandfathering): on a solo server every bot, on an organization server
-// the bots they own.
+// the bots they own. People already wearing the crab keep it once
+// (migratedCrab), without linking Claude and without replaying the first pass.
+const achievementBots = (person: string) => IDENTITY.kind === "perspicax" ? store.bots.filter((bot) => effectiveBotOwner(bot) === person) : store.bots;
 const achievementStore = createAchievementStore({
   dataDir: DATA_DIR,
-  grandfather: (person) => grandfatheredFromBots(
-    IDENTITY.kind === "perspicax" ? store.bots.filter((bot) => effectiveBotOwner(bot) === person) : store.bots,
-  ),
+  grandfather: (person) => grandfatheredFromBots(achievementBots(person)),
+  grandfatherCrab: (person) => migratedCrabFromBots(achievementBots(person)),
 });
 /** When each voice call was first heard from, for its length (bounded in achievementSendEvents). */
 const achievementCallStarts = new Map<string, number>();

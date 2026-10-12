@@ -5,7 +5,9 @@ import {
   REWARD_REGISTRY,
   characterUnlocked,
   emptyProgress,
+  grandfatheredFromBots,
   longestStreak,
+  migratedCrabFromBots,
   rewardKey,
   rewardLineVisible,
   ruleStatus,
@@ -65,5 +67,15 @@ describe("claude unlocks", () => {
     expect(ruleStatus(definition, progress, [definition])).toEqual({ current: 7, target: 7, done: true });
     const broken = { ...progress, days: { "claude.turn": ["2026-10-01", "2026-10-03"] } };
     expect(ruleStatus(definition, broken, [definition])).toEqual({ current: 1, target: 7, done: false });
+  });
+});
+
+describe("migrated crab grandfathering", () => {
+  it("grandfathers a worn crab, ignores leftover skins.crab on an owl, and does not replay via grandfatheredFromBots", () => {
+    expect(migratedCrabFromBots([{ mascotLook: { character: "crab" } }])).toEqual(["character:crab"]);
+    expect(migratedCrabFromBots([{ mascotLook: { character: "crab", skins: { crab: "gold" } } }])).toEqual(["character:crab", "skin:crab:gold"]);
+    expect(migratedCrabFromBots([{ mascotLook: { character: "owl", skins: { crab: "gold" } } }])).toEqual([]);
+    expect(migratedCrabFromBots([{ mascotLook: { character: "owl" } }])).toEqual([]);
+    expect(grandfatheredFromBots([{ mascotLook: { character: "crab" } }])).toEqual(["character:crab"]);
   });
 });

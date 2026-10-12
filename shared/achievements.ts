@@ -589,3 +589,20 @@ export function grandfatheredFromBots(bots: ReadonlyArray<{ mascotLook?: unknown
   }
   return [...keys].sort();
 }
+
+/**
+ * One-time crab keep: people already wearing the crab keep it without linking
+ * Claude. Leftover skins.crab on an owl grants nothing. Do not replay
+ * grandfatheredFromBots.
+ */
+export function migratedCrabFromBots(bots: ReadonlyArray<{ mascotLook?: unknown }>): string[] {
+  const keys = new Set<string>();
+  for (const bot of bots) {
+    const look = completeMascotLook(bot.mascotLook);
+    if (look.character !== "crab") continue;
+    keys.add("character:crab");
+    const skin = look.skins.crab;
+    if (skinTier("crab", skin) !== "common") keys.add(`skin:crab:${skin}`);
+  }
+  return [...keys].sort();
+}

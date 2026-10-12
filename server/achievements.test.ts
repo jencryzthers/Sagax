@@ -128,6 +128,28 @@ describe("achievement engine", () => {
     expect(store.snapshot(ADA).points).toBe(0);
   });
 
+  it("runs migratedCrab once and does not grant crab from an owl leftover skin", () => {
+    let calls = 0;
+    const dir = mkdtempSync(join(tmpdir(), "sagax-achievements-"));
+    const store = createAchievementStore({
+      dataDir: dir,
+      persistDelayMs: 0,
+      grandfather: () => [],
+      grandfatherCrab: () => (calls++, ["character:crab"]),
+    });
+    expect(store.snapshot(ADA).rewards).toContain("character:crab");
+    store.snapshot(ADA);
+    expect(calls).toBe(1);
+    const again = createAchievementStore({
+      dataDir: dir,
+      persistDelayMs: 0,
+      grandfatherCrab: () => (calls++, ["character:crab", "should-not-apply"]),
+    });
+    expect(again.snapshot(ADA).rewards).toContain("character:crab");
+    expect(again.snapshot(ADA).rewards).not.toContain("should-not-apply");
+    expect(calls).toBe(1);
+  });
+
   it("shares points by default, validates settings, and keeps an explicit off private", () => {
     const { dir, store } = setup();
     store.record(ADA, [{ type: "message.sent" }], "server");
@@ -231,8 +253,8 @@ describe("achievement engine", () => {
     writeFileSync(file, `${JSON.stringify({
       version: 1,
       people: {
-        [ADA]: { settings: { showPoints: true, toasts: true, native: false, public: false }, migrated: true, unlocked: { "first-words": 1 }, updatedAt: 1 },
-        [BOB]: { settings: { showPoints: true, toasts: true, native: false }, migrated: true, unlocked: { "first-words": 1 }, updatedAt: 1 },
+        [ADA]: { settings: { showPoints: true, toasts: true, native: false, public: false }, migrated: true, migratedCrab: true, unlocked: { "first-words": 1 }, updatedAt: 1 },
+        [BOB]: { settings: { showPoints: true, toasts: true, native: false }, migrated: true, migratedCrab: true, unlocked: { "first-words": 1 }, updatedAt: 1 },
       },
     })}\n`);
     const store = createAchievementStore({ dataDir: dir, persistDelayMs: 0 });
