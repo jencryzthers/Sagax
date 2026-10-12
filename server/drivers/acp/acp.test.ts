@@ -506,6 +506,26 @@ describe("ACP turns (fake CLI)", () => {
     expect(reported).toMatchObject({ contextTokens: 120000, contextWindow: 200000 });
   });
 
+  it("takes Grok's context size from its per-round usage when it sends no usage_update", async () => {
+    process.env.FAKE_ACP_ROUND_USAGE = "1";
+    try {
+      const { usage, send } = await usageThread("round-usage");
+      usage(60000, 131000);
+      recorder.events.length = 0;
+      await send("turn 1");
+      const reported = recorder.events.filter((event) => event.type === "thread.token-usage.updated").at(-1);
+      // the latest round's whole prompt (uncached + cached) is the context now
+      expect(reported).toMatchObject({ contextTokens: 131000 });
+      // and a collapse reported that way re-anchors the full prompt as well
+      usage(120000, 40000);
+      expect(await send("turn 2")).toBe("turn 2");
+      usage();
+      expect(await send("turn 3")).toBe(FULL + "\n\nturn 3");
+    } finally {
+      delete process.env.FAKE_ACP_ROUND_USAGE;
+    }
+  });
+
   it("keeps the split through an ordinary context dip", async () => {
     const { usage, send } = await usageThread("ordinary-dip");
     usage(108641);

@@ -71,6 +71,20 @@ export function grokAdaptiveStallMs(context?: { contextTokens: number | null; pr
   return Math.round(Math.min(GROK_STALL_MAX_MS, Math.max(GROK_STALL_MIN_MS, ms)));
 }
 
+/** Grok sends no ACP usage_update. Each model round ends with
+ * `_x.ai/session_notification` response_completed, whose usage counts the
+ * round's whole prompt: input_tokens (uncached) + cache_read_input_tokens.
+ * That is the conversation's size in the window right now. */
+export function grokRoundContextUsage(msg: any): number | undefined {
+  if (msg?.method !== "_x.ai/session_notification") return undefined;
+  const update = msg.params?.update;
+  if (update?.sessionUpdate !== "response_completed") return undefined;
+  const usage = update.usage ?? {};
+  const input = typeof usage.input_tokens === "number" ? usage.input_tokens : 0;
+  const cached = typeof usage.cache_read_input_tokens === "number" ? usage.cache_read_input_tokens : 0;
+  return input + cached > 0 ? input + cached : undefined;
+}
+
 export const GROK_TOOL_REUSE_HINT =
   "\n\nTool calls: each search_tool call costs a full extra round trip. When search_tool already showed you a tool earlier in this conversation," +
   " call it again directly with use_tool (same tool_name, arguments per the schema you saw) instead of searching again. Use search_tool only for a tool you have not seen yet," +
@@ -915,6 +929,7 @@ const support: AcpSupport = {
   // stretches before the first streamed byte stayed under 9 s (a reasoning
   // round, GOX server 2026-10-11), so 20 s of nothing at all is a stall.
   stallRetryMs: grokStallRetryMs,
+  roundContextUsage: grokRoundContextUsage,
 };
 
 export const GrokAgentDriver = createAcpDriver(support);
