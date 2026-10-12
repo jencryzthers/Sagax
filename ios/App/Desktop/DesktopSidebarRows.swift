@@ -39,9 +39,9 @@ extension Chat {
 
 // MARK: - Pinned tiles
 
-/// 80 x 128 tiles, 8 pt apart and centred (12 between lines): a 72 pt
-/// mascot, the name 11/16, the title pill 10/16; the selected one a 16 pt
-/// filled card. In the rail, one column
+/// 95 x 115 tiles, 4 pt apart and centred (12 between lines), 12 pt under
+/// the head: a 64 pt mascot, the name 12/16, the title tag 11.5/17; the
+/// selected one a 16 pt card (7% ink over the rail). In the rail, one column
 /// of 80 x 46 tiles with a 36 pt avatar.
 struct DesktopPinnedTiles: View {
     @Environment(\.desktopTheme) private var theme
@@ -61,7 +61,7 @@ struct DesktopPinnedTiles: View {
             .padding(.bottom, 8)
         } else {
             let count = min(chats.count, 3)
-            let columns = Array(repeating: GridItem(.fixed(80), spacing: 8), count: count)
+            let columns = Array(repeating: GridItem(.fixed(95), spacing: 4), count: count)
             LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(chats, id: \.id) { chat in
                     DesktopPinnedTile(chat: chat, rail: false)
@@ -70,8 +70,9 @@ struct DesktopPinnedTiles: View {
             .frame(maxWidth: .infinity)
             // Chrome lays the centred grid on the next device pixel
             .offset(x: 0.5)
-            .padding(.vertical, 6)
-            .padding(.bottom, 8)
+            // pt-3, then pb-1.5 and mb-4 before the first section
+            .padding(.top, 12)
+            .padding(.bottom, 22)
         }
     }
 }
@@ -89,24 +90,27 @@ struct DesktopPinnedTile: View {
         let selected = model.selected?.id == chat.id
         let menu = DesktopSidebarMenus(session: session, model: model, prefs: prefs).entries(for: menuKind).0
         Button { model.open(session.threadSelection.restoringThread(chat, connectionID: session.connection?.id)) } label: {
-            VStack(spacing: 6) {
-                ChatAvatarView(chat: chat, size: rail ? 36 : 72, state: .idle, background: theme.sidebar)
-                    .frame(width: rail ? 36 : 72, height: rail ? 36 : 72)
+            VStack(spacing: rail ? 6 : 3) {
+                ChatAvatarView(chat: chat, size: rail ? 36 : 64, state: .idle, background: theme.sidebar)
+                    .frame(width: rail ? 36 : 64, height: rail ? 36 : 64)
                 if !rail {
-                    DesktopLineText(text: PeopleDirectory.shared.name(chat, session: session), size: 11,
-                                 color: theme.sidebarInk, lineHeight: 16, tracking: 0.055, centered: true)
-                        .frame(width: 72, height: 16)
+                    DesktopLineText(text: PeopleDirectory.shared.name(chat, session: session), size: 12,
+                                 color: theme.sidebarInk, lineHeight: 16, centered: true)
+                        .frame(width: 87, height: 16)
                     if let title = chat.desktopTitle {
                         DesktopTitleChip(text: title)
-                            .offset(y: -0.5)
                     }
                 }
             }
             .padding(.top, 6)
             .padding(.bottom, 4)
-            .frame(width: 80, alignment: .top)
+            .frame(width: rail ? 80 : 95, height: rail ? nil : 115, alignment: .top)
             .background(
-                selected ? theme.sidebarSelected : (hovering ? theme.sidebarHover : .clear),
+                rail
+                    ? (selected ? theme.sidebarSelected : (hovering ? theme.sidebarHover : .clear))
+                    // the selected tile: 7% of the rail's ink over the rail
+                    // (--color-sidebar-card), the hover wash at 60% on hover
+                    : (selected ? theme.sidebarInk.opacity(0.07) : (hovering ? theme.sidebarHover.opacity(0.6) : .clear)),
                 // rounded-2xl: the selected tile is a 16 pt card
                 in: RoundedRectangle(cornerRadius: rail ? theme.radiusXl : 16, style: .continuous)
             )
@@ -129,20 +133,22 @@ struct DesktopPinnedTile: View {
     }
 }
 
-/// The title under a pinned tile's name: a small filled pill (10, no
-/// outline; LabelTag size "small", rounded-full px-2). Rows draw no title.
+/// The title under a pinned tile's name: a faint filled tag (11.5, a faint
+/// outline; LabelTag size "small", rounded-[5px] px-1). Rows draw no title.
 struct DesktopTitleChip: View {
     @Environment(\.desktopTheme) private var theme
     let text: String
-    var size: CGFloat = 10
-    var maxWidth: CGFloat = 72
+    var size: CGFloat = 11.5
+    var maxWidth: CGFloat = 87
     var alignment: Alignment = .center
 
     var body: some View {
-        DesktopLineText(text: text, size: size, color: theme.sidebarInkSecondary, lineHeight: 16)
-            .padding(.horizontal, 8)
-            .frame(height: 16)
-            .background(theme.sidebarHover, in: Capsule())
+        DesktopLineText(text: text, size: size, color: theme.sidebarInkSecondary, lineHeight: 17)
+            // px-1 inside the 1 pt outline, 19 tall
+            .padding(.horizontal, 5)
+            .frame(height: 19)
+            .background(theme.sidebarInk.opacity(0.02), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(theme.sidebarInk.opacity(0.055), lineWidth: 1))
             .frame(maxWidth: maxWidth, alignment: alignment)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -256,8 +262,10 @@ struct DesktopSidebarRow: View {
 
     private func textContent(selected: Bool, hovered: Bool) -> some View {
         let compact = density == .compact
-        let avatarSize: CGFloat = compact ? 28 : 36
-        let leading: CGFloat = showThreads ? 24 : 8
+        // comfortable: the reference window's 44 pt portrait at x 4 (pl-1),
+        // 6 pt before the name, rows 56 tall (py-1.5)
+        let avatarSize: CGFloat = compact ? 28 : 44
+        let leading: CGFloat = showThreads ? 24 : (compact ? 8 : 4)
         // pr-9, or pr-[5.75rem] with the thread controls on hover; a group
         // row keeps pr-2
         let trailing: CGFloat = isRoom ? 8 : (showThreads && hovered ? 92 : 36)
@@ -265,7 +273,7 @@ struct DesktopSidebarRow: View {
         let unread = chat.unread && !chat.busy
         let quietStatus = status != .idle
         // compact with Show threads: gap-1.5 py-1
-        return HStack(spacing: compact && showThreads ? 6 : 8) {
+        return HStack(spacing: compact && !showThreads ? 8 : 6) {
             avatar(size: avatarSize)
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 6) {
@@ -303,8 +311,8 @@ struct DesktopSidebarRow: View {
         }
         .padding(.leading, leading)
         .padding(.trailing, trailing)
-        .padding(.vertical, compact ? (showThreads ? 4 : 6) : 8)
-        .frame(maxWidth: .infinity, minHeight: compact ? (showThreads ? 36 : 40) : 54, alignment: .leading)
+        .padding(.vertical, compact ? (showThreads ? 4 : 6) : 6)
+        .frame(maxWidth: .infinity, minHeight: compact ? (showThreads ? 36 : 40) : 56, alignment: .leading)
         .contentShape(Rectangle())
     }
 
@@ -466,9 +474,9 @@ struct DesktopStackedMauses: View {
     let density: DesktopSidebarDensity
 
     var body: some View {
-        let slot: CGFloat = density == .icons ? 40 : (density == .compact ? 28 : 36)
-        let face: CGFloat = density == .icons ? 22 : (density == .compact ? 16 : 20)
-        let single: CGFloat = density == .icons ? 44 : (density == .compact ? 28 : 36)
+        let slot: CGFloat = density == .icons ? 40 : (density == .compact ? 28 : 44)
+        let face: CGFloat = density == .icons ? 22 : (density == .compact ? 16 : 24)
+        let single: CGFloat = density == .icons ? 44 : (density == .compact ? 28 : 44)
         ZStack(alignment: .topLeading) {
             if members.count <= 1 {
                 if let bot = members.first {

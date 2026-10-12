@@ -2527,43 +2527,64 @@ rules, each covered by `shared/achievements-catalog.test.ts`,
   toasts are unchanged by these switches. Tests: `server/achievements.test.ts`,
   `src/lib/public-achievements.test.ts`, `PersonPanel.test.ts`,
   `achievements-ui.test.ts`, `SidebarProfileMenu.footer.test.ts`.
-- People rows in the sidebar sit at the bot rows' inset (`pl-2`) with thread
+- People rows in the sidebar sit at the bot rows' inset (`pl-1`, `pl-2` compact) with thread
   mode on or off and carry no thread chevron, like bot rows since #152; only
   room rows keep the thread-mode `pl-6` for their chevron
   (`Sidebar.simple-mode.test.ts`).
 - The toast never shows while the person types, one at a time, its chime
   follows Notification sounds, and reduced motion stills it.
 
-## Sidebar look (owner's side-by-side with OpenMausBot, 2026-10-11)
+## Sidebar look (owner's reference window, 2026-10-11 and 2026-10-12)
 
 The owner compared Sagax with an OpenMausBot window side by side and asked
-for the sidebar to look like it, keeping every Sagax feature. The plus
-glyph, sentence-case headers and title-free rows are upstream main's own;
-the tile card and the orange star come from that window (upstream main at
-83c10b3 draws pinned bots as rows or bare circles and marks its Chief of
-Staff with a crown). Keep these, covered by `Sidebar.header.test.ts`, `SidebarSectionHeader.test.ts`,
-`SidebarBotListItem.test.ts`, `PersonLabel.test.ts` and `PrimaryBot.test.ts`:
+for the sidebar to look like it, keeping every Sagax feature; a second pass
+measured that window (a 2x capture) and matched it. The plus glyph,
+sentence-case headers and title-free rows are upstream main's own; the
+rest comes from that window (upstream main at 83c10b3 draws pinned bots as
+rows or bare circles and marks its Chief of Staff with a crown). Keep
+these, covered by `Sidebar.header.test.ts`, `Sidebar.head.layout.test.ts`,
+`Sidebar.simple-mode.test.ts`, `SidebarSectionHeader.test.ts`,
+`SidebarBotListItem.test.ts`, `PersonLabel.test.ts`, `PrimaryBot.test.ts`
+and `sidebar-logo-preferences.test.ts`:
 
-- The head's New button draws upstream's plus (`Plus`), not a compose pencil,
-  in the same round bordered button as search; it still opens the compose-to
-  picker (which holds Create new Bot).
-- Pinned tiles (the Primary Bot among them when pinned): the selected tile
-  is a filled card with a 16px radius (`rounded-2xl`), the name under the
-  mascot, the bot's title in a small filled pill (LabelTag `size="small"`,
-  no outline). Sagax's wording stays: Primary Bot, and the bot's own title.
-- The Primary Bot star is orange in every skin (`--color-primary-badge`,
-  `--color-primary-badge-ink` in `src/styles.css`, paired in
-  `scripts/check-skin-contrast.mjs`), never the skin accent (#188 had made
-  it grey or navy in some skins).
-- Section headers: the name in sentence case, 15px regular, then the
-  attention marks; no chevron, a click folds and `aria-expanded` says which
-  way. The small capitals rule (`.sidebar-section-label` uppercase) is gone;
-  the class stays as Hibou 98's hook.
-- Bot rows: the name, then the last message. The title is not drawn; it is
-  in the avatar's tooltip and read out with the name (`sr-only`). People
-  rows keep their custom label (a Sagax feature upstream does not have).
-- iOS: the iPad desktop shell (`ios/App/Desktop/DesktopSidebar*.swift`)
-  mirrors the same four points.
+- Head: the round search and New (`Plus`) buttons, 36px circles 8px apart.
+  New still opens the compose-to picker (which holds Create new Bot). With a
+  title bar (macOS inset lights, or the browser's stand-in dots) and no
+  logo, they sit in the title bar's own 48px row (`SIDEBAR_TITLE_ROW`,
+  `pr-4`), level with the lights, and the tiles start right under. The logo
+  (Settings > Appearance > Sidebar logo) is off unless turned on (`"1"`);
+  with it on, or without a title bar, the brand row under the inset strip
+  holds them as before (`SIDEBAR_HEAD_ROW`, the chat header's 56px).
+- Pinned tiles (the Primary Bot among them when pinned): 95 x 115, 4px
+  apart and centred as a group, 12px under the head; a 64px mascot, the
+  name 12px in the primary ink, the bot's title in a faint tag (LabelTag
+  `size="small"`: 11.5px, a 2% ink fill and a 5.5% ink outline). The
+  selected tile is a 16px card in `--color-sidebar-card` (7% of the rail's
+  ink over the rail: #222222 on Midnight). Sagax's wording stays: Primary
+  Bot, and the bot's own title.
+- The Primary Bot star (`PrimaryBotBadge`): a quarter of the avatar (16 on a
+  tile), tucked into the corner of the avatar's box, ringed in what it sits
+  on (the card colour on a selected tile), orange `#f48a29` in every skin
+  (`--color-primary-badge`, a deeper orange on the light rails, its disc
+  held to 3:1 on the rail in `scripts/check-skin-contrast.mjs`), never the
+  skin accent (#188 had made it grey or navy in some skins).
+- Section headers: the name in sentence case, 12px regular in the secondary
+  ink, 28px tall, then the attention marks; no chevron, a click folds and
+  `aria-expanded` says which way; folded, the section's item count at the
+  right (`count`, `data-section-count`). The small capitals rule
+  (`.sidebar-section-label` uppercase) is gone; the class stays as Hibou
+  98's hook.
+- Rows (comfortable): a 44px portrait at `pl-1`, 6px before the name, 56px
+  tall; the name 14px medium, then the last message 13px; the title is not
+  drawn (avatar tooltip and `sr-only` with the name). Group and people rows
+  share the inset and the 44px footprint; people rows keep their custom
+  label (a Sagax feature upstream does not have). The row actions show on
+  hover or focus only, and on touch screens.
+- Midnight's rail secondary ink is `#fcfcfca1` (#a5a5a5 on the rail, the
+  window's preview and header grey); the default skin stays Pulsatrix.
+- iOS: the iPad desktop shell (`ios/App/Desktop/DesktopSidebar*.swift`,
+  `DesktopTheme.swift`) mirrors the head (no logo), tiles, headers with the
+  folded count and rows.
 
 ## Primary Bot (formerly Chief of Staff)
 

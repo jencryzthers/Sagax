@@ -94,33 +94,23 @@ struct DesktopSidebar: View {
 
 // MARK: - Head
 
-/// The brand row (`h-11 pl-4 pr-3`: mark 22 at x 16, "Sagax" 16/20
-/// semibold at x 46, then the round Search and New buttons, 36 pt circles
-/// 8 apart ending 12 pt from the edge). There is no search field and no
+/// The head (`SIDEBAR_TITLE_ROW`, `h-12 pr-4`): the round Search and New
+/// buttons, 36 pt circles 8 apart ending 16 pt from the edge. The desktop
+/// draws no logo by default (Settings > Appearance > Sidebar logo), so the
+/// iPad draws none. There is no search field and no
 /// collapse button any more: the palette opens from the round button (⌘K)
 /// and the sidebar's edge collapses it (drag, double tap, ⌘\).
 struct DesktopSidebarHead: View {
-    @Environment(\.desktopTheme) private var theme
-
     var body: some View {
         HStack(spacing: 0) {
-            Image(theme.sidebarIsDark ? "PulsatrixMark-dark" : "PulsatrixMark-light")
-                .resizable()
-                .renderingMode(.original)
-                .scaledToFit()
-                .frame(width: 22, height: 17)
-                .padding(.leading, 16)
-                .accessibilityHidden(true)
-            DesktopLineText(text: "Sagax", size: 16, weight: .semibold, color: theme.sidebarInk, lineHeight: 20, tracking: -0.16)
-                .padding(.leading, 8)
-            Spacer(minLength: 8)
+            Spacer(minLength: 16)
             DesktopSearchButton()
             DesktopNewButton()
                 .padding(.leading, 8)
-                // pr-3 inside the 1 pt border
-                .padding(.trailing, 13)
+                // pr-4 inside the 1 pt border
+                .padding(.trailing, 17)
         }
-        .frame(height: 44)
+        .frame(height: 48)
     }
 }
 
@@ -325,8 +315,9 @@ enum DesktopSidebarSections {
 
 // MARK: - Section
 
-/// A section: its header (15/20 regular, sentence case, no chevron, like
-/// SidebarSectionHeader.tsx) and, unless folded, its rows. The rail draws rows only. A row
+/// A section: its header (12/16 regular, sentence case, no chevron, the
+/// count at the right while folded, like SidebarSectionHeader.tsx) and,
+/// unless folded, its rows. The rail draws rows only. A row
 /// dropped here files it in this section, a header dropped here moves that
 /// section before or after this one (DD1).
 struct DesktopSidebarSection: View {
@@ -410,14 +401,19 @@ struct DesktopSectionHeader: View {
             withAnimation(.snappy(duration: 0.2)) { prefs.toggleCollapsed(session, section.id) }
         } label: {
             HStack(spacing: 8) {
-                DesktopLineText(text: section.title, size: 15, weight: .regular,
-                             color: hovering ? theme.sidebarInk : theme.sidebarInkSecondary, lineHeight: 20)
+                DesktopLineText(text: section.title, size: 12, weight: .regular,
+                             color: hovering ? theme.sidebarInk : theme.sidebarInkSecondary, lineHeight: 16)
                 if collapsed { attentionMarks }
                 Spacer(minLength: 0)
+                // what a folded section holds, at the right
+                if collapsed, !section.rows.isEmpty {
+                    DesktopLineText(text: "\(section.rows.count)", size: 12,
+                                 color: hovering ? theme.sidebarInk : theme.sidebarInkSecondary, lineHeight: 16)
+                }
             }
             .foregroundStyle(hovering ? theme.sidebarInk : theme.sidebarInkSecondary)
             .padding(.horizontal, 12)
-            .frame(height: 32)
+            .frame(height: 28)
             .frame(maxWidth: .infinity)
             .background(hovering ? theme.sidebarHover : .clear, in: RoundedRectangle(cornerRadius: theme.radiusLg, style: .continuous))
             .contentShape(Rectangle())

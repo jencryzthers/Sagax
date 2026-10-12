@@ -11,6 +11,7 @@ export function SidebarSectionHeader({
   name,
   collapsed,
   attention,
+  count,
   onToggle,
   reorderable,
   dragging,
@@ -22,6 +23,8 @@ export function SidebarSectionHeader({
   name: string;
   collapsed: boolean;
   attention?: SidebarSectionAttention;
+  /** What the section holds, shown at the right while it is folded. */
+  count?: number;
   onToggle?: () => void;
   reorderable: boolean;
   dragging: boolean;
@@ -95,17 +98,21 @@ export function SidebarSectionHeader({
                 ? t("sidebar.section.expand", { name })
                 : t("sidebar.section.collapse", { name })
           }
-          // The name in sentence case (as upstream), 15px regular, then the
-          // section's attention marks; no chevron (a click folds it,
-          // aria-expanded says which way)
-          className="group/section flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-3 text-left text-sidebar-ink-secondary transition-colors hover:bg-sidebar-hover hover:text-sidebar-ink"
+          // The reference window's header: the name in sentence case (as
+          // upstream), 12px regular in the secondary ink, then the section's
+          // attention marks; no chevron (a click folds it, aria-expanded
+          // says which way), and while folded what it holds at the right
+          className="group/section flex h-7 w-full min-w-0 items-center gap-2 rounded-lg px-3 text-left text-sidebar-ink-secondary transition-colors hover:bg-sidebar-hover hover:text-sidebar-ink"
         >
-          <span className="sidebar-section-label truncate text-[15px] font-normal leading-5">{name}</span>
+          <span className="sidebar-section-label truncate text-[12px] font-normal leading-4">{name}</span>
           {marks}
+          {collapsed && count !== undefined && count > 0 && (
+            <span data-section-count="" className="ml-auto shrink-0 text-[12px] leading-4 tabular-nums">{count}</span>
+          )}
         </button>
       ) : (
-        <div className="flex h-8 min-w-0 items-center gap-2 px-3">
-          <span className="sidebar-section-label truncate text-[15px] font-normal leading-5 text-sidebar-ink-secondary">{name}</span>
+        <div className="flex h-7 min-w-0 items-center gap-2 px-3">
+          <span className="sidebar-section-label truncate text-[12px] font-normal leading-4 text-sidebar-ink-secondary">{name}</span>
           {marks}
         </div>
       )}

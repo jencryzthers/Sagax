@@ -21,9 +21,9 @@ describe("SidebarSectionHeader", () => {
     expect(html).toContain('aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"');
     expect(html).not.toContain('role="button"');
     expect(html).not.toContain("Delete Work section");
-    // sentence case (as upstream), a 15px regular label, no chevron
+    // sentence case (as upstream), a 12px regular label, no chevron
     expect(html).toContain(">Work</span>");
-    expect(html).toContain("text-[15px] font-normal");
+    expect(html).toContain("text-[12px] font-normal");
     expect(html).not.toContain("lucide-chevron");
     expect(html).not.toContain("uppercase");
   });
@@ -64,6 +64,16 @@ describe("SidebarSectionHeader", () => {
     expect(html).toContain("1 waiting for you");
     expect(html).toContain("2 unread");
     expect(html).toContain("1 working");
+  });
+
+  it("shows what a folded section holds at the right, and nothing while open", () => {
+    const header = (collapsed: boolean, count?: number) => renderToStaticMarkup(
+      createElement(SidebarSectionHeader, { name: "Personnel", collapsed, count, onToggle: () => {}, reorderable: false, dragging: false }),
+    );
+    expect(header(true, 6)).toContain('<span data-section-count="" class="ml-auto shrink-0 text-[12px] leading-4 tabular-nums">6</span>');
+    expect(header(false, 6)).not.toContain("data-section-count");
+    expect(header(true, 0)).not.toContain("data-section-count");
+    expect(header(true)).not.toContain("data-section-count");
   });
 
   it("retains the accessible attention summary when the heading cannot collapse", () => {

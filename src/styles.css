@@ -204,7 +204,7 @@
      for the one skin that gives the rail its own navy chrome. */
   --color-sidebar: #111111;
   --color-sidebar-ink: #fcfcfc;
-  --color-sidebar-ink-secondary: #fcfcfc99;
+  --color-sidebar-ink-secondary: #fcfcfca1;   /* the reference window's #a5a5a5 on the rail (ink-secondary stays #fcfcfc99) */
   --color-sidebar-hover: #7777772c;
   --color-sidebar-selected: #77777752;
   --color-sidebar-hairline: #363636;      /* #333333 measured 1.49:1 on the sidebar; nudged to clear 1.5:1 */
@@ -227,11 +227,12 @@
   --color-success: #38d591;
   --color-danger: #ff5667;
   --color-warning: #ff9800;
-  /* The Primary Bot star (Avatar.tsx PrimaryBotBadge): orange in every
-     skin, like the phone apps' badge, never the skin's accent (grey or navy
-     in several skins). The white star on it measures 3.6:1. */
-  --color-primary-badge: #ea580c;
-  --color-primary-badge-ink: #ffffff;
+  /* The Primary Bot star (Avatar.tsx PrimaryBotBadge): the reference
+     window's orange in every skin, never the skin's accent (grey or navy in
+     several skins). The disc is the mark (3:1 on the rail, measured in
+     check-skin-contrast); the star on it is decoration. */
+  --color-primary-badge: #f48a29;
+  --color-primary-badge-ink: #f3f3f3;
   /* Top-of-window light wash (see Pulsatrix, below). "none" everywhere else. */
   --app-glow: none;
 
@@ -261,6 +262,10 @@
      with a light hairline instead of the light content frame's grey one,
      the same circle its chat header draws (see `.content-topbar`). */
   --color-sidebar-elevated: color-mix(in srgb, var(--color-sidebar-ink) 3%, var(--color-sidebar));
+  /* The selected pinned tile's card (and the ring of its Primary Bot star):
+     7% of the rail's ink over the rail, opaque, so on Midnight it lands on
+     the reference window's #222222. */
+  --color-sidebar-card: color-mix(in srgb, var(--color-sidebar-ink) 7%, var(--color-sidebar));
   --color-sidebar-elevated-hover: color-mix(in srgb, #777777 20%, var(--color-sidebar-elevated));
   --color-sidebar-hairline-weak: color-mix(in srgb, var(--color-sidebar-ink) 10%, transparent);
 }
@@ -553,7 +558,7 @@
   --color-hairline: #333333;
   --color-sidebar: #111111;              /* = panel: unchanged */
   --color-sidebar-ink: #fcfcfc;           /* = ink: unchanged */
-  --color-sidebar-ink-secondary: #fcfcfc99; /* = ink-secondary: unchanged */
+  --color-sidebar-ink-secondary: #fcfcfca1; /* #a5a5a5 on the rail, the reference window's preview and headers */
   --color-sidebar-hover: #7777772c;       /* = hover: unchanged */
   --color-sidebar-selected: #77777752;    /* = selected: unchanged */
   --color-sidebar-hairline: #363636;      /* hairline (#333333) measures 1.49:1
@@ -596,6 +601,7 @@
    value is named next to each, so the drift stays auditable.
    ───────────────────────────────────────────────────────────────────────── */
 [data-skin="atelier"] {
+  --color-primary-badge: #c2410c;   /* the reference orange is 2.2:1 on this light rail */
   --code-color-scheme: light;
   --mascot-shadow-color: rgba(40,30,16,0.35);
   --mascot-shadow-wide: rgba(40,30,16,0.18);
@@ -736,6 +742,7 @@
    round more than paper does, and far more than sheet metal.
    ───────────────────────────────────────────────────────────────────────── */
 [data-skin="lagoon"] {
+  --color-primary-badge: #c2410c;   /* the reference orange is 2.2:1 on this light rail */
   --code-color-scheme: light;
   --mascot-shadow-color: rgba(12,36,34,0.35);
   --mascot-shadow-wide: rgba(12,36,34,0.18);
@@ -861,6 +868,7 @@
    crisp and familiar instead of colourful.
    ───────────────────────────────────────────────────────────────────────── */
 [data-skin="linen"] {
+  --color-primary-badge: #c2410c;   /* the reference orange is 2.2:1 on this light rail */
   --code-color-scheme: light;
   --mascot-shadow-color: rgba(20,24,36,0.35);
   --mascot-shadow-wide: rgba(20,24,36,0.18);
@@ -980,6 +988,7 @@
    #f7f7f7, selected row #e1e1e1.
    ───────────────────────────────────────────────────────────────────────── */
 [data-skin="daylight"] {
+  --color-primary-badge: #c2410c;   /* the reference orange is 2.2:1 on this light rail */
   --code-color-scheme: light;
   --mascot-shadow-color: rgba(20,20,20,0.35);
   --mascot-shadow-wide: rgba(20,20,20,0.18);
@@ -1051,6 +1060,7 @@
    is loaded only while this skin is worn. A light skin on every OS setting.
    ───────────────────────────────────────────────────────────────────────── */
 [data-skin="retro98"] {
+  --color-primary-badge: #9a3412;   /* the reference orange is 2.2:1 on this light rail */
   --code-color-scheme: light;
   --mascot-shadow-color: rgba(0,0,0,0.35);
   --mascot-shadow-wide: rgba(0,0,0,0.18);
@@ -1112,6 +1122,7 @@
    as the accent border.
    ───────────────────────────────────────────────────────────────────────── */
 [data-skin="meadow"] {
+  --color-primary-badge: #c2410c;   /* the reference orange is 2.2:1 on this light rail */
   --app-glow: none;
   --code-color-scheme: light;
   --mascot-shadow-color: rgba(16,32,20,0.35);
