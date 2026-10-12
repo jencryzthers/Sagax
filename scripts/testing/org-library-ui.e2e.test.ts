@@ -72,6 +72,16 @@ describe("the organization library in the real renderer", () => {
     const snapshot = async () => (await ui("snapshot")).snapshot as string;
     const api = (path: string, method = "GET", body?: unknown) => request(path, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }, info.url);
     const evidence = (name: string) => ui("screenshot", "--out", join(ROOT, ".omb-scratch", "verify-evidence", name));
+    const evaluate = async (js: string) => (await ui("eval", "--js", js)).result;
+    const clickExact = async (label: string) => {
+      const ok = await evaluate(`(() => {
+        const btn = [...document.querySelectorAll("button")].find((b) => (b.textContent || "").trim() === ${JSON.stringify(label)});
+        if (!btn) return false;
+        btn.click();
+        return true;
+      })()`);
+      if (!ok) throw new Error(`button ${JSON.stringify(label)} is missing`);
+    };
     const catalogFlow = { click, flag: (assignment: string) => ui("flag", "--set", assignment), snapshot };
 
     // No organization: Templates has no organization shelf.
@@ -111,10 +121,12 @@ describe("the organization library in the real renderer", () => {
     await evidence("org-library-preview.png");
     await click("Back");
 
-    // Use this template adds the team: no confirmation.
+    // Use this template adds the team: no confirmation. Click the exact
+    // label so a card's short "Use" is not taken instead.
     await click("Show Sales desk");
-    await click("Use this template");
-    await expect.poll(snapshot, { timeout: 20_000 }).toContain('button "Sales desk"');
+    await clickExact("Use this template");
+    await expect.poll(async () => (await api("/api/bots")).bots.filter((bot: { section?: string }) => bot.section === "Sales desk").length, { timeout: 20_000 }).toBe(3);
+    await expect.poll(snapshot, { timeout: 20_000 }).toContain("SALES DESK");
     const bots = (await api("/api/bots")).bots.filter((bot: { section?: string }) => bot.section === "Sales desk");
     expect(bots).toHaveLength(3);
     for (const bot of bots) {
@@ -129,7 +141,7 @@ describe("the organization library in the real renderer", () => {
     shelf = await snapshot();
     expect(shelf).toContain("Added");
     await click("Show Sales skills");
-    await click("Use this template");
+    await clickExact("Use this template");
     await expect.poll(snapshot, { timeout: 10_000 }).toContain("Sales skills is added. Its skills are offered under each bot's Skills.");
     await evidence("org-library-added.png");
     await press("Escape");

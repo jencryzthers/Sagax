@@ -133,6 +133,19 @@ describe("bot setup and tools in the real renderer", () => {
     await click("Add servers");
     const registry = async () => (await fetch(`${info.url}/api/mcp/servers`).then((response) => response.json())).servers;
     await expect.poll(registry, { timeout: 10_000 }).toMatchObject([{ name: "fixture", enabled: false }]);
+    // Adding a server can close the plugins overlay. Re-open it and open
+    // the fixture row so the workspace toggle is in the snapshot.
+    if (!(await snapshot()).includes("Turn fixture on")) {
+      await click("Manage in Connect apps");
+      await expect.poll(() => evaluate("Boolean(document.querySelector('[data-plugins-connected]'))"), { timeout: 10_000 }).toBe(true);
+      await evaluate("document.querySelector('[data-plugins-connected]')?.click(); true");
+      await expect.poll(snapshot, { timeout: 10_000 }).toContain("fixture");
+      await evaluate(`(() => {
+        const row = [...document.querySelectorAll("button, [role=button]")].find((el) => (el.textContent || "").includes("fixture"));
+        row?.click();
+        return Boolean(row);
+      })()`);
+    }
     await expect.poll(snapshot, { timeout: 10_000 }).toContain("Turn fixture on");
     await click("Turn fixture on");
     await expect.poll(registry, { timeout: 10_000 }).toMatchObject([{ name: "fixture", enabled: true }]);

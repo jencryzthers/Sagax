@@ -75,6 +75,7 @@ driverProcess.stderr.on("data", (chunk) => {
 });
 let proxy;
 let proxyError = "";
+let wm;
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 async function until(probe, description, timeout = 10_000) {
@@ -234,9 +235,19 @@ try {
     "start_session",
   );
   xevOutput = "";
-  // Pixel clicks need a screenshot snapshot first. Xvfb has no window
-  // manager, so foreground (activate via _NET_ACTIVE_WINDOW) fails;
-  // background delivers through XTEST.
+  // Pixel clicks need a screenshot snapshot first. CUA 0.33 on X11 has no
+  // focus-free backend, so background delivery is refused; foreground
+  // waits for EWMH _NET_ACTIVE_WINDOW. Xvfb has no WM, so start openbox
+  // (CI installs it) and publish the active window before the click.
+  wm = spawn("openbox", ["--sm-disable"], { env: process.env, stdio: "ignore" });
+  wm.on("error", () => { wm = undefined; });
+  await delay(400);
+  const hex = `0x${Number(windowId).toString(16)}`;
+  await execFileAsync("xdotool", ["windowfocus", "--sync", windowId]).catch(() => {});
+  await execFileAsync("xdotool", ["windowraise", windowId]).catch(() => {});
+  await execFileAsync("xdotool", ["windowactivate", "--sync", windowId]).catch(() => {});
+  await execFileAsync("xprop", ["-root", "-f", "_NET_SUPPORTING_WM_CHECK", "32x", "-set", "_NET_SUPPORTING_WM_CHECK", hex]).catch(() => {});
+  await execFileAsync("xprop", ["-root", "-f", "_NET_ACTIVE_WINDOW", "32x", "-set", "_NET_ACTIVE_WINDOW", hex]).catch(() => {});
   const target = {
     session,
     pid: xev.pid,
@@ -244,7 +255,7 @@ try {
     x: 80,
     y: 80,
     scope: "window",
-    delivery_mode: "background",
+    delivery_mode: "foreground",
   };
   assertToolResult(
     await rpc("tools/call", {
@@ -272,5 +283,6 @@ try {
   if (proxy) await stop(proxy);
   await stop(driverProcess);
   if (xev.exitCode === null && xev.signalCode === null) xev.kill("SIGTERM");
+  try { wm?.kill("SIGTERM"); } catch { /* openbox already gone */ }
   rmSync(sandbox, { recursive: true, force: true });
 }

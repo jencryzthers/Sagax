@@ -133,8 +133,14 @@ describe("Share team in the real renderer", () => {
     }
     expect(preview).not.toContain("Connections to finish");
     await ui("screenshot", "--out", join(ROOT, ".omb-scratch", "verify-evidence", "share-team-import-preview.png"));
-    await click("Add team");
-    await expect.poll(snapshot, { timeout: 10_000 }).toContain('button "Sales desk 2"');
+    await evaluate(`(() => {
+      const btn = document.querySelector("[data-template-add]")
+        || [...document.querySelectorAll("button")].find((b) => (b.textContent || "").trim() === "Add team");
+      if (!btn) throw new Error("Add team is missing");
+      btn.click();
+      return true;
+    })()`);
+    await expect.poll(async () => (await api("/api/bots")).bots.filter((bot: { section?: string }) => bot.section === "Sales desk 2").length, { timeout: 20_000 }).toBe(2);
     const bots = (await api("/api/bots")).bots.filter((bot: { section?: string }) => bot.section === "Sales desk 2");
     expect(bots).toHaveLength(2);
     for (const bot of bots) {

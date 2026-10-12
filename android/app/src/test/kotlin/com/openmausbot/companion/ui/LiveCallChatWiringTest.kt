@@ -137,6 +137,7 @@ class LiveCallChatWiringTest {
         mount { chatScreen() }
         compose.onNodeWithText("via call").assertIsDisplayed()
 
+        waitForCallButton()
         compose.onNodeWithContentDescription("Call Scout").performClick()
         compose.waitUntil(10_000) { requests.any { it.path == "/api/live/session" } }
         compose.onNodeWithText("Connecting…").assertIsDisplayed()
@@ -229,6 +230,7 @@ class LiveCallChatWiringTest {
         mount(bots = listOf(longChat)) { chatScreen(longChat) }
         compose.waitUntil(5_000) { compose.onAllNodesWithText(NEWEST, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
 
+        waitForCallButton()
         compose.onNodeWithContentDescription("Call Scout").performClick()
         compose.waitUntil(10_000) { requests.any { it.path == "/api/live/session" } }
         compose.onNodeWithText("Connecting…").assertIsDisplayed()
@@ -318,6 +320,12 @@ class LiveCallChatWiringTest {
         val bottom = newest.positionInRoot.y + newest.size.height
         val bar = compose.onNodeWithContentDescription(description).fetchSemanticsNode().boundsInRoot
         assertTrue(bottom <= bar.top, "the newest message runs under the bar: it ends at $bottom, the bar starts at ${bar.top}")
+    }
+
+    private fun waitForCallButton() {
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithContentDescription("Call Scout").fetchSemanticsNodes().isNotEmpty()
+        }
     }
 
     @Composable

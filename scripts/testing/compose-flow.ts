@@ -26,19 +26,39 @@ async function until(probe: () => Promise<boolean>, timeoutMs: number, what: str
   }
 }
 
+function catalogHome(snap: string): boolean {
+  return snap.includes("Import") && snap.includes("Share a team") && !snap.includes('button "Back"');
+}
+
 /** Enable the catalog flag, open Browse Bots. Import / Share a team sit on
- * the Templates section of that catalogue (home view, no extra click). */
+ * the Templates section of that catalogue (home view, no extra click).
+ * If the catalogue is already open, walk Back to home instead of clicking
+ * the covered sidebar entry. */
 export async function openTemplatesCatalog(flow: CatalogFlow): Promise<void> {
   await flow.flag("features.templates=true");
+  const snap = await flow.snapshot();
+  if (catalogHome(snap)) return;
+  if (snap.includes("Import") || snap.includes("Share a team") || snap.includes("Templates")) {
+    await until(async () => {
+      const next = await flow.snapshot();
+      if (catalogHome(next)) return true;
+      if (next.includes('button "Back"')) {
+        await flow.click("Back");
+        return false;
+      }
+      return catalogHome(next);
+    }, 12_000, "Browse Bots template tools");
+    if (catalogHome(await flow.snapshot())) return;
+  }
   await until(async () => (await flow.snapshot()).includes("Browse Bots"), 12_000, "Browse Bots");
   await flow.click("Browse Bots");
   await until(async () => {
-    const snap = await flow.snapshot();
-    if (snap.includes('button "Back"')) {
+    const next = await flow.snapshot();
+    if (next.includes('button "Back"')) {
       await flow.click("Back");
       return false;
     }
-    return snap.includes("Import") && snap.includes("Share a team");
+    return catalogHome(next);
   }, 12_000, "Browse Bots template tools");
 }
 
