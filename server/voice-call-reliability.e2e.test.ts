@@ -117,8 +117,12 @@ it("delivers words said while the bot works once: steered in, never handed back 
     expect(first?.text).toContain("steered:");
     expect(first?.text).toContain("give me a good prompt");
     expect(sent).toHaveLength(2);
-    expect(sent[1]).not.toContain("give me a good prompt");
     expect(sent[1]).not.toContain("you may already have it");
+    // Steered words stay in the first turn. The next turn names them as an
+    // open topic in the phone-call instruction, never as the spoken user line.
+    expect(sent[1]).toContain("give me a good prompt (still running in the background)");
+    const spoken = sent[1].split("</system-reminder>").at(-1) ?? "";
+    expect(spoken).not.toContain("give me a good prompt");
     const users = (await t.messages()).filter((m) => m.role === "user");
     expect(users.filter((m) => m.text === "give me a good prompt")).toHaveLength(1);
   } finally {

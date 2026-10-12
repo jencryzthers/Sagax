@@ -98,7 +98,7 @@ describe("bot setup and tools in the real renderer", () => {
     await expect.poll(dialogCount, { timeout: 10_000 }).toBe(0);
     await press("Control+n");
     await expect.poll(snapshot, { timeout: 10_000 }).toContain("Create new Bot");
-    expect(await evaluate("[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Create new Bot')?.disabled")).toBe(true);
+    expect(await evaluate("document.querySelector('[data-compose-action=\"create-bot\"]')?.disabled")).toBe(true);
     await press("Escape");
     expect(await dialogCount()).toBe(0);
     await evaluate("window.releaseBotCreation(); true");

@@ -98,13 +98,16 @@ describe("the organization library in the real renderer", () => {
     await openTemplatesCatalog(catalogFlow);
     await expect.poll(snapshot, { timeout: 10_000 }).toContain("Sales desk");
     let shelf = await snapshot();
-    for (const line of ["Sales desk", "Recommended by Acme Partners", "Sales skills", "by Acme Partners"]) expect(shelf).toContain(line);
+    for (const line of ["Sales desk", "Sales skills", "by Acme Partners"]) expect(shelf).toContain(line);
     await evidence("org-library-shelf.png");
 
     // Details is the existing preview: skills arrive switched on here.
+    // Mode badges ("Recommended by …") live on the detail notes, not the shelf.
     await click("Show Sales desk");
     await expect.poll(snapshot, { timeout: 10_000 }).toContain("Included skills (switched on)");
-    expect(await snapshot()).toContain("Skills arrive switched on and routines paused");
+    const detail = await snapshot();
+    expect(detail).toContain("Skills arrive switched on and routines paused");
+    expect(detail).toContain("Recommended by Acme Partners");
     await evidence("org-library-preview.png");
     await click("Back");
 

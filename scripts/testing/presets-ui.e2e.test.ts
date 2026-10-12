@@ -122,6 +122,7 @@ describe("Preset bots in the real renderer", () => {
     await ui("screenshot", "--out", evidence("share-team"));
     await click("Cancel");
     await ui("press", "--keys", "Escape");
+    await expect.poll(async () => !(await snapshot()).includes("What's in the file"), { timeout: 10_000 }).toBe(true);
 
     // New bot: organization presets, then imported ones, above the built-in roles.
     const bots = async () => (await api("/api/bots")).bots as Array<{ id: string; name: string; installedPackage?: Record<string, unknown> }>;

@@ -87,7 +87,7 @@ describe("Share team in the real renderer", () => {
     await click("fill-01");
     await expect.poll(snapshot, { timeout: 20_000 }).toContain("What's in the file");
     dialog = await snapshot();
-    for (const line of ["Chief of Staff", "Never included: chat history", "Save file"]) expect(dialog).toContain(line);
+    for (const line of ["Primary Bot", "Never included: chat history", "Save file"]) expect(dialog).toContain(line);
     expect(dialog).not.toContain("too large to share");
     // Starter notes are in by default; unticking takes them out, ticking puts them back.
     await click("Include starter notes (each bot's MEMORY.md and topic notes)");
