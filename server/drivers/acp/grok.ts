@@ -15,6 +15,7 @@ import type { DeviceSignIn } from "../device-auth.ts";
 import { decodeInjectId, hostApiKey, localHost, mergeLocalInject } from "../local-inject.ts";
 import { createAcpDriver, type AccountErrorCode, type AcpSupport } from "./core.ts";
 import { grokHostToolArgs, grokOrgAgentProfile } from "../host-tools.ts";
+import { grokReadOnlyAllowRules } from "./grok-read-only-tools.ts";
 import { knownGrokTools, knownGrokToolsSection, recordGrokToolUse, useToolName } from "./grok-tool-usage.ts";
 import { allowsTool, canUseMcpServer, narrowsNativeTools, parseToolScope } from "../../../shared/tool-scope.ts";
 
@@ -682,6 +683,11 @@ const support: AcpSupport = {
       config.fullAuto
         ? "bypassPermissions"
         : turn.approvalMode === "auto" ? "auto" : turn.approvalMode === "edits" ? "acceptEdits" : "default",
+      // Auto mode only: reviewed read-only Sagax tools skip Grok's classifier
+      // (grok-read-only-tools.ts). Ask and Edits keep every card as before.
+      ...(!config.fullAuto && turn.approvalMode === "auto"
+        ? grokReadOnlyAllowRules(turn.integrations).flatMap((rule) => ["--allow", rule])
+        : []),
       "agent",
       ...(withhold || turn.toolScope !== undefined ? ["--no-leader"] : []),
       ...(turn.model ? ["-m", turn.model] : []),
