@@ -1,89 +1,68 @@
-// Every turn reaches the engine with the time it was sent, through the real
-// server and the fake Claude CLI: both turns of one long-lived 1:1 session
-// carry their own line (a CLI session never hears its system prompt again,
-// so a clock there would freeze at the first turn), and so does a room turn.
-// TZ pins the server's timezone so the line does not depend on the runner.
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+// The per-turn clock note, end to end: once a time zone is set, the text the
+// engine gets starts with the local time in that zone; with none set the
+// engine gets the user's text unchanged. Real harness, fake Claude CLI that
+// dumps what it was given, throwaway home.
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, it } from "vitest";
-import { launchVerificationServer, runControlOmb } from "../scripts/control-omb.ts";
-import type { WireBot } from "../shared/wire.ts";
-import { turnClockLine } from "./turn-clock.ts";
+import { pathToFileURL } from "node:url";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { launchVerificationServer, type VerificationServer } from "../scripts/control-omb.ts";
+import { removeTempDir } from "./testing/cleanup.ts";
 
-const ZONE = "Asia/Kolkata";
-// ICU may report the zone by its older alias (Asia/Calcutta); the server's
-// line names whatever the runtime reports, so the test asks the same runtime.
-const REPORTED = new Intl.DateTimeFormat("en-US", { timeZone: ZONE }).resolvedOptions().timeZone;
-const CLOCK = new RegExp(`^Current time when this message was sent: \\w+day, (\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}) ${REPORTED.replace("/", "\\/")} \\(UTC\\+05:30\\)\\.\n\n`);
-
-/** The local minute the line names, as the line would spell it. */
-const minute = (at: number) => /\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.exec(turnClockLine(at, REPORTED))![0];
-
-it("stamps every direct and room turn with the time it was sent", async () => {
-  const scratch = mkdtempSync(join(tmpdir(), "omb-turn-clock-"));
-  const prompts = join(scratch, "prompts.jsonl");
-  const fixture = await launchVerificationServer({ ...process.env, TZ: ZONE, FAKE_CLAUDE_PROMPTS: prompts });
-  const control = (...args: string[]) => runControlOmb([...args, "--url", fixture.info.url]);
-  const api = async <T = any>(path: string, method = "GET", body?: unknown, status = 200): Promise<T> => {
-    const response = await fetch(fixture.info.url + path, {
-      method,
-      headers: { "content-type": "application/json" },
+describe.skipIf(process.platform === "win32")("turn clock e2e", () => {
+  let session: VerificationServer;
+  let fixture: string;
+  let botId: string;
+  let threadId: string;
+  const api = async (method: string, path: string, body?: unknown) => {
+    const response = await fetch(`${session.info.url}${path}`, {
+      method, headers: { "content-type": "application/json", origin: session.info.url },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-    expect(response.status, `${method} ${path}`).toBe(status);
-    return response.json() as Promise<T>;
+    return { status: response.status, body: await response.json() as any };
   };
-  const sent = (): string[] => {
-    try {
-      return readFileSync(prompts, "utf8").trim().split("\n").filter(Boolean)
-        .map((line) => JSON.parse(line) as { message?: { content?: unknown } } | string)
-        // a stream-json user message: plain text, or text blocks beside images
-        .map((prompt) => {
-          const content = typeof prompt === "string" ? prompt : prompt.message?.content;
-          if (typeof content === "string") return content;
-          return Array.isArray(content) ? content.map((block: { text?: string }) => block.text ?? "").join("") : JSON.stringify(prompt);
-        });
-    } catch {
-      return [];
-    }
+  // The text the engine received for this turn.
+  const engineText = async (text: string): Promise<string> => {
+    const dump = join(fixture, "provider.json");
+    rmSync(dump, { force: true });
+    expect((await api("POST", `/api/bots/${botId}/messages`, { text, threadId })).status).toBe(202);
+    let got = "";
+    await expect.poll(() => {
+      if (!existsSync(dump)) return false;
+      const prompt = JSON.parse(readFileSync(dump, "utf8")).prompt;
+      got = typeof prompt?.message?.content === "string" ? prompt.message.content : "";
+      return got.endsWith(text);
+    }, { timeout: 15_000 }).toBe(true);
+    await expect.poll(async () => (await api("GET", "/api/bots")).body.bots.find((bot: any) => bot.id === botId)?.busy, { timeout: 15_000 }).toBe(false);
+    return got;
   };
-  const promptWith = (marker: string) => sent().find((prompt) => prompt.includes(marker));
-  /** The prompt carrying `marker` opens with exactly one clock line, naming
-   * a minute between the send and the reply. */
-  const expectStamped = (marker: string, from: number, to: number) => {
-    const prompt = promptWith(marker);
-    expect(prompt, marker).toBeDefined();
-    const match = CLOCK.exec(prompt!);
-    expect(match, prompt).not.toBeNull();
-    expect([minute(from), minute(to)]).toContain(match![1]);
-    expect(prompt!.match(/Current time when this message was sent/g)).toHaveLength(1);
-  };
-  const turn = async (botId: string, threadId: string, text: string) => {
-    const from = Date.now();
-    await control("send", "--bot", botId, "--task", threadId, "--text", text);
-    expect(await control("wait", "--bot", botId, "--task", threadId, "--timeout", "30")).toMatchObject({ status: "settled" });
-    return { from, to: Date.now() };
-  };
-  try {
-    const { bot } = await api<{ bot: WireBot }>("/api/bots", "POST", { name: "Clockwise" }, 201);
-    const first = await turn(bot.id, bot.threadId, "First message about the quarterly plan");
-    const second = await turn(bot.id, bot.threadId, "Second message in the same session");
-    expectStamped("First message about the quarterly plan", first.from, first.to);
-    expectStamped("Second message in the same session", second.from, second.to);
 
-    const { bot: mate } = await api<{ bot: WireBot }>("/api/bots", "POST", { name: "Roommate" }, 201);
-    const room = (await api<{ group: { id: string } }>("/api/groups", "POST", {
-      name: "Clock room",
-      memberIds: [bot.id, mate.id],
-      setup: { bulletin: "", defaultResponder: { kind: "member", botId: mate.id } },
-    }, 201)).group;
-    const from = Date.now();
-    await api(`/api/groups/${room.id}/messages`, "POST", { text: "Room message about the launch date" }, 202);
-    await expect.poll(() => promptWith("Room message about the launch date") !== undefined, { timeout: 20_000 }).toBe(true);
-    expectStamped("Room message about the launch date", from, Date.now());
-  } finally {
-    await fixture.close();
-    rmSync(scratch, { recursive: true, force: true });
-  }
-}, 120_000);
+  beforeAll(async () => {
+    fixture = mkdtempSync(join(tmpdir(), "omb-turn-clock-"));
+    session = await launchVerificationServer(process.env);
+    const wrapper = join(fixture, "dump-claude.mjs");
+    writeFileSync(wrapper, [
+      "#!/usr/bin/env node",
+      `process.env.FAKE_CLAUDE_DUMP = ${JSON.stringify(join(fixture, "provider.json"))};`,
+      `await import(${JSON.stringify(pathToFileURL(join(process.cwd(), "server/testing/fake-claude-cli.ts")).href)});`,
+    ].join("\n"), { mode: 0o700 });
+    expect((await api("PATCH", "/api/instances/claude", { cli: wrapper })).status).toBe(200);
+    const created = await api("POST", "/api/bots", { name: "Clock", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } });
+    expect(created.status).toBe(201);
+    botId = created.body.bot.id;
+    threadId = created.body.bot.threadId;
+  }, 30_000);
+
+  afterAll(async () => {
+    if (session) await session.close();
+    if (fixture) await removeTempDir(fixture);
+  });
+
+  it("adds the local time only when a zone is set", async () => {
+    expect(await engineText("NO_ZONE_YET")).not.toContain("[Current time:");
+    expect((await api("PUT", "/api/settings/bot", { timeZone: "America/Toronto" })).status).toBe(200);
+    const zoned = await engineText("WITH_ZONE");
+    expect(zoned).toMatch(/\[Current time: \w+day, \w+ \d{1,2}, \d{4} at \d{1,2}:\d{2} [AP]M, America\/Toronto \(UTC-0[45]:00\)\. Give dates and times in America\/Toronto[^\]]*\]\n\nWITH_ZONE$/);
+  }, 60_000);
+});

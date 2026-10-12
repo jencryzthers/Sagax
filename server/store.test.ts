@@ -2420,7 +2420,7 @@ describe("Store task working folder", () => {
   it("persists a new task's explicit folder before its first turn without changing the bot default", () => {
     const store = new Store(selection);
     const bot = store.createBot({ cwd: "/tmp/default-project" });
-    const task = store.createTask(bot.id, "Explicit project", true, undefined, undefined, undefined, undefined, undefined, "/tmp/chosen-project")!;
+    const task = store.createTask(bot.id, "Explicit project", true, undefined, undefined, undefined, undefined, undefined, false, "/tmp/chosen-project")!;
     expect(task.cwd).toBe("/tmp/chosen-project");
     expect(bot.cwd).toBe("/tmp/default-project");
     const reloaded = new Store(selection);

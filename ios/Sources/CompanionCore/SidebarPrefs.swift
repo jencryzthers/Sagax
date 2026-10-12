@@ -650,8 +650,8 @@ extension CompanionState {
             return name
         }
         let visible = shownBots.filter { $0.hidden != true }
-        let pinned = { (bot: Bot) in bot.pinned == true && bot.chiefOfStaff != true }
-        let sectionChiefs = visible.filter { $0.chiefOfStaff == true && name($0.section) != nil }
+        let pinned = { SidebarBotPinning.isPinned($0) }
+        let sectionChiefs = visible.filter { $0.chiefOfStaff == true && !pinned($0) && name($0.section) != nil }
         let sectionBots = visible.filter { $0.chiefOfStaff != true && !pinned($0) && name($0.section) != nil }
         let channels = shownRooms.filter { $0.dm != true }
         let sectionedRooms = channels.filter { name($0.section) != nil }
@@ -699,7 +699,7 @@ extension CompanionState {
         rows.sort { $0.name.localizedCompare($1.name) == .orderedAscending }
 
         return SidebarLayout(
-            unsectionedChief: visible.first { $0.chiefOfStaff == true && name($0.section) == nil },
+            unsectionedChief: visible.first { $0.chiefOfStaff == true && !pinned($0) && name($0.section) == nil },
             pinnedBots: visible.filter(pinned),
             sections: sections,
             unsectionedBots: visible.filter { $0.chiefOfStaff != true && !pinned($0) && name($0.section) == nil },

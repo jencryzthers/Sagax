@@ -225,6 +225,9 @@ final class CardActionsTests: XCTestCase {
         XCTAssertNil(ApprovalOutcome.of(card))
         card.answered = "allow"
         XCTAssertEqual(ApprovalOutcome.of(card), .allowed)
+        card.alwaysAllowed = "mcp:sagax-environment__run_command"
+        XCTAssertEqual(ApprovalOutcome.of(card), .alwaysAllowed, "Always allow reads like the web pill")
+        card.alwaysAllowed = nil
         card.answered = "deny"
         XCTAssertEqual(ApprovalOutcome.of(card), .denied)
         card.routineRequest = ProposalRequestMarker(operation: .init(action: "pause"))
@@ -533,5 +536,38 @@ final class CardClientTests: XCTestCase {
             XCTFail("bad id")
         } catch {}
         XCTAssertTrue(CardRequestStub.requests.isEmpty)
+    }
+}
+
+final class ApprovalPlainWordsTests: XCTestCase {
+    private func card(_ json: String) throws -> OptionCard {
+        try JSONDecoder().decode(OptionCard.self, from: Data(json.utf8))
+    }
+
+    func testServerPlainTitleOnEnglishPhones() throws {
+        let ask = try card(#"{"title":"Approval needed","subtitle":"{\"command\":\"echo hi\"}","options":["Allow","Deny"],"requestId":"r1","tool":"other","plain":{"title":"Allow Cryptic to run a command?","line":"Runs an action.","risk":"execute"},"expiresAt":1760000000000}"#)
+        XCTAssertEqual(ApprovalHeading.plainTitle(ask, language: "en-CA"), "Allow Cryptic to run a command?")
+        XCTAssertEqual(ApprovalHeading.plainLine(ask, language: "en"), "Runs an action.")
+        XCTAssertEqual(ask.expiresAt, 1760000000000)
+        // English words never land in a French sentence
+        XCTAssertNil(ApprovalHeading.plainTitle(ask, language: "fr-CA"))
+    }
+
+    func testOlderServersAndProposalsKeepTheAppHeading() throws {
+        let old = try card(#"{"title":"Approval needed","subtitle":"pnpm test","options":["Allow","Deny"],"requestId":"r1","tool":"Bash"}"#)
+        XCTAssertNil(ApprovalHeading.plainTitle(old, language: "en"))
+        let routine = try card(#"{"title":"Routine","subtitle":"x","options":["Confirm"],"requestId":"r2","tool":"schedule_routine","routineRequest":{"operation":{"action":"create"}},"plain":{"title":"Allow X to schedule?","line":"y"}}"#)
+        XCTAssertNil(ApprovalHeading.plainTitle(routine, language: "en"))
+    }
+
+    func testSavedAllowRuleShowsOnlyOnAnAllowedCard() throws {
+        let base = #""title":"t","subtitle":"s","options":[],"requestId":"r","tool":"other""#
+        let saved = try card("{\(base),\"answered\":\"allow\",\"alwaysAllowed\":\"mcp:sagax-environment__run_command\"}")
+        XCTAssertEqual(AllowRuleText.savedRule(saved), "mcp:sagax-environment__run_command")
+        XCTAssertNil(AllowRuleText.savedRule(try card("{\(base),\"answered\":\"allow\"}")))
+        XCTAssertNil(AllowRuleText.savedRule(try card("{\(base),\"answered\":\"deny\",\"alwaysAllowed\":\"mcp:a__b\"}")))
+        XCTAssertEqual(AllowRuleText.action(of: "mcp:sagax-environment__run_command"), .runCommand)
+        XCTAssertEqual(AllowRuleText.action(of: "mcp:perspicax__cw_psa__write"), .named("cw psa write"))
+        XCTAssertNil(AllowRuleText.action(of: "ask_bot:b2"))
     }
 }

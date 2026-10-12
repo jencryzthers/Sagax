@@ -801,6 +801,51 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     }
   });
 
+  it("turns an Artifact publish into a visible page card, never leaking the host path", async () => {
+    const htmlPath = join(scratch, "report.html");
+    writeFileSync(htmlPath, "<p>Hi</p>");
+    process.env.FAKE_CLAUDE_TOOL_CALLS = JSON.stringify([
+      {
+        name: "Artifact",
+        input: { action: "publish", file_path: htmlPath },
+        output: JSON.stringify({
+          url: "https://claude.ai/code/artifact/abc",
+          title: "Report",
+          path: htmlPath,
+        }),
+      },
+    ]);
+    try {
+      await create();
+      await instance.adapter.sendTurn({ threadId: "t-artifact", text: "publish it", model: "claude-sonnet-5" });
+      await recorder.until((e) => e.type === "turn.completed");
+      const pages = recorder.events.filter((e: any) => e.type === "item.completed" && e.itemType === "assistant_text" && typeof e.text === "string" && e.text.includes("```artifact"));
+      expect(pages).toHaveLength(1);
+      expect(pages[0]).toMatchObject({
+        text: "```artifact\n{\"title\":\"Report\",\"url\":\"https://claude.ai/code/artifact/abc\"}\n```\n\n```widget\n<p>Hi</p>\n```",
+      });
+      expect((pages[0] as any).text).not.toContain(htmlPath);
+      expect(recorder.events.some((e) => e.type === "item.started" && (e as any).title === "Artifact")).toBe(true);
+    } finally {
+      delete process.env.FAKE_CLAUDE_TOOL_CALLS;
+    }
+  });
+
+  it("skips Artifact list results and invented URLs", async () => {
+    process.env.FAKE_CLAUDE_TOOL_CALLS = JSON.stringify([
+      { name: "Artifact", input: { action: "list" }, output: JSON.stringify({ artifacts: [{ title: "A", url: "https://claude.ai/x" }] }) },
+      { name: "Artifact", input: { action: "publish" }, output: JSON.stringify({ title: "Nope", url: "javascript:alert(1)" }) },
+    ]);
+    try {
+      await create();
+      await instance.adapter.sendTurn({ threadId: "t-artifact-skip", text: "list them", model: "claude-sonnet-5" });
+      await recorder.until((e) => e.type === "turn.completed");
+      expect(recorder.events.some((e: any) => e.type === "item.completed" && e.itemType === "assistant_text" && typeof e.text === "string" && e.text.includes("```artifact"))).toBe(false);
+    } finally {
+      delete process.env.FAKE_CLAUDE_TOOL_CALLS;
+    }
+  });
+
   it("streams partial-message text deltas without re-emitting the whole message", async () => {
     await create("stream");
     await instance.adapter.sendTurn({ threadId: "t-stream", text: "hi" });

@@ -233,8 +233,8 @@ struct MarkdownText: View {
     }
 
     /// A fenced block, routed the way ChatMarkdown's `pre` does: mermaid to
-    /// the diagram block, then email, widget, chart and CSV fences, and
-    /// everything else to the code block.
+    /// the diagram block, then email, artifact JSON to a page card, widget,
+    /// chart and CSV fences, and everything else to the code block.
     @ViewBuilder
     private func fence(language: String?, code: String, tail: Bool, pending: Bool, identifier: String?) -> some View {
         let lang = language ?? ""
@@ -246,7 +246,11 @@ struct MarkdownText: View {
         } else if let email {
             EmailCardView(draft: email, pending: pending, identifier: identifier)
         } else if kind == .widget {
-            WidgetFrameView(code: code, pending: pending, identifier: identifier)
+            if let page = RichBlocks.parseArtifactPage(code) {
+                ArtifactCardView(page: page, pending: pending, identifier: identifier)
+            } else {
+                WidgetFrameView(code: code, pending: pending, identifier: identifier)
+            }
         } else if kind == .chart {
             ChartBlockView(code: code, pending: pending, identifier: identifier, inline: { inline($0, tail: $1) }, plain: renderedInline)
         } else if let csv, !csv.headers.isEmpty {

@@ -25,6 +25,7 @@ export type ApnsTransport = (input: {
 }) => Promise<ApnsResponse>;
 
 const REQUEST_TIMEOUT_MS = 10_000;
+const IDLE_SESSION_MS = 60_000;
 
 /** The real transport. `close()` ends every open session (shutdown, tests). */
 export function createHttp2Transport(options: { timeoutMs?: number } = {}): ApnsTransport & { close(): void } {
@@ -41,6 +42,10 @@ export function createHttp2Transport(options: { timeoutMs?: number } = {}): Apns
     session.on("close", drop);
     // an idle session must not keep the process alive
     session.unref();
+    // NAT and load balancers (Azure: ~4 min) drop an idle TCP flow without a
+    // word, and the session never learns it: every later request hangs to
+    // its timeout. Close an idle session; the next push opens a fresh one.
+    session.setTimeout(IDLE_SESSION_MS, () => { drop(); session.close(); });
     sessions.set(host, session);
     return session;
   };
@@ -61,7 +66,12 @@ export function createHttp2Transport(options: { timeoutMs?: number } = {}): Apns
     });
     let status = 0;
     const chunks: Buffer[] = [];
-    request.setTimeout(timeoutMs, () => request.close(constants.NGHTTP2_CANCEL));
+    request.setTimeout(timeoutMs, () => {
+      request.close(constants.NGHTTP2_CANCEL);
+      // a request that hangs means a dead session: never reuse it
+      if (sessions.get(input.host) === session) sessions.delete(input.host);
+      session.destroy();
+    });
     request.on("response", (headers) => { status = Number(headers[constants.HTTP2_HEADER_STATUS] ?? 0); });
     request.on("data", (chunk: Buffer) => { if (chunks.length < 16) chunks.push(chunk); });
     request.on("error", reject);
@@ -122,7 +132,9 @@ export class ApnsSender {
     });
     let response: ApnsResponse;
     try {
-      response = await attempt();
+      // one retry on a fresh session: the first failure is usually a session
+      // the network dropped while idle (the transport discards it)
+      response = await attempt().catch(() => attempt());
       if (response.status === 403 && response.reason === "ExpiredProviderToken") {
         this.tokens.invalidate();
         response = await attempt();

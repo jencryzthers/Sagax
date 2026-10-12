@@ -221,6 +221,9 @@ final class Session: ObservableObject {
         PushRegistrar.shared.backgroundRefresh = { [weak self] in
             await self?.refreshAfterPush() ?? false
         }
+        PushRegistrar.shared.onDeviceToken = { [weak self] in
+            self?.restartStream()
+        }
 #if DEBUG
         // Parity harness: a fixture server, held in memory only (ParityLaunch.swift).
         if let parity = ParityLaunch.current {
@@ -967,7 +970,7 @@ final class Session: ObservableObject {
                 // breaking out here instead would fall through to the "the
                 // harness went away" path and flash a lost-connection banner
                 // on what is actually a deliberate reconnect.
-                for try await frame in try client.events(since: state.cursor, screens: screenWatchers > 0) {
+                for try await frame in try client.events(since: state.cursor, screens: screenWatchers > 0, pushToken: PushRegistrar.shared.deviceToken) {
                     if Task.isCancelled { return }
                     reconnectDelay = 0
 
@@ -1020,6 +1023,7 @@ final class Session: ObservableObject {
                         NotificationCoordinator.shared.deliver(notification, sequence: frame.seq)
                     }
                     NotificationCoordinator.shared.setBadge(state.unreadCount)
+                    withdrawSettledIfFewerUnread()
                     state.advance(to: frame.seq)
                 }
                 // the stream ended without an error — the harness went away
@@ -1063,6 +1067,9 @@ final class Session: ObservableObject {
                                 ifCursorMatches: expectedCursor) else { continue }
             log.info("hydrated \(snapshot.fleet.bots.count, privacy: .public) bots, \(snapshot.fleet.groups.count, privacy: .public) rooms")
             NotificationCoordinator.shared.setBadge(state.unreadCount)
+            badgedUnread = state.unreadCount
+            let bots = state.bots
+            Task { await NotificationCoordinator.shared.withdrawSettled(bots: bots) }
             return
         }
         throw APIError.status(code: 409, message: "Conversations changed while loading. Please try opening this notification again.")
@@ -2546,6 +2553,19 @@ final class Session: ObservableObject {
 
     /// A push woke the app (`content-available`): fetch the conversations
     /// again so the icon badge counts what arrived while it was closed.
+    /// The unread count the banners were last checked against.
+    private var badgedUnread: Int?
+
+    /// Something was read (here or on another device): the banners for
+    /// conversations that no longer need the person leave Notification Center.
+    private func withdrawSettledIfFewerUnread() {
+        let count = state.unreadCount
+        defer { badgedUnread = count }
+        guard let before = badgedUnread, count < before else { return }
+        let bots = state.bots
+        Task { await NotificationCoordinator.shared.withdrawSettled(bots: bots) }
+    }
+
     func refreshAfterPush() async -> Bool {
         guard !isDemo, let client else { return false }
         do {

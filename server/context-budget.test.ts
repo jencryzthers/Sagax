@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { compactBudget, contextWindowFor, nativeCompactionPoint, shouldCompact, DEFAULT_CONTEXT_WINDOW } from "./context-budget.ts";
+import { compactBudget, contextWindowFor, defaultCompactAt, nativeCompactionPoint, shouldCompact, DEFAULT_CONTEXT_WINDOW } from "./context-budget.ts";
 
 it("keeps compaction reachable below small model windows", () => {
   expect(compactBudget(8_000)).toBe(6_400);
@@ -48,4 +48,18 @@ it("folds before each engine's own compaction point", () => {
   expect(compactBudget(1_000_000, undefined, gemini)).toBe(450_000);
   expect(shouldCompact({ contextTokens: 460_000, estimatedBytes: 0, budget: compactBudget(1_000_000, undefined, gemini), window: 1_000_000, nativeCompactAt: gemini })).toBe(true);
   expect(shouldCompact({ contextTokens: 440_000, estimatedBytes: 0, budget: compactBudget(1_000_000, undefined, gemini), window: 1_000_000, nativeCompactAt: gemini })).toBe(false);
+});
+
+it("folds Grok threads at half the window by default, configurable, and leaves other engines alone", () => {
+  expect(defaultCompactAt("grokAgent", {})).toBe(0.5);
+  expect(defaultCompactAt("grokAgent", { SAGAX_GROK_COMPACT_PERCENT: "35" })).toBe(0.35);
+  expect(defaultCompactAt("grokAgent", { SAGAX_GROK_COMPACT_PERCENT: "nonsense" })).toBe(0.5);
+  expect(defaultCompactAt("grokAgent", { SAGAX_GROK_COMPACT_PERCENT: "95" })).toBe(0.5);
+  expect(defaultCompactAt("claudeAgent", {})).toBeUndefined();
+  const window = 256_000;
+  const native = nativeCompactionPoint("grokAgent", window);
+  const budget = compactBudget(window, defaultCompactAt("grokAgent", {}), native);
+  expect(budget).toBe(128_000);
+  expect(shouldCompact({ contextTokens: 127_000, estimatedBytes: 0, budget, window, nativeCompactAt: native })).toBe(false);
+  expect(shouldCompact({ contextTokens: 129_000, estimatedBytes: 0, budget, window, nativeCompactAt: native })).toBe(true);
 });

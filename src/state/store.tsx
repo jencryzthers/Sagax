@@ -58,7 +58,7 @@ import { answerResponse, dismissResponse } from "@/lib/card-answer";
 import { currentCall, voiceCallId } from "@/lib/call";
 import { readLastConversation, rememberConversation } from "@/lib/last-conversation";
 import { readLastBotSection, rememberBotSection } from "@/lib/last-bot-section";
-import { showNotification, type NotificationTarget } from "@/lib/notify";
+import { approvalWithdrawKey, showNotification, withdrawNotification, type NotificationTarget } from "@/lib/notify";
 import { useShowThreads } from "@/lib/thread-preferences";
 import { speaker } from "@/lib/tts";
 import { roleProfilePatch, type BotRole } from "@/lib/bot-roles";
@@ -134,8 +134,16 @@ export interface OptionCardData {
   /** catalog key for `held` when it is a fixed note, so it reads in the
    * viewer's language; absent for free-text errors and older cards */
   heldCode?: string;
+  /** the server's plain words for a permission card (shared/approval-describe.ts) */
+  plain?: { title: string; line: string; risk?: "read" | "write" | "destructive" | "execute" };
+  /** the engine's own `<server>__<tool>` when `tool` is only a kind */
+  mcpTool?: string;
+  /** declined by the server at this time when nobody answers */
+  expiresAt?: number;
   /** the narrow grant "always allow" remembers, e.g. "Bash:git" */
   allowKey?: string;
+  /** the Allow rule saved when this card was answered (server/index.ts) */
+  alwaysAllowed?: string;
   allowSession?: boolean;
   /** A permission ask's full arguments as redacted JSON, shown only in
    * the card's collapsed technical details. */
@@ -421,6 +429,9 @@ export interface Task {
   threadId: string;
   /** Internal routine execution; reachable through its run receipt, not history menus. */
   routineRunId?: string;
+  /** An AI client's hidden conversation (#291): the server lists it only
+   * while it is the open thread; never a dot, a preview or typing dots. */
+  hidden?: true;
   projectId?: string;
   title: string;
   createdAt: number;
@@ -4929,6 +4940,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             stateRef.current.bots.find((bot) => bot.id === frame.notification.botId)?.avatarUrl,
             visibleNotificationThread(stateRef.current),
           );
+          break;
+        case "notify-withdraw":
+          withdrawNotification(approvalWithdrawKey(frame.threadId, frame.requestId));
           break;
         case "group.deleted":
           rawDispatch({ type: "groupDeleted", groupId: frame.groupId });

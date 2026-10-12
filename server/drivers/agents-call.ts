@@ -14,7 +14,7 @@ import { normalizeCronSchedule } from "../../shared/routine-schedule.ts";
 
 import { peerName } from "../peer-roster.ts";
 import { renderPeerDeliveryReceipts, type PeerDeliveryOutcome, type PeerDeliveryReceipt } from "../peer-delivery.ts";
-import { catalogProfileFromEnv, SHARED_COMPUTER_TOOL_NAMES, WEEKDAYS } from "./agents-catalog.ts";
+import { AGENT_API_TOOL_NAMES, catalogProfileFromEnv, SHARED_COMPUTER_TOOL_NAMES, WEEKDAYS } from "./agents-catalog.ts";
 import { harnessClientFromEnv } from "./agents-client.ts";
 import type { HarnessClient, Json } from "./agents-client.ts";
 import { boundedAgentResult } from "./agents-result.ts";
@@ -402,6 +402,12 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
   // when these were the proxy's module-level constants.
   const { botId: BOT_ID, threadId: THREAD_ID, depth: DEPTH, externalRuntime: EXTERNAL_RUNTIME, coordinating: COORDINATING } = context;
   const { api, apiResponse } = context.client;
+  // The agent-to-agent API (server/agent-api.ts): the harness checks and
+  // answers JSON; refusals carry their code and sentence.
+  if (AGENT_API_TOOL_NAMES.has(name)) {
+    const { ok, body } = await apiResponse(`/api/internal/agent-api/${name}`, { method: "POST", body: JSON.stringify(args ?? {}) });
+    return { text: JSON.stringify(body), ...(ok ? {} : { isError: true }) };
+  }
   if (name === "vm_exec") {
     const { ok, body } = await apiResponse("/api/internal/vm-exec", {
       method: "POST",

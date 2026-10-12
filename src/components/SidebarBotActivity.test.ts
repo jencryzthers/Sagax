@@ -31,6 +31,14 @@ describe("botShowsUnread", () => {
     ]);
     expect(botShowsUnread(visible)).toBe(true);
   });
+
+  it("ignores an AI client's hidden conversation (#291)", () => {
+    const hidden = bot("c", "Cryptic", "c0", [
+      task("c0", "Read chat", {}),
+      task("c1", "Test de latence", { hidden: true, unread: true }),
+    ], { unread: true });
+    expect(botShowsUnread(hidden)).toBe(false);
+  });
 });
 
 describe("header activity", () => {

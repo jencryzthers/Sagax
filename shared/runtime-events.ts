@@ -170,6 +170,10 @@ export type RuntimeEvent = RuntimeEventBase &
         /** Provider asks to widen its configured sandbox. Only explicit Full
          * access may answer this automatically; Auto/remembered grants may not. */
         requiresExplicitApproval?: boolean;
+        /** Raised by Sagax's own MCP approval gate (grok-approval-gate). Only a
+         * person's explicit allow runs the call, so no mode (not even Full)
+         * may answer it for them: it always shows as a card. */
+        sagaxGate?: boolean;
         /** Whether the provider's own automatic reviewer was running when it
          * raised this request. Only providers that can tell set it: Claude
          * reports the effective permission mode in its init frame, and starts

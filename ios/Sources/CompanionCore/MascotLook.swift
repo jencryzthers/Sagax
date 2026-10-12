@@ -330,13 +330,17 @@ public enum FrogSkin: String, CaseIterable, Codable, Sendable {
 }
 
 /// Skins for Crab (`CRAB_SKINS`): the bot's colour tinted into the coral
-/// (plain), then the crab's own fills, all common.
+/// (plain), then the crab's own fills (common), then the premium set Shapes
+/// wears (gold, pearl; neon, chrome, crystal, circuit; holo, molten, galaxy).
 public enum CrabSkin: String, CaseIterable, Codable, Sendable {
-    case plain, coral, sand, ink, mint
+    case plain, coral, sand, ink, mint, gold, pearl, neon, chrome, crystal, circuit, holo, molten, galaxy
 
     /// `LEGACY_CRAB_SKINS`.
     static let legacy: [String: CrabSkin] = [
         "classic": .coral, "orange": .coral, "cream": .sand, "black": .ink, "green": .mint,
+        "royal": .gold, "treasure": .gold, "nacre": .pearl, "opal": .pearl, "frost": .pearl,
+        "metal": .chrome, "liquid-metal": .chrome, "glass": .crystal, "cyber": .circuit,
+        "iridescent": .holo, "holographic": .holo, "lava": .molten, "nebula": .galaxy,
     ]
 
     public static func stored(_ raw: String) -> CrabSkin? { CrabSkin(rawValue: raw) ?? legacy[raw] }

@@ -6,13 +6,13 @@
 // own behavior instead of being matched by their label text.
 import { useState } from "react";
 import { Check, ShieldCheck, Undo2, X } from "lucide-react";
-import { api, ApiError, type Bot, type Message, type OptionCardData } from "@/state/store";
+import { api, ApiError, useStore, type Bot, type Message, type OptionCardData } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { t, tFromServer } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
 import { SkillRequestPreview } from "@/components/SkillRequestPreview";
 import { ApprovalHeading, TechnicalDetails } from "@/components/ApprovalParts";
-import { describeApproval, isTechnicalText, parseToolId, type ApprovalRisk, type ToolHints } from "@/lib/approval-describe";
+import { approvalPlain, describeAllowRule, describeApproval, isTechnicalText, parseToolId, type ApprovalRisk, type ToolHints } from "@/lib/approval-describe";
 import { composioActionPhrase, outboundSummary } from "@/lib/approval-summary";
 import { niceDate, niceTime, scheduleLabel } from "@/lib/schedule-label";
 import { cronScheduleLabel } from "../../shared/cron-label";
@@ -91,17 +91,64 @@ export function approvalCardOutcome(card: OptionCardData): string | undefined {
   return t("approval.status.allowed");
 }
 
-/** A permission ask stays in the chat only while it is still waiting.
- *  Allowed, denied, dismissed and expired asks leave the transcript.
- *  The message stays stored. A question or a quiz is not this card.
- *  A change that applied without a person is not an ask: it stays as its
- *  one line with Undo. */
+/** A permission ask stays in the chat while it waits, and once a person
+ *  answered it (or it expired) as a compact receipt with its status pill:
+ *  Allowed once, Declined, Expired. An ask the engine closed on its own (the
+ *  turn ended, nothing could answer it) leaves the transcript. A question or
+ *  a quiz is not this card. A change that applied without a person is not an
+ *  ask: it stays as its one line with Undo. */
 export function approvalCardStaysInChat(
   card: Pick<OptionCardData, "requestId" | "tool" | "answered" | "expired" | "dismissed" | "autoApplied" | "held"> | undefined,
 ): boolean {
   if (!card?.requestId || !card.tool) return false;
   if (card.autoApplied === true && card.answered === "allow" && !card.held && card.dismissed !== true) return true;
-  return !card.answered && card.expired !== true && card.dismissed !== true;
+  if (card.expired === true) return true;
+  return card.dismissed !== true && card.answered !== "unavailable";
+}
+
+/** The status pill of a settled tool approval, as Grok Bot shows it. */
+export function approvalPill(card: Pick<OptionCardData, "answered" | "expired" | "undone" | "alwaysAllowed">): { label: string; tone: "success" | "danger" | "neutral" } | undefined {
+  if (card.expired === true) return { label: t("approval.pill.expired"), tone: "neutral" };
+  if (!card.answered) return undefined;
+  if (card.undone === true) return { label: t("approval.status.undone"), tone: "neutral" };
+  if (card.answered === "allow" && card.alwaysAllowed) return { label: t("approval.pill.alwaysAllowed"), tone: "success" };
+  if (card.answered === "allow") return { label: t("approval.pill.allowedOnce"), tone: "success" };
+  return { label: t("approval.pill.declined"), tone: "danger" };
+}
+
+/** "Added to your Allow rules" with the rule in plain words and Edit rule,
+ * under a card the person answered with Always allow. */
+function AllowRuleInset({ rule }: { rule: string }) {
+  const { dispatch } = useStore();
+  return (
+    <div data-allow-rule className="mt-2 rounded-lg bg-inset px-3 py-2 text-[12.5px] text-ink-secondary">
+      <div className="font-medium text-ink">{t("approval.rule.added")}</div>
+      <div className="mt-0.5">« {describeAllowRule(rule)} »</div>
+      <button
+        type="button"
+        className="mt-1 text-accent hover:underline"
+        onClick={() => dispatch({ type: "toggleSettings", open: true, section: "access" })}
+      >
+        {t("approval.rule.edit")}
+      </button>
+    </div>
+  );
+}
+
+function StatusPill({ card }: { card: OptionCardData }) {
+  const pill = approvalPill(card);
+  if (!pill) return null;
+  return (
+    <span
+      data-status-pill={pill.tone}
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-medium",
+        pill.tone === "success" ? "bg-success/10 text-success" : pill.tone === "danger" ? "bg-danger/10 text-danger" : "bg-inset text-ink-secondary",
+      )}
+    >
+      <span aria-hidden="true">•</span> {pill.label}
+    </span>
+  );
 }
 
 /** The tool's own name is noise to a human: Bash is "run a command",
@@ -169,20 +216,23 @@ export interface ToolApprovalView {
 
 export function toolApprovalView(card: OptionCardData, botName?: string): ToolApprovalView {
   const input = card.toolInput ?? card.subtitle;
-  const described = describeApproval(card.tool, input, card.toolHints);
-  const action = toolLabel(card.tool, input, card.toolHints);
-  const title = botName
-    ? t("approval.card.namedWantsTo", { name: botName, action })
-    : t("approval.card.wantsTo", { action });
+  // the engine's own `<server>__<tool>` when `tool` is only a kind ("other")
+  const tool = card.mcpTool ?? card.tool;
+  const described = describeApproval(tool, input, card.toolHints);
+  // "Allow Cryptic to view the schedule in ConnectWise PSA?" and one plain
+  // line: the same generator the server uses for the push
+  // (shared/approval-describe.ts), in this app's language.
+  const words = approvalPlain({ botName, tool, toolInput: input, detail: card.subtitle, hints: card.toolHints });
   const technical = isTechnicalText(card.subtitle);
+  const shown = technical || !card.subtitle?.trim() ? undefined : card.subtitle;
   // A held outbound action reads as what it sends and where, the way the
   // phones show it, not as the slug the bot happened to call.
   const outbound = outboundSummary(card);
   return {
-    title: outbound ? outbound.headline : title,
-    summary: outbound?.summary || described.summary,
+    title: outbound ? outbound.headline : words.title,
+    summary: outbound?.summary || described.summary || (words.line !== shown ? words.line : undefined),
     risk: described.risk,
-    plain: technical || !card.subtitle?.trim() ? undefined : card.subtitle,
+    plain: shown,
     server: described.server,
     args: described.argsJson ?? (technical ? card.subtitle : undefined),
   };
@@ -430,12 +480,19 @@ export function ApprovalCard({
         </div>
       )}
 
+      {card.answered === "allow" && card.alwaysAllowed && <AllowRuleInset rule={card.alwaysAllowed} />}
+
       {/* The decision lives in the composer (one place to answer, and it
           can't be scrolled past); here we only record what happened. The
           technical details join the record once it is settled, so an open
           request is never shown twice in full. */}
       <div className="mt-2 flex items-center gap-1.5 text-[13px] text-ink-secondary">
-        {outcome ? (
+        {outcome && view ? (
+          <>
+            <StatusPill card={card} />
+            {byVoice}
+          </>
+        ) : outcome ? (
           <>
             {settled === "allow" && !expired ? <Check size={14} className="text-success" /> : <X size={14} />} {outcome}
             {byVoice}

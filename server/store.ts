@@ -670,9 +670,17 @@ export function roomResponders<T extends { id: string; name: string; hidden?: bo
   return [];
 }
 
-/** A hidden routine execution is not a conversation the person can open. */
-function taskCountsAsBotUnread(task: { unread?: boolean; routineRunId?: string }): boolean {
-  return Boolean(task.unread) && !task.routineRunId;
+/** A hidden routine execution is not a conversation the person can open,
+ * and an AI client's hidden conversation (`hidden`, #291) is not one they
+ * read: neither lights the bot's dot. */
+function taskCountsAsBotUnread(task: { unread?: boolean; routineRunId?: string; hidden?: true }): boolean {
+  return Boolean(task.unread) && !task.routineRunId && task.hidden !== true;
+}
+
+/** A conversation the person never sees in the sidebar: a routine's detached
+ * execution or an AI client's hidden conversation (#291). */
+export function taskHiddenFromPerson(task: { routineRunId?: string; hidden?: true }): boolean {
+  return Boolean(task.routineRunId) || task.hidden === true;
 }
 
 /** Messages form a tree (forks appear when a message is edited); the
@@ -1009,8 +1017,12 @@ export class Store {
         // Older builds left a failed hidden run unread, which kept the bot
         // dot on after every visible chat was read. Clear it before the
         // recompute below so the saved roster heals.
-        if (task.routineRunId && task.unread) {
+        if ((task.routineRunId || task.hidden === true) && task.unread) {
           task.unread = false;
+          botsMigrated = true;
+        }
+        if (task.hidden !== undefined && task.hidden !== true) {
+          delete task.hidden;
           botsMigrated = true;
         }
         if (task === active) {
@@ -3106,7 +3118,7 @@ export class Store {
     if (Object.prototype.hasOwnProperty.call(patch, "pinned") && task.pinned !== true) delete task.pinned;
     // Still hidden: attention belongs on the source conversation. A same-call
     // clear of routineRunId (no-source promotion) may keep unread.
-    if (task.routineRunId) task.unread = false;
+    if (task.routineRunId || task.hidden === true) task.unread = false;
     if (bot.threadId === threadId) this.mirrorActiveTask(bot, task);
     bot.unread = bot.tasks!.some(taskCountsAsBotUnread);
     this.saveBots();
@@ -3235,10 +3247,12 @@ export class Store {
    * model unless the caller hands it another one: a thread opened from
    * another of this bot's threads keeps the model a person picked there. */
   createTask(botId: string, title?: string, activate = true, projectId?: string, openedBy?: TaskOpenedBy, approvalMode?: "ask" | "full",
-    ownerPrincipalId?: string, modelSelection?: ModelSelection, cwd?: string): TaskRecord | null {
+    ownerPrincipalId?: string, modelSelection?: ModelSelection, hidden = false, cwd?: string): TaskRecord | null {
     const bot = this.bot(botId);
     if (!bot) return null;
     if (projectId !== undefined && !this.project(botId, projectId)) return null;
+    // An AI client's hidden conversation (#291) is never selected.
+    if (hidden) activate = false;
     const createdAt = Date.now();
     const task: TaskRecord = {
       threadId: newId(),
@@ -3260,11 +3274,40 @@ export class Store {
       unread: false,
       activity: "idle",
       busy: false,
+      ...(hidden ? { hidden: true as const } : {}),
     };
     bot.tasks = [task, ...(bot.tasks ?? [])];
     if (activate) {
       this.mirrorActiveTask(bot, task);
     }
+    this.saveBots();
+    this.emit({ type: "bot", botId });
+    return task;
+  }
+
+  /** Hide (or show again) an AI client's conversation (#291). A hidden
+   * thread is never unread, and never stays the bot's selected thread: the
+   * newest visible one takes its place. Never reachable from the HTTP task
+   * PATCH: hidden is not a TASK_PATCH_FIELD. */
+  setTaskHidden(botId: string, threadId: string, hidden: boolean): TaskRecord | null {
+    const bot = this.bot(botId);
+    const task = this.taskByThread(botId, threadId);
+    if (!bot || !task) return null;
+    if (hidden) {
+      task.hidden = true;
+      task.unread = false;
+    } else {
+      delete task.hidden;
+    }
+    if (hidden && bot.threadId === threadId) {
+      const at = (candidate: TaskRecord) => candidate.updatedAt ?? candidate.createdAt;
+      const next = (bot.tasks ?? [])
+        .filter((candidate) => !taskHiddenFromPerson(candidate) && candidate.archivedAt === undefined)
+        .sort((a, b) => at(b) - at(a))[0];
+      if (next) this.mirrorActiveTask(bot, next);
+    }
+    bot.unread = bot.tasks!.some(taskCountsAsBotUnread);
+    this.refreshBotActivity(bot);
     this.saveBots();
     this.emit({ type: "bot", botId });
     return task;

@@ -6,6 +6,7 @@
 // only thing a shared type is needed for.
 import Foundation
 import SwiftUI
+import UIKit
 import CompanionCore
 
 enum PrefKey {
@@ -22,6 +23,27 @@ enum PrefKey {
     static let desktopSidebarDensity = "companion.prefs.desktopSidebarDensity"
     /// The density the rail returns to when it expands again.
     static let desktopSidebarExpandedDensity = "companion.prefs.desktopSidebarExpandedDensity"
+}
+
+/// Device flags for the Electron sidebar-logo preference (`sagax-show-sidebar-logo`).
+enum SidebarLogoRuntime {
+    static var isMac: Bool {
+        #if targetEnvironment(macCatalyst)
+        true
+        #else
+        ProcessInfo.processInfo.isiOSAppOnMac
+        #endif
+    }
+
+    static var idiomIsPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+
+    static var showsSetting: Bool {
+        SidebarLogoPreference.showsSetting(idiomIsPad: idiomIsPad, isMac: isMac)
+    }
+
+    static func isBrandVisible(_ enabled: Bool) -> Bool {
+        SidebarLogoPreference.isBrandVisible(enabled: enabled, idiomIsPad: idiomIsPad, isMac: isMac)
+    }
 }
 
 /// The set of chats whose island intro has already played.

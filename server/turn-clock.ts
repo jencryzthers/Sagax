@@ -1,71 +1,47 @@
-// The current time, as one short line in front of every turn's message.
-// Bots had no clock of their own: a model knows only its training cutoff,
-// Claude Code and Codex add the date at most and never the time of day, the
-// chat API engines add nothing, and the recent-work brief says "today 16:40"
-// without saying which day today is. The line is stamped at dispatch, so a long
-// conversation's next turn carries a fresh one instead of a copy frozen when
-// the session started.
+// The clock a turn is told (the engine runs in a UTC container and has no
+// tool-free way to read the time): the current date and time in the zone of
+// the person it answers, so times are said in their zone, not the server's.
 //
-// It rides the turn text, like automatic recall, never the system prompt:
-// the stable half must stay byte-identical for the cached prefix and the
-// spawned CLI, and the volatile half is re-sent whole whenever any part of it
-// changes, which a clock would do on every turn. A turn's message is new
-// input anyway, so the line costs only its own few tokens.
-
-/** The host's IANA timezone, the same source the routine scheduler uses. A
- * runtime that reports none reads as UTC. */
-export function hostTimeZone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+// Zone, first set wins: the speaker's own (Settings > Bot, per person on an
+// organization server), the bot owner's, the server's, the host's.
+export function turnTimeZone(input: { speaker?: string | null; owner?: string | null; server?: string | null }): string | null {
+  for (const zone of [input.speaker, input.owner, input.server]) if (zone && isTimeZone(zone)) return zone;
+  return null;
 }
 
-const parts = (at: number, timeZone: string) => {
-  const formatted = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    weekday: "long",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-    timeZoneName: "longOffset",
-  }).formatToParts(at);
-  const part = (type: Intl.DateTimeFormatPartTypes) => formatted.find((entry) => entry.type === type)?.value ?? "";
-  return { part, timeZone };
-};
-
-/** How the line opens. */
-export const TURN_CLOCK_LEAD = "Current time when this message was sent: ";
-
-/** "Current time when this message was sent: Thursday, 2026-10-08 19:48
- * Asia/Baghdad (UTC+03:00)." An unknown timezone falls back to UTC rather
- * than failing the turn. "when this message was sent" keeps the lines that
- * earlier turns left in a native session's history true as they age. */
-export function turnClockLine(at: number, timeZone: string): string {
-  let read: ReturnType<typeof parts>;
+function isTimeZone(zone: string): boolean {
   try {
-    read = parts(at, timeZone);
+    new Intl.DateTimeFormat("en-US", { timeZone: zone }).format(0);
+    return true;
   } catch {
-    read = parts(at, "UTC");
+    return false;
   }
-  const { part } = read;
-  // longOffset spells UTC itself as a bare "GMT"
-  // and some ICU builds write the minus sign as U+2212
-  const offset = part("timeZoneName").replace(/^GMT/, "").replace("\u2212", "-") || "+00:00";
-  return `${TURN_CLOCK_LEAD}${part("weekday")}, ${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")} ${read.timeZone} (UTC${offset}).`;
 }
 
-/** Whether the person's own text takes the line. An empty text (an image
- * alone) and a slash command do not: a prefix would turn an engine's own
- * command into plain prose. Decided on what the person sent, before any
- * replay or unseen-messages context is put in front of it. */
-export function takesTurnClock(text: string): boolean {
-  return Boolean(text.trim()) && !text.trimStart().startsWith("/");
+/** "Sunday, October 11, 2026, 9:40 PM" and "UTC-04:00" for that instant in that zone. */
+export function zonedNow(now: Date, timeZone: string): { text: string; offset: string } {
+  const text = new Intl.DateTimeFormat("en-US", {
+    timeZone, weekday: "long", year: "numeric", month: "long", day: "numeric", hour: "numeric", minute: "2-digit",
+  }).format(now);
+  const part = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "longOffset" }).formatToParts(now).find((p) => p.type === "timeZoneName")?.value ?? "GMT";
+  const offset = part === "GMT" ? "UTC+00:00" : part.replace(/^GMT/, "UTC");
+  return { text, offset };
 }
 
-/** The clock line in front of a turn's text, unless the text itself is one
- * that skips it (see takesTurnClock). An empty clock leaves the text as is. */
-export function withTurnClock(clock: string, text: string): string {
-  if (!clock || !takesTurnClock(text)) return text;
-  return `${clock}\n\n${text}`;
+export const TURN_CLOCK_MARKER = "[Current time:";
+
+/** SAGAX_TURN_CLOCK=off leaves turns without the clock note (the test suite's fake engines echo prompts verbatim). */
+export function turnClockEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.SAGAX_TURN_CLOCK?.trim().toLowerCase() !== "off";
+}
+
+/** One line put before the turn's text. */
+export function turnClockNote(now: Date, timeZone: string): string {
+  const { text, offset } = zonedNow(now, timeZone);
+  return `${TURN_CLOCK_MARKER} ${text}, ${timeZone} (${offset}). Give dates and times in ${timeZone} unless the user asks for another zone; convert UTC or other-zone timestamps from tools before showing them.]`;
+}
+
+export function withTurnClock(text: string, now: Date, timeZone: string): string {
+  if (text.startsWith(TURN_CLOCK_MARKER)) return text;
+  return `${turnClockNote(now, timeZone)}\n\n${text}`;
 }

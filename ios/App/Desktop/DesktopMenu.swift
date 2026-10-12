@@ -326,8 +326,9 @@ struct DesktopSidebarMenus {
         let copyId = DesktopMenuEntry(id: "copy-id", title: String(localized: "Copy conversation ID"), icon: .clipboardCopy, kind: .action {
             model.threadActions.copyConversationId(bot)
         })
+        out.append(pinBot(bot))
         if gate.scope == .sidecar {
-            // The remote client's bot menu (Sidebar.tsx, remoteClient)
+            // Sidecar keeps Pin (Grok Bot). Electron remoteClient omits it.
             if let move = moveBot(bot) { out.append(move) }
             out.append(DesktopMenuEntry(id: "edit-profile", title: String(localized: "Edit profile"), icon: .pencil, kind: .action {
                 model.open(.bot(bot))
@@ -335,13 +336,6 @@ struct DesktopSidebarMenus {
             }))
             out.append(copyId)
             return out
-        }
-        if bot.chiefOfStaff != true {
-            out.append(DesktopMenuEntry(
-                id: "pin", title: bot.pinned == true ? String(localized: "Unpin") : String(localized: "Pin"),
-                icon: bot.pinned == true ? .pinOff : .pin,
-                kind: .action { Task { await session.setPinned(bot, pinned: bot.pinned != true) } }
-            ))
         }
         if let move = moveBot(bot) { out.append(move) }
         out.append(DesktopMenuEntry(id: "mark-unread", title: String(localized: "Mark as Unread"), icon: .bellDot, kind: .action {
@@ -383,6 +377,14 @@ struct DesktopSidebarMenus {
             break
         }
         return out
+    }
+
+    private func pinBot(_ bot: Bot) -> DesktopMenuEntry {
+        DesktopMenuEntry(
+            id: "pin", title: bot.pinned == true ? String(localized: "Unpin") : String(localized: "Pin"),
+            icon: bot.pinned == true ? .pinOff : .pin,
+            kind: .action { Task { await session.setPinned(bot, pinned: bot.pinned != true) } }
+        )
     }
 
     /// "Move to": the person's own sections on an organization server, the
