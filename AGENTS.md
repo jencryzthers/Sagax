@@ -1387,6 +1387,14 @@ not open a shared machine. Keep these rules, each covered by `server/user-sandbo
 
 - Only `sagax-sandboxd` (`server/sandboxd.ts`) holds the Docker socket; the
   Sagax server calls it with signed requests (`server/sandboxd-auth.ts`).
+  `SANDBOX_BACKEND` defaults to `docker`. `kubernetes`
+  (`server/sandboxd-k8s.ts`) is the same API with one Pod and one PVC per
+  person, NetworkPolicies for egress, and no docker.sock. Secret encryption
+  and NetworkPolicy enforcement are operator attestations. Tests:
+  `server/sandboxd-k8s-spec.test.ts`, `server/sandboxd-k8s.test.ts`; kind
+  only with `SAGAX_SANDBOX_K8S_INTEGRATION=1`
+  (`scripts/sandbox-k8s-kind.sh`). Design and the SOC 2 mapping:
+  `docs/sandbox-kubernetes.md`.
 - The provisioner API is keyed by person (`sandboxKeyForPrincipal`); never add
   a bot parameter. Every create body passes `assertSandboxIsolation()`.
 - Engines get no shell, file or fetch tool of their own there

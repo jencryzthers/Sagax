@@ -285,6 +285,13 @@ api.githubcopilot.com are reachable; only private destinations are dropped.
 | `SAGAX_SANDBOXD_KEY_FILE` | `/run/sagax-sandboxd/key` | both services |
 | `SAGAX_DOCKER_GID` | 999 | group of `/var/run/docker.sock` on the host |
 
+`SANDBOX_BACKEND` defaults to `docker` and leaves this table in force. Set it
+to `kubernetes` to run the same provisioner API on a cluster instead of
+`docker.sock`. That path, its variables, and which SOC 2 controls the
+manifests can evidence are in [sandbox-kubernetes.md](sandbox-kubernetes.md).
+A Kubernetes pause drops the Pod (the memory is released) and still holds the
+capacity slot; a Docker pause keeps the memory.
+
 ## Deploy
 
 `deploy/docker-compose.sandbox.yml` adds the provisioner, the pull-or-build
