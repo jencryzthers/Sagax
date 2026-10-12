@@ -59,4 +59,10 @@ describe("when to play", () => {
     expect(shouldPlayToolFiller(next, { thinking: true, toolStarted: true })).toBe(true);
     expect(shouldSkipToolChip(next)).toBe(false);
   });
+
+  it("does not play while the bot is already speaking", () => {
+    const idle = createToolFillerState();
+    expect(shouldPlayToolFiller(idle, { thinking: true, toolStarted: true, toolKey: "bash-1", speaking: true })).toBe(false);
+    expect(shouldPlayToolFiller(idle, { thinking: true, toolStarted: true, toolKey: "bash-1", speaking: false })).toBe(true);
+  });
 });

@@ -32,7 +32,7 @@ describe("parseVoiceCallMeta", () => {
   });
 
   it("refuses a malformed mark", () => {
-    for (const bad of ["call", [], { callId: "no" }, { callId: "call-0123456789", interrupted: "yes" }, { callId: "call-0123456789", language: "auto" }, { callId: "call-0123456789", language: "xx" }, { callId: "call-0123456789", utteranceId: "x" }, { callId: "call-0123456789", heard: 3 }, { callId: "call-0123456789", continues: "yes" }, { callId: "call-0123456789", duplex: "yes" }]) {
+    for (const bad of ["call", [], { callId: "no" }, { callId: "call-0123456789", interrupted: "yes" }, { callId: "call-0123456789", language: "auto" }, { callId: "call-0123456789", language: "xx" }, { callId: "call-0123456789", utteranceId: "x" }, { callId: "call-0123456789", heard: 3 }, { callId: "call-0123456789", continues: "yes" }, { callId: "call-0123456789", duplex: "yes" }, { callId: "call-0123456789", speculative: "yes" }]) {
       expect(parseVoiceCallMeta(bad)).toHaveProperty("error");
     }
   });
@@ -40,6 +40,11 @@ describe("parseVoiceCallMeta", () => {
   it("keeps duplex: true and drops duplex: false", () => {
     expect(parseVoiceCallMeta({ callId: "call-0123456789", duplex: true })).toEqual({ callId: "call-0123456789", duplex: true });
     expect(parseVoiceCallMeta({ callId: "call-0123456789", duplex: false })).toEqual({ callId: "call-0123456789" });
+  });
+
+  it("keeps speculative: true and drops speculative: false", () => {
+    expect(parseVoiceCallMeta({ callId: "call-0123456789", speculative: true })).toEqual({ callId: "call-0123456789", speculative: true });
+    expect(parseVoiceCallMeta({ callId: "call-0123456789", speculative: false })).toEqual({ callId: "call-0123456789" });
   });
 });
 

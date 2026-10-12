@@ -636,6 +636,7 @@ import {
   DUPLEX_INTERRUPT_WAIT_MS,
   isStaleAssistantOutput,
   isThreadBusyError,
+  pinVoiceInterrupt,
   waitForThreadIdle,
 } from "./voice-call-duplex.ts";
 import { callHasParkableWork, isNewVoiceTopic, topicsFromCallMessages } from "../src/lib/voice-mode/voice-topics.ts";
@@ -9268,6 +9269,8 @@ const turnCheckpoints = new Map<string, { botId: string; cwd: string; hash: stri
 // a digest can only count activity it can attribute — so an unstamped tool
 // row is attributed to the thread's live turn instead of to nothing.
 const liveTurnByThread = new Map<string, string>();
+/** The spoken utterance that currently owns this thread (voiceCall.utteranceId). */
+const liveVoiceUtteranceByThread = new Map<string, string>();
 /** Turns cancelled by a person (barge-in / Stop). Their leftover assistant
  * text must not stream as the next answer. */
 const cancelledVoiceTurns = new Map<string, Set<string>>();
@@ -9292,6 +9295,7 @@ function clearTurnDigestState(threadId: string): void {
   turnStartedAt.delete(threadId);
   forgetTurnCheckpoint(threadId);
   liveTurnByThread.delete(threadId);
+  liveVoiceUtteranceByThread.delete(threadId);
   memoryRowsByThread.delete(threadId);
 }
 
@@ -12483,8 +12487,6 @@ async function startDuplexCallTurn(
 ) {
   const current = store.projectBotForTask(botId, threadId);
   if (!current) throw Object.assign(new Error("no such bot"), { status: 404 });
-  const epoch = duplexEpochFor(threadId);
-  const mine = epoch.claim();
   const backgroundWork = callHasParkableWork(store.messagesFor(threadId))
     || store.tasks(current.id).some((task) => task.parallelOf?.threadId === threadId && parallelPending(task));
   const admit = admitDuplexSend({
@@ -12494,7 +12496,13 @@ async function startDuplexCallTurn(
     queued: hasQueuedSteeredMessages(current.id, threadId),
     backgroundWork,
     newTopic: isNewVoiceTopic(text),
+    speculative: voiceCall?.speculative === true,
   });
+  if (admit.action === "defer") {
+    return { ok: true as const, threadId, deferred: true as const };
+  }
+  const epoch = duplexEpochFor(threadId);
+  const mine = epoch.claim();
   if (admit.action === "background") {
     discardSteeredQueue(current.id, threadId);
     return startParallelTask({
@@ -13656,6 +13664,9 @@ async function startTurn(
           ...(opts?.via ? { via: opts.via } : {}),
           ...(opts?.relayed ? { relayed: true } : {}),
         });
+  }
+  if (!warmOnly && opts?.voiceCall?.utteranceId) {
+    liveVoiceUtteranceByThread.set(threadId, opts.voiceCall.utteranceId);
   }
   // Organization server (slice 3, D13): no turn without engine access. The
   // person's message stays; the thread gets the card saying why, the owner
@@ -34417,12 +34428,22 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const body = rawBody ?? {};
       requirePinnedClientThread(bot.id, body.threadId);
+      if (body.expectedUtteranceId !== undefined && (typeof body.expectedUtteranceId !== "string" || !/^[\w-]+$/.test(body.expectedUtteranceId))) {
+        return json(res, 400, { error: "expectedUtteranceId must be an utterance id" });
+      }
+      const expectedUtteranceId = typeof body.expectedUtteranceId === "string" ? body.expectedUtteranceId : undefined;
       // Organization server: a person stops their own thread only, never
       // the bot's work for someone else (another person's thread, a room,
       // the owner's routine). The owner keeps the whole-bot stop.
       const stopper = scopedThreadViewer();
       if (stopper && !(viewerBotLevel(auth, bot) === "owner")) {
         const own = routeThreadId(bot, body.threadId);
+        if (expectedUtteranceId && pinVoiceInterrupt({
+          expectedUtteranceId,
+          liveUtteranceId: liveVoiceUtteranceByThread.get(own),
+        }) === "skip") {
+          return json(res, 200, { ok: true, skipped: true });
+        }
         const run = routines!.activeBotRunForBot(bot.id);
         if (run?.threadId === own) await routines!.cancelRun(run.id);
         else await stopDirectThreadByPerson(bot.id, own);
@@ -34432,6 +34453,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const expectedThreadId = body.threadId;
       if (expectedThreadId !== undefined && (typeof expectedThreadId !== "string" || !/^[\w-]+$/.test(expectedThreadId))) {
         return json(res, 400, { error: "threadId must be a task id" });
+      }
+      if (expectedUtteranceId && pinVoiceInterrupt({
+        expectedUtteranceId,
+        liveUtteranceId: liveVoiceUtteranceByThread.get(typeof expectedThreadId === "string" ? expectedThreadId : bot.threadId),
+      }) === "skip") {
+        return json(res, 200, { ok: true, skipped: true });
       }
       // Explicit thread targets never fall through to another routine or
       // channel just because it belongs to the same bot.

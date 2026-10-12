@@ -74,7 +74,7 @@ class FakePlayer {
     this.queued.push(sentence);
     if (!this.playing) {
       this.playing = true;
-      this.events.onSentenceStart?.(sentence.text);
+      this.events.onSentenceStart?.(sentence.text, sentence.filler ? { filler: true } : undefined);
     }
   }
   /** everything heard */
@@ -172,11 +172,11 @@ async function setup(options: Setup = {}) {
     ...options.options,
   });
   const utterances: Array<{ text: string; metrics: TurnMetrics; interrupted: boolean; cut?: { heard: string; unheard: string }; continues?: boolean; utteranceId?: string }> = [];
-  const interrupts: number[] = [];
+  const interrupts: Array<{ at: number; utteranceId?: string }> = [];
   const metrics: Array<{ turn: TurnMetrics | null; bargeIn: BargeInMetrics | null }> = [];
   const rejected: string[] = [];
   call.on("utterance", (text, m, turn) => utterances.push({ text, metrics: { ...m }, interrupted: turn.interrupted, ...(turn.cut ? { cut: turn.cut } : {}), ...(turn.continues ? { continues: true } : {}), utteranceId: turn.utteranceId }));
-  call.on("interrupt-bot", () => interrupts.push(clock));
+  call.on("interrupt-bot", (target) => interrupts.push({ at: clock, utteranceId: target?.utteranceId }));
   call.on("metrics", (turn, bargeIn) => metrics.push({ turn: turn && { ...turn }, bargeIn: bargeIn && { ...bargeIn } }));
   call.on("rejected", (reason) => rejected.push(reason));
   await call.start();
@@ -694,10 +694,29 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     t.socket().partial("What is the weather in Toronto");
     await t.settle();
     expect(t.interrupts).toHaveLength(1);
+    expect(t.interrupts[0]!.utteranceId).toBe(t.utterances[0]!.utteranceId);
     await t.feed(0.02, 0.001, 25);
     await t.settle();
     await new Promise((r) => setTimeout(r, 120));
     expect(t.utterances.at(-1)?.text).toMatch(/Toronto/);
+  });
+
+  it("duplex does not speculate a send while background work is running", async () => {
+    const t = await setup({
+      transcripts: ["What is the weather in Montreal today?"],
+      settings: { fullDuplex: true },
+      finalDelayMs: 80,
+    });
+    t.call.setBackgroundWork(true);
+    await t.feed(0.95, 0.05, 24);
+    t.socket().partial("What is the weather");
+    await t.settle();
+    expect(t.utterances).toHaveLength(0);
+    expect(t.interrupts).toHaveLength(0);
+    t.socket().partial("What is the weather in Toronto");
+    await t.settle();
+    expect(t.utterances).toHaveLength(0);
+    expect(t.interrupts).toHaveLength(0);
   });
 
   it("duplex sequential turns each get their own first-audio mark", async () => {
@@ -839,6 +858,32 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     t.call.interrupt();
     expect(t.player.cancels).toBeGreaterThan(0);
     await expect(heard).resolves.toBe(false);
+  });
+
+  it("a tool filler does not count as firstAudioAt", async () => {
+    let n = 0;
+    const t = await setup({
+      transcripts: ["What is two plus two?"],
+      settings: { fullDuplex: true },
+      options: { newId: () => `utt-fill-${++n}` },
+    });
+    await t.feed(0.95, 0.05, 24);
+    t.socket().partial("What is two plus two");
+    await t.settle();
+    await t.feed(0.02, 0.001, 25);
+    await t.settle();
+    await new Promise((r) => setTimeout(r, 40));
+    expect(t.utterances).toHaveLength(1);
+    await t.call.prefetchFiller("Je regarde.");
+    t.call.sayFiller("Je regarde.");
+    await t.settle();
+    const afterFiller = t.metrics.filter((row) => row.turn?.firstAudioAt !== undefined).at(-1)?.turn;
+    expect(afterFiller?.firstAudioAt).toBeUndefined();
+    t.player.drain();
+    t.call.replyProgress("Sure. Four.");
+    await t.settle();
+    const afterReply = t.metrics.filter((row) => row.turn?.firstAudioAt !== undefined).at(-1)?.turn;
+    expect(afterReply?.firstAudioAt).toBeDefined();
   });
 });
 

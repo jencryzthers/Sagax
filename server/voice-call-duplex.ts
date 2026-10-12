@@ -7,7 +7,8 @@ export type DuplexAdmit =
   | { action: "steer" }
   | { action: "queue" }
   | { action: "replace"; interrupt: boolean; discardQueue: boolean }
-  | { action: "background" };
+  | { action: "background" }
+  | { action: "defer" };
 
 export function admitDuplexSend(input: {
   duplex: boolean;
@@ -16,10 +17,12 @@ export function admitDuplexSend(input: {
   queued: boolean;
   backgroundWork?: boolean;
   newTopic?: boolean;
+  speculative?: boolean;
 }): DuplexAdmit {
   if (!input.duplex) {
     return input.botBusy || input.stopping || input.queued ? { action: "steer" } : { action: "start" };
   }
+  if (input.speculative && input.backgroundWork) return { action: "defer" };
   if (input.backgroundWork && input.newTopic && input.botBusy && !input.stopping) {
     return { action: "background" };
   }
@@ -49,6 +52,17 @@ export function duplexEpoch(): { claim: () => number; isLatest: (token: number) 
 
 export function isThreadBusyError(err: unknown): boolean {
   return typeof err === "object" && err !== null && (err as { code?: string }).code === "thread_busy";
+}
+
+/** POST /interrupt pinned to the cancelled spoken utterance. An unpinned
+ * Stop still applies. A pin for a turn that no longer owns the thread is
+ * skipped so a newer send is not killed. */
+export function pinVoiceInterrupt(input: {
+  expectedUtteranceId?: string;
+  liveUtteranceId?: string | null;
+}): "apply" | "skip" {
+  if (!input.expectedUtteranceId || !input.liveUtteranceId) return "apply";
+  return input.expectedUtteranceId === input.liveUtteranceId ? "apply" : "skip";
 }
 
 /** A cancelled voice turn must not land LLM tokens, the completed answer,

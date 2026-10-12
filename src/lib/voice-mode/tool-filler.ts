@@ -39,9 +39,9 @@ export function isSpokenFiller(text: string): boolean {
 
 export function shouldPlayToolFiller(
   state: ToolFillerState,
-  opts: { thinking: boolean; toolStarted: boolean; toolKey?: string },
+  opts: { thinking: boolean; toolStarted: boolean; toolKey?: string; speaking?: boolean },
 ): boolean {
-  if (!opts.thinking || !opts.toolStarted || state.cancelled) return false;
+  if (!opts.thinking || !opts.toolStarted || state.cancelled || opts.speaking) return false;
   if (opts.toolKey) return !state.playedKeys.includes(opts.toolKey);
   return state.playedKeys.length === 0;
 }

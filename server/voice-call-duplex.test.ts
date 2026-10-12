@@ -6,6 +6,7 @@ import {
   duplexEpoch,
   isStaleAssistantOutput,
   isThreadBusyError,
+  pinVoiceInterrupt,
   waitForThreadIdle,
 } from "./voice-call-duplex.ts";
 import {
@@ -48,6 +49,24 @@ describe("admitDuplexSend", () => {
     expect(admitDuplexSend({
       duplex: true, botBusy: true, stopping: false, queued: false, backgroundWork: true, newTopic: false,
     })).toEqual({ action: "replace", interrupt: true, discardQueue: true });
+  });
+
+  it("does not park a speculative send as a background sibling task", () => {
+    expect(admitDuplexSend({
+      duplex: true, botBusy: true, stopping: false, queued: false, backgroundWork: true, newTopic: true, speculative: true,
+    })).toEqual({ action: "defer" });
+  });
+});
+
+describe("pinVoiceInterrupt", () => {
+  it("applies an unpinned Stop, and a pin that still owns the thread", () => {
+    expect(pinVoiceInterrupt({})).toBe("apply");
+    expect(pinVoiceInterrupt({ expectedUtteranceId: "utt-a" })).toBe("apply");
+    expect(pinVoiceInterrupt({ expectedUtteranceId: "utt-a", liveUtteranceId: "utt-a" })).toBe("apply");
+  });
+
+  it("skips when a newer utterance already owns the thread", () => {
+    expect(pinVoiceInterrupt({ expectedUtteranceId: "utt-a", liveUtteranceId: "utt-b" })).toBe("skip");
   });
 });
 

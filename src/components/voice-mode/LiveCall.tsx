@@ -161,13 +161,18 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
         fence.current = cancelSpeech(fence.current, streamingRef.current);
         filler.current = cancelToolFiller(filler.current);
       }),
-      live.on("interrupt-bot", () => {
+      live.on("interrupt-bot", (target) => {
         const current = botRef.current;
         // an approval or option card being answered by voice keeps its turn
         if (askedApproval.current || askedQuestion.current || !current.busy) return;
         // what the stopped turn still streams is never spoken
         fence.current = interruptBot(fence.current, streamingRef.current);
-        dispatch({ type: "interrupt", botId: current.id, threadId: current.threadId });
+        dispatch({
+          type: "interrupt",
+          botId: current.id,
+          threadId: current.threadId,
+          ...(target?.utteranceId ? { expectedUtteranceId: target.utteranceId } : {}),
+        });
       }),
     ];
     void live.start().then(() => {
@@ -182,7 +187,7 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
 
   // ── what the person said ───────────────────────────────────────────────
   const onUtterance = useCallback(
-    (said: string, interrupted = false, cut?: { heard: string; unheard: string }, continues = false, spokenId?: string) => {
+    (said: string, interrupted = false, cut?: { heard: string; unheard: string }, continues = false, spokenId?: string, speculative = false) => {
       const current = botRef.current;
       if (!call || currentCall() !== current.id) return;
       setHeard("");
@@ -254,6 +259,7 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
           ...(interrupted ? { interrupted: true, ...(cut ? { heard: cut.heard, unheard: cut.unheard } : {}) } : {}),
           ...(language && language !== "auto" ? { language } : {}),
           ...(readCallSettings().fullDuplex ? { duplex: true } : {}),
+          ...(speculative ? { speculative: true } : {}),
         },
       });
       send();
@@ -263,7 +269,7 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
 
   useEffect(() => {
     if (!call) return;
-    return call.on("utterance", (text, _metrics, turn) => onUtterance(text, turn.interrupted, turn.cut, turn.continues === true, turn.utteranceId));
+    return call.on("utterance", (text, _metrics, turn) => onUtterance(text, turn.interrupted, turn.cut, turn.continues === true, turn.utteranceId, turn.speculative === true));
   }, [call, onUtterance]);
 
   useEffect(() => {
@@ -338,7 +344,12 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
       for (const m of fresh) {
         if (m.kind !== "activity" || !m.tool) continue;
         const toolKey = m.tool.itemId ?? m.id;
-        if (shouldPlayToolFiller(filler.current, { thinking: true, toolStarted: true, toolKey })) {
+        if (shouldPlayToolFiller(filler.current, {
+          thinking: true,
+          toolStarted: true,
+          toolKey,
+          speaking: call.player.busy || call.current.botAudible,
+        })) {
           filler.current = noteToolFillerPlayed(filler.current, toolKey);
           const language = toolFillerLanguage(readVoiceModeSettings().language, activeLocale());
           void call.sayFiller(toolFillerText(language));

@@ -3,7 +3,7 @@
 // off. The Advanced toggle is the kill-switch.
 import { describe, expect, it } from "vitest";
 
-import { defaultFullDuplex, FULL_DUPLEX_REV } from "./voice-build";
+import { defaultFullDuplex, FULL_DUPLEX_REV, thisVoiceBuild } from "./voice-build";
 import { cleanCallSettings, DEFAULT_CALL_SETTINGS } from "./call-settings";
 
 describe("defaultFullDuplex", () => {
@@ -17,6 +17,18 @@ describe("defaultFullDuplex", () => {
     expect(defaultFullDuplex({ publicRelease: true })).toBe(false);
     expect(defaultFullDuplex({ publicRelease: true, dev: true })).toBe(false);
     expect(defaultFullDuplex({ publicRelease: true, testFlight: true })).toBe(false);
+  });
+
+  it("treats an unset SAGAX_PUBLIC_RELEASE as internal, so duplex stays on", () => {
+    const previous = process.env.SAGAX_PUBLIC_RELEASE;
+    delete process.env.SAGAX_PUBLIC_RELEASE;
+    try {
+      expect(thisVoiceBuild().publicRelease).toBe(false);
+      expect(defaultFullDuplex(thisVoiceBuild())).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.SAGAX_PUBLIC_RELEASE;
+      else process.env.SAGAX_PUBLIC_RELEASE = previous;
+    }
   });
 });
 
