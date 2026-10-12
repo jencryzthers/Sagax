@@ -70,6 +70,12 @@
 //                     with grok 1.0.25's initialize (FAKE_ACP_MCP_HANDSHAKE JSON
 //                     overrides it), list its tools, and reply one line per
 //                     server: "<name>: <tool>,<tool>" or "<name> failed: <why>")
+//                   | mcp-call (FAKE_ACP_MCP_CALLS="server:tool,server:tool":
+//                     call each tool once, in order, on that stdio server from
+//                     session/new's mcpServers, as the agent's own MCP client
+//                     would with no permission check of its own (Grok's
+//                     default mode), and reply one line per call:
+//                     "server:tool -> <first text block>" or "-> error <why>")
 //                   | lend-question (call list_shared_computers through the
 //                     injected agents MCP, ask a question card, call it again
 //                     once the card is answered, and reply
@@ -1166,6 +1172,25 @@ function handle(msg: any) {
             out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: `delegate error: ${message}` } } } });
             complete();
           });
+        return;
+      }
+      if (mode === "mcp-call") {
+        const calls = (process.env.FAKE_ACP_MCP_CALLS ?? "").split(",").map((entry) => entry.trim()).filter(Boolean);
+        void (async () => {
+          const results: string[] = [];
+          for (const call of calls) {
+            const [server, tool] = call.split(":");
+            const entry = sessionMcp.find((candidate) => candidate.name === server);
+            if (!entry?.command || !tool) { results.push(`${call} -> error not mounted`); continue; }
+            try {
+              results.push(`${call} -> ${await driveMcp({ command: entry.command, args: entry.args, env: entry.env }, [{ name: tool, args: () => ({ note: "fake" }) }])}`);
+            } catch (error) {
+              results.push(`${call} -> error ${(error as Error).message}`);
+            }
+          }
+          out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: results.join("\n") } } } });
+          complete();
+        })();
         return;
       }
       if (mode === "mcp-tools") {

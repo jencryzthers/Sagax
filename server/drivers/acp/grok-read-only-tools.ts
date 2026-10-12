@@ -23,7 +23,7 @@ import { SPAWNED_PROXIES } from "../../proxy-paths.ts";
 
 /** Perspicax connector tools reviewed as read-only (JC, 2026-10-11). Never
  * add cw_psa__write/action, memory_write/forget/promote, sagax_send/approve/
- * nudge, flow or flow_action, or anything whose effect depends on input. */
+ * nudge, flow_action, or anything whose effect depends on input. */
 export const PERSPICAX_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "memory_recall",
   "memory_search",
@@ -35,6 +35,10 @@ export const PERSPICAX_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "sagax_thread",
   "work_search",
   "work_check",
+  // Pulsatrix Flow's read surface: its schema admits only command
+  // "catalog" or "describe" (additionalProperties false). Running an action
+  // is flow_action, which always asks.
+  "flow",
 ]);
 
 /** A server name that is safe inside a rule: no glob or rule syntax. */

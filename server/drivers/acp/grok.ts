@@ -16,6 +16,7 @@ import { decodeInjectId, hostApiKey, localHost, mergeLocalInject } from "../loca
 import { createAcpDriver, type AccountErrorCode, type AcpSupport } from "./core.ts";
 import { grokHostToolArgs, grokOrgAgentProfile } from "../host-tools.ts";
 import { grokReadOnlyAllowRules } from "./grok-read-only-tools.ts";
+import { gateReadOnlyTools, grokApprovalGateEnabled } from "./grok-approval-gate.ts";
 import { knownGrokTools, knownGrokToolsSection, recordGrokToolUse, useToolName } from "./grok-tool-usage.ts";
 import { allowsTool, canUseMcpServer, narrowsNativeTools, parseToolScope } from "../../../shared/tool-scope.ts";
 import { grokAliasBase, grokToolNameProblem } from "../../mcp-tool-names.ts";
@@ -692,8 +693,15 @@ const support: AcpSupport = {
   // residual requests still ask. Never replace it with bypassPermissions.
   // Verified: grok 1.0.3 --help and xai-org/grok-build@37949780,
   // crates/codegen/xai-grok-pager-bin/src/main.rs:1259-1273.
-  spawnArgs: (config, turn) => {
+  // Approval gate (grok-approval-gate.ts), per-bot flag: an Auto turn runs
+  // Grok in `default` mode, with no per-call classifier wait, and Sagax
+  // holds every MCP call that is not reviewed read-only for a card.
+  approvalGate: (config, turn) => !config.fullAuto && turn.approvalMode === "auto" && grokApprovalGateEnabled(turn.botId),
+  approvalReadOnly: (server) => gateReadOnlyTools(server),
+
+  spawnArgs: (config, turn, launch) => {
     const withhold = turn.withholdHostTools === true;
+    const gated = launch?.approvalGate === true && !config.fullAuto;
     return [
       // Global flags. `--deny` does not strip the agent-stdio tool list;
       // the session profile does. `--no-leader` is after `agent`: a shared
@@ -702,10 +710,11 @@ const support: AcpSupport = {
       "--permission-mode",
       config.fullAuto
         ? "bypassPermissions"
-        : turn.approvalMode === "auto" ? "auto" : turn.approvalMode === "edits" ? "acceptEdits" : "default",
+        : gated ? "default"
+          : turn.approvalMode === "auto" ? "auto" : turn.approvalMode === "edits" ? "acceptEdits" : "default",
       // Auto mode only: reviewed read-only Sagax tools skip Grok's classifier
       // (grok-read-only-tools.ts). Ask and Edits keep every card as before.
-      ...(!config.fullAuto && turn.approvalMode === "auto"
+      ...(!config.fullAuto && !gated && turn.approvalMode === "auto"
         ? grokReadOnlyAllowRules(turn.integrations).flatMap((rule) => ["--allow", rule])
         : []),
       "agent",
