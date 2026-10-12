@@ -203,18 +203,10 @@ async function stop(child) {
 }
 
 try {
-  // CUA 0.33 foreground delivery waits for EWMH _NET_ACTIVE_WINDOW. Xvfb
-  // has no WM. Start openbox first so xev is a managed client, then wait
-  // until the WM actually publishes the active window (faking the atom is
-  // ignored: CUA still saw active=0x0).
-  wm = spawn("openbox", ["--sm-disable"], { env: process.env, stdio: "ignore" });
-  wm.on("error", () => { wm = undefined; });
-  await until(
-    async () => xpropWindowId(await rootProperty("_NET_SUPPORTING_WM_CHECK")) || null,
-    "openbox EWMH",
-    8_000,
-  );
-
+  // xev first: that window is what the rest of the smoke searches for.
+  // Openbox afterwards manages it and publishes _NET_ACTIVE_WINDOW. Starting
+  // the WM first left xdotool unable to find xev; faking the atom left CUA
+  // reading active=0x0.
   xev = startXev();
   const windowId = await until(async () => {
     if (xev.exitCode !== null || xev.signalCode !== null) {
@@ -222,7 +214,6 @@ try {
     }
     const { stdout } = await execFileAsync("xdotool", [
       "search",
-      "--onlyvisible",
       "--name",
       `^${title}$`,
     ]);
@@ -230,6 +221,14 @@ try {
   }, "the unrelated X11 test window");
   if (!windowId) throw new Error("xev test window did not appear");
   const windowNumber = Number(windowId);
+
+  wm = spawn("openbox", ["--sm-disable"], { env: process.env, stdio: "ignore" });
+  wm.on("error", () => { wm = undefined; });
+  await until(
+    async () => xpropWindowId(await rootProperty("_NET_SUPPORTING_WM_CHECK")) || null,
+    "openbox EWMH",
+    8_000,
+  );
 
   const metadata = await until(
     async () => {
@@ -270,19 +269,27 @@ try {
     "start_session",
   );
   xevOutput = "";
+  await execFileAsync("xdotool", ["windowunmap", windowId]).catch(() => {});
+  await delay(50);
   await execFileAsync("xdotool", ["windowmap", windowId]).catch(() => {});
   await execFileAsync("xdotool", ["windowfocus", "--sync", windowId]).catch(() => {});
   await execFileAsync("xdotool", ["windowraise", windowId]).catch(() => {});
   await execFileAsync("xdotool", ["windowactivate", "--sync", windowId]).catch(() => {});
-  await until(
-    async () => {
-      await execFileAsync("xdotool", ["windowactivate", "--sync", windowId]).catch(() => {});
-      const active = xpropWindowId(await rootProperty("_NET_ACTIVE_WINDOW"));
-      return active === windowNumber ? active : null;
-    },
-    "openbox _NET_ACTIVE_WINDOW",
-    8_000,
-  );
+  try {
+    await until(
+      async () => {
+        await execFileAsync("xdotool", ["windowactivate", "--sync", windowId]).catch(() => {});
+        const active = xpropWindowId(await rootProperty("_NET_ACTIVE_WINDOW"));
+        return active === windowNumber ? active : null;
+      },
+      "openbox _NET_ACTIVE_WINDOW",
+      8_000,
+    );
+  } catch (error) {
+    const active = await rootProperty("_NET_ACTIVE_WINDOW");
+    const support = await rootProperty("_NET_SUPPORTING_WM_CHECK");
+    throw new Error(`${error instanceof Error ? error.message : error}\nwindow=${windowNumber}\n${support}${active}`);
+  }
   const target = {
     session,
     pid: xev.pid,
