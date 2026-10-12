@@ -33,7 +33,7 @@ export interface LaunchedAgentMessage {
 export interface LaunchedAgentBot {
   id: string;
   name: string;
-  hidden?: true;
+  hidden?: boolean;
 }
 
 export interface LaunchedAgentsDeps {
@@ -93,7 +93,7 @@ function statusOf(task: LaunchedAgentTask, deps: LaunchedAgentsDeps): BotActivit
 }
 
 export function launchedAgentsForBot(deps: LaunchedAgentsDeps, viewerId: string | undefined): BotLaunchedAgentItem[] {
-  const now = deps.now ?? Date.now;
+  const now = (deps.now ?? Date.now)();
   const since = now - BOT_LAUNCHED_AGENTS_WINDOW_MS;
   const out: BotLaunchedAgentItem[] = [];
   for (const peer of deps.bots()) {
