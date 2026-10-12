@@ -14,19 +14,24 @@ struct SandboxDesktopScreen: View {
     var card: Color = Theme.card
 
     @EnvironmentObject private var session: Session
-    @State private var status: ServerEnvironmentStatus?
     @State private var pending: ServerEnvironmentPowerAction?
     @State private var error: String?
     @State private var confirmAction: ServerEnvironmentPowerAction?
-    /// Control and full screen. Take control opens full screen.
-    @State private var mode = SandboxDesktopMode()
-    @State private var viewState = "idle"
-    @StateObject private var viewer = SandboxViewerSession()
+    /// The viewer, control/full-screen mode and environment status outlive
+    /// this view: the iPad bot panel is rebuilt on rotation and Split View
+    /// resizes, and a rebuild must not drop full screen or reconnect.
+    @ObservedObject private var store = SandboxDesktopStore.shared
+    @ObservedObject private var viewer = SandboxDesktopStore.shared.viewer
     #if DEBUG
-    @State private var parityApplied = false
+    /// Once per launch, not per screen: the iPad panel rebuilds this
+    /// screen on rotation, and a fresh screen must not take control again.
+    private static var parityApplied = false
     #endif
 
+    private var mode: SandboxDesktopMode { store.mode }
+    private var status: ServerEnvironmentStatus? { store.status }
     private var control: Bool { mode.control }
+    private var viewState: String { store.viewState }
 
     private var power: String {
         if pending == .start || pending == .resume { return "starting" }
@@ -126,31 +131,28 @@ struct SandboxDesktopScreen: View {
             // The first load connects through the power change below. Coming
             // back to the screen (from full screen too) re-runs this: keep a
             // live stream, reconnect only a dropped one.
+            store.client = session.computerClient
             let wasRunning = power == "running"
             await load()
             if wasRunning, power == "running", !viewer.isStreaming { await connect() }
         }
         .onValueChange(of: power) { next in
-            if next == "running" { Task { await connect() } }
-            else { viewer.stop(); viewState = "idle"; send(.desktopLost) }
+            // A rebuilt screen finds the stream live: keep it.
+            if next == "running" { if !viewer.isStreaming { Task { await connect() } } }
+            else { viewer.stop(); store.viewState = "idle"; send(.desktopLost) }
         }
         #if DEBUG
         .onValueChange(of: viewer.rfbReady) { ready in applyParity(ready) }
         #endif
         // A full-screen cover takes the presenting screen off the window:
         // that is not leaving the desktop.
-        .onDisappear { if !mode.fullScreen { viewer.stop() } }
-        .fullScreenCover(isPresented: Binding(
-            get: { mode.fullScreen },
-            set: { if !$0, mode.fullScreen { send(.exitFullScreen) } }
-        )) {
-            SandboxFullScreenDesktop(
-                viewer: viewer,
-                control: mode.control,
-                startWithKeyboard: parityKeyboard,
-                send: send
-            )
+        .onAppear {
+            store.keyboardOnOpen = parityKeyboard
+            store.mount()
         }
+        // Stops only when no screen shows the desktop and full screen is
+        // closed: a full-screen cover or a rebuild is not leaving it.
+        .onDisappear { store.unmount() }
         .confirmationDialog(
             String(localized: "A bot is working on this desktop. Stop it anyway?"),
             isPresented: Binding(get: { confirmAction != nil }, set: { if !$0 { confirmAction = nil } }),
@@ -165,11 +167,9 @@ struct SandboxDesktopScreen: View {
         .accessibilityIdentifier("sandbox-desktop")
     }
 
-    /// Control changes reconnect with (or without) the control lease.
     private func send(_ event: SandboxDesktopMode.Event) {
-        if mode.handle(event), power == "running" {
-            Task { await connect() }
-        }
+        store.client = session.computerClient
+        store.send(event)
     }
 
     #if DEBUG
@@ -183,8 +183,8 @@ struct SandboxDesktopScreen: View {
     }()
 
     private func applyParity(_ ready: Bool) {
-        guard ready, !parityApplied, let argument = Self.parityArgument else { return }
-        parityApplied = true
+        guard ready, !Self.parityApplied, let argument = Self.parityArgument else { return }
+        Self.parityApplied = true
         send(argument == "fullscreen" ? .enterFullScreen : .takeControl)
     }
 
@@ -229,10 +229,10 @@ struct SandboxDesktopScreen: View {
     private func load() async {
         guard let client = session.computerClient else { return }
         do {
-            status = try await client.serverEnvironment()
+            store.status = try await client.serverEnvironment()
             error = nil
         } catch {
-            status = ServerEnvironmentStatus(configured: true, state: "unavailable")
+            store.status = ServerEnvironmentStatus(configured: true, state: "unavailable")
             self.error = error.localizedDescription
         }
     }
@@ -247,7 +247,7 @@ struct SandboxDesktopScreen: View {
                 confirmAction = action
                 return
             }
-            status = next
+            store.status = next
             error = nil
             confirmAction = nil
         } catch {
@@ -257,7 +257,48 @@ struct SandboxDesktopScreen: View {
     }
 
     private func connect() async {
-        guard let client = session.computerClient, power == "running" else { return }
+        guard power == "running" else { return }
+        store.client = session.computerClient
+        await store.connect()
+    }
+}
+
+/// The person's server-environment desktop (one per person: `sandbox/me`),
+/// shared by every screen that shows it.
+@MainActor
+final class SandboxDesktopStore: ObservableObject {
+    static let shared = SandboxDesktopStore()
+
+    let viewer = SandboxViewerSession()
+    @Published var mode = SandboxDesktopMode() {
+        didSet { if mode.fullScreen != oldValue.fullScreen { syncFullScreen() } }
+    }
+    /// The scene of the window that last showed the desktop inline.
+    weak var scene: UIWindowScene?
+    var keyboardOnOpen = false
+    /// Full screen is its own window over the scene, owned here rather than
+    /// a cover presented by a screen: the iPad bot panel is rebuilt on
+    /// rotation and Split View resizes, and a cover whose presenter is
+    /// rebuilt away stays on screen with its controls dead.
+    private var fullScreenWindow: UIWindow?
+    @Published var status: ServerEnvironmentStatus?
+    @Published var viewState = "idle"
+    /// Set by the screen that shows the desktop. Actions from the
+    /// full-screen control go through the store, never a screen that a
+    /// rebuild may already have removed.
+    var client: CompanionClient?
+    private var mounted = 0
+
+    /// Control changes reconnect with (or without) the control lease.
+    func send(_ event: SandboxDesktopMode.Event) {
+        if mode.handle(event), status?.state == "running" {
+            Task { await connect() }
+        }
+    }
+
+    func connect() async {
+        guard let client, status?.state == "running" else { return }
+        let control = mode.control
         if !viewer.rfbReady { viewState = "connecting" }
         do {
             let config = try await client.sandboxViewer(control: control)
@@ -268,6 +309,47 @@ struct SandboxDesktopScreen: View {
             viewState = code == 403 || code == 404 ? "closed" : code == 429 ? "busy" : "unavailable"
         } catch {
             viewState = "unavailable"
+        }
+    }
+
+    func mount() { mounted += 1 }
+
+    private func syncFullScreen() {
+        if mode.fullScreen {
+            guard fullScreenWindow == nil, let scene = scene ?? Self.activeScene else { return }
+            let window = UIWindow(windowScene: scene)
+            window.windowLevel = .normal + 1
+            let host = UIHostingController(rootView: SandboxFullScreenDesktop(
+                store: self, viewer: viewer, startWithKeyboard: keyboardOnOpen
+            ))
+            host.view.backgroundColor = .black
+            window.rootViewController = host
+            window.makeKeyAndVisible()
+            fullScreenWindow = window
+        } else if let window = fullScreenWindow {
+            fullScreenWindow = nil
+            window.isHidden = true
+            window.windowScene?.windows.first { $0 !== window && !$0.isHidden && $0.windowLevel == .normal }?.makeKey()
+            // The inline host takes the web view back as it updates; make
+            // sure it does even if nothing else changes.
+            objectWillChange.send()
+        }
+    }
+
+    private static var activeScene: UIWindowScene? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }
+    }
+
+    /// A rebuild mounts the new screen and unmounts the old one in either
+    /// order; decide on the next turn of the main loop.
+    func unmount() {
+        mounted = max(0, mounted - 1)
+        DispatchQueue.main.async { [self] in
+            guard mounted == 0, !mode.fullScreen else { return }
+            viewer.stop()
+            if mode.control { mode.handle(.releaseControl) }
         }
     }
 }
@@ -484,11 +566,17 @@ private struct SandboxDesktopHost: UIViewRepresentable {
 
     func makeUIView(context: Context) -> SandboxDesktopHostView {
         let host = SandboxDesktopHostView(zoomable: zoomable)
-        if active { host.adopt(session.hostedView()) }
+        configure(host)
         return host
     }
 
     func updateUIView(_ host: SandboxDesktopHostView, context: Context) {
+        configure(host)
+    }
+
+    private func configure(_ host: SandboxDesktopHostView) {
+        let session = session
+        host.claim = active ? { [weak host] in host?.adopt(session.hostedView()) } : nil
         if active { host.adopt(session.hostedView()) }
     }
 }
@@ -500,6 +588,18 @@ final class SandboxDesktopHostView: UIView, UIScrollViewDelegate {
     private let scroll = ZoomScrollView()
     private weak var content: WKWebView?
     private var laidOutSize: CGSize = .zero
+    /// Takes the web view back when this host enters a window: during a
+    /// rebuild the outgoing host may have updated last.
+    var claim: (() -> Void)?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard let window else { return }
+        if claim != nil, !(window.rootViewController is UIHostingController<SandboxFullScreenDesktop>) {
+            SandboxDesktopStore.shared.scene = window.windowScene
+        }
+        claim?()
+    }
 
     init(zoomable: Bool) {
         super.init(frame: .zero)
@@ -568,11 +668,13 @@ private final class ZoomScrollView: UIScrollView {
 /// The desktop edge to edge (within the safe area), with a small floating
 /// control: keyboard, release or take control, leave full screen. Drag the
 /// control to any corner.
-private struct SandboxFullScreenDesktop: View {
+struct SandboxFullScreenDesktop: View {
+    @ObservedObject var store: SandboxDesktopStore
     @ObservedObject var viewer: SandboxViewerSession
-    let control: Bool
     var startWithKeyboard = false
-    let send: (SandboxDesktopMode.Event) -> Void
+
+    private var control: Bool { store.mode.control }
+    private func send(_ event: SandboxDesktopMode.Event) { store.send(event) }
 
     @State private var keyboardUp = false
     @State private var modifiers: Set<ComputerModifier> = []
