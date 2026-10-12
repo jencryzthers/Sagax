@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { parseNpmSpec, selectEngines } from "./install-engines.mjs";
+import { parseNpmSpec, productionRefusal, selectEngines } from "./install-engines.mjs";
 
 const lock = JSON.parse(readFileSync(join(import.meta.dirname, "..", "engines.lock.json"), "utf8"));
 const ids = (selection) => selection.install.map((engine) => engine.id);
@@ -64,6 +64,18 @@ describe("selectEngines", () => {
     const selection = selectEngines(lock, { engineSet: "grok", arch: "riscv64" });
     expect(selection.install).toEqual([]);
     expect(selection.unavailable).toEqual([{ id: "grok", name: "Grok Build", drivers: ["grokAgent"], reason: "No Grok Build build for riscv64." }]);
+  });
+});
+
+describe("productionRefusal", () => {
+  it("accepts the full set and refuses an empty or partial one when required", () => {
+    expect(productionRefusal(lock, { engineSet: "all", arch: "amd64", requireEngines: true })).toBeNull();
+    expect(productionRefusal(lock, { engineSet: "none", arch: "amd64", requireEngines: false })).toBeNull();
+    for (const engineSet of ["", "none"]) {
+      expect(productionRefusal(lock, { engineSet, arch: "amd64", requireEngines: true })).toMatch(/engine_missing/);
+      expect(productionRefusal(lock, { engineSet, arch: "amd64", requireEngines: true })).toMatch(/engineSet is none/);
+    }
+    expect(productionRefusal(lock, { engineSet: "all", engines: "@openai/codex@0.160.0", arch: "amd64", requireEngines: true })).toMatch(/missing engines: claude/);
   });
 });
 
