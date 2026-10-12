@@ -2,9 +2,8 @@
 // The call is an orchestrator: a long task can keep running as background
 // work while the person asks about something else. Barge-in cancels the
 // spoken reply, not that background work, unless they say stop.
-import { suggestBusySendMode } from "../../../shared/parallel-tasks.ts";
-
 export type VoiceTopicStatus = "active" | "background" | "done" | "announced";
+export type VoiceIntent = "stop" | "correction" | "new_topic";
 
 export interface VoiceTopic {
   id: string;
@@ -29,12 +28,29 @@ export function topicLabel(text: string): string {
 }
 
 export function isStopUtterance(text: string): boolean {
-  return /^(stop|arrete|cancel)\b/.test(fold(text));
+  return /^(stop|arrete|cancel|tais[- ]toi|shut up|enough)\b/.test(fold(text));
+}
+
+export function isCorrectionUtterance(text: string): boolean {
+  const folded = fold(text);
+  if (isStopUtterance(text)) return false;
+  return /^(no,|non,)\s/.test(folded)
+    || /^non pas\b/.test(folded)
+    || /^(i meant|je voulais dire)\b/.test(folded)
+    || /^(plutot|au lieu)\b/.test(folded)
+    || /^(actually|corrige)\b/.test(folded)
+    || /^change that\b/.test(folded)
+    || /\b(instead|au lieu)\b/.test(folded);
+}
+
+export function classifyVoiceIntent(text: string): VoiceIntent {
+  if (isStopUtterance(text)) return "stop";
+  if (isCorrectionUtterance(text)) return "correction";
+  return "new_topic";
 }
 
 export function isNewVoiceTopic(text: string): boolean {
-  if (isStopUtterance(text)) return false;
-  return suggestBusySendMode(text) === "parallel";
+  return classifyVoiceIntent(text) === "new_topic";
 }
 
 export function announceTopic(label: string, result: string): string {

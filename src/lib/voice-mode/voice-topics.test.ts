@@ -5,6 +5,7 @@ import {
   applyTopicEvent,
   callHasBackgroundWork,
   callHasParkableWork,
+  classifyVoiceIntent,
   howToSpeakTopicResult,
   isNewVoiceTopic,
   isStopUtterance,
@@ -27,6 +28,30 @@ describe("voice topics", () => {
     expect(isStopUtterance("cancel that")).toBe(true);
     expect(isNewVoiceTopic("stop")).toBe(false);
     expect(isNewVoiceTopic("no, the other one")).toBe(false);
+  });
+
+  it("classifies stop, correction, or new topic; default is new topic", () => {
+    expect(classifyVoiceIntent("stop")).toBe("stop");
+    expect(classifyVoiceIntent("Arrête s'il te plaît")).toBe("stop");
+    expect(classifyVoiceIntent("cancel that")).toBe("stop");
+    expect(classifyVoiceIntent("tais-toi")).toBe("stop");
+    expect(classifyVoiceIntent("shut up")).toBe("stop");
+    expect(classifyVoiceIntent("enough")).toBe("stop");
+
+    expect(classifyVoiceIntent("no, the other one")).toBe("correction");
+    expect(classifyVoiceIntent("I meant the weather in Toronto")).toBe("correction");
+    expect(classifyVoiceIntent("plutôt Postgres")).toBe("correction");
+    expect(classifyVoiceIntent("au lieu de ça")).toBe("correction");
+    expect(classifyVoiceIntent("actually use the staging server")).toBe("correction");
+    expect(classifyVoiceIntent("corrige ça")).toBe("correction");
+    expect(classifyVoiceIntent("change that to Friday")).toBe("correction");
+    expect(classifyVoiceIntent("non pas ça")).toBe("correction");
+
+    expect(classifyVoiceIntent("what time is it")).toBe("new_topic");
+    expect(classifyVoiceIntent("what about the weather")).toBe("new_topic");
+    expect(classifyVoiceIntent("Peux-tu aussi me préparer le rapport mensuel des billets?")).toBe("new_topic");
+    expect(classifyVoiceIntent("aussi le rapport")).toBe("new_topic");
+    expect(classifyVoiceIntent("How long does it take to drive to Quebec City?")).toBe("new_topic");
   });
 
   it("an unrelated question is a new topic", () => {
