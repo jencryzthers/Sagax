@@ -17,7 +17,12 @@ final class DemoModeTests: XCTestCase {
         XCTAssertTrue(a.bots.contains { $0.messages?.contains { $0.card?.isPending == true } == true })
         XCTAssertTrue(a.bots.contains { $0.busy == true })
         XCTAssertTrue(a.groups[0].messages?.contains { $0.from?.name == "Sam Rivera" } == true)
-        XCTAssertEqual(a.bots.first { $0.name == "Pixel" }?.mascotLook?.character, .shape)
+        // the demo shows owls (Hibou) only
+        XCTAssertTrue(a.bots.allSatisfy { ($0.mascotLook?.character ?? .owl) == .owl })
+        XCTAssertTrue(MascotUnlocks.demo.characterUnlocked(.owl))
+        for character in MascotCharacter.allCases where character != .owl {
+            XCTAssertTrue(MascotUnlocks.demo.characterLocked(character, current: .owl), "\(character)")
+        }
         XCTAssertEqual(a.bots.first { $0.name == "Forge" }?.mascotSkin, .neon)
         XCTAssertNotNil(DemoServer(now: clock).connection.baseURL)
     }

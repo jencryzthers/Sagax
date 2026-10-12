@@ -128,8 +128,8 @@ describe("one marketplace list, two scopes", () => {
 });
 
 describe("bot panel > Library", () => {
-  it("has Files and Skills only: plugins moved to Connect apps", () => {
-    expect(LIBRARY_VIEWS).toEqual(["files", "skills"]);
+  it("shows the files only: skills live on Personas, plugins in Connect apps", () => {
+    expect(LIBRARY_VIEWS).toEqual(["files"]);
   });
 
   it("opens Connect apps on that bot's scope", () => {

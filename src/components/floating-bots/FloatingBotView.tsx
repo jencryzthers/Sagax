@@ -33,6 +33,7 @@ import { characterMoves, isMoveClip } from "./moves";
 import { CHAT_BALLOON, dockedWindowSize, type Size } from "./window-frame";
 import { effectLane, effectSide, type ChatPlacement, type EffectSide } from "./placement";
 import { useHeldMenuMotion } from "@/components/MenuMotion";
+import { ReplyBubble, ReplyPill, usesReplyBubble } from "./ReplyBubble";
 import { MascotCallCardView, MascotCallPill, type LevelSource, type MascotCallCard } from "./MascotCall";
 import { CAPTIONS_WIDTH, MascotCaptions, MascotHoverControls, MascotTray } from "./MascotControls";
 import { DRAG_SLOP as CLICK_SLOP, hoverControlsShown, isDrag, mascotClick } from "./hover-controls";
@@ -568,6 +569,8 @@ export function FloatingBotView({ snapshot: given, onEvent, mover, interactive, 
   const balloonOpen = Boolean(balloon);
   // the call pill's card (settings, transcript) opens where the balloon goes
   const [callCard, setCallCard] = useState<MascotCallCard>(null);
+  // a draft in the reply pill keeps the reply's bubble from fading
+  const [replyBusy, setReplyBusy] = useState(false);
   useEffect(() => {
     if (!call) setCallCard(null);
   }, [call]);
@@ -795,7 +798,23 @@ export function FloatingBotView({ snapshot: given, onEvent, mover, interactive, 
       data-chatting={balloon ? "" : undefined}
       lang={snapshot.locale}
     >
-      {shown.shown && shown.value && (
+      {shown.shown && shown.value && usesReplyBubble(shown.value, retro) && (
+        // the reply as voice mode draws it: a speech bubble over the head that fades by itself
+        <ReplyBubble
+          name={snapshot.name}
+          balloon={shown.value}
+          closing={shown.closing}
+          below={side.below}
+          stage={STAGE}
+          onReserve={shown.closing ? undefined : onReserve}
+          onEvent={onEvent}
+          hover={hover}
+          held={replyBusy}
+          // right above the character's head, over the stage's empty room (as the call's card)
+          style={side.below ? undefined : { marginBottom: -(STAGE.top - CARD_GAP + 8) }}
+        />
+      )}
+      {shown.shown && shown.value && !usesReplyBubble(shown.value, retro) && (
         <Balloon
           botId={snapshot.id ?? snapshot.name}
           name={snapshot.name}
@@ -955,6 +974,12 @@ export function FloatingBotView({ snapshot: given, onEvent, mover, interactive, 
             />
           </span>
         </button>
+        {!call && balloon && usesReplyBubble(balloon, retro) && (
+          // the input pill under its feet, where the call's pill goes
+          <div className="fb-call fb-reply-call" style={{ top: STAGE.top + OWL_SIZE + 2 }}>
+            <ReplyPill balloon={balloon} onEvent={onEvent} hover={hover} wantsKeyboard={wantsKeyboard} callLabel={snapshot.hints.call} onFocusChange={setReplyBusy} />
+          </div>
+        )}
         {call && (
           <div className="fb-call" style={{ top: STAGE.top + OWL_SIZE + 2 }}>
             <MascotCallPill call={call} name={snapshot.name} card={callCard} onCard={setCallCard} onEvent={onEvent} hover={hover} levels={onLevels} />

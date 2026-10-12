@@ -11,14 +11,18 @@ import Foundation
 public enum BotLibraryView: String, CaseIterable, Hashable, Sendable {
     case files, skills, plugins
 
-    /// The views this pairing reaches, in the desktop's order: Skills reads
-    /// the bot's skills route (the advanced panel's), Plugins a server route
-    /// the sidecar does not forward.
+    /// The views this pairing reaches. The Library shows the files only:
+    /// skills are on the Personas page (no Files | Skills sub-tabs, as on
+    /// the web), and plugins open from a link under the files where the
+    /// pairing forwards their route (`pluginsLink`).
     public static func visible(gate: SurfaceGate) -> [BotLibraryView] {
-        var out: [BotLibraryView] = [.files]
-        if gate.allows(.advancedBotPanel) { out.append(.skills) }
-        if gate.scope != .sidecar { out.append(.plugins) }
-        return out
+        [.files]
+    }
+
+    /// Whether the Library offers its "Plugins" link: a server route the
+    /// sidecar does not forward.
+    public static func pluginsLink(gate: SurfaceGate) -> Bool {
+        gate.scope != .sidecar
     }
 }
 

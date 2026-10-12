@@ -43,3 +43,37 @@ export function planHiddenAgentThreads(
   }
   return out;
 }
+
+/** One sweep (marker `agent-threads-hidden.v2`, JC 2026-10-12): what #291's
+ * first sweep missed. Threads another bot opened on this one (openedBy names
+ * a different bot) that are still stored shown, except the bot's own current
+ * thread; and the threads the operator lists in `agent-threads-hide.list`
+ * (one `botId threadId` per line): the AI-client fan-out of 2026-10-11,
+ * started before #291 through the member API without `newThread`, so no
+ * audit row marked it and it never got an owner. */
+export function planHiddenBotThreads(
+  bots: readonly { id: string; threadId?: string; tasks: readonly { threadId: string; hidden?: true; openedBy?: { botId?: string } }[] }[],
+  listed: readonly HiddenAgentThread[] = [],
+): HiddenAgentThread[] {
+  const out: HiddenAgentThread[] = [];
+  const seen = new Set<string>();
+  const want = new Set(listed.map((entry) => `${entry.botId} ${entry.threadId}`));
+  for (const bot of bots) {
+    for (const task of bot.tasks) {
+      if (task.hidden === true || seen.has(task.threadId)) continue;
+      const interBot = Boolean(task.openedBy?.botId && task.openedBy.botId !== bot.id && task.threadId !== bot.threadId);
+      if (!interBot && !want.has(`${bot.id} ${task.threadId}`)) continue;
+      seen.add(task.threadId);
+      out.push({ botId: bot.id, threadId: task.threadId });
+    }
+  }
+  return out;
+}
+
+/** `botId threadId` lines; blank lines and `#` comments skipped. */
+export function parseHideList(text: string): HiddenAgentThread[] {
+  return text.split("\n").flatMap((line) => {
+    const [botId, threadId] = line.replace(/#.*/, "").trim().split(/\s+/);
+    return botId && threadId ? [{ botId, threadId }] : [];
+  });
+}

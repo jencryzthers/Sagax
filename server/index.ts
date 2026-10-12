@@ -407,6 +407,7 @@ import {
   type GroupRecord,
   type Message,
   type TaskRecord,
+  isInterBotThread,
   toWireTask,
 } from "./store.ts";
 import * as tts from "./tts/index.ts";
@@ -822,7 +823,7 @@ import { ADMIN_ACTIVITY_CATEGORIES } from "./admin-activity.ts";
 import { createOrgMemberRoutes, type MemberPerson, type MemberRequest } from "./org-member-routes.ts";
 import { internalAgentApiTool } from "./routes/agent-api-internal.ts";
 import { createAgentApi, refuse as agentRefuse, SEND_FILE_MAX_BYTES as AGENT_SEND_FILE_MAX_BYTES, type AgentCaller, type AgentScope, type AgentSummary, type AuditEntry, type FileInput, type Refusal, type TurnState } from "./agent-api.ts";
-import { planHiddenAgentThreads } from "./agent-threads.ts";
+import { parseHideList, planHiddenAgentThreads, planHiddenBotThreads } from "./agent-threads.ts";
 import { MemberLiveText } from "./member-live-text.ts";
 import { createOrgAdminRoutes, type AccessKind, type AdminApproval, type AdminEngine, type AdminBot, type AdminBotReach, type AdminPerson, type ApprovalAnswer, type ApprovalType, type OrgAdminViewer } from "./org-admin-routes.ts";
 import { RevocationQueue } from "./idp-revocations.ts";
@@ -8853,6 +8854,8 @@ function notify(notification: Notification | null) {
   // client that started it reads the answer. An approval is the exception:
   // only the person can give it, and the conversation is in no sidebar.
   if (notification && notification.kind !== "approval" && notificationInHiddenThread(notification.threadId)) return;
+  // a bot-to-bot thread never buzzes the person for its own replies
+  if (notification && notificationIsInterBotChatter(notification)) return;
   // the conversation on a live voice call is heard, not buzzed (notify.ts)
   if (notification && quietForCall(notification, lastPersonMessage(notification.threadId), Date.now(), Boolean(voiceCalls.active(notification.threadId)))) return;
   // nested rather than spread — the frame's own `kind` names the frame,
@@ -8914,6 +8917,17 @@ function notificationInHiddenThread(threadId: string | undefined): boolean {
   if (!threadId) return false;
   const bot = store.botByThread(threadId);
   return Boolean(bot && store.taskByThread(bot.id, threadId)?.hidden === true);
+}
+
+/** Whether a notification is a bot-to-bot thread's own chatter (a reply,
+ * a finished turn): never shown to the person. What only the person can
+ * answer (an approval, a question) and alarms (incident, takeover, spend,
+ * failures) still reach them. */
+function notificationIsInterBotChatter(notification: Notification): boolean {
+  if (notification.kind !== "done") return false;
+  const bot = notification.threadId ? store.botByThread(notification.threadId) : undefined;
+  const task = bot && notification.threadId ? store.taskByThread(bot.id, notification.threadId) : undefined;
+  return Boolean(bot && task && isInterBotThread(bot.id, task));
 }
 
 /** The person's latest message in a thread (a call turn carries voiceCall). */
@@ -22589,6 +22603,23 @@ function hideEarlierAgentThreads(): void {
     console.log(`[agent-threads] ${plan.length} AI client thread(s) hidden`);
   } catch (error) {
     console.warn(`[agent-threads] could not hide earlier AI client threads: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+/** Once (marker `agent-threads-hidden.v2`): bot-to-bot threads still shown,
+ * and the operator's `agent-threads-hide.list` (agent-threads.ts
+ * planHiddenBotThreads). Counts only in the log. */
+function hideBotThreadsOnce(): void {
+  const marker = join(DATA_DIR, "agent-threads-hidden.v2");
+  if (existsSync(marker)) return;
+  try {
+    const listFile = join(DATA_DIR, "agent-threads-hide.list");
+    const listed = existsSync(listFile) ? parseHideList(readFileSync(listFile, "utf8")) : [];
+    const plan = planHiddenBotThreads(store.bots.map((bot) => ({ id: bot.id, threadId: bot.threadId, tasks: store.tasks(bot.id) })), listed);
+    for (const entry of plan) store.setTaskHidden(entry.botId, entry.threadId, true);
+    writeFileSync(marker, `${new Date().toISOString()} ${plan.length}\n`, { mode: 0o600 });
+    console.log(`[agent-threads] ${plan.length} bot-to-bot / listed thread(s) hidden`);
+  } catch (error) {
+    console.warn(`[agent-threads] could not hide bot-to-bot threads: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 /** One-time (config.privateThreadsMigratedAt): every bot thread written
@@ -37235,6 +37266,7 @@ restoreChannelMessages();
 // gets its owner (server/thread-privacy.ts), before anyone can read one.
 migrateThreadOwners();
 hideEarlierAgentThreads();
+hideBotThreadsOnce();
 
 server.listen(PORT, "127.0.0.1", async () => {
   companyRuntimeReady();

@@ -6471,5 +6471,6 @@
   "settings.toolAccess.form.adminDays": "Admin access needs an end date, 30 days at most.",
   "settings.toolAccess.tier.read": "Read",
   "settings.toolAccess.tier.write": "Write",
-  "settings.toolAccess.tier.admin": "Admin"
+  "settings.toolAccess.tier.admin": "Admin",
+  "browser.idle.help": "{name}’s browser opens in full screen when you take control. Nothing is streamed until then."
 }

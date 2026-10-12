@@ -1,7 +1,6 @@
 // iPad I-sync: the bot panel's Library tab (`bot-settings/LibraryTab.tsx`):
-// the bot's files, its skills and its Claude Code plugins, one at a time
-// (Files | Skills | Plugins: 12.5 pt tabs, px 8, py 4, radius 6, the chosen
-// one `elevated-hover`), 16 pt in, 8 pt from the panel tabs, 12 pt gaps.
+// the bot's files only, no Files | Skills sub-tabs (skills live on the
+// Personas page). Plugins open from a link under the files.
 // On the web the bot's plugins moved to Connect apps, scope "For <bot>"
 // (`PluginsPanel.tsx`, `plugins/BotPluginCard.tsx`,
 // `plugins/MarketplacesSection.tsx`); the web Library is Files | Skills with
@@ -32,7 +31,7 @@ struct BotPanelLibrary: View {
     let bot: Bot
     let docked: Bool
 
-    @State private var view: BotPanelLibraryView = Self.parityView
+    @State private var view: BotPanelLibraryView = .files
 
     /// panel-library-skills / -plugins: the reference opens that view.
     private static var parityView: BotPanelLibraryView {
@@ -47,18 +46,37 @@ struct BotPanelLibrary: View {
         #endif
     }
 
-    private var views: [BotPanelLibraryView] {
-        BotPanelLibraryView.allCases.filter { $0 != .plugins || session.surfaceGate.allows(.botPlugins) }
-    }
+    /// Files only; the tabs show only if a view is added back.
+    private var views: [BotPanelLibraryView] { [.files] }
+    @State private var showingPlugins = Self.parityView == .plugins
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            AnyView(tabs)
-                .padding(.top, 8)
-                .padding(.leading, 17)
-                .padding(.trailing, 16)
+            if views.count > 1 {
+                AnyView(tabs)
+                    .padding(.top, 8)
+                    .padding(.leading, 17)
+                    .padding(.trailing, 16)
+            }
             AnyView(content)
                 .padding(.top, 4)
+            if session.surfaceGate.allows(.botPlugins) {
+                Button { showingPlugins = true } label: {
+                    Label("Plugins", systemImage: "puzzlepiece.extension")
+                        .font(theme.font(12.5))
+                        .foregroundStyle(theme.inkSecondary)
+                        .padding(.horizontal, 8)
+                        .frame(height: 26)
+                }
+                .buttonStyle(.plain)
+                .hoverEffect(.highlight)
+                .padding(.leading, 17)
+                .padding(.bottom, 16)
+                .accessibilityIdentifier("desktop-panel-library.open-plugins")
+            }
+        }
+        .sheet(isPresented: $showingPlugins) {
+            NavigationStack { ScrollView { BotPanelPlugins(bot: bot).padding(16) }.navigationTitle(Text("Plugins")) }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("desktop-panel-library")

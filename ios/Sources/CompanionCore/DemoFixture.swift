@@ -54,7 +54,7 @@ struct DemoFixture {
                 ] as [String: Any],
             ],
         ])
-        let pixel = bot("pixel", "Pixel", "Designer", "Shapes polished product experiences.", color: "purple", section: "Launch", look: ["character": "shape", "shape": "cloud"], task: "Onboarding screens", messages: [
+        let pixel = bot("pixel", "Pixel", "Designer", "Shapes polished product experiences.", color: "purple", section: "Launch", task: "Onboarding screens", messages: [
             text("pixel-1", "user", 240, "Can you tighten the welcome screen?"),
             text("pixel-2", "bot", 238, "Done. One owl, three clear choices, and the demo is one tap away. I kept the dark theme and the 16 pt card corners.", parent: "pixel-1"),
         ])

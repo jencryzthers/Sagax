@@ -238,10 +238,20 @@ describe("the Appearance gallery's layout", () => {
     const html = render({ character: "shape" });
     expect(html).toContain('data-character-row=""');
     expect(html).toContain('data-mascot-stage=""');
-    expect(html).toContain("size-[112px]");
+    // the mascot large and centred on a full-width stage, its name and action under it
+    expect(html).toContain("h-[176px] w-full place-items-center");
+    expect(html).toMatch(/data-mascot-stage=""[\s\S]*data-mascot-action=/);
     // side by side from a 34rem pane (a size container query), one column under it
     expect(html).toContain("@[34rem]:grid-cols-[minmax(0,1fr)_20rem]");
     expect(html).toMatch(/data-mascot-browser=""[\s\S]*data-mascot-detail="shape"/);
+  });
+
+  it("keeps every gallery tile the same height, locked or not, with no stray shadow on the stage", () => {
+    const html = render({ character: "crab" });
+    const tiles = html.match(/<button[^>]*data-character-option="[^"]+"[^>]*>/g) ?? [];
+    expect(tiles.length).toBeGreaterThan(1);
+    for (const tile of tiles) expect(tile).toContain("h-[88px]");
+    expect(html).not.toContain("blur-[3px]");
   });
 
   it("names the character Shapes (Formes), never Original shapes", () => {

@@ -8191,7 +8191,8 @@
       "settings.toolAccess.form.adminDays": "c55c1dfd4dff2f2963f82ced19f118fa9e091e0aa92787f37fd80f24f341a42a",
       "settings.toolAccess.tier.read": "9b9a8d05a7ec353bda84f9c1bb3178c299de3001b5e970508ddc889c487f92ca",
       "settings.toolAccess.tier.write": "3f00927a719345edd4a8316599d3b328857987547f8884306861161ffa09647e",
-      "settings.toolAccess.tier.admin": "c1c224b03cd9bc7b6a86d77f5dace40191766c485cd55dc48caf9ac873335d6f"
+      "settings.toolAccess.tier.admin": "c1c224b03cd9bc7b6a86d77f5dace40191766c485cd55dc48caf9ac873335d6f",
+      "browser.idle.help": "ab0c86fb7e9daa97319da5299e47a4c0fc9fed3670f23c71eaa973be7ad657bd"
     },
     "hi": {
       "approval.action.allowOnce": "168511d24d9ee03122b3200f929be11eaaedad45cb0ecb20a95f549b3e3f4d0f",

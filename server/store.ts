@@ -657,8 +657,19 @@ export function roomResponders<T extends { id: string; name: string; hidden?: bo
 /** A hidden routine execution is not a conversation the person can open,
  * and an AI client's hidden conversation (`hidden`, #291) is not one they
  * read: neither lights the bot's dot. */
-function taskCountsAsBotUnread(task: { unread?: boolean; routineRunId?: string; hidden?: true }): boolean {
+function taskCountsAsBotUnread(task: { unread?: boolean; routineRunId?: string; hidden?: true; openedBy?: { botId?: string } }): boolean {
   return Boolean(task.unread) && !task.routineRunId && task.hidden !== true;
+}
+
+/** A thread another bot opened on this one (pair, work or an agent ask):
+ * bot-to-bot, never shown to the person. Bots still find and use it. */
+export function isInterBotThread(botId: string, task: { openedBy?: { botId?: string } }): boolean {
+  return Boolean(task.openedBy?.botId) && task.openedBy!.botId !== botId;
+}
+
+/** The bot's dot: an unread thread the person can read (never bot-to-bot). */
+function botHasPersonUnread(bot: { id: string; tasks?: Array<{ unread?: boolean; routineRunId?: string; hidden?: true; openedBy?: { botId?: string } }> }): boolean {
+  return (bot.tasks ?? []).some((task) => taskCountsAsBotUnread(task) && !isInterBotThread(bot.id, task));
 }
 
 /** A conversation the person never sees in the sidebar: a routine's detached
@@ -1028,7 +1039,7 @@ export class Store {
         task.turnStartedAt = undefined;
       }
       this.mirrorActiveTask(b, active);
-      b.unread = b.tasks.some(taskCountsAsBotUnread);
+      b.unread = botHasPersonUnread(b);
     }
     // Slice 4: grants with levels replace directGrants (each becomes a
     // `user:` grant at level use, given by the owner), once; malformed
@@ -2300,7 +2311,7 @@ export class Store {
           Object.assign(task, { [key]: structuredClone(patch[key]) });
         }
       }
-      bot.unread = bot.tasks!.some(taskCountsAsBotUnread);
+      bot.unread = botHasPersonUnread(bot);
     }
     if (wideningToolScope) {
       // New authority becomes live only after its durable save succeeds.
@@ -3081,7 +3092,7 @@ export class Store {
     // clear of routineRunId (no-source promotion) may keep unread.
     if (task.routineRunId || task.hidden === true) task.unread = false;
     if (bot.threadId === threadId) this.mirrorActiveTask(bot, task);
-    bot.unread = bot.tasks!.some(taskCountsAsBotUnread);
+    bot.unread = botHasPersonUnread(bot);
     this.saveBots();
     this.emit({ type: "bot", botId });
     return task;
@@ -3257,7 +3268,7 @@ export class Store {
         .sort((a, b) => at(b) - at(a))[0];
       if (next) this.mirrorActiveTask(bot, next);
     }
-    bot.unread = bot.tasks!.some(taskCountsAsBotUnread);
+    bot.unread = botHasPersonUnread(bot);
     this.refreshBotActivity(bot);
     this.saveBots();
     this.emit({ type: "bot", botId });
@@ -3375,7 +3386,7 @@ export class Store {
       this.mirrorActiveTask(bot, visible);
     }
     this.deleteThreadRecord(threadId);
-    bot.unread = bot.tasks.some(taskCountsAsBotUnread);
+    bot.unread = botHasPersonUnread(bot);
     this.refreshBotActivity(bot);
     this.saveBots();
     this.emit({ type: "bot", botId });

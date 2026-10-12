@@ -23,6 +23,22 @@
         }
       }
     },
+    "A large Updates button at the bottom of the home, to see what the bots did at a glance.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A large Updates button at the bottom of the home, to see what the bots did at a glance."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un grand bouton Mises à jour en bas de l’accueil, pour voir d’un coup d’œil ce que les bots ont fait."
+          }
+        }
+      }
+    },
     "Added to your Allow rules": {
       "localizations": {
         "en": {
@@ -107,6 +123,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tela"
+          }
+        }
+      }
+    },
+    "%@'s browser opens in full screen when you take control.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@'s browser opens in full screen when you take control."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le navigateur de %@ s’ouvre en plein écran quand vous prenez le contrôle."
           }
         }
       }
@@ -8087,6 +8119,22 @@
         }
       }
     },
+    "Updates button": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updates button"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bouton Mises à jour"
+          }
+        }
+      }
+    },
     "Updates": {
       "localizations": {
         "en": {
@@ -9689,6 +9737,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Liberar o controle"
+          }
+        }
+      }
+    },
+    "Exit full screen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit full screen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quitter le plein écran"
           }
         }
       }
