@@ -182,7 +182,7 @@ struct CardView: View {
                     .padding(.top, 2)
 
                 } else if answeredInDock, let outcome = ApprovalOutcome.of(card) {
-                    Label(Self.outcomeText(outcome), systemImage: outcome == .allowed || card.answered == "allow" ? "checkmark.circle" : "xmark.circle")
+                    Label(Self.outcomeText(outcome), systemImage: outcome == .allowed || outcome == .alwaysAllowed || card.answered == "allow" ? "checkmark.circle" : "xmark.circle")
                         .font(.system(size: 14))
                         .foregroundStyle(Theme.attentionSecondary)
                         .accessibilityIdentifier("card-outcome-\(message.id)")
@@ -236,6 +236,7 @@ struct CardView: View {
         switch outcome {
         case .expired: String(localized: "Expired. Ask for a fresh proposal")
         case .allowed: String(localized: "Allowed")
+        case .alwaysAllowed: String(localized: "approval.outcome.alwaysAllowed", defaultValue: "Always allowed")
         case .denied: String(localized: "Denied")
         case .cancelled: String(localized: "Cancelled")
         case .routineScheduled: String(localized: "Routine scheduled")
