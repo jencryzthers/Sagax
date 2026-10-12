@@ -14,6 +14,7 @@ import {
   ClockPlayer,
   applyBenchRuntimeEvent,
   holdVoiceUntilTail,
+  shouldSendBenchUtterance,
   stampClockPlayback,
   defaultBenchTurns,
   realVoiceBench,
@@ -96,6 +97,13 @@ it("plays a sentence enqueued after cancel while the previous pump is still fini
   closeOld!();
   for (let i = 0; i < 40 && started.length === 0; i++) await new Promise((r) => setTimeout(r, 5));
   expect(started).toEqual(["new"]);
+});
+
+it("drops a reissued utterance on the same bench turn so admit does not fork a sibling", () => {
+  const turn: BenchReplyState = { text: "" };
+  expect(shouldSendBenchUtterance(turn)).toBe(true);
+  expect(shouldSendBenchUtterance(turn)).toBe(false);
+  expect(shouldSendBenchUtterance({ text: "" })).toBe(true);
 });
 
 it("stamps ClockPlayer firstAudio 15 ms after TTS first byte when the player missed the start", () => {

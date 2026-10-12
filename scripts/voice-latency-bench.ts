@@ -131,7 +131,15 @@ export function voiceCallMarkLanguage(lang: string): "en" | "fr" {
   return lang === "fr" ? "fr" : "en";
 }
 
-export type BenchReplyState = { sentAt?: number; firstToken?: number; ttsFirstByte?: number; text: string };
+export type BenchReplyState = { sentAt?: number; firstToken?: number; ttsFirstByte?: number; text: string; posted?: boolean };
+
+/** One POST per bench turn. A reissued STT of the same question would
+ * otherwise fork a sibling under Phase 6 admit (new topic while thinking). */
+export function shouldSendBenchUtterance(state: { posted?: boolean }): boolean {
+  if (state.posted) return false;
+  state.posted = true;
+  return true;
+}
 
 export type BenchReplySink = {
   progress(text: string): void;
@@ -609,6 +617,10 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
       metrics = { ...metrics, ...turnMetrics } as never;
       current.sentAt ??= performance.now();
       diag.utterances.push(text);
+      if (!shouldSendBenchUtterance(current)) {
+        benchLog("send skipped reissue");
+        return;
+      }
       const utteranceId = (turn as { utteranceId?: string }).utteranceId ?? `bench-${Math.random().toString(36).slice(2, 12)}`;
       void api("POST", `/api/bots/${bot.id}/messages`, {
         threadId, text, sendId: utteranceId,
