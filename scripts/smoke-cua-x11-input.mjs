@@ -28,6 +28,15 @@ chmodSync(runtime, 0o700);
 chmodSync(home, 0o700);
 
 const title = `Sagax CUA input safety ${process.pid}`;
+// Driver 0.33 refuses a foreground click until a window manager publishes
+// _NET_ACTIVE_WINDOW. xvfb-run does not start one.
+let windowManager;
+try {
+  windowManager = spawn("openbox", [], { env: process.env, stdio: "ignore" });
+  windowManager.on("error", () => {});
+} catch {
+  windowManager = undefined;
+}
 const xev = spawn(
   "xev",
   ["-name", title, "-geometry", "320x180+40+40"],
@@ -170,6 +179,23 @@ function assertToolResult(result, name) {
   return result;
 }
 
+async function publishActiveWindow(windowId) {
+  if (windowManager && windowManager.exitCode === null && windowManager.signalCode === null) {
+    await until(async () => {
+      const { stdout } = await execFileAsync("xprop", ["-root", "_NET_SUPPORTING_WM_CHECK"]);
+      return /_NET_SUPPORTING_WM_CHECK\(WINDOW\)/.test(stdout) ? stdout : null;
+    }, "a window manager", 5_000).catch(() => null);
+  }
+  await execFileAsync("xdotool", ["windowactivate", "--sync", windowId], { timeout: 3_000 }).catch(() => null);
+  await execFileAsync("xdotool", ["windowfocus", "--sync", windowId], { timeout: 3_000 }).catch(() => null);
+  await execFileAsync("xprop", [
+    "-root",
+    "-f", "_NET_ACTIVE_WINDOW", "32x",
+    "-set", "_NET_ACTIVE_WINDOW",
+    `0x${Number(windowId).toString(16)}`,
+  ]);
+}
+
 async function stop(child) {
   if (child.exitCode !== null || child.signalCode !== null) return;
   child.stdin?.end();
@@ -251,10 +277,12 @@ try {
     }),
     "get_window_state",
   );
+  await publishActiveWindow(windowId);
   assertToolResult(
     await rpc("tools/call", { name: "click", arguments: target }),
     "click",
   );
+  await publishActiveWindow(windowId);
   assertToolResult(
     await rpc("tools/call", { name: "type_text", arguments: { ...target, text: "a" } }),
     "type_text",
@@ -270,5 +298,8 @@ try {
   if (proxy) await stop(proxy);
   await stop(driverProcess);
   if (xev.exitCode === null && xev.signalCode === null) xev.kill("SIGTERM");
+  if (windowManager && windowManager.exitCode === null && windowManager.signalCode === null) {
+    windowManager.kill("SIGTERM");
+  }
   rmSync(sandbox, { recursive: true, force: true });
 }
