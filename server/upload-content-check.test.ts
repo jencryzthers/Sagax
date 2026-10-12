@@ -3,7 +3,7 @@ import { createServer } from "node:net";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { assertContentMatches, checkUploadedFile, clamdScanFile, sniff } from "./upload-content-check.ts";
+import { assertContentMatches, checkUploadedFile, clamdScanFile, sniff, sniffModeFromEnv } from "./upload-content-check.ts";
 
 const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const zip = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0, 0]);
@@ -38,9 +38,12 @@ describe("upload content check", () => {
     expect(() => assertContentMatches("application/pdf", Buffer.from("plain"), "enforce")).toThrow(/does not match/);
   });
 
-  it("warn and off modes never throw", () => {
+  it("defaults to warn outside tests; warn and off never throw", () => {
     expect(assertContentMatches("application/zip", elf, "warn")).toBe("elf");
     expect(assertContentMatches("application/zip", elf, "off")).toBe("elf");
+    expect(sniffModeFromEnv({})).toBe("warn");
+    expect(sniffModeFromEnv({ VITEST: "true" })).toBe("off");
+    expect(sniffModeFromEnv({ SAGAX_UPLOAD_SNIFF: "enforce" })).toBe("enforce");
   });
 
   it("scans through clamd INSTREAM", async () => {
