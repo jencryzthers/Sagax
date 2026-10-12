@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { discardSpeculation, maySpeculate } from "./speculative";
+import { discardSpeculation, holdSpeculativePlayback, maySpeculate } from "./speculative";
 
 describe("maySpeculate", () => {
   it("starts the LLM on four stable words, even without end-of-turn punctuation", () => {
@@ -30,6 +30,14 @@ describe("maySpeculate", () => {
     expect(maySpeculate("What is the")).toBe(false);
     expect(maySpeculate("give me a good prompt to")).toBe(false);
     expect(maySpeculate("")).toBe(false);
+  });
+});
+
+describe("holdSpeculativePlayback", () => {
+  it("holds audio until the endpoint confirms, then releases it", () => {
+    expect(holdSpeculativePlayback({ speculative: true, endpointConfirmed: false })).toBe(true);
+    expect(holdSpeculativePlayback({ speculative: true, endpointConfirmed: true })).toBe(false);
+    expect(holdSpeculativePlayback({ speculative: false, endpointConfirmed: false })).toBe(false);
   });
 });
 

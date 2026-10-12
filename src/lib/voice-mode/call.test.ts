@@ -665,6 +665,31 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     expect(t.interrupts).toHaveLength(0);
   });
 
+  it("duplex holds speculative TTS until the endpoint confirms, and drops it if the person keeps talking", async () => {
+    const t = await setup({
+      transcripts: ["What is the weather in Toronto today?"],
+      settings: { fullDuplex: true },
+      finalDelayMs: 200,
+    });
+    await t.feed(0.95, 0.05, 24);
+    t.socket().partial("What is the weather");
+    await t.settle();
+    expect(t.utterances.map((u) => u.text)).toEqual(["What is the weather"]);
+    t.call.replyProgress("Sure. It is four.");
+    await t.settle();
+    expect(t.speech).toHaveBeenCalled();
+    expect(t.player.queued).toHaveLength(0);
+    t.socket().partial("What is the weather in Toronto");
+    await t.settle();
+    expect(t.interrupts).toHaveLength(1);
+    expect(t.player.queued).toHaveLength(0);
+    await t.feed(0.02, 0.001, 12);
+    await t.settle();
+    t.call.replyProgress("Sure. It is snowing in Toronto.");
+    await t.settle();
+    expect(t.player.queued.some((s) => /snowing|Toronto|Sure/.test(s.text))).toBe(true);
+  });
+
   it("duplex starts the LLM on a stable partial before the person stops talking", async () => {
     const t = await setup({
       transcripts: ["What is the weather in Montreal today?"],

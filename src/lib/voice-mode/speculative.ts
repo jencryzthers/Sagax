@@ -25,3 +25,12 @@ export function maySpeculate(text: string, inSilence = false): boolean {
 export function discardSpeculation(sent: string, nextPartial: string): boolean {
   return materiallyDifferent(sent, nextPartial);
 }
+
+/** Speculative LLM/TTS may run during the endpoint wait. Playback waits
+ * until the turn actually ended, and is dropped if they keep talking. */
+export function holdSpeculativePlayback(input: {
+  speculative: boolean;
+  endpointConfirmed: boolean;
+}): boolean {
+  return input.speculative && !input.endpointConfirmed;
+}

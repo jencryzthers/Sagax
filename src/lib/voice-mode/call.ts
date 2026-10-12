@@ -41,7 +41,7 @@ import { attachVoiceCapture, type CaptureContext, type CaptureSource, type Voice
 import { LiveTranscriber } from "./stt-stream";
 import { completeClause, CONTOUR_CONTINUATION_MS, FRAME_MS, incompleteClause, TurnDetector } from "./turns";
 import { formatTimeline, materiallyDifferent, normalizedWords, type TurnMetrics } from "./latency";
-import { discardSpeculation, maySpeculate } from "./speculative";
+import { discardSpeculation, holdSpeculativePlayback, maySpeculate } from "./speculative";
 import { ttsLeadStep, type TtsLeadAction } from "./tts-lead";
 import { LevelVad, SileroVad, VAD_FRAME, type VoiceProbability } from "./vad";
 import type { VoiceModeSettings } from "../../../shared/voice-mode";
@@ -239,6 +239,10 @@ export class VoiceCall {
   private partialAt = 0;
   /** duplex: the partial already sent to the LLM, until the person stops or it is discarded */
   private speculated: string | null = null;
+  /** false while a speculative send waits for speech-end to play TTS */
+  private endpointConfirmed = true;
+  /** speculative TTS is fetched but not played until speech-end */
+  private held: Sentence[] = [];
   /** the soft tone of a slow answer, armed when a turn is sent */
   private cueTimer: ReturnType<typeof setTimeout> | null = null;
   private enrolling: { frames: Float32Array[]; levels: number[]; done: (frames: Float32Array[] | null) => void; until: number } | null = null;
@@ -530,7 +534,22 @@ export class VoiceCall {
       ...(opts?.filler ? { filler: true } : {}),
     };
     sentence.audio.catch(() => {});
-    this.player.enqueue(sentence);
+    if (holdSpeculativePlayback({ speculative: this.speculated !== null, endpointConfirmed: this.endpointConfirmed }) && !opts?.filler) {
+      this.held.push(sentence);
+    } else {
+      this.player.enqueue(sentence);
+    }
+  }
+
+  private releaseHeldPlayback(): void {
+    const held = this.held;
+    this.held = [];
+    for (const sentence of held) this.player.enqueue(sentence);
+  }
+
+  private dropHeldPlayback(): void {
+    for (const sentence of this.held) sentence.abort();
+    this.held = [];
   }
 
   // ── push to talk ───────────────────────────────────────────────────────
@@ -787,6 +806,8 @@ export class VoiceCall {
       this.turn.endedAt = this.now();
       if (earlyEnd) this.turn.earlyEnd = true;
       if (contourEnd) this.turn.contourEnd = true;
+      this.endpointConfirmed = true;
+      this.releaseHeldPlayback();
       return;
     }
     this.turn = { stoppedAt, endedAt: this.now(), ...(earlyEnd ? { earlyEnd: true } : {}), ...(contourEnd ? { contourEnd: true } : {}) };
@@ -876,6 +897,7 @@ export class VoiceCall {
         const cut: PlaybackCut = { heard: played.heard, unheard: [played.unheard, unwritten].filter(Boolean).join(" ") };
         if (cut.heard || cut.unheard) this.lastCut = cut;
         this.player.resetLedger();
+        this.dropHeldPlayback();
         const waiters = this.speechWaiters;
         this.speechWaiters = [];
         void this.player.cancel();
@@ -1071,6 +1093,8 @@ export class VoiceCall {
       this.emit("interrupt-bot", utteranceId ? { utteranceId } : undefined);
     }
     this.speculated = null;
+    this.endpointConfirmed = true;
+    this.dropHeldPlayback();
   }
 
   private sendSpeculative(text: string): void {
@@ -1078,6 +1102,7 @@ export class VoiceCall {
     const now = this.now();
     this.turn = { stoppedAt: now, endedAt: now, earlyStart: true, sentAt: now, transcribedAt: now, utteranceId };
     this.speculated = text;
+    this.endpointConfirmed = false;
     this.turns.markComplete();
     this.lastSent = { text, endedAt: this.turn.endedAt, botSpoke: false };
     this.reply = null;
