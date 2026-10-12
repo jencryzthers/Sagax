@@ -690,6 +690,22 @@ describe("latency (docs/voice-mode-xai.md, Latency)", () => {
     expect(t.player.queued.some((s) => /snowing|Toronto|Sure/.test(s.text))).toBe(true);
   });
 
+  it("duplex speculative speech-end emits metrics so endpoint is visible before first audio", async () => {
+    const t = await setup({
+      transcripts: ["What is the weather in Montreal today?"],
+      settings: { fullDuplex: true },
+      finalDelayMs: 200,
+    });
+    await t.feed(0.95, 0.05, 24);
+    t.socket().partial("What is the weather");
+    await t.settle();
+    expect(t.utterances[0]?.metrics.earlyStart).toBe(true);
+    await t.feed(0.02, 0.001, 12);
+    await t.settle();
+    const ended = t.metrics.filter((row) => row.turn?.earlyStart && row.turn.endedAt !== row.turn.stoppedAt).at(-1)?.turn;
+    expect(ended?.endedAt).toBeGreaterThan(ended!.stoppedAt);
+  });
+
   it("duplex starts the LLM on a stable partial before the person stops talking", async () => {
     const t = await setup({
       transcripts: ["What is the weather in Montreal today?"],

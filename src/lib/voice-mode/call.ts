@@ -808,6 +808,7 @@ export class VoiceCall {
       if (contourEnd) this.turn.contourEnd = true;
       this.endpointConfirmed = true;
       this.releaseHeldPlayback();
+      this.emit("metrics", this.turn, this.bargeIn);
       return;
     }
     this.turn = { stoppedAt, endedAt: this.now(), ...(earlyEnd ? { earlyEnd: true } : {}), ...(contourEnd ? { contourEnd: true } : {}) };
