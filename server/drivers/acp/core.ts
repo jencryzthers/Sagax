@@ -93,6 +93,7 @@ import { classifyError } from "../retry.ts";
 import { canUseMcpServer, narrowsNativeTools, parseToolScope } from "../../../shared/tool-scope.ts";
 import { gateServer, mcpStdioServer } from "../../mcp-gate-config.ts";
 import type { GateAnswer, GateAsk } from "../../mcp-gate-approval.ts";
+import { gatedMcpAsk } from "./gated-mcp-ask.ts";
 import { TURN_TOKEN_ENV, warmCommsEnv } from "../spawn-contract.ts";
 import { acpHostToolRequest } from "../host-tools.ts";
 
@@ -157,6 +158,10 @@ interface AcpTurn {
   turn: SendTurnInput;
   turnConfig: AcpConfig;
   controlsHost: boolean;
+  /** Sagax approval gate on (grok-approval-gate.ts): the MCP servers this
+   * turn mounted through the gate. The agent's own ask about a call to one
+   * of them is answered allow-once; the gate decides (gated-mcp-ask.ts). */
+  gatedServers?: ReadonlySet<string>;
   state: {
     settled: boolean; promptSent: boolean; text: string; producedItem: boolean; startupActivity: boolean; stopped: boolean;
     /** Compaction detection: peak and last reported context size, and
@@ -1489,6 +1494,13 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               result: allow ? { outcome: { outcome: "selected", optionId: allow } } : cancelled,
             });
           }
+          // Sagax approval gate: the agent asks about an MCP call that the gate
+          // itself holds unless it is a reviewed read. Allow once (never
+          // always), so the gate's decision is the only one.
+          if (!isQuestion && !current.controlsHost && gatedMcpAsk(toolCall, current.gatedServers)) {
+            const allow = optionFor("allow");
+            if (allow) return send({ jsonrpc: "2.0", id: msg.id, result: { outcome: { outcome: "selected", optionId: allow } } });
+          }
           const kind = String(toolCall.kind ?? "");
           // an earlier "Always allow this session" on this exact operation
           const operationKey = isQuestion || current.controlsHost ? null : sessionOperationKey(toolCall);
@@ -2161,6 +2173,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           turn: cliTurn,
           turnConfig,
           controlsHost,
+          ...(approvalGated ? { gatedServers: new Set(mcpServers.map((server) => server.name)) } : {}),
           state,
           acknowledge,
           asks,
