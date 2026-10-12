@@ -5,6 +5,8 @@
 // Unassigned (`data-team-key=""`) has no New Bot: TeamDialog.managing is
 // Boolean(section) && !rename, and an empty key is falsy.
 
+import { clickAccessible, dismissOverlays } from "./ui-click.ts";
+
 export type CatalogFlow = {
   click: (name: string) => Promise<unknown>;
   flag: (assignment: string) => Promise<unknown>;
@@ -66,21 +68,23 @@ export async function openTemplatesCatalog(flow: CatalogFlow): Promise<void> {
 export async function openNewBotDialog(flow: NewBotFlow): Promise<void> {
   const hasStartingRole = async () => (await flow.snapshot()).includes("Starting role");
   if (await hasStartingRole()) return;
+  await dismissOverlays(flow, (snap) => snap.includes("Starting role"));
+  const click = (name: string) => clickAccessible(flow, name);
 
   const hasNewBot = async () => {
     const snap = await flow.snapshot();
     return snap.includes("New Bot") && (snap.includes("Add or remove bots") || snap.includes("Add bots") || snap.includes("Existing bots"));
   };
   if (await hasNewBot()) {
-    await flow.click("New Bot");
+    await click("New Bot");
     await until(hasStartingRole, 12_000, "New Bot dialog");
     return;
   }
 
   const onTeamMap = async () => Boolean(await flow.evaluate(`Boolean(document.querySelector("[data-team-key]"))`));
   if (!(await onTeamMap())) {
-    await flow.click("You");
-    await flow.click("Team map");
+    await click("You");
+    await click("Team map");
     await until(onTeamMap, 12_000, "Team map");
   }
 
@@ -95,7 +99,7 @@ export async function openNewBotDialog(flow: NewBotFlow): Promise<void> {
       return true;
     })()`);
     await until(async () => (await flow.snapshot()).includes("Create team"), 10_000, "Create team");
-    await flow.click("Create team");
+    await click("Create team");
     await until(async () => Boolean(await flow.evaluate(`Boolean(document.querySelector("[role=dialog] input"))`)), 10_000, "Team name");
     await flow.evaluate(`(() => {
       const input = document.querySelector("[role=dialog] input");
@@ -104,7 +108,7 @@ export async function openNewBotDialog(flow: NewBotFlow): Promise<void> {
       input.dispatchEvent(new Event("input", { bubbles: true }));
       return input.value;
     })()`);
-    await flow.click("Create team");
+    await click("Create team");
     await until(async () => Boolean(await flow.evaluate(`Boolean(document.querySelector('[data-team-key="Desk"]'))`)), 12_000, "Desk team");
     team = "Desk";
   }
@@ -119,8 +123,8 @@ export async function openNewBotDialog(flow: NewBotFlow): Promise<void> {
   })()`);
   const move = `Move bots to ${team}`;
   await until(async () => (await flow.snapshot()).includes(move), 10_000, move);
-  await flow.click(move);
+  await click(move);
   await until(async () => (await flow.snapshot()).includes("New Bot"), 10_000, "New Bot");
-  await flow.click("New Bot");
+  await click("New Bot");
   await until(hasStartingRole, 12_000, "New Bot dialog");
 }

@@ -10,6 +10,7 @@ import { request } from "../mcp-server.ts";
 import { UI_TOOLS_DIR } from "./control-omb-ui.ts";
 import { jsLiteral } from "./js-literal.mjs";
 import { openNewBotDialog, openTemplatesCatalog } from "./compose-flow.ts";
+import { clickAccessible } from "./ui-click.ts";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const binary = resolveAgentBrowserBinary({ dataDir: UI_TOOLS_DIR, env: process.env });
@@ -39,15 +40,12 @@ describe("Preset bots in the real renderer", () => {
     }, { timeout: launchTimeout, interval: 250 }).toBe(true);
     const ui = (verb: string, ...args: string[]) => runControlOmb(["ui", verb, "--ui", info.ui, ...args]) as Promise<Record<string, any>>;
     const evaluate = async (js: string) => (await ui("eval", "--js", js)).result;
-    const click = (name: string) => ui("click", "--name", name).catch((error: Error) => { throw new Error(`clicking "${name}": ${error.message}`); });
-    // A panel or dialog that just closed can still cover the sidebar for a
-    // frame; agent-browser refuses a covered click without sending it, so
-    // retrying is safe.
-    const clickWhenFree = (name: string) => expect.poll(() => click(name).then(() => true, () => false), { timeout: 10_000 }).toBe(true);
+    const rawClick = (name: string) => ui("click", "--name", name).catch((error: Error) => { throw new Error(`clicking "${name}": ${error.message}`); });
+    const click = (name: string) => clickAccessible({ click: rawClick, evaluate }, name);
     const snapshot = async () => (await ui("snapshot")).snapshot as string;
     const api = (path: string, method = "GET", body?: unknown) => request(path, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }, info.url);
-    const catalog = { click: clickWhenFree, flag: (assignment: string) => ui("flag", "--set", assignment), snapshot };
-    const newBot = { click: clickWhenFree, evaluate, snapshot };
+    const catalog = { click, flag: (assignment: string) => ui("flag", "--set", assignment), snapshot };
+    const newBot = { click, evaluate, snapshot };
 
     // My New bot defaults: a name, words, a colour, a skill that is on, notes,
     // and things a preset must never carry (approval, connected apps).

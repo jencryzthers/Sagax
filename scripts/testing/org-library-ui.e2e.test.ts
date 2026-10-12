@@ -11,6 +11,7 @@ import { runControlOmb } from "../control-omb.ts";
 import { request } from "../mcp-server.ts";
 import { UI_TOOLS_DIR } from "./control-omb-ui.ts";
 import { openTemplatesCatalog } from "./compose-flow.ts";
+import { clickAccessible, openProfileAria } from "./ui-click.ts";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const FIXTURES = join(ROOT, "shared", "package-fixtures");
@@ -67,12 +68,13 @@ describe("the organization library in the real renderer", () => {
       try { info = JSON.parse(stdout); return Boolean(info.ui); } catch { return false; }
     }, { timeout: launchTimeout, interval: 250 }).toBe(true);
     const ui = (verb: string, ...args: string[]) => runControlOmb(["ui", verb, "--ui", info.ui, ...args]) as Promise<Record<string, any>>;
-    const click = (name: string) => ui("click", "--name", name);
+    const evaluate = async (js: string) => (await ui("eval", "--js", js)).result;
+    const rawClick = (name: string) => ui("click", "--name", name);
+    const click = (name: string) => clickAccessible({ click: rawClick, evaluate }, name);
     const press = (keys: string) => ui("press", "--keys", keys);
     const snapshot = async () => (await ui("snapshot")).snapshot as string;
     const api = (path: string, method = "GET", body?: unknown) => request(path, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }, info.url);
     const evidence = (name: string) => ui("screenshot", "--out", join(ROOT, ".omb-scratch", "verify-evidence", name));
-    const evaluate = async (js: string) => (await ui("eval", "--js", js)).result;
     const clickExact = async (label: string) => {
       const ok = await evaluate(`(() => {
         const btn = [...document.querySelectorAll("button")].find((b) => (b.textContent || "").trim() === ${JSON.stringify(label)});
@@ -150,8 +152,8 @@ describe("the organization library in the real renderer", () => {
     // bot first: after the catalog closes the header may still be on another bot.
     const deskBot = bots[0] as { id: string; name: string };
     await evaluate(`document.querySelector(${JSON.stringify(`[data-sidebar-bot-row="${deskBot.id}"]`)})?.click(); true`);
-    await expect.poll(snapshot, { timeout: 10_000 }).toContain(`Open ${deskBot.name} profile`);
-    await click(`Open ${deskBot.name} profile`);
+    await expect.poll(snapshot, { timeout: 10_000 }).toContain(openProfileAria(deskBot.name));
+    await click(openProfileAria(deskBot.name));
     await expect.poll(snapshot, { timeout: 10_000 }).toContain("From Sales desk 1.3.0 · Acme Partners");
     await click("Edit persona");
     await expect.poll(snapshot, { timeout: 10_000 }).toContain("Skills");

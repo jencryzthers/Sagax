@@ -10,6 +10,7 @@ import { BOT_ROLES } from "../../src/lib/bot-roles.ts";
 import { runControlOmb } from "../control-omb.ts";
 import { UI_TOOLS_DIR } from "./control-omb-ui.ts";
 import { openNewBotDialog } from "./compose-flow.ts";
+import { clickAccessible } from "./ui-click.ts";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const binary = resolveAgentBrowserBinary({ dataDir: UI_TOOLS_DIR, env: process.env });
@@ -50,18 +51,18 @@ describe("bot setup and tools in the real renderer", () => {
     }, { timeout: LAUNCH_TIMEOUT_MS + 120_000, interval: 250 }).toBe(true);
     const ui = (verb: string, ...args: string[]) => runControlOmb(["ui", verb, "--ui", info.ui, ...args]) as Promise<Record<string, any>>;
     const evaluate = async (js: string) => (await ui("eval", "--js", js)).result;
-    const click = (name: string) => ui("click", "--name", name);
-    const clickWhenFree = (name: string) => expect.poll(() => click(name).then(() => true, () => false), { timeout: 10_000 }).toBe(true);
+    const rawClick = (name: string) => ui("click", "--name", name);
+    const click = (name: string) => clickAccessible({ click: rawClick, evaluate }, name);
     const press = (keys: string) => ui("press", "--keys", keys);
     const bots = async (): Promise<SavedBot[]> => (await fetch(`${info.url}/api/bots`).then((response) => response.json())).bots;
     const snapshot = async () => (await ui("snapshot")).snapshot as string;
     const openPersona = async (section: string) => {
       await press("Escape");
-      await clickWhenFree("Open agent profile");
+      await click("Open agent profile");
       await expect.poll(snapshot, { timeout: 10_000 }).toContain("Edit persona");
-      await clickWhenFree("Edit persona");
+      await click("Edit persona");
       await expect.poll(snapshot, { timeout: 10_000 }).toContain(section);
-      await clickWhenFree(section);
+      await click(section);
     };
     const chooseRole = async (roleId: string) => {
       await expect.poll(snapshot, { timeout: 10_000 }).toContain("Starting role");
