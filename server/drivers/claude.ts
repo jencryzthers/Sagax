@@ -71,6 +71,12 @@ import {
   questionChoices,
   type AskQuestion,
 } from "../../shared/ask-question.ts";
+import {
+  ARTIFACT_HTML_MAX,
+  formatArtifactFence,
+  isArtifactTool,
+  parseArtifactPublish,
+} from "../../shared/claude-chat-blocks.ts";
 
 /** Whether `claude` has been signed in.
  *
@@ -998,6 +1004,22 @@ function firstText(content: unknown): string {
   return "";
 }
 
+/** Small HTML/SVG the Artifact tool wrote. Host paths never reach the
+ * transcript; the bytes ride a sibling ```widget fence. Anything else
+ * (missing file, huge file, non-HTML) is skipped. */
+function readArtifactHtml(filePath: string): string | undefined {
+  if (!isAbsolute(filePath) || filePath.includes("\0")) return undefined;
+  const lower = filePath.toLowerCase();
+  if (!lower.endsWith(".html") && !lower.endsWith(".htm") && !lower.endsWith(".svg")) return undefined;
+  try {
+    const html = readFileSync(filePath, "utf8");
+    if (html.length === 0 || html.length > ARTIFACT_HTML_MAX) return undefined;
+    return html;
+  } catch {
+    return undefined;
+  }
+}
+
 /** A turn's own cost from the CLI's total_cost_usd, which is not a per-turn
  * figure: it is "cumulative across turns in streaming-input sessions — each
  * result carries the running total so far" (2.1.282), and a retained process
@@ -1365,6 +1387,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       nativePermissionMode: string | null;
       /** launched with --replay-user-messages (see CLAUDE_REPLAY_FLOOR) */
       replaysUserMessages: boolean;
+      /** tool_use id → name, so an Artifact result can become a page card */
+      toolNames: Map<string, string>;
       /** the running turn, or null between turns */
       turn: {
         turnId: string;
@@ -2121,6 +2145,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         sawInit: false,
         nativePermissionMode: null,
         replaysUserMessages,
+        toolNames: new Map(),
         // A warm has no turn from the start, so a fast init cannot emit
         // under a phantom turn id.
         turn: turn.warmOnly === true ? null : { turnId, input: turn, retryAbort, settled: false, sawStreamDelta: false, pendingSteers: new Set(), deferred: null, continuationGrace: null, continuationSilence: null },
@@ -2349,6 +2374,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             }
             for (const b of Array.isArray(msg.content) ? msg.content : []) {
               if (b.type === "tool_use") {
+                if (typeof b.id === "string" && typeof b.name === "string") session.toolNames.set(b.id, b.name);
                 emit({
                   ...base(threadId, currentTurnId()),
                   type: "item.started",
@@ -2395,6 +2421,19 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 emit({ ...base(threadId, currentTurnId()), type: "item.completed", itemType: "tool", itemId: b.tool_use_id, ok: !b.is_error, output: toolDetailPreview(b.content) });
                 for (const img of extractMcpImages(b.content)) {
                   emit({ ...base(threadId, currentTurnId()), type: "item.completed", itemType: "assistant_image", data: img.data });
+                }
+                const toolName = typeof b.tool_use_id === "string" ? session.toolNames.get(b.tool_use_id) : undefined;
+                if (!b.is_error && isArtifactTool(toolName)) {
+                  const page = parseArtifactPublish(b.content);
+                  if (page) {
+                    const html = page.path ? readArtifactHtml(page.path) : undefined;
+                    emit({
+                      ...base(threadId, currentTurnId()),
+                      type: "item.completed",
+                      itemType: "assistant_text",
+                      text: formatArtifactFence({ ...page, path: undefined, ...(html ? { html } : {}) }),
+                    });
+                  }
                 }
               }
             }
