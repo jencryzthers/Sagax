@@ -10616,6 +10616,7 @@ bus.subscribe((event: RuntimeEvent) => {
       const verdict = permission && asker && event.requestId
         ? autoVerdict(adminApproval ? "ask" : effectiveApprovalMode, event.tool, {
           requiresExplicitApproval: event.requiresExplicitApproval,
+          sagaxGate: event.sagaxGate === true,
           commandAllowed: Boolean(command && commandAllowlist.matches(asker.id, command)),
         })
         : null;

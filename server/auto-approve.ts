@@ -159,6 +159,9 @@ export function autoVerdict(
     requiresExplicitApproval?: boolean;
     /** Exact bot/provider/folder/command match against the person's saved rules. */
     commandAllowed?: boolean;
+    /** A Sagax approval-gate card: the broker runs the call only on a
+     * person's allow, so an automatic answer would silently decline it. */
+    sagaxGate?: boolean;
   },
 ): AutoVerdict {
   // A question is for a person, whatever channel it arrived on — and
@@ -170,6 +173,7 @@ export function autoVerdict(
   // Full's promise is literal: even a sandbox widening is approved. Entering
   // Full is separately consent-gated by the bot PATCH endpoint, and the
   // request.opened caller invokes this for permissions only, never questions.
+  if (context?.sagaxGate) return { approve: null, source: mode === "auto" || mode === "custom" ? "native-approval" : "no-grant" };
   if (mode === "full") return { approve: `approved ${tool} (full access)`, source: "full-access" };
   if (context?.requiresExplicitApproval) return { approve: null, source: "explicit-approval-block" };
   if (isOutboundTool(tool)) return { approve: null, source: "outbound-guard" };
