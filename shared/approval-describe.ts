@@ -570,7 +570,7 @@ export function approvalAction(tool: string | undefined, input: string | undefin
     : described.action ?? composio ?? name.replace(/_+/g, " ");
   // Sagax's own built-in servers (sagax-environment, sagax-computer) are the
   // bot itself: "run a command", not "run a command in Sagax Environment"
-  const builtinServer = /^sagax-/.test(server);
+  const builtinServer = server.startsWith("sagax-");
   return described.product && !builtinServer ? words.t("approval.phrase.inProduct", { action, product: described.product }) : action;
 }
 
