@@ -28,14 +28,16 @@ import {
  * `owner`: the machine's owner (a desktop, a one-person headless server).
  * `service`: a shared server where every bot's shell is also a loopback
  * caller, so "local" no longer means "the owner". Loopback may then use
- * only SERVICE_ALLOW below: health, the Slack worker's guarded routes, the
- * bot capability routes and the reads those callers need. Every other route,
- * and every admin change, needs a real session. */
+ * only SERVICE_ALLOW below: health, who-am-I, edition, brand and the bot
+ * capability routes. The worker data plane needs the relay token
+ * (`WORKER_RELAY_ALLOW`). Every other route, and every admin change, needs
+ * a real session. */
 export type LoopbackTrust = "owner" | "service";
 
 export type RequestAuth =
   // `trust` is present only when reduced; an owner request looks as it always did.
-  | { kind: "loopback"; scopes: readonly Scope[]; trust?: "service" }
+  // `relay` is present only when the worker relay token opened a data-plane route.
+  | { kind: "loopback"; scopes: readonly Scope[]; trust?: "service"; relay?: "worker" }
   | { kind: "session"; session: SessionRecord; via: "bearer" | "cookie" | "ticket"; scopes: readonly Scope[] };
 
 export interface RequestAuthResult {
@@ -54,32 +56,28 @@ const SERVICE_SCOPES: readonly Scope[] = ["client"];
 /** What a `service`-trust loopback caller may reach, and nothing else:
  *
  * - liveness and identity: health, who-am-I, edition and brand;
- * - the cloud Slack worker (openmaus-cloud server/slack-worker.ts), which
- *   shares the workspace's network namespace and reads the bot list, a
- *   thread's messages and a bot's PNG picture, creates a thread, sends
- *   through the guarded route, watches and stops its exact request,
- *   withdraws a queued line, and declines a card (the handler refuses any
- *   other answer from this caller);
  * - the turn-scoped bot capability routes, whose own bearer token is the
  *   authorization (checked in the handler), and the test-only capability
  *   mint that exists only when its private key is set.
  *
- * Residual risk, not closed here: a bot's shell is a loopback caller too, so
- * it can do everything the worker does. It can post into any bot's thread
- * through the guarded route, including an existing Full-access thread
- * (`expectedApprovalMode: "full"`), and while the operator's shared Full
- * access is on it can open new Full-access threads; either way work runs with
- * Full access and no card, whoever asked the bot. It can also stop a request
- * and decline a card. It can no longer change settings, keys, instances, MCP
- * servers, webhooks, sessions, people, budgets or fleet, loosen a bot's
- * permissions, or approve anything. The planned fix is a relay token that only
- * the Slack worker holds, so these routes stop answering session-less
- * loopback at all. */
+ * The worker data plane (bot list, messages, attachments, new threads, the
+ * guarded send, the request fence, a queued line, a card decline) is not in
+ * this list. A bot's shell is the same session-less loopback caller. Those
+ * routes answer only when the request also presents the worker relay token
+ * (`WORKER_RELAY_ALLOW`). */
 export const SERVICE_ALLOW: ReadonlyArray<{ methods: readonly string[]; path: RegExp }> = [
   { methods: ["GET"], path: /^\/api\/health$/ },
   { methods: ["GET"], path: /^\/api\/auth\/session$/ },
   { methods: ["GET"], path: /^\/api\/edition$/ },
   { methods: ["GET"], path: /^\/api\/brand$/ },
+  { methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], path: /^\/api\/internal\// }, // capability bearer checked in the handler
+  { methods: ["POST"], path: /^\/api\/testing\/internal-capability$/ }, // exists only with its private key
+];
+
+/** Routes the hosted worker may use when it presents its relay token.
+ * A session-less loopback caller without that token may not. Admin routes
+ * stay closed even with the token. */
+export const WORKER_RELAY_ALLOW: ReadonlyArray<{ methods: readonly string[]; path: RegExp }> = [
   { methods: ["GET"], path: /^\/api\/bots$/ },
   { methods: ["GET"], path: /^\/api\/threads\/[\w-]+\/messages$/ },
   { methods: ["GET"], path: /^\/api\/attachments\/[\w.-]+$/ },
@@ -89,13 +87,35 @@ export const SERVICE_ALLOW: ReadonlyArray<{ methods: readonly string[]; path: Re
   { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/requests\/[\w-]+\/interrupt$/ },
   { methods: ["DELETE"], path: /^\/api\/bots\/[\w-]+\/queue\/[\w-]+$/ },
   { methods: ["POST"], path: /^\/api\/threads\/[\w-]+\/respond$/ }, // decline only: see the handler
-  { methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], path: /^\/api\/internal\// }, // capability bearer checked in the handler
-  { methods: ["POST"], path: /^\/api\/testing\/internal-capability$/ }, // exists only with its private key
 ];
 
-export function serviceAllowed(method: string, path: string): boolean {
+export const WORKER_RELAY_HEADER = "x-sagax-worker-relay";
+
+/** One line, 32 to 256 characters. A short value, a blank, or more than one
+ * line is ignored. The warning never includes the value. The caller removes
+ * the variable from the process environment so a child does not inherit it. */
+export function readWorkerRelayToken(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const raw = env.SAGAX_WORKER_RELAY_TOKEN;
+  if (raw === undefined || raw === "") return undefined;
+  const token = raw.trim();
+  if (raw.includes("\n") || raw.includes("\r") || token.length < 32 || token.length > 256) {
+    console.warn("local requests: SAGAX_WORKER_RELAY_TOKEN is ignored (one line, 32 to 256 characters)");
+    return undefined;
+  }
+  return token;
+}
+
+function ruleMatches(rules: ReadonlyArray<{ methods: readonly string[]; path: RegExp }>, method: string, path: string): boolean {
   const upper = method.toUpperCase();
-  return SERVICE_ALLOW.some((rule) => rule.methods.includes(upper) && rule.path.test(path));
+  return rules.some((rule) => rule.methods.includes(upper) && rule.path.test(path));
+}
+
+export function serviceAllowed(method: string, path: string): boolean {
+  return ruleMatches(SERVICE_ALLOW, method, path);
+}
+
+export function workerRelayAllowed(method: string, path: string): boolean {
+  return ruleMatches(WORKER_RELAY_ALLOW, method, path);
 }
 
 /** Pick the loopback trust for this process, and say why for the startup log.
@@ -772,6 +792,10 @@ export interface ResolveOptions {
    * environment, which the server's other children could read). It lets that
    * CLI, and nothing else, mint and list pairing codes. */
   cliOwnerToken?: string;
+  /** Under `service`: the worker relay token. It opens WORKER_RELAY_ALLOW
+   * and nothing else. A bot's shell does not have it. Absent means those
+   * routes stay closed. */
+  workerRelayToken?: string;
   /** Organization server (2026-10-09): whether this session's person holds
    * a permission, for the admin-scope routes PERMISSION_ROUTES opens. */
   permits?: (session: SessionRecord, permission: PermissionKey) => boolean;
@@ -899,6 +923,13 @@ export function resolveRequestAuth(req: IncomingMessage, options: ResolveOptions
       }
       // On a shared server "local" includes every bot's shell. Default deny:
       // only the service routes, never an admin change, without a session.
+      if (
+        options.workerRelayToken &&
+        secureTokenMatch(headerValue(req.headers[WORKER_RELAY_HEADER]), options.workerRelayToken) &&
+        workerRelayAllowed(method, path)
+      ) {
+        return { auth: { kind: "loopback", scopes: SERVICE_SCOPES, trust: "service", relay: "worker" }, status: 401, error: "" };
+      }
       if (!serviceAllowed(method, path)) {
         return deny(403, "forbidden: on this shared server a local request without a session may only use the service routes; sign in to change settings, people or access");
       }
