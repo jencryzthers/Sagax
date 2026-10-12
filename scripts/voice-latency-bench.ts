@@ -131,9 +131,9 @@ export function spokenPcm(text: string, voice?: string): Float32Array {
   const aiff = join(dir, "q.aiff");
   const wav = join(dir, "q.wav");
   const args = voice ? ["-v", voice, "-o", aiff, text] : ["-o", aiff, text];
-  const said = spawnSync("say", args, { stdio: "ignore" });
+  const said = spawnSync("say", args, { stdio: "ignore", timeout: 20_000 });
   if (said.status !== 0) throw new Error("say failed to record the question");
-  const converted = spawnSync("afconvert", ["-f", "WAVE", "-d", "LEI16@16000", aiff, wav], { stdio: "ignore" });
+  const converted = spawnSync("afconvert", ["-f", "WAVE", "-d", "LEI16@16000", aiff, wav], { stdio: "ignore", timeout: 15_000 });
   if (converted.status !== 0 || !existsSync(wav)) throw new Error("afconvert failed");
   return readWavPcm16(wav);
 }
@@ -180,6 +180,9 @@ export interface BenchTurn {
 /** How long a person takes per word (about three words a second). */
 const WORD_MS = 330;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+const benchLog = (line: string) => {
+  process.stderr.write(`[voice-bench] ${line}\n`);
+};
 
 /** A player with a clock instead of a sound card: a sentence plays from its
  * first chunk (15 ms scheduling, as PcmPlayer) for as long as its PCM lasts. */
@@ -547,11 +550,16 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
       }
     })().catch(() => {});
 
+    const spoken = real ? transcripts.map((q, i) => {
+      benchLog(`say ${i + 1}/${transcripts.length} ${q.lang}`);
+      return pcmFrames(spokenPcm(q.text, q.lang === "fr" ? BENCH_SAY_VOICE_FR : undefined));
+    }) : [];
     const started = performance.now();
     await live.start();
     diag.startMs = Math.round(performance.now() - started);
     diag.streaming = transcriber.streaming;
     if (speechSocket) diag.speechReady = await speechSocket.connect();
+    benchLog(`start streaming=${diag.streaming} speechReady=${diag.speechReady}`);
     await sleep(300);
     // the microphone: real-time 32 ms frames, speech then silence
     let speaking = false;
@@ -566,17 +574,23 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
         else live.frame(speaking ? voicedFrame(speakUntil - performance.now()) : frame(0.03, 0.001));
       }
     })();
-    const spoken = real ? transcripts.map((q) => pcmFrames(spokenPcm(q.text, q.lang === "fr" ? BENCH_SAY_VOICE_FR : undefined))) : [];
     for (let turn = 1; turn <= turns; turn++) {
       current = { text: "" };
       metrics = {};
+      const q = transcripts[turn - 1]!;
+      benchLog(`turn ${turn}/${turns} ${q.lang} begin`);
       const establishedBefore = acpMethods(acpLog).filter((method) => ESTABLISH.has(method)).length;
       if (real) {
         pendingFrames = [...spoken[turn - 1]!];
-        while (pendingFrames.length) await sleep(32);
+        const drainUntil = performance.now() + Math.max(8_000, pendingFrames.length * 32 + 2_000);
+        while (pendingFrames.length && performance.now() < drainUntil) await sleep(32);
+        if (pendingFrames.length) {
+          benchLog(`turn ${turn} leftover frames ${pendingFrames.length}`);
+          pendingFrames = [];
+        }
         await sleep(800);
       } else {
-        const speakMs = transcripts[turn - 1]!.text.split(/\s+/).length * WORD_MS;
+        const speakMs = q.text.split(/\s+/).length * WORD_MS;
         speakUntil = performance.now() + speakMs;
         speaking = true;
         await sleep(speakMs);
@@ -584,6 +598,7 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
       }
       const deadline = performance.now() + (real ? 45_000 : 20_000);
       while (metrics.firstAudioAt === undefined && performance.now() < deadline) await sleep(20);
+      benchLog(`turn ${turn} firstAudio=${metrics.firstAudioAt !== undefined} utterances=${diag.utterances.length}`);
       const m = metrics as Record<string, number | undefined> & { earlyEnd?: boolean; contourEnd?: boolean; streamed?: boolean; earlyStart?: boolean; reissued?: boolean };
       // over the socket, the call's own first-bytes mark (the POST wrapper above sees nothing)
       current.ttsFirstByte ??= m.ttsFirstByteAt;
@@ -612,8 +627,11 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
         ...(engine === "grok" && !real ? { establish: acpMethods(acpLog).filter((method) => ESTABLISH.has(method)).length - establishedBefore } : {}),
       });
       // the answer plays out, then the person thinks a moment
-      while (live.player.busy || live.current.botBusy) await sleep(50);
+      const idleUntil = performance.now() + 8_000;
+      while ((live.player.busy || live.current.botBusy) && performance.now() < idleUntil) await sleep(50);
       await sleep(1_600);
+      const last = results.at(-1);
+      benchLog(`turn ${turn} total=${last?.total ?? "none"} endpoint=${last?.endpoint ?? "none"}`);
     }
     stopMic = true;
     await mic;
