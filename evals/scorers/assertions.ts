@@ -17,6 +17,14 @@ const fmt = (value: unknown): string => JSON.stringify(value, null, 2);
 
 /** Only a leading Claude update wrapped around captured raw user input is
  * an instruction surface. User copies and unproven inputs fail closed. */
+// Sagax starts each turn's user text with a "[Current time: ...]" note (server/turn-clock.ts).
+function withoutTurnClock(suffix: string): string {
+  const marker = "\n\n[Current time:";
+  if (!suffix.startsWith(marker)) return suffix;
+  const end = suffix.indexOf("]\n\n", marker.length);
+  return end === -1 ? suffix : "\n\n" + suffix.slice(end + 3);
+}
+
 function volatileInstructions(prompt: string, messages: WorldSnapshot["threads"][string]): string {
   try {
     const envelope = JSON.parse(prompt) as { type?: string; message?: { role?: string; content?: unknown } };
@@ -28,7 +36,7 @@ function volatileInstructions(prompt: string, messages: WorldSnapshot["threads"]
     const closing = "\n</system-reminder>";
     const end = content.indexOf(closing, prefix.length);
     if (end === -1) return "";
-    const suffix = content.slice(end + closing.length);
+    const suffix = withoutTurnClock(content.slice(end + closing.length));
     if (!messages.some(message => message.role === "user" && typeof message.text === "string" && suffix === "\n\n" + message.text)) return "";
     return content.slice(prefix.length, end);
   } catch {
