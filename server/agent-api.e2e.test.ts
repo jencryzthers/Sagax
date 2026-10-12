@@ -165,13 +165,20 @@ describe("agent-to-agent API (real server)", () => {
     expect(deep.status).toBe(409);
     expect(deep.body.code).toBe("too_deep");
 
-    // every call audited, never the prompt text
+    // every call audited, never the prompt text (the log is appended
+    // asynchronously, so read it until the last calls landed)
     const dir = join(data, "admin-activity");
-    const rows = readdirSync(dir).flatMap((file) => readFileSync(join(dir, file), "utf8").trim().split("\n").map((line) => JSON.parse(line)));
-    const agentRows = rows.filter((row) => String(row.action).startsWith("agents."));
-    expect(agentRows.map((row) => row.action)).toEqual(expect.arrayContaining([
-      "agents.list_agents", "agents.find_agents", "agents.send_prompt", "agents.await_turn", "agents.read_latest_page", "agents.read_transcript_cold", "agents.create_agent",
-    ]));
+    const readRows = () => {
+      try {
+        return readdirSync(dir).flatMap((file) => readFileSync(join(dir, file), "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)))
+          .filter((row) => String(row.action).startsWith("agents."));
+      } catch {
+        return [];
+      }
+    };
+    const expected = ["agents.list_agents", "agents.find_agents", "agents.send_prompt", "agents.await_turn", "agents.read_latest_page", "agents.read_transcript_cold", "agents.create_agent"];
+    await expect.poll(() => readRows().map((row) => row.action), { timeout: 15_000 }).toEqual(expect.arrayContaining(expected));
+    const agentRows = readRows();
     expect(agentRows.find((row) => row.action === "agents.send_prompt" && row.after.outcome === "ok").after).toMatchObject({ mode: "async", callerBotId: alpha.id, threadId });
     expect(JSON.stringify(agentRows)).not.toContain("Monday schedule");
   }, 90_000);

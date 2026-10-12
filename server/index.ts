@@ -814,6 +814,7 @@ import { OidcRelyingParty } from "./oidc-rp.ts";
 import type { BotAttachment, BotFileRoot } from "./org-admin-files.ts";
 import { ADMIN_ACTIVITY_CATEGORIES } from "./admin-activity.ts";
 import { createOrgMemberRoutes, type MemberPerson, type MemberRequest } from "./org-member-routes.ts";
+import { internalAgentApiTool } from "./routes/agent-api-internal.ts";
 import { createAgentApi, refuse as agentRefuse, SEND_FILE_MAX_BYTES as AGENT_SEND_FILE_MAX_BYTES, type AgentCaller, type AgentScope, type AgentSummary, type AuditEntry, type FileInput, type Refusal, type TurnState } from "./agent-api.ts";
 import { planHiddenAgentThreads } from "./agent-threads.ts";
 import { MemberLiveText } from "./member-live-text.ts";
@@ -26764,8 +26765,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       });
       // The agent-to-agent API (server/agent-api.ts): the bot is the caller,
       // reaching the peers its team and allow-list let it reach.
-      const agentApiMatch = method === "POST" ? /^\/api\/internal\/agent-api\/([a-z_]{1,40})$/.exec(path) : null;
-      if (agentApiMatch) {
+      const agentApiTool = internalAgentApiTool(method, path);
+      if (agentApiTool) {
         const body = await readInternalBody();
         if (!connectorThread(internalSender.id, internalCapability.threadId)) {
           return json(res, 403, { error: "source conversation does not belong to sender" });
@@ -26780,7 +26781,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           via: "agents-mcp",
           sourceThreadId: internalCapability.threadId,
           depth: internalCapability.depth,
-        }, agentApiMatch[1]!, body ?? {}, aborted.signal);
+        }, agentApiTool, body ?? {}, aborted.signal);
         return json(res, answer.status, answer.body);
       }
       if (path === "/api/internal/act" && method === "POST") {
