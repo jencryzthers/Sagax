@@ -10813,7 +10813,9 @@ bus.subscribe((event: RuntimeEvent) => {
               card: {
                 ...existing.card,
                 answered: event.behavior,
-                dismissed: isPersistentQuestionCard(existing.card) ? false : event.source !== "user",
+                dismissed: isPersistentQuestionCard(existing.card) ? false : event.source !== "user" && event.source !== "timeout",
+                // nobody answered in time: the pill reads Expired, not Declined
+                ...(event.source === "timeout" ? { expired: true, options: [] } : {}),
               },
             });
           }
