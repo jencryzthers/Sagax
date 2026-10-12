@@ -46,7 +46,9 @@ while it flies, sleeps, dangles while dragged, works, talks while the reply
 streams and sits up attentive while its bot waits. Desktop cues: a bark for a
 nudge, circles for an achievement, excited when a message lands, lying down
 before a snooze. The bark is heard only when the person turns the bark sound
-on (Settings > Appearance, off by default).
+on (Settings > Appearance, off by default). Turn in circles is the owl's
+in-place turn four times (hop plus squash-mirror, `Owl25D.flatTurn`), never a
+depth spin of the flat drawing, then it sits.
 
 ## Grump
 

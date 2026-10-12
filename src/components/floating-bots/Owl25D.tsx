@@ -25,6 +25,9 @@ import {
 import { owlSkinId, owlSkinLook, owlSkinPalette } from "@/lib/owl/owl-skins";
 import { OwlSkinBack, OwlSkinDefs, OwlSkinEyeGlow, OwlSkinFront, OwlSkinPlumage, OwlSkinWing } from "@/components/OwlSkinFx";
 import { createFrameSmoother, type MascotFrame } from "./behavior";
+import { flatTilt, flatTurn } from "./flat-turn";
+
+export { FLAT_MIN_WIDTH, FLAT_TILT_MAX, flatTilt, flatTurn } from "./flat-turn";
 
 export interface Owl25DProps {
   color: string;
@@ -43,23 +46,6 @@ const DEG = 180 / Math.PI;
 
 /** The transforms of one frame, as CSS strings: pure, so it can be tested. */
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
-/** A flat drawing tilts at most this much (degrees): more reads as a sheet of paper. */
-export const FLAT_TILT_MAX = 15;
-
-/**
- * A flat character never turns in depth (it would show a paper-thin edge).
- * It only faces the other way, when it walks the other way: a quick swap at
- * the bottom of a squash, never narrower than FLAT_MIN_WIDTH of itself.
- */
-export const FLAT_MIN_WIDTH = 0.82;
-export function flatTurn(face: number | undefined): { sx: number; sy: number; lift: number } {
-  const f = Math.min(1, Math.max(-1, face ?? 1));
-  const k = Math.abs(f);
-  const side = f >= 0 ? 1 : -1;
-  return { sx: side * (FLAT_MIN_WIDTH + (1 - FLAT_MIN_WIDTH) * k), sy: 1 - 0.12 * (1 - k), lift: (1 - k) * 0.06 };
-}
-
-export const flatTilt = (deg: number) => Math.min(FLAT_TILT_MAX, Math.max(-FLAT_TILT_MAX, deg));
 
 export function owl25dTransforms(frame: MascotFrame) {
   const lift = frame.y * UNIT;
