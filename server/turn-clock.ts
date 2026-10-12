@@ -4,9 +4,9 @@
 //
 // Zone, first set wins: the speaker's own (Settings > Bot, per person on an
 // organization server), the bot owner's, the server's, the host's.
-export function turnTimeZone(input: { speaker?: string | null; owner?: string | null; server?: string | null; host: string }): string {
-  for (const zone of [input.speaker, input.owner, input.server, input.host]) if (zone && isTimeZone(zone)) return zone;
-  return "UTC";
+export function turnTimeZone(input: { speaker?: string | null; owner?: string | null; server?: string | null }): string | null {
+  for (const zone of [input.speaker, input.owner, input.server]) if (zone && isTimeZone(zone)) return zone;
+  return null;
 }
 
 function isTimeZone(zone: string): boolean {
@@ -29,6 +29,11 @@ export function zonedNow(now: Date, timeZone: string): { text: string; offset: s
 }
 
 export const TURN_CLOCK_MARKER = "[Current time:";
+
+/** SAGAX_TURN_CLOCK=off leaves turns without the clock note (the test suite's fake engines echo prompts verbatim). */
+export function turnClockEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.SAGAX_TURN_CLOCK?.trim().toLowerCase() !== "off";
+}
 
 /** One line put before the turn's text. */
 export function turnClockNote(now: Date, timeZone: string): string {

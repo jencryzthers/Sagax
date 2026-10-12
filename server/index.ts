@@ -768,7 +768,7 @@ import { PERSONAL_STDIO_TOOL_SERVER } from "./user-sandbox-proxy.ts";
 import { PLUGIN_CATALOG } from "../shared/plugin-catalog.ts";
 import { diskSpace, folderBytes } from "./disk-usage.ts";
 import { autoReviewThreadMode, createBotSettingsStore, hostTimeZone } from "./bot-settings.ts";
-import { turnTimeZone, withTurnClock } from "./turn-clock.ts";
+import { turnClockEnabled, turnTimeZone, withTurnClock } from "./turn-clock.ts";
 import { createComputerInputRoutes, createVmScreenshotRoute } from "./routes/computer-input.ts";
 import { createUserPreferenceRoutes } from "./routes/user-preferences.ts";
 import { createUserPreferenceStore, preferencesFrameAllowed, type PersonPreferences } from "./user-preferences.ts";
@@ -13523,7 +13523,8 @@ async function startTurn(
   providerText = withWorkplaceNote(placedText.text, turnPlace, turnAuto);
   // The engine's container runs in UTC: tell it the time where its person is
   // (server/turn-clock.ts), so times are said in their zone.
-  if (!opts.cardContinuation) providerText = withTurnClock(providerText, new Date(), turnZoneFor(bot, speaker));
+  const clockZone = opts.cardContinuation || !turnClockEnabled() ? null : turnZoneFor(bot, speaker);
+  if (clockZone) providerText = withTurnClock(providerText, new Date(), clockZone);
   // A compaction summarizes with the bot's engine too, so it is gated like
   // a turn, and so is a fresh delegated turn (a hop, as ask_bot's is); other
   // card continuations resume a turn already admitted.
@@ -20247,14 +20248,15 @@ function peerOwnerPrincipal(speaker: TurnSpeaker): string | undefined {
 }
 /** The principal a turn on `bot` speaks for ("" for an unknown person). */
 /** The zone a turn's clock is told in (server/turn-clock.ts). */
-function turnZoneFor(bot: { ownerUserId?: unknown }, speaker: TurnSpeaker): string {
+// The zone someone set for the speaker, the owner or the server; null when none
+// is set (the engine already sees the host clock, so no note is added then).
+function turnZoneFor(bot: { ownerUserId?: unknown }, speaker: TurnSpeaker): string | null {
   const personZone = (principal: string | null | undefined) => (principal && isPrincipalId(principal) ? botSettings.person(principal).timeZone : null);
   const owner = effectiveBotOwner(bot);
   return turnTimeZone({
     speaker: IDENTITY.kind === "perspicax" ? personZone(orgSpeakerPrincipal(bot, speaker)) : null,
     owner: IDENTITY.kind === "perspicax" ? personZone(owner.trim().toLowerCase()) : null,
     server: botSettings.server().timeZone,
-    host: hostTimeZone(),
   });
 }
 function orgSpeakerPrincipal(bot: { ownerUserId?: unknown }, speaker: TurnSpeaker): string {

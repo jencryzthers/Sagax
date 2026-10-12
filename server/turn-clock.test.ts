@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { TURN_CLOCK_MARKER, turnClockNote, turnTimeZone, withTurnClock, zonedNow } from "./turn-clock.ts";
+import { TURN_CLOCK_MARKER, turnClockEnabled, turnClockNote, turnTimeZone, withTurnClock, zonedNow } from "./turn-clock.ts";
 
 describe("turn clock", () => {
   // 2026-10-12T01:40:00Z is Sunday Oct 11, 9:40 PM in Toronto (EDT)
@@ -17,16 +17,23 @@ describe("turn clock", () => {
     expect(note).toContain("convert UTC");
   });
 
-  it("picks the speaker's zone, then the owner's, the server's, the host's; skips invalid zones", () => {
-    expect(turnTimeZone({ speaker: "America/Toronto", owner: "Europe/Paris", server: "Asia/Tokyo", host: "UTC" })).toBe("America/Toronto");
-    expect(turnTimeZone({ speaker: null, owner: "Europe/Paris", server: "Asia/Tokyo", host: "UTC" })).toBe("Europe/Paris");
-    expect(turnTimeZone({ speaker: "Not/AZone", owner: null, server: null, host: "UTC" })).toBe("UTC");
-    expect(turnTimeZone({ host: "" })).toBe("UTC");
+  it("picks the speaker's zone, then the owner's, then the server's; none set means no note", () => {
+    expect(turnTimeZone({ speaker: "America/Toronto", owner: "Europe/Paris", server: "Asia/Tokyo" })).toBe("America/Toronto");
+    expect(turnTimeZone({ speaker: null, owner: "Europe/Paris", server: "Asia/Tokyo" })).toBe("Europe/Paris");
+    expect(turnTimeZone({ speaker: "Not/AZone", owner: null, server: "Asia/Tokyo" })).toBe("Asia/Tokyo");
+    expect(turnTimeZone({ speaker: "Not/AZone", owner: null, server: null })).toBeNull();
+    expect(turnTimeZone({})).toBeNull();
   });
 
   it("is put once before the turn's text", () => {
     const once = withTurnClock("Bonjour", at, "America/Toronto");
     expect(once.endsWith("\n\nBonjour")).toBe(true);
     expect(withTurnClock(once, at, "America/Toronto")).toBe(once);
+  });
+
+  it("is on unless SAGAX_TURN_CLOCK=off", () => {
+    expect(turnClockEnabled({})).toBe(true);
+    expect(turnClockEnabled({ SAGAX_TURN_CLOCK: "on" })).toBe(true);
+    expect(turnClockEnabled({ SAGAX_TURN_CLOCK: " OFF " })).toBe(false);
   });
 });
