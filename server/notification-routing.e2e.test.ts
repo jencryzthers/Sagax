@@ -128,6 +128,14 @@ beforeAll(async () => {
       },
       // stops mid-turn to ask the person a question no rule may answer —
       // the card that has to reach a human even from a peer's turn
+      // asks before running a command: the approval an AI client's hidden
+      // conversation must still bring to the person
+      asking: {
+        driver: "grokAgent",
+        displayName: "Asking fixture",
+        environment: { FAKE_ACP_MODE: "permission" },
+        config: { cli: FAKE_ACP },
+      },
       curious: {
         driver: "grokAgent",
         displayName: "Curious fixture",
@@ -150,6 +158,8 @@ beforeAll(async () => {
       // the question-card test leaves its peer turn open on purpose; keep the
       // synchronous ask from parking for the production four minutes
       SAGAX_ASK_BOT_TIMEOUT_MS: "6000",
+      // a hidden conversation's approval expires; seconds here, not minutes
+      SAGAX_HIDDEN_APPROVAL_TTL_MS: "4000",
       SAGAX_TEST_INTERNAL_CAPABILITY_KEY: TEST_CAPABILITY_KEY,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -557,6 +567,89 @@ describe("bot-to-bot coordination is recorded, not announced", () => {
       await api("POST", `/api/bots/${peer.id}/interrupt`, {}).catch(() => undefined);
       await asking.catch(() => undefined);
       await cleanup([channelId], [asker.id, peer.id]);
+    }
+  }, 45_000);
+});
+
+describe("an approval in an AI client's hidden conversation", () => {
+  const openCard = (bot: any) => bot?.messages?.findLast?.(
+    (message: { kind: string; card?: { requestId?: string } }) => message.kind === "options" && Boolean(message.card?.requestId),
+  )?.card;
+  const hiddenThread = async (botId: string) => {
+    const created = await api("POST", `/api/bots/${botId}/tasks`, { hidden: true, approvalMode: "ask", title: "AI client" });
+    expect(created.status).toBe(201);
+    expect(created.body.task.hidden).toBe(true);
+    return created.body.task.threadId as string;
+  };
+  const threadMessages = async (threadId: string) =>
+    (await api("GET", `/api/threads/${threadId}/messages?limit=40`)).body;
+
+  it("reaches the person in plain words, and is declined when nobody answers", async () => {
+    const bot = await createBot("Warden", "asking", "grok-4.6");
+    const threadId = await hiddenThread(bot.id);
+    const stream = await openSse(`${base}/api/events`);
+    try {
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "run it", threadId })).status).toBe(202);
+      const frame = await stream.until(
+        (candidate) => candidate.kind === "notify" && candidate.notification?.botId === bot.id && candidate.notification?.kind === "approval",
+        20_000,
+      );
+      // the same words as the card: who, and what it would allow
+      expect(frame.notification.threadId).toBe(threadId);
+      expect(frame.notification.title).toMatch(/^Allow Warden to .+\?$/);
+      expect(frame.notification.body).toBeTruthy();
+      expect(`${frame.notification.title} ${frame.notification.body}`).not.toMatch(/__|mcp__|\{"/);
+      expect(frame.notification.requestId).toBeTruthy();
+      const requestId = frame.notification.requestId;
+      // nobody answers: the server declines it, takes the banner down, logs why
+      const withdrawn = await stream.until(
+        (candidate) => candidate.kind === "notify-withdraw" && candidate.requestId === requestId,
+        20_000,
+      );
+      expect(withdrawn.threadId).toBe(threadId);
+      await expect.poll(async () => {
+        const decisions = (await api("GET", "/api/decisions")).body.decisions as Array<{ requestId?: string; decision: string; source: string }>;
+        return decisions.find((row) => row.requestId === requestId && row.source === "expired")?.decision;
+      }, { timeout: 10_000 }).toBe("auto-denied");
+      await expect.poll(async () => {
+        const messages = await threadMessages(threadId);
+        const list = Array.isArray(messages) ? messages : messages?.messages ?? [];
+        const card = list.find((message: { card?: { requestId?: string } }) => message.card?.requestId === requestId)?.card;
+        return card ? { expired: card.expired, plain: Boolean(card.plain?.title), expiresAt: typeof card.expiresAt } : null;
+      }, { timeout: 10_000 }).toEqual({ expired: true, plain: true, expiresAt: "number" });
+    } finally {
+      stream.close();
+      await cleanup([], [bot.id]);
+    }
+  }, 45_000);
+
+  it("is withdrawn on every client once it is answered anywhere", async () => {
+    const bot = await createBot("Keeper", "asking", "grok-4.6");
+    const stream = await openSse(`${base}/api/events`);
+    try {
+      // the person's own chat: approvals there buzz too, with the plain title
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "run it" })).status).toBe(202);
+      const frame = await stream.until(
+        (candidate) => candidate.kind === "notify" && candidate.notification?.botId === bot.id && candidate.notification?.kind === "approval",
+        20_000,
+      );
+      expect(frame.notification.title).toMatch(/^Allow Keeper to .+\?$/);
+      const requestId = frame.notification.requestId;
+      expect(requestId).toBeTruthy();
+      const answered = await api("POST", `/api/bots/${bot.id}/respond`, { requestId, behavior: "deny" });
+      expect(answered.status).toBe(200);
+      const withdrawn = await stream.until(
+        (candidate) => candidate.kind === "notify-withdraw" && candidate.requestId === requestId,
+        20_000,
+      );
+      expect(withdrawn.threadId).toBe(bot.threadId);
+      // answered, not expired: a person's decline is not a timeout
+      const card = openCard(await botState(bot.id));
+      expect(card?.expired).toBeFalsy();
+      expect(card?.expiresAt).toBeUndefined();
+    } finally {
+      stream.close();
+      await cleanup([], [bot.id]);
     }
   }, 45_000);
 });
