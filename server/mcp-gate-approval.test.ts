@@ -46,7 +46,7 @@ const WRITE_TOOLS = [
   "cw_psa__write", "cw_psa__action", "cw_psa__update_ticket", "cw_psa__log_time", "cw_psa__book_schedule_entry",
   "memory_write", "memory_forget", "memory_promote", "memory_propose", "memory_feedback",
   "sagax_send", "sagax_approve", "sagax_nudge", "sagax_routine_run",
-  "flow", "flow_action", "ask_person", "api_upload",
+  "flow_action", "ask_person", "api_upload",
   "run_command", "shell", "write_file", "edit_file", "delete_file",
   "create_bot", "send_message", "delegate", "workspace_write",
   "computer_select", "a_brand_new_tool",
