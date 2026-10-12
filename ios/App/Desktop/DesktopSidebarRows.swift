@@ -2,8 +2,8 @@
 // `SidebarThreadRow` and the pinned tiles in Sidebar.tsx), per density:
 //
 // - comfortable: 259 x 54 (py 8), avatar 36 at x 16, the name 14/20 medium
-//   at x 60 with the title chip (11/16 medium, 18 tall, at most 46 % of the
-//   line), the preview 13/18 under it; 36 pt kept on the right for "⋯".
+//   at x 60 (no title chip: the title is read out with the name), the
+//   preview 13/18 under it; 36 pt kept on the right for "⋯".
 // - compact: 259 x 40 (py 6), avatar 28, the name only (the quiet rows).
 // - icons: 63 x 48 (py 6), the avatar 36 centred; a group 52 tall.
 //
@@ -40,7 +40,8 @@ extension Chat {
 // MARK: - Pinned tiles
 
 /// 80 x 128 tiles, 8 pt apart and centred (12 between lines): a 72 pt
-/// mascot, the name 11/16, the title badge 10/16. In the rail, one column
+/// mascot, the name 11/16, the title pill 10/16; the selected one a 16 pt
+/// filled card. In the rail, one column
 /// of 80 x 46 tiles with a 36 pt avatar.
 struct DesktopPinnedTiles: View {
     @Environment(\.desktopTheme) private var theme
@@ -96,7 +97,7 @@ struct DesktopPinnedTile: View {
                                  color: theme.sidebarInk, lineHeight: 16, tracking: 0.055, centered: true)
                         .frame(width: 72, height: 16)
                     if let title = chat.desktopTitle {
-                        DesktopTitleChip(text: title, size: 10, maxWidth: 72, alignment: .center)
+                        DesktopTitleChip(text: title)
                             .offset(y: -0.5)
                     }
                 }
@@ -106,7 +107,8 @@ struct DesktopPinnedTile: View {
             .frame(width: 80, alignment: .top)
             .background(
                 selected ? theme.sidebarSelected : (hovering ? theme.sidebarHover : .clear),
-                in: RoundedRectangle(cornerRadius: theme.radiusXl, style: .continuous)
+                // rounded-2xl: the selected tile is a 16 pt card
+                in: RoundedRectangle(cornerRadius: rail ? theme.radiusXl : 16, style: .continuous)
             )
             .contentShape(Rectangle())
         }
@@ -127,23 +129,20 @@ struct DesktopPinnedTile: View {
     }
 }
 
-/// The title badge after a name (rows, 11 medium) or under it (tiles, 10).
+/// The title under a pinned tile's name: a small filled pill (10, no
+/// outline; LabelTag size "small", rounded-full px-2). Rows draw no title.
 struct DesktopTitleChip: View {
     @Environment(\.desktopTheme) private var theme
     let text: String
-    var size: CGFloat = 11
-    var maxWidth: CGFloat = 79
-    /// A tile centres its badge; a row's follows the name.
-    var alignment: Alignment = .leading
+    var size: CGFloat = 10
+    var maxWidth: CGFloat = 72
+    var alignment: Alignment = .center
 
     var body: some View {
-        DesktopLineText(text: text, size: size, weight: size >= 11 ? .medium : .regular,
-                     color: theme.sidebarInkSecondary, lineHeight: 16)
-            // px-1.5 inside the 1 pt border
-            .padding(.horizontal, 7)
-            .frame(height: 18)
-            .background(theme.sidebarHover, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(theme.sidebarHairline, lineWidth: 1))
+        DesktopLineText(text: text, size: size, color: theme.sidebarInkSecondary, lineHeight: 16)
+            .padding(.horizontal, 8)
+            .frame(height: 16)
+            .background(theme.sidebarHover, in: Capsule())
             .frame(maxWidth: maxWidth, alignment: alignment)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -277,9 +276,6 @@ struct DesktopSidebarRow: View {
                     DesktopLineText(text: PeopleDirectory.shared.name(chat, session: session), size: 14,
                                  weight: selected ? .semibold : .medium, color: theme.sidebarInk, lineHeight: 20)
                         .layoutPriority(2)
-                    if !compact, let title = chat.desktopTitle {
-                        DesktopTitleChip(text: title, maxWidth: titleMaxWidth(leading: leading, avatar: avatarSize))
-                    }
                     Spacer(minLength: 0)
                     if selected, !threadsOpen, !hovered, let time = lastTime {
                         Text(verbatim: time)
@@ -326,11 +322,6 @@ struct DesktopSidebarRow: View {
     }
 
     /// `max-w-[46%]` of the name line.
-    private func titleMaxWidth(leading: CGFloat, avatar: CGFloat) -> CGFloat {
-        let row = model.sidebarWidth - 21
-        return max(40, (row - leading - avatar - 8 - 36) * 0.46)
-    }
-
     private var lastTime: String? {
         guard let at = session.state.visibleTranscript(forThread: chat.threadId).last?.at, at > 0 else { return nil }
         return Date(timeIntervalSince1970: at / 1000).formatted(date: .omitted, time: .shortened)
@@ -338,6 +329,9 @@ struct DesktopSidebarRow: View {
 
     private var accessibilityName: String {
         var name = PeopleDirectory.shared.name(chat, session: session)
+        // the row does not draw the title (Sidebar.tsx, as upstream): it is
+        // read out with the name
+        if let title = chat.desktopTitle { name += ", " + title }
         if chat.unread { name += ", " + String(localized: "Unread") }
         return name
     }

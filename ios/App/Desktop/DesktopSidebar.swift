@@ -185,7 +185,7 @@ struct DesktopNewButton: View {
 
     var body: some View {
         GeometryReader { geometry in
-            DesktopHeadButton(icon: .squarePen, label: "New", id: "desktop-sidebar-new") {
+            DesktopHeadButton(icon: .plus, label: "New", id: "desktop-sidebar-new") {
                 let frame = geometry.frame(in: .named(desktopShellSpace))
                 model.menu = model.menu?.kind == .new
                     ? nil
@@ -325,8 +325,8 @@ enum DesktopSidebarSections {
 
 // MARK: - Section
 
-/// A section: its header (11/16 medium, uppercase, tracking 0.44, a 16 pt
-/// chevron) and, unless folded, its rows. The rail draws rows only. A row
+/// A section: its header (15/20 regular, sentence case, no chevron, like
+/// SidebarSectionHeader.tsx) and, unless folded, its rows. The rail draws rows only. A row
 /// dropped here files it in this section, a header dropped here moves that
 /// section before or after this one (DD1).
 struct DesktopSidebarSection: View {
@@ -410,16 +410,14 @@ struct DesktopSectionHeader: View {
             withAnimation(.snappy(duration: 0.2)) { prefs.toggleCollapsed(session, section.id) }
         } label: {
             HStack(spacing: 8) {
-                DesktopLineText(text: section.title.uppercased(), size: 11, weight: .medium,
-                             color: hovering ? theme.sidebarInk : theme.sidebarInkSecondary, lineHeight: 16, tracking: 0.44)
+                DesktopLineText(text: section.title, size: 15, weight: .regular,
+                             color: hovering ? theme.sidebarInk : theme.sidebarInkSecondary, lineHeight: 20)
                 if collapsed { attentionMarks }
                 Spacer(minLength: 0)
-                DesktopIconView(icon: .chevronRight, size: 16)
-                    .rotationEffect(.degrees(collapsed ? 0 : 90))
             }
             .foregroundStyle(hovering ? theme.sidebarInk : theme.sidebarInkSecondary)
             .padding(.horizontal, 12)
-            .frame(height: 30)
+            .frame(height: 32)
             .frame(maxWidth: .infinity)
             .background(hovering ? theme.sidebarHover : .clear, in: RoundedRectangle(cornerRadius: theme.radiusLg, style: .continuous))
             .contentShape(Rectangle())

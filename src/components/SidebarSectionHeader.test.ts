@@ -19,10 +19,12 @@ describe("SidebarSectionHeader", () => {
     expect(html).toContain("<button");
     expect(html).toContain('aria-expanded="true"');
     expect(html).toContain('aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"');
-    expect(html).toContain('aria-hidden="true"');
     expect(html).not.toContain('role="button"');
     expect(html).not.toContain("Delete Work section");
-    expect(html.indexOf(">Work</span>")).toBeLessThan(html.indexOf("lucide-chevron-right"));
+    // sentence case (as upstream), a 15px regular label, no chevron
+    expect(html).toContain(">Work</span>");
+    expect(html).toContain("text-[15px] font-normal");
+    expect(html).not.toContain("lucide-chevron");
     expect(html).not.toContain("uppercase");
   });
 
@@ -42,7 +44,6 @@ describe("SidebarSectionHeader", () => {
     expect(html).toContain('tabindex="-1"');
     expect(html).not.toContain("Delete Work section");
     expect(html).not.toContain("lucide-trash");
-    expect(html).toContain("ml-auto");
     expect(html).toContain(`aria-expanded="${!collapsed}"`);
     expect(html.match(/<button\b/g)).toHaveLength(1);
   });

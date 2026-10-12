@@ -121,7 +121,7 @@ add({ id: "sidebar-bot-menu", phase: "main", note: "a bot row's actions menu (th
 add({ id: "sidebar-bot-context-menu", phase: "main", note: "right-click on a bot row",
   open: async (ctx) => { await ctx.rightClick({ text: /^Helix/, tag: "[role=button],button,a,li" }); } });
 add({ id: "sidebar-section-menu", phase: "main", note: "right-click on a section header (sections editing)",
-  open: async (ctx) => { await ctx.rightClick({ text: "ADMINISTRATION", tag: "button,[role=button],h2,h3,div,span" }); } });
+  open: async (ctx) => { await ctx.rightClick({ text: /^Administration$/i, tag: "button,[role=button],h2,h3,div,span" }); } });
 add({ id: "sidebar-profile-menu", phase: "main", note: "the account menu (sidebar footer)",
   open: async (ctx) => { await ctx.click('[aria-label="Parity Person"]'); } });
 add({ id: "sidebar-new-menu", phase: "main", note: "sidebar New (+): compose-to picker (also Cmd-N)",

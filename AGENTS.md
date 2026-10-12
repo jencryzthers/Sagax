@@ -2087,8 +2087,10 @@ PL-4), `src/lib/person-labels.test.ts`, `src/components/PersonLabel.test.ts`,
   label }` (null cleared it); the renderer patches `src/lib/person-labels.ts`
   from it. A change made for someone else (admin or manager) is written to
   the admin activity log (`people.label`, `after.by`); a person's own is not.
-- One tag for both (`src/components/LabelTag.tsx`): the bot row's tag markup,
-  `tone` sidebar or surface. A person's label shows beside the name in the
+- One tag for both (`src/components/LabelTag.tsx`), `tone` sidebar or
+  surface. Bot rows no longer draw their title (see "Sidebar look"); the
+  pinned tiles draw it as a filled pill (`size="small"`).
+  A person's label shows beside the name in the
   sidebar people rows (not in quiet rows), the direct conversation's header
   chip, a room's member list and the people pickers (To:, add to a group). The
   Team map has no people. Empty renders nothing; "Add a label" appears only
@@ -2505,6 +2507,37 @@ rules, each covered by `shared/achievements-catalog.test.ts`,
   (`Sidebar.simple-mode.test.ts`).
 - The toast never shows while the person types, one at a time, its chime
   follows Notification sounds, and reduced motion stills it.
+
+## Sidebar look (owner's side-by-side with OpenMausBot, 2026-10-11)
+
+The owner compared Sagax with an OpenMausBot window side by side and asked
+for the sidebar to look like it, keeping every Sagax feature. The plus
+glyph, sentence-case headers and title-free rows are upstream main's own;
+the tile card and the orange star come from that window (upstream main at
+83c10b3 draws pinned bots as rows or bare circles and marks its Chief of
+Staff with a crown). Keep these, covered by `Sidebar.header.test.ts`, `SidebarSectionHeader.test.ts`,
+`SidebarBotListItem.test.ts`, `PersonLabel.test.ts` and `PrimaryBot.test.ts`:
+
+- The head's New button draws upstream's plus (`Plus`), not a compose pencil,
+  in the same round bordered button as search; it still opens the compose-to
+  picker (which holds Create new Bot).
+- Pinned tiles (the Primary Bot among them when pinned): the selected tile
+  is a filled card with a 16px radius (`rounded-2xl`), the name under the
+  mascot, the bot's title in a small filled pill (LabelTag `size="small"`,
+  no outline). Sagax's wording stays: Primary Bot, and the bot's own title.
+- The Primary Bot star is orange in every skin (`--color-primary-badge`,
+  `--color-primary-badge-ink` in `src/styles.css`, paired in
+  `scripts/check-skin-contrast.mjs`), never the skin accent (#188 had made
+  it grey or navy in some skins).
+- Section headers: the name in sentence case, 15px regular, then the
+  attention marks; no chevron, a click folds and `aria-expanded` says which
+  way. The small capitals rule (`.sidebar-section-label` uppercase) is gone;
+  the class stays as Hibou 98's hook.
+- Bot rows: the name, then the last message. The title is not drawn; it is
+  in the avatar's tooltip and read out with the name (`sr-only`). People
+  rows keep their custom label (a Sagax feature upstream does not have).
+- iOS: the iPad desktop shell (`ios/App/Desktop/DesktopSidebar*.swift`)
+  mirrors the same four points.
 
 ## Primary Bot (formerly Chief of Staff)
 

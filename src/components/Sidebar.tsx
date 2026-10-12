@@ -20,7 +20,6 @@ import {
   PinOff,
   Plus,
   Search,
-  SquarePen,
   Puzzle,
   Share2,
   Trash2,
@@ -1790,9 +1789,9 @@ export function BotListItem({
   // the visible branch, so a version switch changes the row with the chat
   const visible = useVisibleMessages(bot);
   const last = visible.at(-1);
-  // the role from Bot Settings → Title. A badge or tooltip beside the name
-  // (#866, #871) always traded the name's width against the title's; its own
-  // line above the name lets both truncate independently instead.
+  // the role from Bot Settings → Title is not drawn in the row, as upstream:
+  // a row is the name and what was last said. The role stays in the
+  // avatar's tooltip and is read out with the name.
   const title = bot.title.trim();
   // Header mode: the same wrapper classes with threads on or off. Sidebar
   // mode keeps the old pl-6 inset for the chevron, like room rows.
@@ -1826,7 +1825,7 @@ export function BotListItem({
     <>
       {/* flex, not inline: an inline wrapper adds a baseline gap under the
           avatar and makes the row taller than before the presence dot */}
-      <span className="relative flex shrink-0">
+      <span className="relative flex shrink-0" title={iconOnly ? undefined : [bot.name, title].filter(Boolean).join(" · ")}>
         <BotAvatar
           bot={bot}
           primary={primary}
@@ -1870,9 +1869,8 @@ export function BotListItem({
               className="min-w-0 truncate"
               inputClassName="w-full rounded bg-inset px-1 py-0.5 text-[14px] font-medium"
             />
-            {title && !renaming && !quiet && (
-              <LabelTag text={title} className="max-w-[46%] shrink" />
-            )}
+            {/* the role is read out with the name, not drawn (upstream) */}
+            {title && !renaming && <span className="sr-only">{`, ${title}`}</span>}
           </span>
           {selected && last && !renaming && !expanded && (
             <span className="shrink-0 text-[12px] leading-4 text-sidebar-ink-secondary transition-opacity group-hover:opacity-0 group-focus-within:opacity-0 touch:opacity-0">
@@ -2854,7 +2852,7 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
               data-sidebar-new
               className={SIDEBAR_HEAD_BUTTON}
             >
-              <SquarePen size={16} strokeWidth={1.75} aria-hidden="true" />
+              <Plus size={18} strokeWidth={1.75} aria-hidden="true" />
             </button>
           </div>
         ) : (
@@ -2887,7 +2885,7 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
                   data-sidebar-new
                   className={SIDEBAR_HEAD_BUTTON}
                 >
-                  <SquarePen size={16} strokeWidth={1.75} aria-hidden="true" />
+                  <Plus size={18} strokeWidth={1.75} aria-hidden="true" />
                 </button>
               </span>
             </div>
@@ -2920,7 +2918,7 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
                   className={cn(
                     density === "icons"
                       ? "flex w-20 min-w-0 flex-col items-center gap-1.5 rounded-xl px-1 pb-1 pt-1.5"
-                      : "flex h-[122px] w-[122px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-md px-1.5 py-1",
+                      : "flex h-[122px] w-[122px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-2xl px-1.5 py-1",
                     selected ? "bg-sidebar-selected" : "hover:bg-sidebar-hover",
                   )}
                 >

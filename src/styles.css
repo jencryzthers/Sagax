@@ -227,6 +227,11 @@
   --color-success: #38d591;
   --color-danger: #ff5667;
   --color-warning: #ff9800;
+  /* The Primary Bot star (Avatar.tsx PrimaryBotBadge): orange in every
+     skin, like the phone apps' badge, never the skin's accent (grey or navy
+     in several skins). The white star on it measures 3.6:1. */
+  --color-primary-badge: #ea580c;
+  --color-primary-badge-ink: #ffffff;
   /* Top-of-window light wash (see Pulsatrix, below). "none" everywhere else. */
   --app-glow: none;
 
@@ -1224,15 +1229,6 @@
   background-image: var(--app-glow);
   background-repeat: no-repeat;
   background-attachment: local;
-}
-
-/* The rail's section labels borrow Perspicax's nav-group-header treatment
-   in every skin: small capitals rather than sentence case
-   (.px-nav-group-btn, console/src/index.css). Hibou 98 sets its own tree
-   labels back to plain text in retro98.css. */
-.sidebar-section-label {
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 /* Pulsatrix Light's content frame(s): Perspicax's light-mode page is a
