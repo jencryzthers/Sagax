@@ -29,6 +29,7 @@ describe("fake xAI utterance timings", () => {
   it("stamps speech-to-text and text-to-speech with the bound utterance id", async () => {
     const xai = await startFakeXaiVoice({ sttFinalizeMs: 5, ttsFirstChunkMs: 5, ttsSeconds: 0.02, ttsChunkMs: 5 });
     const opened = (ws: WebSocket) => new Promise<void>((resolve, reject) => {
+      if (ws.readyState === WebSocket.OPEN) { resolve(); return; }
       ws.once("open", () => resolve());
       ws.once("error", reject);
     });

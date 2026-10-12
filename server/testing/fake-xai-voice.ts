@@ -262,7 +262,7 @@ export async function startFakeXaiVoice(options: FakeXaiOptions = {}): Promise<F
         record.fields = parsed.fields;
         record.fileHead = parsed.fileHead;
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ text: options.transcript ?? "Hello from voice mode", language: parsed.fields.language ?? "en", duration: 1.2 }));
+        res.end(JSON.stringify({ text: takeText(), language: parsed.fields.language ?? "en", duration: 1.2 }));
         return;
       }
       res.writeHead(404, { "content-type": "application/json" });

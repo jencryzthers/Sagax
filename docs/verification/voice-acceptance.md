@@ -10,7 +10,10 @@ same in every mode. Design:
 ## Commands
 
 Synthetic profile, the pull-request gate. Fixed fake delays, a fake engine,
-and a fake xAI. The process exits nonzero when any gate fails.
+and a fake xAI. The process exits nonzero when any gate fails. The pnpm
+script runs under Node's type transform, with a small hook that turns the
+bundled `.onnx?url` imports into file URLs and resolves the voice call's
+extensionless imports. The run uses the scripted detector, not those models.
 
 ```sh
 pnpm voice:acceptance -- --out /tmp/sagax-voice-synthetic

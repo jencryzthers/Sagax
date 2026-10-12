@@ -515,14 +515,20 @@ export async function runVoiceBenchmark(options: VoiceBenchmarkOptions): Promise
         }
       }
       if (!active.speechEnd) active.speechEnd = speechEnd || performance.now();
+      // Silence is counted in frames. The transcript arrives afterwards, on
+      // the speech-to-text socket, so keep yielding until that event lands.
       let extra = 0;
-      while (!active.utteranceId && extra < 60) {
-        live.frame(quietFrame());
-        await live.settled();
-        extra += 1;
+      const heardBy = performance.now() + 4_000;
+      while (!active.utteranceId && performance.now() < heardBy) {
+        if (extra < 80) {
+          live.frame(quietFrame());
+          await live.settled();
+          extra += 1;
+        }
+        await sleep(20);
       }
       if (!active.utteranceId) {
-        throw new Error(`no utterance for ${scenario.id} after ${extra} quiet frames`);
+        throw new Error(`no utterance for ${scenario.id} after ${extra} quiet frames (phase=${live.current.phase})`);
       }
       const turn = active;
       const waitUntil = performance.now() + (turn.cancelled ? 1_000 : 15_000);

@@ -12,7 +12,7 @@ import {
 it("covers 32 bilingual turns, including interruption, correction, topics, tools and stop", () => {
   expect(VOICE_ACCEPTANCE_SCRIPT).toHaveLength(32);
   expect(scenarioLanguages()).toEqual(new Set(["en", "fr-CA"]));
-  expect(scenarioKinds()).toEqual(expect.arrayContaining([
+  expect([...scenarioKinds()]).toEqual(expect.arrayContaining([
     "ordinary", "interrupt-thinking", "interrupt-speaking", "correction",
     "concurrent-topic", "tool", "stop",
   ]));

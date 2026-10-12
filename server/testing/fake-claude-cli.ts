@@ -803,7 +803,12 @@ async function playVoiceTurn(prompt: JsonValue): Promise<void> {
   replay(prompt);
   await pause(Number(process.env.FAKE_CLAUDE_FIRST_TOKEN_MS) || 0);
   const promptText = typeof prompt === "string" ? prompt : JSON.stringify(prompt);
-  if (process.env.FAKE_CLAUDE_VOICE_TOOL === "1" && /ticket count/i.test(promptText)) {
+  // The phrase stays in later turns' context. Only the turn that asks, with
+  // the words at the end of the prompt, runs the tool.
+  const ticketAt = promptText.toLowerCase().lastIndexOf("ticket count");
+  const ticketTail = ticketAt >= 0 ? promptText.slice(ticketAt + "ticket count".length) : "";
+  const ticketTurn = ticketAt >= 0 && ticketTail.length <= 160 && !/[A-Za-zÀ-ÿ]{4,}/.test(ticketTail);
+  if (process.env.FAKE_CLAUDE_VOICE_TOOL === "1" && ticketTurn) {
     const id = `tu-voice-${process.pid}-${++toolUseCount}`;
     out({ type: "assistant", message: { content: [{ type: "tool_use", id, name: "Bash", input: { command: "echo 3" } }] } });
     out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, is_error: false, content: [{ type: "text", text: "3" }] }] } });
