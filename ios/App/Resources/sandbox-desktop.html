@@ -63,6 +63,10 @@
   };
   BridgeSocket.prototype.close = function () {
     this.readyState = 3;
+    // Only the current socket closes the native one: reopening (Take
+    // control) disconnects the previous RFB, whose close must not stop the
+    // socket that replaced it.
+    if (this !== sock) return;
     if (window.webkit && window.webkit.messageHandlers.sagaxRfb) {
       window.webkit.messageHandlers.sagaxRfb.postMessage({ op: "close" });
     }
@@ -70,8 +74,10 @@
   var sock = null;
   var rfb = null;
   window.sagaxOpen = function (password, viewOnly) {
-    if (rfb) { try { rfb.disconnect(); } catch (e) {} rfb = null; }
+    var previous = rfb;
+    rfb = null;
     sock = new BridgeSocket();
+    if (previous) { try { previous.disconnect(); } catch (e) {} }
     var RFB = window.RFB || (window.noVNC && window.noVNC.RFB);
     if (!RFB) return;
     rfb = new RFB(document.getElementById("screen"), sock, { credentials: { password: password || "", username: "", target: "" } });
@@ -93,9 +99,16 @@
     sock.readyState = 3;
     sock.dispatch("close", { type: "close" });
   };
+  // Keys from the phone keyboard: [[keysym, down], ...].
+  window.sagaxKeys = function (list) {
+    if (!rfb || rfb.viewOnly) return;
+    for (var i = 0; i < list.length; i++) rfb.sendKey(list[i][0], null, !!list[i][1]);
+  };
   window.sagaxClose = function () {
-    if (rfb) { try { rfb.disconnect(); } catch (e) {} rfb = null; }
+    var previous = rfb;
+    rfb = null;
     sock = null;
+    if (previous) { try { previous.disconnect(); } catch (e) {} }
   };
 })();
 </script>
