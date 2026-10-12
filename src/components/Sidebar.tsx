@@ -57,7 +57,8 @@ import { useOrgPeople, usePerspicaxOrg } from "@/lib/perspicax-org";
 import { peopleDmPeer } from "@/lib/people-dm";
 import { LabelTag, PersonLabelTag } from "./LabelTag";
 import { nudgeLineText } from "@/lib/nudge-line";
-import { Eye, UserRound } from "lucide-react";
+import { Cpu, Eye, UserRound } from "lucide-react";
+import { openModelWindow } from "@/lib/model-window";
 import { entriesToUnhide, hiddenKey, hiddenKeySet, hideFromSidebar, showInSidebar, useSidebarHidden } from "@/lib/sidebar-hidden";
 import { closedDmToReopen, groupHiddenKey, hiddenSidebarRows, withoutHiddenEntries } from "@/lib/sidebar-hidden-entries";
 import { PersonAvatar } from "./MessageAuthor";
@@ -1304,6 +1305,7 @@ export function BotContextMenu({
           dispatch({ type: "markUnread", botId: bot.id }),
         ),
         divider("d1"),
+        item(<Cpu size={16} className="text-ink" />, t("sidebar.bot.model"), () => openModelWindow(bot.id), { id: "model" }),
         ...(canRename ? [item(<Pencil size={16} className="text-ink" />, "Rename Bot", () => onRename(bot.id))] : []),
         item(<ClipboardCopy size={16} className="text-ink" />, t("sidebar.copyConversationId"), () => {
           void copyText(bot.threadId);
