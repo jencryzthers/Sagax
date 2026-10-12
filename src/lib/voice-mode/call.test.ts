@@ -1,16 +1,17 @@
 // VoiceCall with fake devices: the frames of a turn become one message, the
 // person talking over the bot ducks it on the first voiced frame and cancels
-// it within 160 ms, the bot's echo does not, another voice is ignored once
+// it at 128 ms (silent by 140 ms), the bot's echo does not, another voice is ignored once
 // enrolled, push-to-talk, mute, and the whole-turn upload when the streaming
 // socket cannot open.
 import { describe, expect, it, vi } from "vitest";
 
 import { VoiceCall, callAudioConstraints, continuedTurn, isNoiseFragment, resampler, stablePartial, THINKING_CUE_MS, type BargeInMetrics, type TurnMetrics, type VoiceCallOptions } from "./call";
 import { cleanCallSettings, DEFAULT_CALL_SETTINGS, type CallSettings } from "./call-settings";
-import type { PcmPlayer, Sentence } from "./player";
+import { FADE_MS, type PcmPlayer, type Sentence } from "./player";
 import type { SpeakerEmbedder } from "./speaker-id";
 import { voiceprintOf } from "./speaker-id";
 import { LiveTranscriber } from "./stt-stream";
+import { BARGE_IN_START_MS } from "./turns";
 import { VAD_FRAME, type VoiceProbability } from "./vad";
 
 /** The page's view of the listen socket, answering like the server. */
@@ -308,7 +309,7 @@ describe("VoiceCall", () => {
     expect(t.player.ducks).toBeGreaterThan(before);
   });
 
-  it("barge-in: ducks the bot on the first voiced frame, cancels it within 160 ms, interrupts its running turn", async () => {
+  it("barge-in: ducks the bot on the first voiced frame, cuts it at 128 ms, interrupts its running turn", async () => {
     const t = await setup({ transcripts: ["wait, stop"] });
     t.call.setBotBusy(true);
     void t.call.say("Here is a long answer. It goes on and on for a while.");
@@ -319,12 +320,16 @@ describe("VoiceCall", () => {
     const onset = t.clock();
     await t.feed(0.95, 0.06, 1);
     expect(t.player.ducks).toBe(1);
-    await t.feed(0.95, 0.06, 4);
+    // three frames (96 ms) are still only a duck
+    await t.feed(0.95, 0.06, 2);
+    expect(t.player.cancels).toBe(0);
+    await t.feed(0.95, 0.06, 1);
     expect(t.player.cancels).toBe(1);
     expect(t.interrupts).toHaveLength(1);
     const barge = t.metrics.at(-1)!.bargeIn!;
     expect(barge.duckedAt! - onset).toBeLessThanOrEqual(32);
-    expect(barge.cancelledAt! - onset).toBeLessThanOrEqual(160);
+    expect(barge.cancelledAt! - onset).toBe(BARGE_IN_START_MS);
+    expect(barge.cancelledAt! - onset + FADE_MS).toBeLessThanOrEqual(150);
     expect(t.call.current.phase).toBe("interrupted");
     // the new words become the next turn
     await t.feed(0.95, 0.06, 20);
@@ -433,7 +438,8 @@ describe("VoiceCall", () => {
   it("a cough over the bot: ducked, then back, nothing cancelled", async () => {
     const t = await setup();
     void t.call.say("Here is a long answer that keeps going.");
-    await t.feed(0.95, 0.06, 2);
+    await t.feed(0.95, 0.06, 3);
+    expect(t.player.cancels).toBe(0);
     await t.feed(0.02, 0.001, 6);
     expect(t.player.ducks).toBe(1);
     expect(t.player.unducks).toBe(1);
