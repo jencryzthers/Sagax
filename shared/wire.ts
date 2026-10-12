@@ -706,6 +706,9 @@ export interface OptionCardData {
   expiresAt?: number;
   /** the narrow grant "always allow" remembers for a harness-native card. */
   allowKey?: string;
+  /** the Allow rule (an allowKey) the person saved when answering this card:
+   * the pill reads Always allowed and the card shows the rule + Edit rule. */
+  alwaysAllowed?: string;
   /** the provider can remember an allow for the rest of its session. */
   allowSession?: boolean;
   /** A permission ask's full arguments as redacted JSON, shown only in

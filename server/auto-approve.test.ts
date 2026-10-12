@@ -223,4 +223,10 @@ describe("delegatedApprovalMode", () => {
       expect(autoVerdict(mode, "other", { sagaxGate: true }).approve).toBeNull();
     }
   });
+  it("answers a gate card only from the person's own saved Allow rule", () => {
+    for (const mode of ["full", "auto", "custom", "edits", "ask"] as const) {
+      expect(autoVerdict(mode, "other", { sagaxGate: true, ruleAllowed: true }).source).toBe("allow-rule");
+      expect(autoVerdict(mode, "other", { sagaxGate: true, ruleAllowed: false }).approve).toBeNull();
+    }
+  });
 });

@@ -251,7 +251,7 @@ import { entitled } from "./enterprise.ts";
 import { HOSTED_CONTRACT_HEADER, HOSTED_CONTRACT_METADATA, HOSTED_CONTRACT_VERSION } from "./hosted-contract.ts";
 import { cliCommandRefusal, describeSpawnFailure, execCli } from "./procs.ts";
 import { blockedTarget, buildSpendNotification, deliverableNotification, quietForCall, summarize, type Notification } from "./notify.ts";
-import { approvalPlain } from "../shared/approval-describe.ts";
+import { approvalPlain, mcpAllowKey } from "../shared/approval-describe.ts";
 import { serverApprovalWords } from "./approval-words.ts";
 import {
   isModelVariant,
@@ -8149,7 +8149,7 @@ function approvalTypeOf(card: NonNullable<Message["card"]>): ApprovalType {
   if (card.profileRequest) return "profile";
   if (card.modelRequest) return "model";
   if (card.teamSetupRequest) return "team_setup";
-  if (card.allowKey) return "peer";
+  if (card.allowKey && !card.allowKey.startsWith("mcp:")) return "peer";
   if (card.tool || card.commandAllowlist || card.approvalScope) return "tool";
   return "other";
 }
@@ -10614,10 +10614,13 @@ bus.subscribe((event: RuntimeEvent) => {
       const command = permission && asker && event.requestId && !event.requiresExplicitApproval && event.command && !adminApproval && !guestDriven
         ? commandAllowlistCandidate({ ...event.command, providerInstanceId: event.providerInstanceId ?? asker.modelSelection.instanceId })
         : null;
+      // a Sagax gate card can be remembered as an Allow rule for this exact tool
+      const gateAllowKey = permission && event.sagaxGate && event.mcpTool ? mcpAllowKey(event.mcpTool) : undefined;
       const verdict = permission && asker && event.requestId
         ? autoVerdict(adminApproval ? "ask" : effectiveApprovalMode, event.tool, {
           requiresExplicitApproval: event.requiresExplicitApproval,
           sagaxGate: event.sagaxGate === true,
+          ruleAllowed: Boolean(gateAllowKey && !adminApproval && !guestDriven && botForThread(asker.id, event.threadId)?.alwaysAllow?.includes(gateAllowKey)),
           commandAllowed: Boolean(command && commandAllowlist.matches(asker.id, command)),
         })
         : null;
@@ -10728,6 +10731,7 @@ bus.subscribe((event: RuntimeEvent) => {
             ? { version: 1, questions, ...(event.origin === "output" ? { origin: "output" as const } : {}) }
             : undefined,
           commandAllowlist: command ?? undefined,
+          ...(gateAllowKey && !adminApproval && !memberAsker && !guestDriven ? { allowKey: gateAllowKey } : {}),
           // Provider-owned session grants remain separate from exact commands.
           // a member's bot is approved one action at a time: a session rule
           // (Claude's own suggestion) could reach past its workspace. Never on
@@ -10816,6 +10820,9 @@ bus.subscribe((event: RuntimeEvent) => {
                 dismissed: isPersistentQuestionCard(existing.card) ? false : event.source !== "user" && event.source !== "timeout",
                 // nobody answered in time: the pill reads Expired, not Declined
                 ...(event.source === "timeout" ? { expired: true, options: [] } : {}),
+                // allowed and the person saved this card's rule first (Always allow)
+                ...(event.behavior === "allow" && existing.card.allowKey?.startsWith("mcp:")
+                  && waiting && botForThread(waiting.id, event.threadId)?.alwaysAllow?.includes(existing.card.allowKey) ? { alwaysAllowed: existing.card.allowKey } : {}),
               },
             });
           }
