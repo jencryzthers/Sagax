@@ -20,6 +20,7 @@ import { ChatProtocolError, ChatReasoningDetails, ChatToolCalls, object, type Ch
 import { appendNative } from "./native.ts";
 import { classifyError, computeBackoff, interruptibleDelay, RETRY_MAX_ATTEMPTS } from "./retry.ts";
 import { classifyContinuable, writeTurnHandoff } from "../turn-continuation.ts";
+import { DUPLEX_INTERRUPT_WAIT_MS } from "../voice-call-duplex.ts";
 import { KEY_REJECTED_REASON, keyRejected, noteKeyAccepted, noteKeyRejected, rejectsKey } from "../key-rejections.ts";
 
 export interface OpenAIChatMessage {
@@ -879,7 +880,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
             if (handoffPath) emit({ ...base(turn.threadId, turnId), type: "cap.exhausted", handoffPath, reason: continuable });
           }
         }
-        active.delete(turn.threadId);
+        if (active.get(turn.threadId) === turnEntry) active.delete(turn.threadId);
         emit({ ...base(turn.threadId, turnId), type: "turn.completed", ok, stopReason, cost: null,
           ...(hasUsage && (options.includeUsageInCompleted || seenCalls.size) ? { usage } : {}),
           ...(denials.length ? { denials } : {}),
@@ -927,7 +928,16 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
         const turn = active.get(threadId);
         if (!turn || (turnId && turn.turnId !== turnId)) return;
         turn.abort.abort();
-        await turn.done;
+        // Free the slot before turn.done: a hanging grok stream must not
+        // block the next duplex send (real20 t9/t18 paid the leftover TTFB).
+        if (active.get(threadId) === turn) active.delete(threadId);
+        await Promise.race([
+          turn.done,
+          new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, DUPLEX_INTERRUPT_WAIT_MS);
+            timer.unref?.();
+          }),
+        ]);
       },
       respondToRequest: async (threadId, requestId, decision) =>
         active.get(threadId)?.approval.answer(requestId, decision.behavior, decision.message) ?? "unavailable",
