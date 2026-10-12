@@ -18,7 +18,7 @@ export function sidebarBotActivityTasks(bot: Bot, queued: Record<string, unknown
   return tasks.map((task) => ({ ...task, queued: Boolean(queued[task.threadId]?.length) }))
     // Routine runs are reachable through their run receipt, never a menu;
     // an AI client's hidden conversation through the Activity panel (#291).
-    .filter((task) => !taskHiddenFromSidebar(task))
+    .filter((task) => !taskHiddenFromSidebar(task, bot.id))
     .filter((task) => task.activity === "waiting-on-you" || task.activity === "working" || task.busy || task.waitingForTeammates === true || task.queued || task.unread);
 }
 
