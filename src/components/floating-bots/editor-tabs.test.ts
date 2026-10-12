@@ -10,7 +10,7 @@ import { owlPalette } from "@/lib/owl/owl-art";
 import { owlSkinPalette } from "@/lib/owl/owl-skins";
 import { MAUS_COLORS } from "@/lib/mascot";
 import { contrastRatio, eyeInkOn, MASCOT_COLOR_GROUPS, MASCOT_COLOR_HEX, MASCOT_COLOR_NAMES, MASCOT_COLOR_PALETTES, mascotColorGroup, mascotColorsIn } from "../../../shared/mascot-colors";
-import { botMascotLook, MASCOT_SHAPES, SHAPE_SKIN_TIER, SHAPE_SKINS, TROMBI_SKIN_TIER, TROMBI_SKINS } from "../../../shared/mascot-look";
+import { botMascotLook, CRAB_SKIN_TIER, CRAB_SKINS, MASCOT_SHAPES, SHAPE_SKIN_TIER, SHAPE_SKINS, TROMBI_SKIN_TIER, TROMBI_SKINS } from "../../../shared/mascot-look";
 import { botMascotSkin, LEGACY_OWL_SKINS, MASCOT_SKIN_IDS, mascotSkinSchema, OWL_SKIN_TIER } from "../../../shared/mascot-skins";
 import { parseBotProfilePatch } from "../../../server/bot-profile";
 import MascotLookEditor, { COLOR_GROUP_LABEL, OWL_SKIN_LABEL } from "./MascotLookEditor";
@@ -30,6 +30,7 @@ describe("skin tabs", () => {
     expect(counts(skinTierTabs(SHAPE_SKINS, SHAPE_SKIN_TIER))).toEqual({ common: 4, rare: 2, epic: 4, legendary: 3 });
     expect(counts(skinTierTabs(TROMBI_SKINS, TROMBI_SKIN_TIER))).toEqual({ common: 2, rare: 1, epic: 3, legendary: 2 });
     expect(counts(skinTierTabs(MASCOT_SKIN_IDS, OWL_SKIN_TIER))).toEqual({ common: 4, rare: 2, epic: 3, legendary: 4 });
+    expect(counts(skinTierTabs(CRAB_SKINS, CRAB_SKIN_TIER))).toEqual({ common: 5, rare: 2, epic: 4, legendary: 3 });
     // every skin sits in exactly one tab, in the picker's order
     expect(skinTierTabs(SHAPE_SKINS, SHAPE_SKIN_TIER).flatMap((tab) => tab.skins)).toEqual([...SHAPE_SKINS]);
   });

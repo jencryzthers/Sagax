@@ -15,7 +15,11 @@ import type { DeviceSignIn } from "../device-auth.ts";
 import { decodeInjectId, hostApiKey, localHost, mergeLocalInject } from "../local-inject.ts";
 import { createAcpDriver, type AccountErrorCode, type AcpSupport } from "./core.ts";
 import { grokHostToolArgs, grokOrgAgentProfile } from "../host-tools.ts";
+import { grokReadOnlyAllowRules } from "./grok-read-only-tools.ts";
+import { gateReadOnlyTools, grokApprovalGateEnabled } from "./grok-approval-gate.ts";
+import { knownGrokTools, knownGrokToolsSection, recordGrokToolUse, useToolName } from "./grok-tool-usage.ts";
 import { allowsTool, canUseMcpServer, narrowsNativeTools, parseToolScope } from "../../../shared/tool-scope.ts";
+import { grokAliasBase, grokToolNameProblem } from "../../mcp-tool-names.ts";
 
 /** Fallback only, for when the engine cannot be asked (not installed, or no
  * answer). Grok 1.0.46 and 1.0.50 signed in to grok.com offer exactly these
@@ -29,6 +33,23 @@ export const STATIC_GROK_MODELS: ModelCatalog = {
     { id: "grok-4.5", label: "Grok 4.5" },
   ],
 };
+
+/** Appended to the stable system half of every Grok turn (acp/core.ts
+ * stableSystemHint): skip a search round for tools already discovered. */
+/** SAGAX_GROK_STALL_RETRY_MS: ms of total silence after a prompt before
+ * Sagax cancels and asks once more (default 20000, 0 turns it off). */
+export function grokStallRetryMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.SAGAX_GROK_STALL_RETRY_MS;
+  if (raw === undefined || raw.trim() === "") return 20_000;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) return 20_000;
+  return Math.floor(value);
+}
+
+export const GROK_TOOL_REUSE_HINT =
+  "\n\nTool calls: each search_tool call costs a full extra round trip. When search_tool already showed you a tool earlier in this conversation," +
+  " call it again directly with use_tool (same tool_name, arguments per the schema you saw) instead of searching again. Use search_tool only for a tool you have not seen yet," +
+  " and when one search returns several tools you need, call them without searching again.";
 
 const SLUG = /^[a-z0-9][a-z0-9._-]*$/i;
 
@@ -522,6 +543,25 @@ export function grokInheritedProfile(cli: string, env: Record<string, string | u
   return { ...profile, name: profile.name, description: profile.description, toolConfig, ...(match[2]?.trim() ? { promptBody: match[2].trim() } : {}) };
 }
 
+/** Whether a tool Grok registered is one the selection allows. The gate
+ * filters by the connector's own names and then registers a name Grok cannot
+ * qualify (`cw_psa__query`) under its alias (mcp-tool-names.ts), so an alias
+ * of an allowed name is allowed. Deny selectors were applied in the gate. */
+export function allowsRegisteredTool(scope: unknown, server: string, name: string): boolean {
+  if (allowsTool(scope, { kind: "mcp", server, name })) return true;
+  const parsed = parseToolScope(scope);
+  if (!parsed.ok || !parsed.scope?.allow) return false;
+  return parsed.scope.allow.some((selector) => {
+    const prefix = `mcp:${server}:`;
+    if (!selector.startsWith(prefix)) return false;
+    const allowed = selector.slice(prefix.length);
+    if (allowed === "*") return true;
+    if (!grokToolNameProblem(server, allowed)) return false;
+    const base = grokAliasBase(server, allowed);
+    return name === base || name.startsWith(`${base}-`);
+  }) && !parsed.scope.deny?.some((selector) => selector === `mcp:${server}:${name}`);
+}
+
 /** A curated registry: empty/unknown selections never inherit Grok's defaults. */
 export function grokToolScopeProfile(scope: unknown, init: unknown, inherited?: GrokScopeProfile, hasMcp = false): GrokScopeProfile {
   const parsed = parseToolScope(scope);
@@ -653,8 +693,15 @@ const support: AcpSupport = {
   // residual requests still ask. Never replace it with bypassPermissions.
   // Verified: grok 1.0.3 --help and xai-org/grok-build@37949780,
   // crates/codegen/xai-grok-pager-bin/src/main.rs:1259-1273.
-  spawnArgs: (config, turn) => {
+  // Approval gate (grok-approval-gate.ts), per-bot flag: an Auto turn runs
+  // Grok in `default` mode, with no per-call classifier wait, and Sagax
+  // holds every MCP call that is not reviewed read-only for a card.
+  approvalGate: (config, turn) => !config.fullAuto && turn.approvalMode === "auto" && grokApprovalGateEnabled(turn.botId),
+  approvalReadOnly: (server) => gateReadOnlyTools(server),
+
+  spawnArgs: (config, turn, launch) => {
     const withhold = turn.withholdHostTools === true;
+    const gated = launch?.approvalGate === true && !config.fullAuto;
     return [
       // Global flags. `--deny` does not strip the agent-stdio tool list;
       // the session profile does. `--no-leader` is after `agent`: a shared
@@ -663,7 +710,13 @@ const support: AcpSupport = {
       "--permission-mode",
       config.fullAuto
         ? "bypassPermissions"
-        : turn.approvalMode === "auto" ? "auto" : turn.approvalMode === "edits" ? "acceptEdits" : "default",
+        : gated ? "default"
+          : turn.approvalMode === "auto" ? "auto" : turn.approvalMode === "edits" ? "acceptEdits" : "default",
+      // Auto mode only: reviewed read-only Sagax tools skip Grok's classifier
+      // (grok-read-only-tools.ts). Ask and Edits keep every card as before.
+      ...(!config.fullAuto && !gated && turn.approvalMode === "auto"
+        ? grokReadOnlyAllowRules(turn.integrations).flatMap((rule) => ["--allow", rule])
+        : []),
       "agent",
       ...(withhold || turn.toolScope !== undefined ? ["--no-leader"] : []),
       ...(turn.model ? ["-m", turn.model] : []),
@@ -721,7 +774,7 @@ const support: AcpSupport = {
         for (const server of catalog.servers) {
           if (server?.session?.enabled === false) continue;
           if (!available.has(server?.name)) throw new Error("Grok has an MCP connection outside the bot's selection. Disable native MCP connections before using tool selection. No prompt was sent.");
-          if (Array.isArray(server?.session?.tools) && server.session.tools.some((tool: { name?: unknown }) => typeof tool.name !== "string" || !allowsTool(turn.toolScope, { kind: "mcp", server: server.name, name: tool.name }))) {
+          if (Array.isArray(server?.session?.tools) && server.session.tools.some((tool: { name?: unknown }) => typeof tool.name !== "string" || !allowsRegisteredTool(turn.toolScope, server.name, tool.name))) {
             throw new Error("Grok could not enforce the selected MCP catalog. No prompt was sent.");
           }
         }
@@ -816,6 +869,27 @@ const support: AcpSupport = {
   // reach the agent-stdio system prompt (verified against 1.0.0), so the
   // persona is prepended codex-style.
   buildPromptText: (turn) => (turn.system ? `${turn.system}\n\n${turn.text}` : turn.text),
+
+  // Grok reaches every Sagax MCP tool through search_tool then use_tool, and
+  // each of those is a full model round trip carrying the whole context.
+  // Measured on the GOX server (2026-10-11): a one-tool turn took three
+  // rounds (search_tool, use_tool, answer), ~3.5 s each. A tool already found
+  // in this conversation needs no second search.
+  stableSystemHint: GROK_TOOL_REUSE_HINT,
+  // Grok skips `cw_psa__query` (second `__`) and other names it cannot
+  // qualify; the gate registers them under aliases (mcp-tool-names.ts).
+  mcpToolNames: "grok",
+
+  // The tools this bot already used successfully, named once per
+  // conversation (and again only when the set changes), so a first use in a
+  // new conversation skips the search_tool round too.
+  volatileSection: ({ botId, serverNames }) => knownGrokToolsSection(knownGrokTools(botId, serverNames)),
+  onToolCompleted: ({ botId, rawInput }) => recordGrokToolUse(botId, useToolName(rawInput)),
+
+  // grok.com sometimes takes 30-90 s to its first token. Normal silent
+  // stretches before the first streamed byte stayed under 9 s (a reasoning
+  // round, GOX server 2026-10-11), so 20 s of nothing at all is a stall.
+  stallRetryMs: grokStallRetryMs,
 };
 
 export const GrokAgentDriver = createAcpDriver(support);

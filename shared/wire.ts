@@ -144,6 +144,12 @@ export interface WireTask {
   projectId?: string;
   /** Detached routine execution, reachable through its visible results card. */
   routineRunId?: string;
+  /** A hidden conversation: an AI client (the Perspicax MCP `sagax_send`,
+   * the member API) works with the bot here on the person's behalf, the way
+   * Grok Bot keeps its subagents' conversations out of the chat (#291). Never
+   * in the sidebar, previews, typing dots, unread or notifications; reached
+   * from the bot's Activity panel or a thread link. Only `true` is stored. */
+  hidden?: true;
   /** Set when a bot, not a person, opened this thread. */
   openedBy?: TaskOpenedBy;
   /** A parallel task: the conversation and request it answers. */

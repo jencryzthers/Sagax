@@ -264,8 +264,13 @@ public struct MascotUnlocks: Hashable, Sendable {
             default: return .rare
             }
         case .crab:
-            // `CRAB_SKIN_TIER`: every crab skin is common (shared/mascot-look.ts)
-            return .common
+            // `CRAB_SKIN_TIER`: Plain and the named fills come with it; the rest match Shapes
+            switch skin {
+            case "gold", "pearl": return .rare
+            case "neon", "chrome", "crystal", "circuit": return .epic
+            case "holo", "molten", "galaxy": return .legendary
+            default: return .common
+            }
         }
     }
 }

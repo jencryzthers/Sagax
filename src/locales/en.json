@@ -6400,11 +6400,22 @@
   "floatingBots.mascot.crab": "Crab",
   "floatingBots.move.scuttle": "Scuttle",
   "mascot.character.title": "Character",
+  "mascot.crabSkin.chrome": "Chrome",
+  "mascot.crabSkin.circuit": "Circuit",
   "mascot.crabSkin.coral": "Coral",
+  "mascot.crabSkin.crystal": "Crystal",
+  "mascot.crabSkin.galaxy": "Galaxy",
+  "mascot.crabSkin.gold": "Gold",
+  "mascot.crabSkin.holo": "Holographic",
   "mascot.crabSkin.ink": "Ink",
   "mascot.crabSkin.mint": "Mint",
+  "mascot.crabSkin.molten": "Molten",
+  "mascot.crabSkin.neon": "Neon",
+  "mascot.crabSkin.pearl": "Pearl",
   "mascot.crabSkin.plain": "Plain",
   "mascot.crabSkin.sand": "Sand",
   "persona.files.collapse": "Collapse {name}",
-  "persona.files.expand": "Expand {name}"
+  "persona.files.expand": "Expand {name}",
+  "mcp.engineName.renamed": "Grok: registered as {name}.",
+  "mcp.engineName.unregistrable": "Grok: CANNOT register this tool ({reason}); bots on Grok do not have it."
 }

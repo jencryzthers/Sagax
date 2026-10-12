@@ -56,6 +56,33 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
         center.setBadgeCount(Attention.badge(count, settings: AttentionPrefs.settings))
     }
 
+    /// Banners for bot conversations the person has since read or answered,
+    /// on this device or another, leave Notification Center.
+    func withdrawSettled(bots: [Bot]) async {
+        let ids = DeliveredNotifications.settled(await delivered(), bots: bots)
+        if !ids.isEmpty { center.removeDeliveredNotifications(withIdentifiers: ids) }
+    }
+
+    /// A silent "read" push: the conversation was read on another device.
+    func withdraw(threadId: String) async {
+        let ids = DeliveredNotifications.forThread(await delivered(), threadId: threadId)
+        if !ids.isEmpty { center.removeDeliveredNotifications(withIdentifiers: ids) }
+    }
+
+    private func delivered() async -> [DeliveredNotifications.Delivered] {
+        await center.deliveredNotifications().map { note in
+            let info = note.request.content.userInfo
+            func string(_ key: String) -> String? {
+                guard let value = info[key] as? String, !value.isEmpty else { return nil }
+                return value
+            }
+            return DeliveredNotifications.Delivered(
+                id: note.request.identifier, botId: string("botId") ?? string("groupId"),
+                threadId: string("threadId"), date: note.date
+            )
+        }
+    }
+
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,

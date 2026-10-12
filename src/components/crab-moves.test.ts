@@ -80,7 +80,16 @@ describe("the crab's own moves", () => {
   it("waves the right arm", () => {
     const frames = sample("wave");
     expect(Math.min(...frames.map((p) => p.armRRot))).toBeLessThan(-40);
+    expect(Math.max(...frames.map((p) => p.clawR))).toBeGreaterThan(0.5);
     expect(frames.every((p) => p.armLRot === 0 || Math.abs(p.armLRot) < 1)).toBe(true);
+  });
+
+  it("celebrates with a Clawd clap: claws up and sparkles", () => {
+    const frames = sample("celebrate");
+    expect(Math.min(...frames.map((p) => p.armLRot))).toBeLessThan(-40);
+    expect(Math.max(...frames.map((p) => p.armRRot))).toBeGreaterThan(40);
+    expect(Math.max(...frames.map((p) => p.spark))).toBeGreaterThan(0.5);
+    expect(frames.some((p) => p.expression === "happy")).toBe(true);
   });
 });
 
@@ -91,6 +100,15 @@ describe("Crab's rig", () => {
     const over = layerPose(idle, crabMoveAt("look", 0.4, false), 1);
     expect(over.lookX).toBeGreaterThan(3);
     expect(over.y).toBe(idle.y);
+  });
+
+  it("idles like Claude: a breath, a wandering look, a lean", () => {
+    const a = crabIdlePose(0, []);
+    const b = crabIdlePose(2.7, []);
+    expect(a.y).not.toBeCloseTo(b.y, 2);
+    expect(Math.abs(b.lookX) + Math.abs(b.lookY)).toBeGreaterThan(0.2);
+    expect(Math.abs(b.legSy0 - 1) + Math.abs(b.legSy3 - 1)).toBeGreaterThan(0.01);
+    expect(Math.abs(b.legRot0) + Math.abs(b.legRot3)).toBeGreaterThan(0.2);
   });
 
   it("plays a one-shot over a held activity and hands back to the idle life after both", () => {
