@@ -51,7 +51,7 @@ export const ACCEPTANCE_SCRIPT: AcceptanceLine[] = [
   { id: "C", lang: "fr", atMs: 6_000, text: "Rédige un court courriel de bonjour." },
   { id: "D", lang: "en", atMs: 7_500, text: "How far is Quebec City from Montreal?" },
   { id: "lim", lang: "fr", atMs: 8_000, text: "Prépare aussi le rapport mensuel des billets." },
-  { id: "barge", lang: "en", atMs: 16_000, text: "actually tell me the time in Paris" },
+  { id: "barge", lang: "en", atMs: 16_000, text: "hey what time is it in Paris" },
   { id: "corr", lang: "en", atMs: 24_000, text: "no, I meant Toronto" },
   { id: "stop", lang: "en", atMs: 32_000, text: "stop" },
 ];

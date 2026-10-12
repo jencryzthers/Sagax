@@ -2,6 +2,7 @@
 // pure. The live run (SAGAX_VOICE_ACCEPTANCE=1) drives real STT/LLM/TTS.
 import { expect, it } from "vitest";
 
+import { classifyVoiceIntent } from "../src/lib/voice-mode/voice-topics.ts";
 import {
   ACCEPTANCE_SCRIPT,
   matchAcceptanceLine,
@@ -14,6 +15,8 @@ it("matches spoken lines to script ids, including stop and correction", () => {
   expect(matchAcceptanceLine("stop")?.id).toBe("stop");
   expect(matchAcceptanceLine("no, I meant Toronto")?.id).toBe("corr");
   expect(matchAcceptanceLine("Prépare aussi le rapport mensuel")?.id).toBe("lim");
+  expect(matchAcceptanceLine("hey what time is it in Paris")?.id).toBe("barge");
+  expect(classifyVoiceIntent("hey what time is it in Paris")).toBe("new_topic");
 });
 
 it("the script covers overlapping topics, barge-in, correction, stop, three parallel, EN and FR", () => {
