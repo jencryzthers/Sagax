@@ -14,7 +14,7 @@
 //   end-of-speech -> first spoken clause under 800 ms.
 //
 // Knobs (env), with the defaults measured or assumed for a real setup:
-//   BENCH_ENGINES (claude,grok), BENCH_TURNS (12), BENCH_COLD_MS (2600: CLI
+//   BENCH_ENGINES (claude,grok), BENCH_TURNS (20 real / 12 fake), BENCH_COLD_MS (2600: CLI
 //   boot, MCP servers and session read back, from Claude's native logs),
 //   BENCH_LOAD_MS (900, assumed: one ACP session/load or session/new, the
 //   MCP servers reconnected and the history read back), BENCH_FIRST_TOKEN_MS
@@ -113,12 +113,25 @@ function readWavPcm16(path: string): Float32Array {
   throw new Error("wav has no data chunk");
 }
 
+const knob = (name: string, fallback: number) => {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value >= 0 && process.env[name] !== "" && process.env[name] !== undefined ? value : fallback;
+};
+
+/** Québec French macOS voice for real-bench French turns. */
+export const BENCH_SAY_VOICE_FR = "Amélie";
+
+export function defaultBenchTurns(real: boolean): number {
+  return knob("BENCH_TURNS", real ? 20 : 12);
+}
+
 /** Local spoken audio of `text` at 16 kHz, for real STT (macOS `say`). */
-export function spokenPcm(text: string): Float32Array {
+export function spokenPcm(text: string, voice?: string): Float32Array {
   const dir = mkdtempSync(join(tmpdir(), "voice-bench-say-"));
   const aiff = join(dir, "q.aiff");
   const wav = join(dir, "q.wav");
-  const said = spawnSync("say", ["-o", aiff, text], { stdio: "ignore" });
+  const args = voice ? ["-v", voice, "-o", aiff, text] : ["-o", aiff, text];
+  const said = spawnSync("say", args, { stdio: "ignore" });
   if (said.status !== 0) throw new Error("say failed to record the question");
   const converted = spawnSync("afconvert", ["-f", "WAVE", "-d", "LEI16@16000", aiff, wav], { stdio: "ignore" });
   if (converted.status !== 0 || !existsSync(wav)) throw new Error("afconvert failed");
@@ -141,6 +154,8 @@ function pcmFrames(pcm: Float32Array): Float32Array[] {
 
 export interface BenchTurn {
   turn: number;
+  lang?: "en" | "fr";
+  text?: string;
   /** Grok: the ACP session establishments (session/load, /resume, /new) this turn paid */
   establish?: number;
   endpoint?: number;
@@ -162,10 +177,6 @@ export interface BenchTurn {
   beatEosMs?: number;
 }
 
-const knob = (name: string, fallback: number) => {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) && value >= 0 && process.env[name] !== "" && process.env[name] !== undefined ? value : fallback;
-};
 /** How long a person takes per word (about three words a second). */
 const WORD_MS = 330;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
@@ -310,26 +321,50 @@ function acpMethods(file: string): string[] {
 }
 const ESTABLISH = new Set(["session/load", "session/resume", "session/new"]);
 
-const REAL_QUESTIONS = [
-  "What time is it?",
-  "How is the weather?",
-  "What is two plus two?",
-  "Say hello in French.",
+export type RealBenchQuestion = { text: string; lang: "en" | "fr" };
+
+/** 20 real turns: English and Québec French, short and long. Cryptic: no
+ * p50 claim from fewer than 20. */
+export const REAL_QUESTIONS: RealBenchQuestion[] = [
+  { text: "What time is it?", lang: "en" },
+  { text: "How is the weather?", lang: "en" },
+  { text: "What is two plus two?", lang: "en" },
+  { text: "Say hello.", lang: "en" },
+  { text: "Can you remind me what my next meeting is?", lang: "en" },
+  { text: "How long does it take to drive from Montreal to Quebec City?", lang: "en" },
+  { text: "Please summarize the last ticket I opened.", lang: "en" },
+  { text: "What is the difference between a process and a thread in one sentence?", lang: "en" },
+  { text: "Do I have any unread messages from Max?", lang: "en" },
+  { text: "Tell me a two sentence joke about coffee.", lang: "en" },
+  { text: "Quelle heure est-il?", lang: "fr" },
+  { text: "Quel temps fait-il?", lang: "fr" },
+  { text: "Combien font deux plus deux?", lang: "fr" },
+  { text: "Dis bonjour.", lang: "fr" },
+  { text: "Peux-tu me rappeler quel est mon prochain rendez-vous?", lang: "fr" },
+  { text: "Combien de temps pour aller de Montréal à Québec en voiture?", lang: "fr" },
+  { text: "Résume-moi le dernier billet que j'ai ouvert.", lang: "fr" },
+  { text: "C'est quoi la différence entre un process et un thread, en une phrase?", lang: "fr" },
+  { text: "Est-ce que j'ai des messages non lus?", lang: "fr" },
+  { text: "Raconte-moi une blague de deux phrases sur le café.", lang: "fr" },
 ];
 
 export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Promise<{ engine: BenchEngine; turns: BenchTurn[]; serverLog: string; diag?: unknown; acp?: string[]; real?: boolean }> {
   const real = realVoiceBench() || engine === "xai";
-  const turns = knob("BENCH_TURNS", real ? 4 : 12);
+  const turns = defaultBenchTurns(real);
   const useSocket = (process.env.BENCH_SPEECH ?? "socket") !== "post";
   const fasterEnd = knob("BENCH_FASTER_END", 1) !== 0;
   const unpunctuated = knob("BENCH_UNPUNCTUATED", 0) === 1;
-  const questionBank = real ? REAL_QUESTIONS : QUESTIONS;
-  const transcripts = Array.from({ length: turns }, (_, i) => questionBank[i % questionBank.length]!).map((q) => (unpunctuated ? q.replace(/[?.!]+$/, "") : q));
+  const callLanguage = real ? "auto" : "en";
+  const questionBank: RealBenchQuestion[] = real ? REAL_QUESTIONS : QUESTIONS.map((text) => ({ text, lang: "en" }));
+  const transcripts = Array.from({ length: turns }, (_, i) => {
+    const q = questionBank[i % questionBank.length]!;
+    return { ...q, text: unpunctuated ? q.text.replace(/[?.!]+$/, "") : q.text };
+  });
   const reply = process.env.BENCH_REPLY ? { FAKE_CLAUDE_VOICE_REPLY: process.env.BENCH_REPLY, FAKE_ACP_VOICE_REPLY: process.env.BENCH_REPLY } : {};
   const key = real ? loadVoiceBenchKey() : undefined;
   if (real && !key) throw new Error("SAGAX_VOICE_BENCH_REAL needs SAGAX_XAI_VOICE_KEY (or tts.xaiKey in the develop config)");
   const xai = real ? null : await startFakeXaiVoice({
-    transcripts,
+    transcripts: transcripts.map((q) => q.text),
     sttFinalizeMs: knob("BENCH_STT_FINAL_MS", 250),
     ttsFirstChunkMs: knob("BENCH_TTS_FIRST_MS", 300),
     ttsSeconds: 1.4,
@@ -379,6 +414,7 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
     errors: string[];
     sends: Array<{ status: number; ok: boolean; superseded?: boolean }>;
     sse: number;
+    speechReady?: boolean;
     uploadError?: string;
   } = { partials: [], utterances: [], rejects: [], errors: [], sends: [], sse: 0 };
   try {
@@ -394,13 +430,13 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
     diag.bot = { id: bot.id, model: bot.modelSelection };
     const threadId = bot.threadId as string;
     const callId = `bench-${Date.now().toString(36)}`;
-    await api("POST", `/api/bots/${bot.id}/voice/call`, { threadId, callId, state: "start", language: "en" });
+    await api("POST", `/api/bots/${bot.id}/voice/call`, { threadId, callId, state: "start", language: callLanguage });
 
     // what this bench sees of each turn
     let current: { sentAt?: number; firstToken?: number; ttsFirstByte?: number; text: string } = { text: "" };
     const transcriber = new LiveTranscriber({
       botId: bot.id,
-      language: () => "en",
+      language: () => callLanguage,
       threadId: () => threadId,
       socket: (url) => new WebSocket(url.replace(/^ws:\/\/localhost/, origin.replace(/^http/, "ws")), { headers: { origin } }) as unknown as globalThis.WebSocket,
       transcribe: async (_botId, audio, language, thread) => {
@@ -430,7 +466,7 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
       }));
       return { body, sampleRate: Number(response.headers.get("x-voice-sample-rate")) || 24_000 };
     };
-    const voiceSettings = () => ({ voice: "", speed: 1, language: "en" }) as never;
+    const voiceSettings = () => ({ voice: "", speed: 1, language: callLanguage }) as never;
     const speechSocket = useSocket ? new SpeechSocket({
       botId: bot.id,
       threadId: () => threadId,
@@ -469,7 +505,7 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
       const utteranceId = (turn as { utteranceId?: string }).utteranceId ?? `bench-${Math.random().toString(36).slice(2, 12)}`;
       void api("POST", `/api/bots/${bot.id}/messages`, {
         threadId, text, sendId: utteranceId,
-        voiceCall: { callId, utteranceId, language: "en", duplex: true, ...(turn.interrupted ? { interrupted: true } : {}), ...(turn.continues ? { continues: true } : {}) },
+        voiceCall: { callId, utteranceId, language: callLanguage, duplex: true, ...(turn.interrupted ? { interrupted: true } : {}), ...(turn.continues ? { continues: true } : {}) },
       }).then((sent) => diag.sends.push({ status: sent.status, ok: sent.ok, superseded: sent.superseded }));
     });
     live.on("interrupt-bot", () => void api("POST", `/api/bots/${bot.id}/interrupt`, { threadId }));
@@ -515,6 +551,7 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
     await live.start();
     diag.startMs = Math.round(performance.now() - started);
     diag.streaming = transcriber.streaming;
+    if (speechSocket) diag.speechReady = await speechSocket.connect();
     await sleep(300);
     // the microphone: real-time 32 ms frames, speech then silence
     let speaking = false;
@@ -529,7 +566,7 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
         else live.frame(speaking ? voicedFrame(speakUntil - performance.now()) : frame(0.03, 0.001));
       }
     })();
-    const spoken = real ? transcripts.map((text) => pcmFrames(spokenPcm(text))) : [];
+    const spoken = real ? transcripts.map((q) => pcmFrames(spokenPcm(q.text, q.lang === "fr" ? BENCH_SAY_VOICE_FR : undefined))) : [];
     for (let turn = 1; turn <= turns; turn++) {
       current = { text: "" };
       metrics = {};
@@ -539,7 +576,7 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
         while (pendingFrames.length) await sleep(32);
         await sleep(800);
       } else {
-        const speakMs = transcripts[turn - 1]!.split(/\s+/).length * WORD_MS;
+        const speakMs = transcripts[turn - 1]!.text.split(/\s+/).length * WORD_MS;
         speakUntil = performance.now() + speakMs;
         speaking = true;
         await sleep(speakMs);
@@ -554,6 +591,8 @@ export async function runVoiceLatencyBench(engine: BenchEngine = "claude"): Prom
       const rawTotal = d(m.stoppedAt, m.firstAudioAt);
       results.push({
         turn,
+        lang: transcripts[turn - 1]!.lang,
+        text: transcripts[turn - 1]!.text,
         endpoint: d(m.stoppedAt, m.endedAt),
         stt: d(m.endedAt, m.transcribedAt),
         dispatch: d(m.transcribedAt, m.sentAt),

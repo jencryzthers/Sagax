@@ -6,7 +6,31 @@
 import { writeFileSync } from "node:fs";
 import { expect, it } from "vitest";
 
-import { realVoiceBench, runVoiceLatencyBench, summarize, type BenchEngine } from "./voice-latency-bench.ts";
+import {
+  BENCH_SAY_VOICE_FR,
+  REAL_QUESTIONS,
+  defaultBenchTurns,
+  realVoiceBench,
+  runVoiceLatencyBench,
+  summarize,
+  type BenchEngine,
+} from "./voice-latency-bench.ts";
+
+it("real bench is 20 turns mixing English and Québec French, short and long", () => {
+  expect(defaultBenchTurns(true)).toBe(20);
+  expect(defaultBenchTurns(false)).toBe(12);
+  expect(REAL_QUESTIONS).toHaveLength(20);
+  const fr = REAL_QUESTIONS.filter((q) => q.lang === "fr");
+  const en = REAL_QUESTIONS.filter((q) => q.lang === "en");
+  expect(fr.length).toBeGreaterThanOrEqual(8);
+  expect(en.length).toBeGreaterThanOrEqual(8);
+  const words = (q: { text: string }) => q.text.trim().split(/\s+/).length;
+  expect(REAL_QUESTIONS.some((q) => q.lang === "en" && words(q) <= 5)).toBe(true);
+  expect(REAL_QUESTIONS.some((q) => q.lang === "en" && words(q) >= 10)).toBe(true);
+  expect(REAL_QUESTIONS.some((q) => q.lang === "fr" && words(q) <= 5)).toBe(true);
+  expect(REAL_QUESTIONS.some((q) => q.lang === "fr" && words(q) >= 10)).toBe(true);
+  expect(BENCH_SAY_VOICE_FR).toMatch(/Amélie|Amelie/);
+});
 
 const real = realVoiceBench();
 const engines = real
@@ -35,4 +59,4 @@ it.skipIf(process.env.SAGAX_VOICE_BENCH !== "1")("measures a call's latency stag
     if (process.env.BENCH_OUT) writeFileSync(process.env.BENCH_OUT, JSON.stringify(report, null, 2));
     expect(turns.every((turn) => typeof turn.total === "number"), JSON.stringify(turns)).toBe(true);
   }
-}, 1_200_000);
+}, 1_800_000);
