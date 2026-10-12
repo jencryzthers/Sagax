@@ -47,15 +47,30 @@ export interface AcceptanceLine {
 
 /** Overlapping topics, barge-in, correction, stop, a queued extra. EN+FR. */
 export const ACCEPTANCE_SCRIPT: AcceptanceLine[] = [
-  { id: "A", lang: "en", atMs: 0, text: "Count to two hundred please, saying each number." },
-  { id: "B", lang: "en", atMs: 5_000, text: "What time is it in Tokyo?" },
-  { id: "C", lang: "fr", atMs: 9_000, text: "Rédige un court courriel de bonjour." },
-  { id: "D", lang: "en", atMs: 13_000, text: "How far is Quebec City from Montreal?" },
-  { id: "lim", lang: "fr", atMs: 15_000, text: "Prépare aussi le rapport mensuel des billets." },
-  { id: "barge", lang: "en", atMs: 24_000, text: "hey what time is it in Paris" },
-  { id: "corr", lang: "en", atMs: 32_000, text: "no, I meant Toronto" },
-  { id: "stop", lang: "en", atMs: 40_000, text: "stop" },
+  { id: "A", lang: "en", atMs: 0, text: "Please wait twelve seconds, then count to two hundred, saying each number." },
+  { id: "B", lang: "en", atMs: 8_000, text: "Please wait fifteen seconds, then what time is it in Tokyo?" },
+  { id: "C", lang: "fr", atMs: 12_000, text: "Attends huit secondes, puis rédige un court courriel de bonjour." },
+  { id: "D", lang: "en", atMs: 16_000, text: "How far is Quebec City from Montreal?" },
+  { id: "lim", lang: "fr", atMs: 18_000, text: "Prépare aussi le rapport mensuel des billets." },
+  { id: "barge", lang: "en", atMs: 22_000, text: "hey what time is it in Paris" },
+  { id: "corr", lang: "en", atMs: 30_000, text: "no, I meant Toronto" },
 ];
+
+/** Second call: stop while A is thinking and B is a background task. */
+export const ACCEPTANCE_STOP_SCRIPT: AcceptanceLine[] = [
+  { id: "A", lang: "en", atMs: 0, text: "Please wait twenty seconds, then count to two hundred, saying each number." },
+  { id: "B", lang: "en", atMs: 6_000, text: "Please wait fifteen seconds, then what time is it in Tokyo?" },
+  { id: "stop", lang: "en", atMs: 10_000, text: "stop" },
+];
+
+/** Speculative 4-word prefixes complete as short turns and kill the wait. */
+export function shouldPostAcceptanceUtterance(turn: { speculative?: boolean }): boolean {
+  return turn.speculative !== true;
+}
+
+export function mergeAcceptanceScores(fork: AcceptanceScore[], stop: AcceptanceScore[]): AcceptanceScore[] {
+  return fork.map((row) => (row.scenario === "f" ? stop.find((item) => item.scenario === "f") ?? row : row));
+}
 
 export type AcceptanceEvent = {
   t: number;
@@ -73,6 +88,7 @@ export type AcceptanceEvent = {
   parallel?: "running" | "queued";
   intent?: "stop" | "correction" | "new_topic";
   continues?: boolean;
+  stopped?: boolean;
 };
 
 export type AcceptanceScenario = "a" | "b" | "c" | "d" | "e" | "f" | "latency";
@@ -88,6 +104,12 @@ const done = (events: AcceptanceEvent[], id: string) =>
   events.some((event) => event.kind === "turn-completed" && event.id === id);
 const killed = (events: AcceptanceEvent[], id: string) =>
   events.some((event) => event.kind === "cancelled" && event.id === id);
+const forked = (events: AcceptanceEvent[], id: string) =>
+  events.some((event) => event.kind === "send" && event.id === id && !event.continues && event.parallel === "running");
+function cancelledBeforeComplete(events: AcceptanceEvent[], id: string): boolean {
+  const doneAt = events.find((event) => event.kind === "turn-completed" && event.id === id)?.t;
+  return events.some((event) => event.kind === "cancelled" && event.id === id && (doneAt === undefined || event.t < doneAt));
+}
 
 function speakOverlap(events: AcceptanceEvent[]): { overlap: boolean; lines: number } {
   let speaking = 0;
@@ -109,20 +131,22 @@ export function scoreAcceptance(
   events: AcceptanceEvent[],
   opts: { warmTotals?: number[]; targetMs?: number } = {},
 ): AcceptanceScore[] {
-  const aPass = done(events, "A") && done(events, "B") && !killed(events, "A");
-  const bPass = (["A", "B", "C"] as const).every((id) => done(events, id));
+  const aPass = done(events, "A") && done(events, "B") && !cancelledBeforeComplete(events, "A") && forked(events, "B");
+  const bPass = (["A", "B", "C"] as const).every((id) => done(events, id)) && forked(events, "B") && forked(events, "C");
   const cPass = events.some((event) => event.kind === "interrupt")
-    && killed(events, "A")
-    && done(events, "B");
+    && forked(events, "B")
+    && done(events, "B")
+    && !killed(events, "B");
   const spoken = speakOverlap(events);
   const dPass = spoken.lines >= 2 && !spoken.overlap;
   const ePass = events.some((event) => event.kind === "send" && event.parallel === "queued")
     && events.some((event) => event.kind === "bot-speak-start" && event.id === "queued-notice")
     && events.some((event) => event.kind === "parallel-running" && event.id === "lim")
     && done(events, "lim");
-  const fPass = events.some((event) => event.id === "stop")
-    && killed(events, "A")
-    && done(events, "B");
+  const fPass = events.some((event) => event.kind === "send" && event.id === "stop" && event.stopped === true)
+    && forked(events, "B")
+    && done(events, "B")
+    && !killed(events, "B");
   const warm = opts.warmTotals ?? [];
   const target = opts.targetMs ?? 800;
   const p50 = percentile(warm, 50);
@@ -220,11 +244,12 @@ export function assignAcceptanceTurnIds(events: AcceptanceEvent[]): void {
 }
 
 export function matchAcceptanceLine(text: string): AcceptanceLine | undefined {
+  const lines = [...ACCEPTANCE_SCRIPT, ...ACCEPTANCE_STOP_SCRIPT];
   const intent = classifyVoiceIntent(text);
-  if (intent === "stop") return ACCEPTANCE_SCRIPT.find((row) => row.id === "stop");
-  if (intent === "correction") return ACCEPTANCE_SCRIPT.find((row) => row.id === "corr");
+  if (intent === "stop") return lines.find((row) => row.id === "stop");
+  if (intent === "correction") return lines.find((row) => row.id === "corr");
   for (const id of ["barge", "lim", "C", "B", "D", "A"]) {
-    if (HINT[id]!.test(text)) return ACCEPTANCE_SCRIPT.find((row) => row.id === id);
+    if (HINT[id]!.test(text)) return lines.find((row) => row.id === id);
   }
   return undefined;
 }
@@ -254,6 +279,286 @@ function quietFrame(): Float32Array {
   return out;
 }
 
+const WAIT_SOUL = "When they ask you to wait, you MUST call the wait tool with that many seconds before you say anything else. Do not skip the wait. After it returns, answer briefly in spoken sentences.";
+
+type AcceptApi = (method: string, path: string, body?: unknown) => Promise<{ status: number; body: Record<string, unknown> }>;
+
+async function prepareAcceptBot(api: AcceptApi, name: string) {
+  const created = await api("POST", "/api/bots", { name });
+  const bot = (created.body as { bot: { id: string; threadId: string } }).bot;
+  await api("PATCH", `/api/bots/${bot.id}`, {
+    modelSelection: { instanceId: "grok", model: "grok-4-fast-non-reasoning" },
+    approvalMode: "full",
+    mcpServers: ["wait"],
+    soul: WAIT_SOUL,
+  });
+  return bot;
+}
+
+async function driveAcceptancePhase(input: {
+  api: AcceptApi;
+  origin: string;
+  headers: Record<string, string>;
+  bot: { id: string; threadId: string };
+  script: AcceptanceLine[];
+  player: InstanceType<typeof ClockPlayer>;
+  t0: number;
+  tailMs: number;
+}): Promise<{ events: AcceptanceEvent[]; warmTotals: number[] }> {
+  const { api, origin, headers, bot, script, player, t0, tailMs } = input;
+  const threadId = bot.threadId;
+  const callId = `accept-${Date.now().toString(36)}`;
+  const events: AcceptanceEvent[] = [];
+  const mark = (event: Omit<AcceptanceEvent, "t">) => events.push({ t: Math.round(performance.now() - t0), ...event });
+  await api("POST", `/api/bots/${bot.id}/voice/call`, { threadId, callId, state: "start", language: "auto" });
+
+  const spoken = script.map((row) => {
+    log(`say ${row.id} ${row.lang}`);
+    return {
+      row,
+      frames: holdVoiceUntilTail(pcmFrames(spokenPcm(row.text, row.lang === "fr" ? BENCH_SAY_VOICE_FR : undefined))),
+    };
+  });
+
+  let current: BenchReplyState = { text: "" };
+  const transcriber = new LiveTranscriber({
+    botId: bot.id,
+    language: () => "auto",
+    threadId: () => threadId,
+    socket: (url) => new WebSocket(url.replace(/^ws:\/\/localhost/, origin.replace(/^http/, "ws")), { headers: { origin } }) as unknown as globalThis.WebSocket,
+    transcribe: async (_botId, audio, language, thread) => {
+      const query = new URLSearchParams({ language, ...(thread ? { threadId: thread } : {}) });
+      const response = await fetch(`${origin}/api/bots/${bot.id}/voice/transcribe?${query}`, {
+        method: "POST", headers: { origin, "content-type": audio.type || "audio/wav" }, body: audio,
+      });
+      if (!response.ok) throw new Error(`transcribe ${response.status}`);
+      const body = await response.json() as { text?: string };
+      return typeof body.text === "string" ? body.text : "";
+    },
+  });
+  const speech = async (_botId: string, text: string, voice: { voice?: string; speed?: number; language?: string }, thread?: string, signal?: AbortSignal) => {
+    const response = await fetch(`${origin}/api/bots/${bot.id}/voice/stream`, {
+      method: "POST", headers, signal,
+      body: JSON.stringify({ text, voice: voice.voice, speed: voice.speed, language: voice.language, threadId: thread }),
+    });
+    if (response.status === 204 || !response.body) return null;
+    return { body: response.body, sampleRate: Number(response.headers.get("x-voice-sample-rate")) || 24_000 };
+  };
+  const speechSocket = new SpeechSocket({
+    botId: bot.id,
+    threadId: () => threadId,
+    voice: () => ({ voice: "", speed: 1, language: "auto" }) as never,
+    socket: (url) => new WebSocket(url.replace(/^ws:\/\/localhost/, origin.replace(/^http/, "ws")), { headers: { origin } }) as unknown as globalThis.WebSocket,
+    post: speech as never,
+  });
+  const call = new VoiceCall({
+    botId: bot.id,
+    threadId: () => threadId,
+    voice: () => ({ voice: "", speed: 1, language: "auto" }) as never,
+    settings: () => ({ ...DEFAULT_CALL_SETTINGS, onlyMyVoice: false, earcons: false, thinkingCue: false, pause: "normal", streamingVoice: true, fasterEndOfTurn: true, fullDuplex: true }) as never,
+    player: player as never,
+    transcriber,
+    models: async () => ({ vad: scriptedVad, embedder: null }),
+    speechSocket,
+    voiceprint: null,
+    getUserMedia: async () => ({ getTracks: () => [], getAudioTracks: () => [] }) as unknown as MediaStream,
+    createCaptureContext: () => ({
+      sampleRate: 16_000, state: "running", resume: async () => {}, close: async () => {}, destination: {},
+      createMediaStreamSource: () => ({ connect() {}, disconnect() {} }),
+      createAnalyser: () => ({ fftSize: 0, connect() {}, disconnect() {} }),
+      createScriptProcessor: () => ({ connect() {}, disconnect() {}, onaudioprocess: null }),
+    }) as unknown as AudioContext,
+  });
+
+  const innerPlayer = { ...player.events };
+  let speaking = false;
+  let injectedId: string | undefined;
+  player.events = {
+    ...innerPlayer,
+    onSentenceStart: (text, info) => {
+      if (!speaking) {
+        speaking = true;
+        mark({ kind: "bot-speak-start", id: injectedId ?? matchAcceptanceLine(text)?.id ?? "reply" });
+      }
+      innerPlayer.onSentenceStart?.(text, info);
+    },
+    onIdle: () => {
+      if (speaking) {
+        speaking = false;
+        mark({ kind: "bot-speak-end", id: "reply" });
+      }
+      innerPlayer.onIdle?.();
+    },
+  };
+
+  const pendingSpeak: Array<SpeakItem & { text: string }> = [];
+  const drainSpeak = () => {
+    const slot = nextSpeakSlot({
+      userSpeaking: call.current.phase === "hearing",
+      botSpeaking: player.busy || call.current.botAudible,
+      waiting: pendingSpeak,
+    });
+    if (slot.action === "hold") return;
+    const item = pendingSpeak.find((row) => row.id === slot.id);
+    if (!item) return;
+    pendingSpeak.splice(pendingSpeak.indexOf(item), 1);
+    if (item.id === "queued-notice") injectedId = "queued-notice";
+    void Promise.resolve(item.id === "queued-notice" ? call.say(item.text) : call.replyDone(item.text)).finally(() => {
+      drainSpeak();
+    });
+  };
+
+  const warmTotals: number[] = [];
+  const warmSeen = new Set<string>();
+  call.on("metrics", (turn) => {
+    if (!turn) return;
+    noteWarmTotal(warmSeen, warmTotals, turn);
+  });
+  call.on("utterance", (text, turnMetrics, turn) => {
+    if (!shouldPostAcceptanceUtterance(turn)) {
+      log(`skip speculative ${text.slice(0, 48)}`);
+      return;
+    }
+    const line = matchAcceptanceLine(text);
+    const utteranceId = turn.utteranceId ?? `acc-${Math.random().toString(36).slice(2, 10)}`;
+    void api("POST", `/api/bots/${bot.id}/messages`, {
+      threadId, text, sendId: utteranceId,
+      voiceCall: acceptanceVoiceCall(callId, utteranceId, line?.lang ?? "en", turn),
+    }).then((sent) => {
+      const parallel = (sent.body as { parallel?: { state?: string; threadId?: string } }).parallel;
+      const stopped = (sent.body as { stopped?: boolean }).stopped === true;
+      mark({
+        kind: "send",
+        id: line?.id,
+        threadId: parallel?.threadId ?? threadId,
+        parallel: parallel?.state === "queued" || parallel?.state === "running" ? parallel.state : undefined,
+        intent: classifyVoiceIntent(text),
+        continues: turn.continues === true,
+        stopped,
+      });
+      if (stopped) mark({ kind: "cancelled", id: "A", threadId });
+      log(`send ${line?.id ?? "?"} status=${sent.status} parallel=${parallel?.state ?? "none"} stopped=${stopped}`);
+    });
+  });
+  call.on("interrupt-bot", (target) => {
+    const scored = scoreAcceptanceInterrupt(injectedId);
+    if (scored) mark(scored);
+    void api("POST", `/api/bots/${bot.id}/interrupt`, benchInterruptBody(threadId, target)).then(() => {
+      if (scoreAcceptanceCancel(injectedId)) mark({ kind: "cancelled", id: "A", threadId });
+    });
+  });
+
+  const eventsAbort = new AbortController();
+  void (async () => {
+    const response = await fetch(`${origin}/api/events`, { headers: { origin }, signal: eventsAbort.signal });
+    if (!response.ok || !response.body) return;
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      buffer += decoder.decode(value, { stream: true });
+      let cut;
+      while ((cut = buffer.indexOf("\n\n")) >= 0) {
+        const block = buffer.slice(0, cut);
+        buffer = buffer.slice(cut + 2);
+        const data = block.split("\n").filter((row) => row.startsWith("data:")).map((row) => row.slice(5).trim()).join("");
+        if (!data) continue;
+        let frame: { kind?: string; event?: { type?: string; threadId?: string; streamKind?: string; delta?: string; itemType?: string; text?: string } };
+        try { frame = JSON.parse(data); } catch { continue; }
+        const event = frame?.kind === "runtime" ? frame.event : null;
+        if (!event) continue;
+        if (event.type === "turn.started") mark({ kind: "turn-started", threadId: event.threadId });
+        if (event.type === "turn.completed") mark({ kind: "turn-completed", threadId: event.threadId });
+        applyBenchRuntimeEvent(event, threadId, current, {
+          progress: (text) => call.replyProgress(text),
+          done: (text) => {
+            pendingSpeak.push({ id: `reply-${pendingSpeak.length}`, priority: "user-reply", at: performance.now(), text });
+            drainSpeak();
+          },
+          setBusy: (busy) => call.setBotBusy(busy),
+        });
+      }
+    }
+  })().catch(() => {});
+
+  await call.start();
+  await speechSocket.connect();
+  await sleep(300);
+
+  let pendingFrames: Array<{ id: string; frame: Float32Array }> = [];
+  let stopMic = false;
+  const mic = (async () => {
+    const started = performance.now();
+    for (let i = 0; !stopMic; i++) {
+      await sleep(started + i * 32 - performance.now());
+      const next = pendingFrames.shift();
+      if (next) {
+        injectedId = next.id;
+        call.frame(next.frame);
+      } else call.frame(quietFrame());
+    }
+  })();
+
+  const seen = new Set<string>();
+  const poll = async () => {
+    const messages = ((await api("GET", `/api/threads/${threadId}/messages?limit=200`)).body.messages ?? []) as Array<{
+      text?: string; parallelTask?: { role?: string; state?: string; threadId?: string }; role?: string;
+    }>;
+    for (const message of messages) {
+      const key = `${message.parallelTask?.role}:${message.parallelTask?.threadId}:${message.text?.slice(0, 40)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (message.parallelTask?.state === "queued") {
+        pendingSpeak.push({ id: "queued-notice", priority: "queued-notice", at: performance.now(), text: "That one is waiting for a free slot." });
+        drainSpeak();
+      }
+      if (message.parallelTask?.state === "running" && message.parallelTask.role === "card") {
+        const send = events.find((event) => event.kind === "send" && event.threadId === message.parallelTask!.threadId);
+        mark({ kind: "parallel-running", id: send?.id ?? "lim", threadId: message.parallelTask.threadId });
+      }
+      if (message.parallelTask?.role === "result" && message.text) {
+        const send = events.find((event) => event.kind === "send" && event.threadId === message.parallelTask!.threadId);
+        const line = matchAcceptanceLine(message.text);
+        mark({ kind: "turn-completed", id: send?.id ?? line?.id, threadId: message.parallelTask.threadId });
+        pendingSpeak.push({ id: send?.id ?? line?.id ?? "topic", priority: "topic-result", at: performance.now(), text: message.text });
+        drainSpeak();
+      }
+    }
+    const tasks = ((await api("GET", "/api/bots")).body as { bots: Array<{ id: string; tasks?: Array<{ threadId: string; busy?: boolean }> }> }).bots.find((row) => row.id === bot.id)?.tasks ?? [];
+    for (const task of tasks) {
+      if (!task.busy && events.some((event) => event.threadId === task.threadId && event.kind === "send") && !events.some((event) => event.threadId === task.threadId && event.kind === "turn-completed")) {
+        mark({ kind: "turn-completed", threadId: task.threadId });
+      }
+    }
+  };
+
+  const injectOrigin = performance.now();
+  for (const item of spoken) {
+    await sleep(acceptanceInjectWait(injectOrigin, item.row.atMs, performance.now()));
+    log(`inject ${item.row.id}`);
+    pendingFrames.push(...item.frames.map((frame) => ({ id: item.row.id, frame })));
+  }
+  const end = performance.now() + tailMs;
+  while (performance.now() < end) {
+    await poll();
+    await sleep(500);
+  }
+  stopMic = true;
+  await mic;
+  eventsAbort.abort();
+  call.end();
+
+  assignAcceptanceTurnIds(events);
+  for (const event of events) {
+    if ((event.kind === "turn-started" || event.kind === "turn-completed") && event.threadId === threadId && !event.id) {
+      event.id = "A";
+    }
+  }
+  return { events, warmTotals };
+}
+
 export async function runVoiceAcceptanceCall(outDir?: string): Promise<{
   dir: string;
   scores: AcceptanceScore[];
@@ -265,8 +570,6 @@ export async function runVoiceAcceptanceCall(outDir?: string): Promise<{
   const runId = new Date().toISOString().replace(/[:.]/g, "-");
   const dir = outDir ?? join("/tmp/sagax-voice-acceptance", runId);
   mkdirSync(dir, { recursive: true });
-  const events: AcceptanceEvent[] = [];
-  const mark = (event: Omit<AcceptanceEvent, "t">) => events.push({ t: Math.round(performance.now() - t0), ...event });
   const t0 = performance.now();
 
   const port = await freePortBlock([0, 1]);
@@ -278,7 +581,7 @@ export async function runVoiceAcceptanceCall(outDir?: string): Promise<{
       grok: {
         driver: "grok",
         displayName: "Accept",
-        config: { tools: false, url: "https://api.x.ai/v1", apiKeyEnv: "XAI_API_KEY" },
+        config: { tools: true, url: "https://api.x.ai/v1", apiKeyEnv: "XAI_API_KEY" },
       },
     },
   }));
@@ -333,258 +636,28 @@ export async function runVoiceAcceptanceCall(outDir?: string): Promise<{
   }) as typeof player.enqueue;
 
   try {
+    await api("POST", "/api/mcp/servers", {
+      name: "wait",
+      command: process.execPath,
+      args: [join(ROOT, "scripts", "voice-acceptance-wait-mcp.mjs")],
+      enabled: true,
+    });
+    await api("PATCH", "/api/mcp/servers/wait", { enabled: true });
     await api("PATCH", "/api/config", { threads: { maxParallelPerPerson: 2 } });
-    const created = await api("POST", "/api/bots", { name: "Accept" });
-    const bot = (created.body as { bot: { id: string; threadId: string } }).bot;
-    await api("PATCH", `/api/bots/${bot.id}`, { modelSelection: { instanceId: "grok", model: "grok-4-fast-non-reasoning" } });
-    const threadId = bot.threadId;
-    const callId = `accept-${Date.now().toString(36)}`;
-    await api("POST", `/api/bots/${bot.id}/voice/call`, { threadId, callId, state: "start", language: "auto" });
-
-    const spoken = ACCEPTANCE_SCRIPT.map((row) => {
-      log(`say ${row.id} ${row.lang}`);
-      return {
-        row,
-        frames: holdVoiceUntilTail(pcmFrames(spokenPcm(row.text, row.lang === "fr" ? BENCH_SAY_VOICE_FR : undefined))),
-      };
-    });
-
-    let current: BenchReplyState = { text: "" };
-    const transcriber = new LiveTranscriber({
-      botId: bot.id,
-      language: () => "auto",
-      threadId: () => threadId,
-      socket: (url) => new WebSocket(url.replace(/^ws:\/\/localhost/, origin.replace(/^http/, "ws")), { headers: { origin } }) as unknown as globalThis.WebSocket,
-      transcribe: async (_botId, audio, language, thread) => {
-        const query = new URLSearchParams({ language, ...(thread ? { threadId: thread } : {}) });
-        const response = await fetch(`${origin}/api/bots/${bot.id}/voice/transcribe?${query}`, {
-          method: "POST", headers: { origin, "content-type": audio.type || "audio/wav" }, body: audio,
-        });
-        if (!response.ok) throw new Error(`transcribe ${response.status}`);
-        const body = await response.json() as { text?: string };
-        return typeof body.text === "string" ? body.text : "";
-      },
-    });
-    const speech = async (_botId: string, text: string, voice: { voice?: string; speed?: number; language?: string }, thread?: string, signal?: AbortSignal) => {
-      const response = await fetch(`${origin}/api/bots/${bot.id}/voice/stream`, {
-        method: "POST", headers, signal,
-        body: JSON.stringify({ text, voice: voice.voice, speed: voice.speed, language: voice.language, threadId: thread }),
-      });
-      if (response.status === 204 || !response.body) return null;
-      return { body: response.body, sampleRate: Number(response.headers.get("x-voice-sample-rate")) || 24_000 };
+    const bot = await prepareAcceptBot(api, "Accept");
+    const stopBot = await prepareAcceptBot(api, "AcceptStop");
+    const phase = {
+      api, origin, headers, player, t0,
     };
-    const speechSocket = new SpeechSocket({
-      botId: bot.id,
-      threadId: () => threadId,
-      voice: () => ({ voice: "", speed: 1, language: "auto" }) as never,
-      socket: (url) => new WebSocket(url.replace(/^ws:\/\/localhost/, origin.replace(/^http/, "ws")), { headers: { origin } }) as unknown as globalThis.WebSocket,
-      post: speech as never,
-    });
-    const call = new VoiceCall({
-      botId: bot.id,
-      threadId: () => threadId,
-      voice: () => ({ voice: "", speed: 1, language: "auto" }) as never,
-      settings: () => ({ ...DEFAULT_CALL_SETTINGS, onlyMyVoice: false, earcons: false, thinkingCue: false, pause: "normal", streamingVoice: true, fasterEndOfTurn: true, fullDuplex: true }) as never,
-      player: player as never,
-      transcriber,
-      models: async () => ({ vad: scriptedVad, embedder: null }),
-      speechSocket,
-      voiceprint: null,
-      getUserMedia: async () => ({ getTracks: () => [], getAudioTracks: () => [] }) as unknown as MediaStream,
-      createCaptureContext: () => ({
-        sampleRate: 16_000, state: "running", resume: async () => {}, close: async () => {}, destination: {},
-        createMediaStreamSource: () => ({ connect() {}, disconnect() {} }),
-        createAnalyser: () => ({ fftSize: 0, connect() {}, disconnect() {} }),
-        createScriptProcessor: () => ({ connect() {}, disconnect() {}, onaudioprocess: null }),
-      }) as unknown as AudioContext,
-    });
-
-    const innerPlayer = { ...player.events };
-    let speaking = false;
-    player.events = {
-      ...innerPlayer,
-      onSentenceStart: (text, info) => {
-        if (!speaking) {
-          speaking = true;
-          mark({ kind: "bot-speak-start", id: injectedId ?? matchAcceptanceLine(text)?.id ?? "reply" });
-        }
-        innerPlayer.onSentenceStart?.(text, info);
-      },
-      onIdle: () => {
-        if (speaking) {
-          speaking = false;
-          mark({ kind: "bot-speak-end", id: "reply" });
-        }
-        innerPlayer.onIdle?.();
-      },
-    };
-
-    const pendingSpeak: Array<SpeakItem & { text: string }> = [];
-    const drainSpeak = () => {
-      const slot = nextSpeakSlot({
-        userSpeaking: call.current.phase === "hearing",
-        botSpeaking: player.busy || call.current.botAudible,
-        waiting: pendingSpeak,
-      });
-      if (slot.action === "hold") return;
-      const item = pendingSpeak.find((row) => row.id === slot.id);
-      if (!item) return;
-      pendingSpeak.splice(pendingSpeak.indexOf(item), 1);
-      if (item.id === "queued-notice") injectedId = "queued-notice";
-      void Promise.resolve(item.id === "queued-notice" ? call.say(item.text) : call.replyDone(item.text)).finally(() => {
-        drainSpeak();
-      });
-    };
-
-    const warmTotals: number[] = [];
-    const warmSeen = new Set<string>();
-    let injectedId: string | undefined;
-    let metrics: Record<string, number | boolean | undefined> = {};
-    call.on("metrics", (turn) => {
-      if (!turn) return;
-      metrics = { ...turn } as never;
-      noteWarmTotal(warmSeen, warmTotals, turn);
-    });
-    call.on("utterance", (text, turnMetrics, turn) => {
-      metrics = { ...metrics, ...turnMetrics } as never;
-      current.sentAt ??= performance.now();
-      const line = matchAcceptanceLine(text);
-      const utteranceId = turn.utteranceId ?? `acc-${Math.random().toString(36).slice(2, 10)}`;
-      void api("POST", `/api/bots/${bot.id}/messages`, {
-        threadId, text, sendId: utteranceId,
-        voiceCall: acceptanceVoiceCall(callId, utteranceId, line?.lang ?? "en", turn),
-      }).then((sent) => {
-        const parallel = (sent.body as { parallel?: { state?: string; threadId?: string } }).parallel;
-        const stopped = (sent.body as { stopped?: boolean }).stopped;
-        mark({
-          kind: "send",
-          id: line?.id,
-          threadId: parallel?.threadId ?? threadId,
-          parallel: parallel?.state === "queued" || parallel?.state === "running" ? parallel.state : undefined,
-          intent: classifyVoiceIntent(text),
-          continues: turn.continues === true,
-        });
-        if (stopped) mark({ kind: "cancelled", id: "A", threadId });
-        log(`send ${line?.id ?? "?"} status=${sent.status} parallel=${parallel?.state ?? "none"}`);
-      });
-    });
-    call.on("interrupt-bot", (target) => {
-      const scored = scoreAcceptanceInterrupt(injectedId);
-      if (scored) mark(scored);
-      void api("POST", `/api/bots/${bot.id}/interrupt`, benchInterruptBody(threadId, target)).then(() => {
-        if (scoreAcceptanceCancel(injectedId)) mark({ kind: "cancelled", id: "A", threadId });
-      });
-    });
-
-    const eventsAbort = new AbortController();
-    void (async () => {
-      const response = await fetch(`${origin}/api/events`, { headers: { origin }, signal: eventsAbort.signal });
-      if (!response.ok || !response.body) return;
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) return;
-        buffer += decoder.decode(value, { stream: true });
-        let cut;
-        while ((cut = buffer.indexOf("\n\n")) >= 0) {
-          const block = buffer.slice(0, cut);
-          buffer = buffer.slice(cut + 2);
-          const data = block.split("\n").filter((row) => row.startsWith("data:")).map((row) => row.slice(5).trim()).join("");
-          if (!data) continue;
-          let frame: { kind?: string; event?: { type?: string; threadId?: string; streamKind?: string; delta?: string; itemType?: string; text?: string } };
-          try { frame = JSON.parse(data); } catch { continue; }
-          const event = frame?.kind === "runtime" ? frame.event : null;
-          if (!event) continue;
-          if (event.type === "turn.started") mark({ kind: "turn-started", threadId: event.threadId });
-          if (event.type === "turn.completed") mark({ kind: "turn-completed", threadId: event.threadId });
-          applyBenchRuntimeEvent(event, threadId, current, {
-            progress: (text) => call.replyProgress(text),
-            done: (text) => {
-              pendingSpeak.push({ id: `reply-${pendingSpeak.length}`, priority: "user-reply", at: performance.now(), text });
-              drainSpeak();
-            },
-            setBusy: (busy) => call.setBotBusy(busy),
-          });
-        }
-      }
-    })().catch(() => {});
-
-    await call.start();
-    await speechSocket.connect();
-    await sleep(300);
-
-    let pendingFrames: Array<{ id: string; frame: Float32Array }> = [];
-    let stopMic = false;
-    const mic = (async () => {
-      const started = performance.now();
-      for (let i = 0; !stopMic; i++) {
-        await sleep(started + i * 32 - performance.now());
-        const next = pendingFrames.shift();
-        if (next) {
-          injectedId = next.id;
-          call.frame(next.frame);
-        } else call.frame(quietFrame());
-      }
-    })();
-
-    const seen = new Set<string>();
-    const poll = async () => {
-      const messages = ((await api("GET", `/api/threads/${threadId}/messages?limit=200`)).body.messages ?? []) as Array<{
-        text?: string; parallelTask?: { role?: string; state?: string; threadId?: string }; role?: string;
-      }>;
-      for (const message of messages) {
-        const key = `${message.parallelTask?.role}:${message.parallelTask?.threadId}:${message.text?.slice(0, 40)}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        if (message.parallelTask?.state === "queued") {
-          pendingSpeak.push({ id: "queued-notice", priority: "queued-notice", at: performance.now(), text: "That one is waiting for a free slot." });
-          drainSpeak();
-        }
-        if (message.parallelTask?.state === "running" && message.parallelTask.role === "card") {
-          mark({ kind: "parallel-running", id: "lim", threadId: message.parallelTask.threadId });
-        }
-        if (message.parallelTask?.role === "result" && message.text) {
-          const line = matchAcceptanceLine(message.text) ?? ACCEPTANCE_SCRIPT.find((row) => row.id === "B");
-          mark({ kind: "turn-completed", id: line?.id, threadId: message.parallelTask.threadId });
-          pendingSpeak.push({ id: line?.id ?? "topic", priority: "topic-result", at: performance.now(), text: message.text });
-          drainSpeak();
-        }
-      }
-      const tasks = ((await api("GET", "/api/bots")).body as { bots: Array<{ id: string; tasks?: Array<{ threadId: string; busy?: boolean }> }> }).bots.find((row) => row.id === bot.id)?.tasks ?? [];
-      for (const task of tasks) {
-        if (!task.busy && events.some((event) => event.threadId === task.threadId && event.kind === "send") && !events.some((event) => event.threadId === task.threadId && event.kind === "turn-completed")) {
-          mark({ kind: "turn-completed", threadId: task.threadId });
-        }
-      }
-    };
-
-    const injectOrigin = performance.now();
-    for (const item of spoken) {
-      await sleep(acceptanceInjectWait(injectOrigin, item.row.atMs, performance.now()));
-      log(`inject ${item.row.id}`);
-      pendingFrames.push(...item.frames.map((frame) => ({ id: item.row.id, frame })));
-    }
-    const end = performance.now() + 45_000;
-    while (performance.now() < end) {
-      await poll();
-      await sleep(500);
-    }
-    stopMic = true;
-    await mic;
-    eventsAbort.abort();
-    call.end();
-
-    assignAcceptanceTurnIds(events);
-    for (const event of events) {
-      if ((event.kind === "turn-started" || event.kind === "turn-completed") && event.threadId === threadId && !event.id) {
-        event.id = "A";
-      }
-    }
-
-    const scores = scoreAcceptance(events, { warmTotals: warmTotals.slice(1), targetMs: 800 });
-    writeFileSync(join(dir, "events.json"), JSON.stringify({ events, warmTotals, scores }, null, 2));
+    const fork = await driveAcceptancePhase({ ...phase, bot, script: ACCEPTANCE_SCRIPT, tailMs: 35_000 });
+    const stop = await driveAcceptancePhase({ ...phase, bot: stopBot, script: ACCEPTANCE_STOP_SCRIPT, tailMs: 25_000 });
+    const events = [...fork.events, ...stop.events];
+    const warmTotals = [...fork.warmTotals, ...stop.warmTotals];
+    const scores = mergeAcceptanceScores(
+      scoreAcceptance(fork.events, { warmTotals: fork.warmTotals.slice(1), targetMs: 800 }),
+      scoreAcceptance(stop.events, { warmTotals: stop.warmTotals.slice(1), targetMs: 800 }),
+    );
+    writeFileSync(join(dir, "events.json"), JSON.stringify({ events, fork: fork.events, stop: stop.events, warmTotals, scores }, null, 2));
     writeFileSync(join(dir, "transcripts.md"), events.filter((event) => event.kind === "send" || event.kind === "turn-completed").map((event) => `${event.t} ${event.kind} ${event.id ?? ""}`).join("\n"));
     writePcm16Wav(join(dir, "bot.wav"), Buffer.concat(chunks.map((part) => Buffer.from(part))));
     writeFileSync(join(dir, "summary.md"), formatAcceptanceSummary(scores, [
@@ -594,6 +667,7 @@ export async function runVoiceAcceptanceCall(outDir?: string): Promise<{
     ]));
     log(`wrote ${dir}`);
     return { dir, scores, events, warmTotals };
+
   } finally {
     child.kill("SIGTERM");
   }

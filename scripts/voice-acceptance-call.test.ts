@@ -5,19 +5,24 @@ import { expect, it } from "vitest";
 import { classifyVoiceIntent } from "../src/lib/voice-mode/voice-topics.ts";
 import {
   ACCEPTANCE_SCRIPT,
+  ACCEPTANCE_STOP_SCRIPT,
   acceptanceVoiceCall,
   matchAcceptanceLine,
+  mergeAcceptanceScores,
   noteWarmTotal,
   scoreAcceptance,
   scoreAcceptanceCancel,
   scoreAcceptanceInterrupt,
+  shouldPostAcceptanceUtterance,
   acceptanceInjectWait,
   assignAcceptanceTurnIds,
   type AcceptanceEvent,
 } from "./voice-acceptance-call.ts";
 
 it("matches spoken lines to script ids, including stop and correction", () => {
+  expect(matchAcceptanceLine("Please wait twelve seconds, then count to two hundred")?.id).toBe("A");
   expect(matchAcceptanceLine("Count to two hundred please")?.id).toBe("A");
+  expect(matchAcceptanceLine("Please wait fifteen seconds, then what time is it in Tokyo?")?.id).toBe("B");
   expect(matchAcceptanceLine("What time is it in Tokyo?")?.id).toBe("B");
   expect(matchAcceptanceLine("stop")?.id).toBe("stop");
   expect(matchAcceptanceLine("no, I meant Toronto")?.id).toBe("corr");
@@ -28,13 +33,14 @@ it("matches spoken lines to script ids, including stop and correction", () => {
 
 it("the script covers overlapping topics, barge-in, correction, stop, three parallel, EN and FR", () => {
   const ids = ACCEPTANCE_SCRIPT.map((row) => row.id);
-  expect(ids).toEqual(expect.arrayContaining(["A", "B", "C", "D", "barge", "corr", "stop", "lim"]));
+  expect(ids).toEqual(expect.arrayContaining(["A", "B", "C", "D", "barge", "corr", "lim"]));
+  expect(ACCEPTANCE_STOP_SCRIPT.map((row) => row.id)).toEqual(["A", "B", "stop"]);
   expect(ACCEPTANCE_SCRIPT.some((row) => row.lang === "fr")).toBe(true);
   expect(ACCEPTANCE_SCRIPT.some((row) => row.lang === "en")).toBe(true);
   const b = ACCEPTANCE_SCRIPT.find((row) => row.id === "B")!;
   const a = ACCEPTANCE_SCRIPT.find((row) => row.id === "A")!;
   expect(b.atMs).toBeGreaterThan(a.atMs);
-  expect(b.atMs).toBeLessThan(8_000);
+  expect(b.atMs).toBeLessThan(10_000);
 });
 
 it("a) B while A is thinking: both complete and A is not cancelled", () => {
@@ -56,6 +62,20 @@ it("a) B while A is thinking: both complete and A is not cancelled", () => {
     { t: 900, kind: "turn-completed", id: "B", threadId: "main" },
   ];
   expect(scoreAcceptance(cancelled).find((s) => s.scenario === "a")!.pass).toBe(false);
+
+  const sequential: AcceptanceEvent[] = [
+    { t: 0, kind: "send", id: "A", threadId: "main" },
+    { t: 100, kind: "turn-completed", id: "A", threadId: "main" },
+    { t: 200, kind: "send", id: "B", threadId: "main" },
+    { t: 300, kind: "turn-completed", id: "B", threadId: "main" },
+  ];
+  expect(scoreAcceptance(sequential).find((s) => s.scenario === "a")!.pass).toBe(false);
+
+  const laterCancel: AcceptanceEvent[] = [
+    ...events,
+    { t: 5_000, kind: "cancelled", id: "A", threadId: "main" },
+  ];
+  expect(scoreAcceptance(laterCancel).find((s) => s.scenario === "a")!.pass).toBe(true);
 });
 
 it("b) three overlapping topics all complete", () => {
@@ -117,7 +137,7 @@ it("f) stop cancels the thinking turn; an unrelated background task keeps runnin
   const events: AcceptanceEvent[] = [
     { t: 0, kind: "send", id: "A", threadId: "main" },
     { t: 200, kind: "send", id: "B", threadId: "b", parallel: "running" },
-    { t: 500, kind: "send", id: "stop", intent: "stop" },
+    { t: 500, kind: "send", id: "stop", intent: "stop", stopped: true },
     { t: 520, kind: "cancelled", id: "A", threadId: "main" },
     { t: 1_200, kind: "turn-completed", id: "B", threadId: "b" },
   ];
@@ -170,6 +190,33 @@ it("a continues interrupt is not scored as barge-in cancelling A", () => {
   expect(scoreAcceptanceInterrupt("barge")).toEqual({ kind: "interrupt", id: "barge" });
   expect(scoreAcceptanceCancel("barge")).toBe(true);
   expect(scoreAcceptanceCancel("stop")).toBe(true);
+});
+
+it("skips speculative posts so a wait instruction is not a 4-word short turn", () => {
+  expect(shouldPostAcceptanceUtterance({ speculative: true })).toBe(false);
+  expect(shouldPostAcceptanceUtterance({ speculative: false })).toBe(true);
+  expect(shouldPostAcceptanceUtterance({})).toBe(true);
+});
+
+it("scores stop from a second call, not from sequential replace on the first", () => {
+  const fork = scoreAcceptance([
+    { t: 0, kind: "send", id: "A", threadId: "main" },
+    { t: 200, kind: "send", id: "B", threadId: "b", parallel: "running" },
+    { t: 400, kind: "send", id: "C", threadId: "c", parallel: "running" },
+    { t: 800, kind: "turn-completed", id: "C", threadId: "c" },
+    { t: 900, kind: "turn-completed", id: "B", threadId: "b" },
+    { t: 1_200, kind: "turn-completed", id: "A", threadId: "main" },
+  ]);
+  const stop = scoreAcceptance([
+    { t: 0, kind: "send", id: "A", threadId: "main" },
+    { t: 200, kind: "send", id: "B", threadId: "b", parallel: "running" },
+    { t: 500, kind: "send", id: "stop", intent: "stop", stopped: true },
+    { t: 520, kind: "cancelled", id: "A", threadId: "main" },
+    { t: 1_200, kind: "turn-completed", id: "B", threadId: "b" },
+  ]);
+  const merged = mergeAcceptanceScores(fork, stop);
+  expect(merged.find((row) => row.scenario === "a")!.pass).toBe(true);
+  expect(merged.find((row) => row.scenario === "f")!.pass).toBe(true);
 });
 
 it("marks speculative and continues on an acceptance send like LiveCall", () => {
