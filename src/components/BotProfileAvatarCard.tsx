@@ -1,6 +1,6 @@
 import { lazy, Suspense, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject, type WheelEvent as ReactWheelEvent } from "react";
 import { createPortal } from "react-dom";
-import { ImagePlus, Loader2, Trash2 } from "lucide-react";
+import { ImagePlus, Loader2, Pencil, Trash2 } from "lucide-react";
 
 import { useStore, type Bot } from "@/state/store";
 import { useBotEditor } from "./bot-settings/BotEditorContext";
@@ -175,6 +175,7 @@ export function BotProfileAvatarCard({
   mascotMotion,
   onPatch,
   onContextMenu,
+  onEditPersona,
 }: {
   bot: Bot;
   activeState: MausState;
@@ -182,6 +183,8 @@ export function BotProfileAvatarCard({
   onPatch: (patch: AvatarPatch) => void;
   /** A right click on the mascot (the bot panel opens its bot menu). */
   onContextMenu?: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  /** Opens the persona editor from the bot panel. The persona editor itself omits this. */
+  onEditPersona?: () => void;
 }) {
   const { dispatch, flushBotPatches } = useStore();
   const { request: api, uploadAvatar } = useBotEditor();
@@ -371,24 +374,41 @@ export function BotProfileAvatarCard({
     <div className="relative">
       {/* room above for a move's jump and effects: the panel scrolls, so anything past its top is cut by a straight edge */}
       <div className="flex justify-center pb-3 pt-6">
-        <button
-          ref={anchor}
-          type="button"
-          aria-label={t("botPanel.avatar.edit")}
-          aria-expanded={editorOpen}
-          onClick={() => setEditorOpen((open) => !open)}
-          onContextMenu={onContextMenu}
-          className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          <BotAvatar
-            bot={bot}
-            state={activeState}
-            size={112}
-            motion={previewMotion?.kind ?? "none"}
-            motionKey={previewMotion?.nonce ?? 0}
-            characterMove={characterMove}
-          />
-        </button>
+        <div className="relative inline-flex">
+          <button
+            ref={anchor}
+            type="button"
+            aria-label={t("botPanel.avatar.edit")}
+            aria-expanded={editorOpen}
+            onClick={() => setEditorOpen((open) => !open)}
+            onContextMenu={onContextMenu}
+            className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            <BotAvatar
+              bot={bot}
+              state={activeState}
+              size={112}
+              motion={previewMotion?.kind ?? "none"}
+              motionKey={previewMotion?.nonce ?? 0}
+              characterMove={characterMove}
+            />
+          </button>
+          {onEditPersona && (
+            <button
+              type="button"
+              data-edit-persona=""
+              aria-label={t("botPanel.editPersona")}
+              title={t("botPanel.editPersona")}
+              onClick={(event) => {
+                event.stopPropagation();
+                onEditPersona();
+              }}
+              className="absolute right-1 top-4 z-10 flex size-7 items-center justify-center rounded-full border border-hairline-weak bg-elevated text-ink-secondary shadow-sm transition-colors hover:bg-elevated-hover hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+            >
+              <Pencil size={13} aria-hidden="true" />
+            </button>
+          )}
+        </div>
       </div>
       {editorOpen && typeof document !== "undefined" ? (
         // a portal above the whole window: no panel's overflow can clip it

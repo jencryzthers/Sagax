@@ -24,7 +24,7 @@ function makeBot(overrides: Partial<Bot> = {}): Bot {
   };
 }
 
-function renderCard(bot: Bot) {
+function renderCard(bot: Bot, extra: { onEditPersona?: () => void } = {}) {
   return renderToStaticMarkup(
     createElement(
       StoreProvider,
@@ -34,6 +34,7 @@ function renderCard(bot: Bot) {
         activeState: "idle",
         mascotMotion: null,
         onPatch: vi.fn(),
+        ...extra,
       }),
     ),
   );
@@ -77,6 +78,17 @@ describe("BotProfileAvatarCard", () => {
   it("hides zoom controls for the mascot", () => {
     const markup = renderCard(makeBot());
     expect(markup).not.toContain('aria-label="Zoom avatar"');
+  });
+
+  it("hides the persona pencil unless the bot panel asks for it", () => {
+    expect(renderCard(makeBot())).not.toContain('data-edit-persona=""');
+  });
+
+  it("puts the persona pencil on the mascot when the bot panel asks", () => {
+    const markup = renderCard(makeBot(), { onEditPersona: vi.fn() });
+    expect(markup).toContain('data-edit-persona=""');
+    expect(markup).toContain('aria-label="Edit persona"');
+    expect(markup).not.toMatch(/>Edit persona</);
   });
 
   it("offers the mascot back for every flat crop", () => {

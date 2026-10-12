@@ -179,7 +179,7 @@ export const SWITCH_BOTS_MAX = 24;
 
 /**
  * The mascot's right-click menu: Talk, Start a voice call, Open in the app;
- * Switch bot and Moves (submenus); Hide for 1 hour and Hide; the desktop
+ * Switch bot and Moves (submenus); Hide for 1 hour and Put back in the window; the desktop
  * options (always on top, fly away, activity) and Settings. Ids: "balloon",
  * "call", "open", "switch:<botId>", "move:<clip>", "snooze", "dock", "top",
  * "fly", "lively", "settings".
@@ -213,7 +213,7 @@ export function floatingMenu(labels: FloatingLabels, session: FloatingSession, a
     ...(moves.length && labels.menuMoves ? [{ id: "moves", label: labels.menuMoves, items: moves.map((move) => ({ id: `move:${move.clip}`, label: move.label })) }] : []),
     sep(2),
     ...(labels.menuSnooze ? [{ id: "snooze", label: labels.menuSnooze }] : []),
-    { id: "dock", label: labels.menuHideMascot ?? labels.menuDock },
+    { id: "dock", label: labels.menuDock || labels.menuHideMascot },
     sep(3),
     ...(labels.menuOptions ? [{ id: "options", label: labels.menuOptions, items: options }] : options),
     ...(labels.menuSettings ? [{ id: "settings", label: labels.menuSettings }] : []),

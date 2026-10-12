@@ -14,8 +14,9 @@
 // Paths use absolute M L C Q Z only, so they move and mirror by their pairs.
 //
 // The moves (frog-moves.ts) add parts the still art never shows: the throat
-// sac (puff, croak), the tongue and the fly it catches, the hind legs of a
-// hop, the lily pad and the water line.
+// sac (puff, croak), the tongue and the fly it catches, the lily pad and the
+// water line. The hind legs are always on a full drawing: a sitting squat
+// that kicks out for a hop (filled thighs, shins and palmate feet).
 import { contrastRatio } from "../../shared/mascot-colors";
 import { ellipsePath, mixColor, movePath, type Point } from "./shiba-art";
 
@@ -65,9 +66,9 @@ export const FROG_PIVOTS = {
   /** Each hand's wrist: a wave lifts and turns the hand about it. */
   handL: [38, 93] as Point,
   handR: [62, 93] as Point,
-  /** The hips the hind legs hang from, left and right. */
-  hipL: [25, 91] as Point,
-  hipR: [75, 91] as Point,
+  /** The hips the hind legs hang from, left and right (on the body's flanks). */
+  hipL: [26, 82] as Point,
+  hipR: [74, 82] as Point,
 } as const;
 
 /** The bust crop: the box an avatar under 48 px shows (the head and the shoulders). */
@@ -486,55 +487,114 @@ export function frogFlyOps(at: Point, flap: number, ow: number): FrogOp[] {
   ];
 }
 
-/** A hind leg's joints at `extend` (0 folded..1 stretched), `s` -1 left, 1 right: hip, knee, ankle. */
+/** A thick bone from `a` to `b` as a closed ellipse (round caps, one outline). */
+function limbPath(a: Point, b: Point, halfW: number): string {
+  const cx = (a[0] + b[0]) / 2;
+  const cy = (a[1] + b[1]) / 2;
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  const angle = (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI;
+  return ellipsePath(cx, cy, len / 2 + halfW * 0.42, halfW, angle);
+}
+
+/** Down and out onto the pad: left 130 deg, right 50 deg (SVG y grows down). */
+function frogFootHeading(s: -1 | 1): number {
+  return ((90 - s * 40) * Math.PI) / 180;
+}
+
+/**
+ * Map a point in the foot's local frame: `along` toward the toes, `across`
+ * toward the belly (positive inner). Same construction on both sides.
+ */
+function frogFootLocal(ankle: Point, s: -1 | 1, scale: number): (along: number, across: number) => Point {
+  const heading = frogFootHeading(s);
+  const ux = Math.cos(heading);
+  const uy = Math.sin(heading);
+  let px = -uy;
+  let py = ux;
+  if ((50 - ankle[0]) * px < 0) {
+    px = -px;
+    py = -py;
+  }
+  return (along, across) => [ankle[0] + (ux * along + px * across) * scale, ankle[1] + (uy * along + py * across) * scale];
+}
+
+/**
+ * One palmate hind foot: four rounded toes and shallow webbing as a single
+ * silhouette, fanned down and a little out from `ankle`. `s` -1 left, 1 right.
+ */
+function frogFootPath(ankle: Point, s: -1 | 1, scale: number): string {
+  const P = frogFootLocal(ankle, s, scale);
+  const heel = P(-2.1, 0);
+  const hw = 1.28;
+  const crosses = [-4.05, -1.35, 1.35, 4.05];
+  const cap = (c: number) => {
+    const tip = P(8.05, c);
+    const right = P(5.85, c + hw);
+    const k = 0.82;
+    return (
+      `C${fmt(P(6.85, c - hw)[0])} ${fmt(P(6.85, c - hw)[1])} ${fmt(P(8.05, c - k)[0])} ${fmt(P(8.05, c - k)[1])} ${fmt(tip[0])} ${fmt(tip[1])}` +
+      `C${fmt(P(8.05, c + k)[0])} ${fmt(P(8.05, c + k)[1])} ${fmt(P(6.85, c + hw)[0])} ${fmt(P(6.85, c + hw)[1])} ${fmt(right[0])} ${fmt(right[1])}`
+    );
+  };
+  const web = (a: number, b: number) => {
+    const to = P(5.85, b - hw);
+    const m = P(4.7, (a + b) / 2);
+    return `Q${fmt(m[0])} ${fmt(m[1])} ${fmt(to[0])} ${fmt(to[1])}`;
+  };
+  const first = P(5.85, crosses[0] - hw);
+  let d =
+    `M${fmt(heel[0])} ${fmt(heel[1])}` +
+    `C${fmt(P(-0.2, -4.6)[0])} ${fmt(P(-0.2, -4.6)[1])} ${fmt(P(2.6, -5.4)[0])} ${fmt(P(2.6, -5.4)[1])} ${fmt(first[0])} ${fmt(first[1])}` +
+    cap(crosses[0]);
+  for (let i = 1; i < crosses.length; i += 1) d += web(crosses[i - 1], crosses[i]) + cap(crosses[i]);
+  d += `C${fmt(P(2.6, 5.4)[0])} ${fmt(P(2.6, 5.4)[1])} ${fmt(P(-0.2, 4.6)[0])} ${fmt(P(-0.2, 4.6)[1])} ${fmt(heel[0])} ${fmt(heel[1])}Z`;
+  return d;
+}
+
+function frogFootDigits(ankle: Point, s: -1 | 1, scale: number, ow: number, clip: string): FrogOp[] {
+  const P = frogFootLocal(ankle, s, scale);
+  const start = P(1.1, 0);
+  return [-4.05, -1.35, 1.35, 4.05].map((c) => {
+    const end = P(6.5, c);
+    return { d: `M${fmt(start[0])} ${fmt(start[1])}L${fmt(end[0])} ${fmt(end[1])}`, stroke: "line" as const, width: r2(ow * 0.62), round: true, clip };
+  });
+}
+
+/** A hind leg's joints at `extend` (0 squat..1 kicked out), `s` -1 left, 1 right: hip, knee, ankle. */
 export function frogLegJoints(s: -1 | 1, extend: number): { hip: Point; knee: Point; ankle: Point } {
   const [hx, hy] = s < 0 ? FROG_PIVOTS.hipL : FROG_PIVOTS.hipR;
   const e = Math.min(1.1, Math.max(0, extend));
-  // folded: the knee out at the side, the ankle tucked back under it;
-  // stretched: the knee opens and the foot reaches down and wide, a frog's V
+  // squat: a sitting W, knee out on the flank, ankle in and down on the pad;
+  // kicked: the same W opens a little, the foot reaches down and out, still compact
   return {
-    hip: [hx + s * 2, hy + 1],
-    knee: [hx + s * (15 - 2 * e), hy + 2 + 6 * e],
-    ankle: [hx + s * (9 + 7 * e), hy + 9 + 15 * e],
+    hip: [hx + s * 0.4, hy + e],
+    knee: [hx + s * (19 + 5 * e), hy + 17 + 2 * e],
+    ankle: [hx + s * (15 + 5 * e), hy + 18 + 4 * e],
   };
 }
 
 /**
- * One hind leg's shin and webbed foot, behind the body: `extend` 0 (folded
- * under the body, hidden) .. 1 (stretched, a jump's push or the stretch after
- * a nap); `s` -1 left, 1 right. The thigh over it is frogHaunchOps.
+ * One hind leg's shin and palmate foot, behind the body: `extend` 0 (the
+ * sitting squat) .. 1 (a hop's kick, the stretch after a nap, dangling);
+ * `s` -1 left, 1 right. The thigh over it is frogHaunchOps. Always drawn:
+ * a frog keeps its hind legs.
  */
 export function frogLegOps(s: -1 | 1, extend: number, ow: number): FrogOp[] {
-  if (extend <= 0.02) return [];
-  const { knee, ankle } = frogLegJoints(s, extend);
-  const d = `M${fmt(knee[0])} ${fmt(knee[1])}L${fmt(ankle[0])} ${fmt(ankle[1])}`;
-  // the webbed foot: three long toes fanned down and out, webbing between them, round tips
-  const toes = [-1, 0, 1].map((k) => {
-    const a = ((90 - s * 28 + k * 32) * Math.PI) / 180;
-    return [ankle[0] + Math.cos(a) * 12.5, ankle[1] + Math.sin(a) * 10] as const;
-  });
-  const [t0, t1, t2] = toes;
-  const web = (p: readonly [number, number], q: readonly [number, number]) => `Q${fmt(((p[0] + q[0]) / 2) * 0.9 + ankle[0] * 0.1)} ${fmt(((p[1] + q[1]) / 2) * 0.9 + ankle[1] * 0.1)} ${fmt(q[0])} ${fmt(q[1])}`;
-  const foot = `M${fmt(ankle[0])} ${fmt(ankle[1] - 1.5)}L${fmt(t0[0])} ${fmt(t0[1])}${web(t0, t1)}${web(t1, t2)}Z`;
-  return [
-    { d, stroke: "line", width: r2(7.5 + 2 * ow), round: true },
-    { d, stroke: "skin", width: 7.5, round: true },
-    { d: foot, fill: "toe", stroke: "line", width: ow },
-    ...toes.map(([tx, ty]) => ({ d: ellipsePath(tx, ty, 2.6, 2.4), fill: "toe" as const, stroke: "line" as const, width: r2(ow * 0.8) })),
-  ];
+  const e = Math.min(1.1, Math.max(0, extend));
+  const { knee, ankle } = frogLegJoints(s, e);
+  const shinW = 7.2 + 0.5 * Math.min(1, e);
+  const shin = limbPath(knee, ankle, shinW);
+  const scale = 1.28 + 0.08 * Math.min(1, e);
+  const foot = frogFootPath(ankle, s, scale);
+  return [...shaded(shin, "skin", "shade", -1, -1.2), outline(shin, ow), ...shaded(foot, "toe", "toeShade", -1.1, -1.3), outline(foot, ow), ...frogFootDigits(ankle, s, scale, ow, foot)];
 }
 
-/** One hind leg's thigh, over the body's lower corner: a haunch from the hip to the knee that grows as the leg opens. */
+/** One hind leg's thigh, over the body's flank: a fat haunch from the hip to the knee. */
 export function frogHaunchOps(s: -1 | 1, extend: number, ow: number): FrogOp[] {
-  if (extend <= 0.02) return [];
-  const { hip, knee } = frogLegJoints(s, extend);
-  const k = Math.min(1, extend * 3);
-  const cx = (hip[0] + knee[0]) / 2;
-  const cy = (hip[1] + knee[1]) / 2;
-  const len = Math.hypot(knee[0] - hip[0], knee[1] - hip[1]);
-  const angle = (Math.atan2(knee[1] - hip[1], knee[0] - hip[0]) * 180) / Math.PI;
-  const d = ellipsePath(cx, cy, (len / 2 + 6) * k, 7.6 * k, angle);
-  return [...shaded(d, "skin", "shade", -1.2, -1.6), { d, stroke: "line", width: ow }];
+  const e = Math.min(1.1, Math.max(0, extend));
+  const { hip, knee } = frogLegJoints(s, e);
+  const d = limbPath(hip, knee, 8.6 + 0.8 * Math.min(1, e));
+  return [...shaded(d, "skin", "shade", -1.4, -1.8), outline(d, ow)];
 }
 
 /** The shoulders the arms hang from, left and right. */

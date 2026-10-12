@@ -3,8 +3,8 @@ import { useSyncExternalStore } from "react";
 export const SHOW_UNREADY_PROVIDERS_KEY = "omb-show-unready-providers";
 
 // Renderer preference for the model picker rail: providers that need sign-in
-// or have no access yet stay collapsed in each Cloud / Local group unless
-// this is on. Default off. Session choice survives storage that rejects writes.
+// or have no access yet stay hidden unless this is on. Default off. Session
+// choice survives storage that rejects writes.
 let sessionChoice: boolean | undefined;
 const listeners = new Set<() => void>();
 

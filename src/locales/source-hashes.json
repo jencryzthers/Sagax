@@ -1827,7 +1827,16 @@
       "voice.engine.title": "a9bef3a9ee42d3e681e16d91eb81a0c037b803c0cc568a1e9b2bbfc1743b04c8",
       "voice.live.inSettings": "575eb5599e54fa262165dbea855dd77c900362f16a764b6b20f21ec0f198e6cf",
       "voice.live.subtitle": "7fa6f5d1bbed96b58c95ae0d7c0cc9dd97814838b7aa43f49e87df6d83ffd059",
-      "voice.live.title": "f573d7d6ee73415d3d9d5967afe6a558a6a9d96c0ee6e00b095d536970520ee2"
+      "voice.live.title": "f573d7d6ee73415d3d9d5967afe6a558a6a9d96c0ee6e00b095d536970520ee2",
+      "floatingBots.mascot.crab": "41c84037142d7c4b70f89cd95eab4705ce20f7565c85a96c45a7e097bbf348fd",
+      "floatingBots.move.scuttle": "4066bde478bdafa856b1f2c0769aebf7ff34297562b7f52b5123d3ca601c69ab",
+      "mascot.crabSkin.coral": "56ac628a2f10b3b0ac611cc5adc8d9b497c78d6f771a343d1d6d5407bb1e92dd",
+      "mascot.crabSkin.ink": "f089d62295937bb4ea34e0a55642588056865c63160431e5cce16a3e3976de4f",
+      "mascot.crabSkin.mint": "ced97cc4a377b5b4386d9c67bc4f4e14febb561903a27409ce7a2886368b75bb",
+      "mascot.crabSkin.plain": "8b854ade2cd01bdca1aa982f6ecff0086f70e3d2140d7fae2786a2e4150eeb4c",
+      "mascot.crabSkin.sand": "82855c11ae69b0652a292b72967a82d5f4973b88d76c6c793276ef8c5942a803",
+      "persona.files.collapse": "19f25826b84b030c2c08c3166fe344167a98e50cc672a669aa5a86397d1f7cae",
+      "persona.files.expand": "d386e9414ed2f5eeee998a520fccfaa678259bd94fbd98a7a028d2c2e9726085"
     },
     "es": {
       "approval.action.allowOnce": "168511d24d9ee03122b3200f929be11eaaedad45cb0ecb20a95f549b3e3f4d0f",
@@ -3637,7 +3646,16 @@
       "voice.engine.title": "a9bef3a9ee42d3e681e16d91eb81a0c037b803c0cc568a1e9b2bbfc1743b04c8",
       "voice.live.inSettings": "575eb5599e54fa262165dbea855dd77c900362f16a764b6b20f21ec0f198e6cf",
       "voice.live.subtitle": "7fa6f5d1bbed96b58c95ae0d7c0cc9dd97814838b7aa43f49e87df6d83ffd059",
-      "voice.live.title": "f573d7d6ee73415d3d9d5967afe6a558a6a9d96c0ee6e00b095d536970520ee2"
+      "voice.live.title": "f573d7d6ee73415d3d9d5967afe6a558a6a9d96c0ee6e00b095d536970520ee2",
+      "floatingBots.mascot.crab": "41c84037142d7c4b70f89cd95eab4705ce20f7565c85a96c45a7e097bbf348fd",
+      "floatingBots.move.scuttle": "4066bde478bdafa856b1f2c0769aebf7ff34297562b7f52b5123d3ca601c69ab",
+      "mascot.crabSkin.coral": "56ac628a2f10b3b0ac611cc5adc8d9b497c78d6f771a343d1d6d5407bb1e92dd",
+      "mascot.crabSkin.ink": "f089d62295937bb4ea34e0a55642588056865c63160431e5cce16a3e3976de4f",
+      "mascot.crabSkin.mint": "ced97cc4a377b5b4386d9c67bc4f4e14febb561903a27409ce7a2886368b75bb",
+      "mascot.crabSkin.plain": "8b854ade2cd01bdca1aa982f6ecff0086f70e3d2140d7fae2786a2e4150eeb4c",
+      "mascot.crabSkin.sand": "82855c11ae69b0652a292b72967a82d5f4973b88d76c6c793276ef8c5942a803",
+      "persona.files.collapse": "19f25826b84b030c2c08c3166fe344167a98e50cc672a669aa5a86397d1f7cae",
+      "persona.files.expand": "d386e9414ed2f5eeee998a520fccfaa678259bd94fbd98a7a028d2c2e9726085"
     },
     "fr": {
       "access.addKey": "8a9f02fd9bdb83ac02d3240dcade949d6f3ffa2fc0b3df528e348bb4d29ae639",
@@ -8028,10 +8046,8 @@
       "worksOn.sectionTip": "4def718facaa055fed46fcd9e1979c12014f71fc089bad00efcb785d83267276",
       "worksOn.short.cloud": "b977b950c1ae31e5aeb9ef778cc20a66fc034eb81e738e0206104b677962c465",
       "worksOn.tip.autoOrg": "2feae34d29065e9e0a795d80bb2497a629a3ad4f82ce1b50df395650bbe1d8a8",
-      "model.rail.unready": "a5446d02361b35d04bcbcc8654580c6d8cea4e9bf73fbed39fa48f5f026073b6",
-      "model.rail.unreadyOne": "766b6f4aaccd174d368cafa404fa2cbd458ded4db3c7b6445c8eccfbfd61acbd",
       "settings.unreadyProviders.show": "fdd3babe57baf8a750b7749a26383616d3ee6398a7b77fc9e3f0a29002503fa0",
-      "settings.unreadyProviders.subtitle": "706c30bd07c4ce4a94112a60894a2ecde53aaca4aa877ad9a23c06c283d20d04",
+      "settings.unreadyProviders.subtitle": "fcbac6fdc00a099159d7d92d030dabfba36873e259c7e146e2a0237224e2a537",
       "settings.unreadyProviders.title": "651fecb6bed96d54629a4ce93dfec87ee1fc2d44be2384367466a556dabec4c2",
       "releaseNotes.notNow": "a0e63d7c7125d29af84d6919af5550529be77c327324940c98c4b2cb13a99c8c",
       "releaseNotes.readyBody": "c11356566ab85613a6c5a4bcb51df9c02efda7fdbd177333ac2259905aef86c6",
@@ -8042,7 +8058,16 @@
       "orgComputer.choice.worksHere": "5db2ae486b4bccb47100de4464c60e12737bf714fa438ec681599ab0f15eeeb5",
       "computer.view.screen": "6e56137e21d3222a2e3135fc3458286fc3fb6b2e2c679e9ae28db268fe982af7",
       "computer.view.browser": "d31de1a5c5c8ba2a210a167cf0d0dc2425c57ea7525f4b73a4b7ab934af79dfc",
-      "computer.browserOf": "52337f2bfcd545954b303a46a51f9fee0ba48f42bf53b6aad3ffdd85fbf2fde9"
+      "computer.browserOf": "52337f2bfcd545954b303a46a51f9fee0ba48f42bf53b6aad3ffdd85fbf2fde9",
+      "floatingBots.mascot.crab": "41c84037142d7c4b70f89cd95eab4705ce20f7565c85a96c45a7e097bbf348fd",
+      "floatingBots.move.scuttle": "4066bde478bdafa856b1f2c0769aebf7ff34297562b7f52b5123d3ca601c69ab",
+      "mascot.crabSkin.coral": "56ac628a2f10b3b0ac611cc5adc8d9b497c78d6f771a343d1d6d5407bb1e92dd",
+      "mascot.crabSkin.ink": "f089d62295937bb4ea34e0a55642588056865c63160431e5cce16a3e3976de4f",
+      "mascot.crabSkin.mint": "ced97cc4a377b5b4386d9c67bc4f4e14febb561903a27409ce7a2886368b75bb",
+      "mascot.crabSkin.plain": "8b854ade2cd01bdca1aa982f6ecff0086f70e3d2140d7fae2786a2e4150eeb4c",
+      "mascot.crabSkin.sand": "82855c11ae69b0652a292b72967a82d5f4973b88d76c6c793276ef8c5942a803",
+      "persona.files.collapse": "19f25826b84b030c2c08c3166fe344167a98e50cc672a669aa5a86397d1f7cae",
+      "persona.files.expand": "d386e9414ed2f5eeee998a520fccfaa678259bd94fbd98a7a028d2c2e9726085"
     },
     "hi": {
       "approval.action.allowOnce": "168511d24d9ee03122b3200f929be11eaaedad45cb0ecb20a95f549b3e3f4d0f",
@@ -9852,7 +9877,16 @@
       "voice.engine.title": "a9bef3a9ee42d3e681e16d91eb81a0c037b803c0cc568a1e9b2bbfc1743b04c8",
       "voice.live.inSettings": "575eb5599e54fa262165dbea855dd77c900362f16a764b6b20f21ec0f198e6cf",
       "voice.live.subtitle": "7fa6f5d1bbed96b58c95ae0d7c0cc9dd97814838b7aa43f49e87df6d83ffd059",
-      "voice.live.title": "f573d7d6ee73415d3d9d5967afe6a558a6a9d96c0ee6e00b095d536970520ee2"
+      "voice.live.title": "f573d7d6ee73415d3d9d5967afe6a558a6a9d96c0ee6e00b095d536970520ee2",
+      "floatingBots.mascot.crab": "41c84037142d7c4b70f89cd95eab4705ce20f7565c85a96c45a7e097bbf348fd",
+      "floatingBots.move.scuttle": "4066bde478bdafa856b1f2c0769aebf7ff34297562b7f52b5123d3ca601c69ab",
+      "mascot.crabSkin.coral": "56ac628a2f10b3b0ac611cc5adc8d9b497c78d6f771a343d1d6d5407bb1e92dd",
+      "mascot.crabSkin.ink": "f089d62295937bb4ea34e0a55642588056865c63160431e5cce16a3e3976de4f",
+      "mascot.crabSkin.mint": "ced97cc4a377b5b4386d9c67bc4f4e14febb561903a27409ce7a2886368b75bb",
+      "mascot.crabSkin.plain": "8b854ade2cd01bdca1aa982f6ecff0086f70e3d2140d7fae2786a2e4150eeb4c",
+      "mascot.crabSkin.sand": "82855c11ae69b0652a292b72967a82d5f4973b88d76c6c793276ef8c5942a803",
+      "persona.files.collapse": "19f25826b84b030c2c08c3166fe344167a98e50cc672a669aa5a86397d1f7cae",
+      "persona.files.expand": "d386e9414ed2f5eeee998a520fccfaa678259bd94fbd98a7a028d2c2e9726085"
     },
     "ja": {
       "approval.action.allowOnce": "168511d24d9ee03122b3200f929be11eaaedad45cb0ecb20a95f549b3e3f4d0f",
@@ -11664,7 +11698,16 @@
       "voice.engine.title": "a9bef3a9ee42d3e681e16d91eb81a0c037b803c0cc568a1e9b2bbfc1743b04c8",
       "voice.live.inSettings": "575eb5599e54fa262165dbea855dd77c900362f16a764b6b20f21ec0f198e6cf",
       "voice.live.subtitle": "7fa6f5d1bbed96b58c95ae0d7c0cc9dd97814838b7aa43f49e87df6d83ffd059",
-      "voice.live.title": "f573d7d6ee73415d3d9d5967afe6a558a6a9d96c0ee6e00b095d536970520ee2"
+      "voice.live.title": "f573d7d6ee73415d3d9d5967afe6a558a6a9d96c0ee6e00b095d536970520ee2",
+      "floatingBots.mascot.crab": "41c84037142d7c4b70f89cd95eab4705ce20f7565c85a96c45a7e097bbf348fd",
+      "floatingBots.move.scuttle": "4066bde478bdafa856b1f2c0769aebf7ff34297562b7f52b5123d3ca601c69ab",
+      "mascot.crabSkin.coral": "56ac628a2f10b3b0ac611cc5adc8d9b497c78d6f771a343d1d6d5407bb1e92dd",
+      "mascot.crabSkin.ink": "f089d62295937bb4ea34e0a55642588056865c63160431e5cce16a3e3976de4f",
+      "mascot.crabSkin.mint": "ced97cc4a377b5b4386d9c67bc4f4e14febb561903a27409ce7a2886368b75bb",
+      "mascot.crabSkin.plain": "8b854ade2cd01bdca1aa982f6ecff0086f70e3d2140d7fae2786a2e4150eeb4c",
+      "mascot.crabSkin.sand": "82855c11ae69b0652a292b72967a82d5f4973b88d76c6c793276ef8c5942a803",
+      "persona.files.collapse": "19f25826b84b030c2c08c3166fe344167a98e50cc672a669aa5a86397d1f7cae",
+      "persona.files.expand": "d386e9414ed2f5eeee998a520fccfaa678259bd94fbd98a7a028d2c2e9726085"
     },
     "pt-br": {
       "access.routineDelegation.reason.no_right": "ac5fc48626b20107ca2c65df67b3c5abe42acd2044cdb994e0c73821b3cbb71b",
@@ -14304,11 +14347,18 @@
       "voiceMode.call.fasterEndOfTurnHelp": "d9320866da60ee4a0b9a40549e40d433364ce6be1ad0f56f1b1bb73954470529",
       "voiceMode.call.streamingVoice": "2f13c2551cb53b46ece6634228cda8143a32167d9038423f42b9cd06e3ba45c4",
       "voiceMode.call.streamingVoiceHelp": "38dc3cb3ae644512ce95cd00064ecca1e2057ade41f2b84c1b9d1b2217d426f9",
-      "model.rail.unready": "a5446d02361b35d04bcbcc8654580c6d8cea4e9bf73fbed39fa48f5f026073b6",
-      "model.rail.unreadyOne": "766b6f4aaccd174d368cafa404fa2cbd458ded4db3c7b6445c8eccfbfd61acbd",
       "settings.unreadyProviders.show": "fdd3babe57baf8a750b7749a26383616d3ee6398a7b77fc9e3f0a29002503fa0",
-      "settings.unreadyProviders.subtitle": "706c30bd07c4ce4a94112a60894a2ecde53aaca4aa877ad9a23c06c283d20d04",
-      "settings.unreadyProviders.title": "651fecb6bed96d54629a4ce93dfec87ee1fc2d44be2384367466a556dabec4c2"
+      "settings.unreadyProviders.subtitle": "fcbac6fdc00a099159d7d92d030dabfba36873e259c7e146e2a0237224e2a537",
+      "settings.unreadyProviders.title": "651fecb6bed96d54629a4ce93dfec87ee1fc2d44be2384367466a556dabec4c2",
+      "floatingBots.mascot.crab": "41c84037142d7c4b70f89cd95eab4705ce20f7565c85a96c45a7e097bbf348fd",
+      "floatingBots.move.scuttle": "4066bde478bdafa856b1f2c0769aebf7ff34297562b7f52b5123d3ca601c69ab",
+      "mascot.crabSkin.coral": "56ac628a2f10b3b0ac611cc5adc8d9b497c78d6f771a343d1d6d5407bb1e92dd",
+      "mascot.crabSkin.ink": "f089d62295937bb4ea34e0a55642588056865c63160431e5cce16a3e3976de4f",
+      "mascot.crabSkin.mint": "ced97cc4a377b5b4386d9c67bc4f4e14febb561903a27409ce7a2886368b75bb",
+      "mascot.crabSkin.plain": "8b854ade2cd01bdca1aa982f6ecff0086f70e3d2140d7fae2786a2e4150eeb4c",
+      "mascot.crabSkin.sand": "82855c11ae69b0652a292b72967a82d5f4973b88d76c6c793276ef8c5942a803",
+      "persona.files.collapse": "19f25826b84b030c2c08c3166fe344167a98e50cc672a669aa5a86397d1f7cae",
+      "persona.files.expand": "d386e9414ed2f5eeee998a520fccfaa678259bd94fbd98a7a028d2c2e9726085"
     },
     "uk": {
       "approval.action.allowOnce": "168511d24d9ee03122b3200f929be11eaaedad45cb0ecb20a95f549b3e3f4d0f",
@@ -16655,7 +16705,16 @@
       "workspaces.upgradeAll": "d9e9587f4384745206d6f5f5ab25a8624465e7a006e81ff629a228ddf276c5bf",
       "workspaces.users": "6b0cc904d081a8c11cfdaec667f05132cbfa8a57f5040d27d5fc0f2fc50d0dc6",
       "workspaces.usersTitle": "9d2e3d266b256ec23504b97fcd3624727d439574f62d994e560b0cca54340713",
-      "workspaces.working": "5474eef8d0f179c707cf418e2bbb468c77cc24edc5e9f5f4e137e85e06a8eea0"
+      "workspaces.working": "5474eef8d0f179c707cf418e2bbb468c77cc24edc5e9f5f4e137e85e06a8eea0",
+      "floatingBots.mascot.crab": "41c84037142d7c4b70f89cd95eab4705ce20f7565c85a96c45a7e097bbf348fd",
+      "floatingBots.move.scuttle": "4066bde478bdafa856b1f2c0769aebf7ff34297562b7f52b5123d3ca601c69ab",
+      "mascot.crabSkin.coral": "56ac628a2f10b3b0ac611cc5adc8d9b497c78d6f771a343d1d6d5407bb1e92dd",
+      "mascot.crabSkin.ink": "f089d62295937bb4ea34e0a55642588056865c63160431e5cce16a3e3976de4f",
+      "mascot.crabSkin.mint": "ced97cc4a377b5b4386d9c67bc4f4e14febb561903a27409ce7a2886368b75bb",
+      "mascot.crabSkin.plain": "8b854ade2cd01bdca1aa982f6ecff0086f70e3d2140d7fae2786a2e4150eeb4c",
+      "mascot.crabSkin.sand": "82855c11ae69b0652a292b72967a82d5f4973b88d76c6c793276ef8c5942a803",
+      "persona.files.collapse": "19f25826b84b030c2c08c3166fe344167a98e50cc672a669aa5a86397d1f7cae",
+      "persona.files.expand": "d386e9414ed2f5eeee998a520fccfaa678259bd94fbd98a7a028d2c2e9726085"
     },
     "zh-tw": {
       "access.worksOn": "f85a852d83f31ae30da146438dd4cfa1a3b9c491c768fd20ae3c7e833097714e",
@@ -20425,7 +20484,16 @@
       "workspaces.upgraded": "c74bcc667a882bc1498b5dc5940280e4330d6403888887aa5402b72cb9bbc87a",
       "workspaces.users": "6b0cc904d081a8c11cfdaec667f05132cbfa8a57f5040d27d5fc0f2fc50d0dc6",
       "workspaces.usersTitle": "9d2e3d266b256ec23504b97fcd3624727d439574f62d994e560b0cca54340713",
-      "workspaces.working": "5474eef8d0f179c707cf418e2bbb468c77cc24edc5e9f5f4e137e85e06a8eea0"
+      "workspaces.working": "5474eef8d0f179c707cf418e2bbb468c77cc24edc5e9f5f4e137e85e06a8eea0",
+      "floatingBots.mascot.crab": "41c84037142d7c4b70f89cd95eab4705ce20f7565c85a96c45a7e097bbf348fd",
+      "floatingBots.move.scuttle": "4066bde478bdafa856b1f2c0769aebf7ff34297562b7f52b5123d3ca601c69ab",
+      "mascot.crabSkin.coral": "56ac628a2f10b3b0ac611cc5adc8d9b497c78d6f771a343d1d6d5407bb1e92dd",
+      "mascot.crabSkin.ink": "f089d62295937bb4ea34e0a55642588056865c63160431e5cce16a3e3976de4f",
+      "mascot.crabSkin.mint": "ced97cc4a377b5b4386d9c67bc4f4e14febb561903a27409ce7a2886368b75bb",
+      "mascot.crabSkin.plain": "8b854ade2cd01bdca1aa982f6ecff0086f70e3d2140d7fae2786a2e4150eeb4c",
+      "mascot.crabSkin.sand": "82855c11ae69b0652a292b72967a82d5f4973b88d76c6c793276ef8c5942a803",
+      "persona.files.collapse": "19f25826b84b030c2c08c3166fe344167a98e50cc672a669aa5a86397d1f7cae",
+      "persona.files.expand": "d386e9414ed2f5eeee998a520fccfaa678259bd94fbd98a7a028d2c2e9726085"
     },
     "zh": {
       "approval.action.allowOnce": "168511d24d9ee03122b3200f929be11eaaedad45cb0ecb20a95f549b3e3f4d0f",
@@ -23120,7 +23188,16 @@
       "workspaces.upgraded": "c74bcc667a882bc1498b5dc5940280e4330d6403888887aa5402b72cb9bbc87a",
       "workspaces.users": "6b0cc904d081a8c11cfdaec667f05132cbfa8a57f5040d27d5fc0f2fc50d0dc6",
       "workspaces.usersTitle": "9d2e3d266b256ec23504b97fcd3624727d439574f62d994e560b0cca54340713",
-      "workspaces.working": "5474eef8d0f179c707cf418e2bbb468c77cc24edc5e9f5f4e137e85e06a8eea0"
+      "workspaces.working": "5474eef8d0f179c707cf418e2bbb468c77cc24edc5e9f5f4e137e85e06a8eea0",
+      "floatingBots.mascot.crab": "41c84037142d7c4b70f89cd95eab4705ce20f7565c85a96c45a7e097bbf348fd",
+      "floatingBots.move.scuttle": "4066bde478bdafa856b1f2c0769aebf7ff34297562b7f52b5123d3ca601c69ab",
+      "mascot.crabSkin.coral": "56ac628a2f10b3b0ac611cc5adc8d9b497c78d6f771a343d1d6d5407bb1e92dd",
+      "mascot.crabSkin.ink": "f089d62295937bb4ea34e0a55642588056865c63160431e5cce16a3e3976de4f",
+      "mascot.crabSkin.mint": "ced97cc4a377b5b4386d9c67bc4f4e14febb561903a27409ce7a2886368b75bb",
+      "mascot.crabSkin.plain": "8b854ade2cd01bdca1aa982f6ecff0086f70e3d2140d7fae2786a2e4150eeb4c",
+      "mascot.crabSkin.sand": "82855c11ae69b0652a292b72967a82d5f4973b88d76c6c793276ef8c5942a803",
+      "persona.files.collapse": "19f25826b84b030c2c08c3166fe344167a98e50cc672a669aa5a86397d1f7cae",
+      "persona.files.expand": "d386e9414ed2f5eeee998a520fccfaa678259bd94fbd98a7a028d2c2e9726085"
     }
   }
 }

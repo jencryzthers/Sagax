@@ -206,7 +206,7 @@ const BALLOON_KINDS = new Set(["chat", "thinking", "approval", "error"]);
 const TASKS = new Set(["idle", "working", "waiting", "error"]);
 const LIVELINESS = new Set(["calm", "normal", "lively"]);
 const MAX_TOKENS = 1e9;
-const CHARACTERS = new Set(["owl", "shape", "trombi", "bunbu", "shiba", "grump", "ogre", "frog"]);
+const CHARACTERS = new Set(["owl", "shape", "trombi", "bunbu", "shiba", "grump", "ogre", "frog", "crab"]);
 const SHAPES = new Set(["circle", "bean", "squircle", "pill", "pick", "hexagon", "cloud", "drop"]);
 /** Shapes from earlier sets and the display names (shared/mascot-look.ts LEGACY_SHAPES). */
 const LEGACY_SHAPES = { blob: "bean", pebble: "bean", triangle: "pick", capsule: "pill", droplet: "drop", sparkle: "squircle", clover: "cloud", flower: "cloud", house: "hexagon", star: "hexagon" };
@@ -217,7 +217,8 @@ const SHIBA_SKINS = new Set(["plain", "cream", "blacktan", "red", "sesame", "whi
 const GRUMP_SKINS = new Set(["plain", "tuxedo", "calico", "tabby", "siamese", "void", "retro98", "gold", "neon", "chrome", "glitch", "holo", "molten"]);
 const OGRE_SKINS = new Set(["plain", "swamp", "moss", "stone", "lava", "armor", "retro98", "gold", "neon", "chrome", "glitch", "holo", "molten"]);
 const FROG_SKINS = new Set(["plain", "leaf", "tree", "poison", "bullfrog", "ghost", "retro98", "gold", "neon", "chrome", "glitch", "holo", "molten"]);
-/** Other names a stored skin may carry (shared/mascot-look.ts LEGACY_SHAPE_SKINS, LEGACY_TROMBI_SKINS, LEGACY_BUNBU_SKINS, LEGACY_SHIBA_SKINS, LEGACY_GRUMP_SKINS, LEGACY_OGRE_SKINS, LEGACY_FROG_SKINS). */
+const CRAB_SKINS = new Set(["plain", "coral", "sand", "ink", "mint"]);
+/** Other names a stored skin may carry (shared/mascot-look.ts LEGACY_SHAPE_SKINS, LEGACY_TROMBI_SKINS, LEGACY_BUNBU_SKINS, LEGACY_SHIBA_SKINS, LEGACY_GRUMP_SKINS, LEGACY_OGRE_SKINS, LEGACY_FROG_SKINS, LEGACY_CRAB_SKINS). */
 const LEGACY_SHAPE_SKINS = { ink: "outline", royal: "gold", metal: "chrome", "liquid-metal": "chrome", glass: "crystal", cyber: "circuit", iridescent: "holo", holographic: "holo", lava: "molten", nebula: "galaxy" };
 const LEGACY_TROMBI_SKINS = { retro: "retro98", win98: "retro98", royal: "gold", metal: "chrome", cyber: "glitch", iridescent: "holo", holographic: "holo", lava: "molten" };
 const LEGACY_BUNBU_SKINS = { fur: "plush", fuzzy: "plush", royal: "gold", metal: "chrome", glass: "crystal", iridescent: "holo", holographic: "holo", nebula: "galaxy", lava: "molten" };
@@ -225,6 +226,7 @@ const LEGACY_OGRE_SKINS = { bog: "swamp", marsh: "swamp", forest: "moss", granit
 const LEGACY_SHIBA_SKINS = { "black-and-tan": "blacktan", black_tan: "blacktan", kuro: "blacktan", aka: "red", goma: "sesame", shiro: "white", retro: "retro98", win98: "retro98", royal: "gold", metal: "chrome", cyber: "glitch", iridescent: "holo", holographic: "holo", lava: "molten" };
 const LEGACY_GRUMP_SKINS = { tux: "tuxedo", "black-and-white": "tuxedo", tortie: "calico", tortoiseshell: "calico", tiger: "tabby", mackerel: "tabby", colorpoint: "siamese", colourpoint: "siamese", "seal-point": "siamese", black: "void", shadow: "void", retro: "retro98", win98: "retro98", royal: "gold", metal: "chrome", cyber: "glitch", iridescent: "holo", holographic: "holo", lava: "molten" };
 const LEGACY_FROG_SKINS = { green: "leaf", "tree-frog": "tree", treefrog: "tree", "red-eyed": "tree", dart: "poison", "poison-dart": "poison", bull: "bullfrog", glass: "ghost", "glass-frog": "ghost", golden: "gold", retro: "retro98", win98: "retro98", royal: "gold", metal: "chrome", cyber: "glitch", iridescent: "holo", holographic: "holo", lava: "molten" };
+const LEGACY_CRAB_SKINS = { classic: "coral", orange: "coral", cream: "sand", black: "ink", green: "mint" };
 /** The app's skins (src/lib/skins.ts SKIN_IDS): the balloon wears the one the app wears. */
 export const APP_SKINS = new Set(["pulsatrix", "pulsatrix-light", "midnight", "atelier", "foundry", "lagoon", "graphite", "linen", "dusk", "daylight", "retro98", "meadow"]);
 const ACCENT_RE = /^#[0-9a-fA-F]{6}$/;
@@ -248,6 +250,7 @@ export function mascotLook(value) {
     ...(GRUMP_SKINS.has(skinOf(skins.grump, LEGACY_GRUMP_SKINS)) ? { grump: skinOf(skins.grump, LEGACY_GRUMP_SKINS) } : {}),
     ...(OGRE_SKINS.has(skinOf(skins.ogre, LEGACY_OGRE_SKINS)) ? { ogre: skinOf(skins.ogre, LEGACY_OGRE_SKINS) } : {}),
     ...(FROG_SKINS.has(skinOf(skins.frog, LEGACY_FROG_SKINS)) ? { frog: skinOf(skins.frog, LEGACY_FROG_SKINS) } : {}),
+    ...(CRAB_SKINS.has(skinOf(skins.crab, LEGACY_CRAB_SKINS)) ? { crab: skinOf(skins.crab, LEGACY_CRAB_SKINS) } : {}),
   };
   return {
     character: value.character,
@@ -595,6 +598,7 @@ export function sanitizePositions(value) {
  * @param {(positions: Record<string, Record<string, {x:number,y:number}>>) => void} [deps.writePositions]
  * @param {(event: any) => boolean} [deps.isTrustedMain]  the sender is this app's own UI (local, or bundled on an organization server)
  * @param {() => Promise<unknown>} [deps.whenReady]  resolves once Electron's app is ready (the screen module needs it)
+ * @param {typeof import("electron").Menu} [deps.Menu]  native right-click menu (required for the mascot's menu to pop)
  * @param {() => void} [deps.focusMain]     bring the app window forward ("Open in the app")
  * @param {() => (import("electron").Session | null)} [deps.session]  the session for the page (server mode without a local server)
  * @param {string} [deps.platform]          process.platform by default
@@ -1040,7 +1044,11 @@ export function createFloatingBotWindows(deps) {
     "floating-bots:menu": (event, at) => {
       const found = senderFloat(event);
       const items = found?.entry.snapshot?.menu ?? [];
-      if (!found || !deps.Menu || !items.length) return;
+      if (!found || !items.length) return;
+      if (!deps.Menu) {
+        note("right-click menu skipped: Menu was not given");
+        return;
+      }
       const win = found.entry.win;
       let zoom = 1;
       try {

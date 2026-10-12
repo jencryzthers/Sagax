@@ -26,13 +26,16 @@
  *   lips), its skin taking a tint of the bot's color, with a Frog skin. It
  *   hops, puffs its throat, catches flies and naps on a lily pad on the
  *   desktop (frog-moves.ts).
+ * - crab: Crab, the pixel-rect crab (only rectangles, a coral fill and two
+ *   black square eyes), in the bot's color or a crab of its own, with a Crab
+ *   skin. It scuttles, waves and hops on the desktop (crab-moves.ts).
  *
  * Each character keeps its own skin, so switching character and back finds
  * the choice made before. Absent means the owl, as every bot had before.
  */
 import { z } from "zod";
 
-export const MASCOT_CHARACTERS = ["owl", "shape", "trombi", "bunbu", "shiba", "grump", "ogre", "frog"] as const;
+export const MASCOT_CHARACTERS = ["owl", "crab", "shape", "trombi", "bunbu", "shiba", "grump", "ogre", "frog"] as const;
 export type MascotCharacter = (typeof MASCOT_CHARACTERS)[number];
 
 /**
@@ -121,6 +124,13 @@ export type OgreSkin = (typeof OGRE_SKINS)[number];
  */
 export const FROG_SKINS = ["plain", "leaf", "tree", "poison", "bullfrog", "ghost", "retro98", "gold", "neon", "chrome", "glitch", "holo", "molten"] as const;
 export type FrogSkin = (typeof FROG_SKINS)[number];
+
+/**
+ * Skins for Crab: the bot's colour tinted into the coral (Plain, free with
+ * it), then the crab's own fills (Coral, Sand, Ink, Mint), all common.
+ */
+export const CRAB_SKINS = ["plain", "coral", "sand", "ink", "mint"] as const;
+export type CrabSkin = (typeof CRAB_SKINS)[number];
 
 /** How rare a skin is: the picker's label and card. */
 export type SkinTier = "common" | "rare" | "epic" | "legendary";
@@ -232,6 +242,14 @@ export const FROG_SKIN_TIER: Readonly<Record<FrogSkin, SkinTier>> = {
   molten: "legendary",
 };
 
+export const CRAB_SKIN_TIER: Readonly<Record<CrabSkin, SkinTier>> = {
+  plain: "common",
+  coral: "common",
+  sand: "common",
+  ink: "common",
+  mint: "common",
+};
+
 /**
  * Other names a stored skin may carry (drafts of the premium set, older
  * builds): a stored look keeps working and is saved back under the current id.
@@ -332,6 +350,14 @@ export const LEGACY_OGRE_SKINS: Readonly<Record<string, OgreSkin>> = {
   holographic: "holo",
 };
 
+export const LEGACY_CRAB_SKINS: Readonly<Record<string, CrabSkin>> = {
+  classic: "coral",
+  orange: "coral",
+  cream: "sand",
+  black: "ink",
+  green: "mint",
+};
+
 export const LEGACY_FROG_SKINS: Readonly<Record<string, FrogSkin>> = {
   green: "leaf",
   "tree-frog": "tree",
@@ -369,6 +395,7 @@ export const mascotLookSchema = z
         grump: z.preprocess(legacy(LEGACY_GRUMP_SKINS), z.enum(GRUMP_SKINS)).optional(),
         ogre: z.preprocess(legacy(LEGACY_OGRE_SKINS), z.enum(OGRE_SKINS)).optional(),
         frog: z.preprocess(legacy(LEGACY_FROG_SKINS), z.enum(FROG_SKINS)).optional(),
+        crab: z.preprocess(legacy(LEGACY_CRAB_SKINS), z.enum(CRAB_SKINS)).optional(),
       })
       .strict()
       .optional(),
@@ -391,7 +418,7 @@ export function botMascotLook(value: unknown): MascotLook {
   const { skins, ...rest } = value as { skins?: unknown };
   const known: Record<string, string> = {};
   if (skins && typeof skins === "object") {
-    const { shape, trombi, bunbu, shiba, grump, ogre, frog } = skins as { shape?: unknown; trombi?: unknown; bunbu?: unknown; shiba?: unknown; grump?: unknown; ogre?: unknown; frog?: unknown };
+    const { shape, trombi, bunbu, shiba, grump, ogre, frog, crab } = skins as { shape?: unknown; trombi?: unknown; bunbu?: unknown; shiba?: unknown; grump?: unknown; ogre?: unknown; frog?: unknown; crab?: unknown };
     const shapeSkin = legacy(LEGACY_SHAPE_SKINS)(shape);
     const trombiSkin = legacy(LEGACY_TROMBI_SKINS)(trombi);
     const bunbuSkin = legacy(LEGACY_BUNBU_SKINS)(bunbu);
@@ -399,6 +426,7 @@ export function botMascotLook(value: unknown): MascotLook {
     const grumpSkin = legacy(LEGACY_GRUMP_SKINS)(grump);
     const ogreSkin = legacy(LEGACY_OGRE_SKINS)(ogre);
     const frogSkin = legacy(LEGACY_FROG_SKINS)(frog);
+    const crabSkin = legacy(LEGACY_CRAB_SKINS)(crab);
     if ((SHAPE_SKINS as readonly unknown[]).includes(shapeSkin)) known.shape = shapeSkin as string;
     if ((TROMBI_SKINS as readonly unknown[]).includes(trombiSkin)) known.trombi = trombiSkin as string;
     if ((BUNBU_SKINS as readonly unknown[]).includes(bunbuSkin)) known.bunbu = bunbuSkin as string;
@@ -406,18 +434,19 @@ export function botMascotLook(value: unknown): MascotLook {
     if ((GRUMP_SKINS as readonly unknown[]).includes(grumpSkin)) known.grump = grumpSkin as string;
     if ((OGRE_SKINS as readonly unknown[]).includes(ogreSkin)) known.ogre = ogreSkin as string;
     if ((FROG_SKINS as readonly unknown[]).includes(frogSkin)) known.frog = frogSkin as string;
+    if ((CRAB_SKINS as readonly unknown[]).includes(crabSkin)) known.crab = crabSkin as string;
   }
   return mascotLookSchema.safeParse(Object.keys(known).length ? { ...rest, skins: known } : rest).data ?? DEFAULT_MASCOT_LOOK;
 }
 
 /** The look with every choice filled in. */
-export function completeMascotLook(value: unknown): Required<Omit<MascotLook, "skins">> & { skins: { shape: ShapeSkin; trombi: TrombiSkin; bunbu: BunbuSkin; shiba: ShibaSkin; grump: GrumpSkin; ogre: OgreSkin; frog: FrogSkin } } {
+export function completeMascotLook(value: unknown): Required<Omit<MascotLook, "skins">> & { skins: { shape: ShapeSkin; trombi: TrombiSkin; bunbu: BunbuSkin; shiba: ShibaSkin; grump: GrumpSkin; ogre: OgreSkin; frog: FrogSkin; crab: CrabSkin } } {
   const look = botMascotLook(value);
   return {
     character: look.character,
     style: look.style ?? "2d",
     shape: look.shape ?? "circle",
-    skins: { shape: look.skins?.shape ?? "plain", trombi: look.skins?.trombi ?? "classic", bunbu: look.skins?.bunbu ?? "plain", shiba: look.skins?.shiba ?? "plain", grump: look.skins?.grump ?? "plain", ogre: look.skins?.ogre ?? "plain", frog: look.skins?.frog ?? "plain" },
+    skins: { shape: look.skins?.shape ?? "plain", trombi: look.skins?.trombi ?? "classic", bunbu: look.skins?.bunbu ?? "plain", shiba: look.skins?.shiba ?? "plain", grump: look.skins?.grump ?? "plain", ogre: look.skins?.ogre ?? "plain", frog: look.skins?.frog ?? "plain", crab: look.skins?.crab ?? "plain" },
   };
 }
 
@@ -431,6 +460,7 @@ export const CHARACTER_PAINT: Readonly<Record<MascotCharacter, { colors: boolean
   grump: { colors: true, skins: GRUMP_SKINS, wingMoves: false },
   ogre: { colors: true, skins: OGRE_SKINS, wingMoves: false },
   frog: { colors: true, skins: FROG_SKINS, wingMoves: false },
+  crab: { colors: true, skins: CRAB_SKINS, wingMoves: false },
 };
 
 /** The color Bunbu shows where no bot gives one (the app icon, the gallery): mint, our own. */
@@ -447,3 +477,6 @@ export const OGRE_DEFAULT_COLOR = "green";
 
 /** The color Frog shows where no bot gives one (the app icon, the gallery): green, so the skin is the approved frog green. */
 export const FROG_DEFAULT_COLOR = "green";
+
+/** The color Crab shows where no bot gives one (the app icon, the gallery): orange, mixed into the coral. */
+export const CRAB_DEFAULT_COLOR = "orange";

@@ -5,7 +5,7 @@
 // which tab is up; every section but Details opens in the persona editor.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DockedPanelResizeHandle, useDockedPanelWidth } from "./DockedPanelResize";
-import { Bug, MoreHorizontal, PanelRight, Pencil } from "lucide-react";
+import { Bug, MoreHorizontal, PanelRight } from "lucide-react";
 
 import { useStore, visibleMessages, type Bot } from "@/state/store";
 import { requestPrimaryBot } from "@/lib/bot-quick-actions";
@@ -204,6 +204,7 @@ export function BotSettingsDialog({ bot, onOpenVmWorkspace }: {
               activeState={derived.activeState}
               mascotMotion={derived.mascotMotion}
               onPatch={derived.patch}
+              onEditPersona={() => dispatch({ type: "openPersonaEditor", botId: bot.id, section: "overview" })}
               onContextMenu={(event) => {
                 event.preventDefault();
                 setMascotMenu({ botId: bot.id, x: event.clientX, y: event.clientY });
@@ -264,15 +265,6 @@ export function BotSettingsDialog({ bot, onOpenVmWorkspace }: {
                 </button>
               ))}
             </div>
-            <button
-              type="button"
-              data-edit-persona=""
-              onClick={() => dispatch({ type: "openPersonaEditor", botId: bot.id, section: "overview" })}
-              className="mt-3 flex items-center gap-1.5 rounded-lg border border-hairline-weak bg-elevated px-3 py-1.5 text-[13px] text-ink transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
-            >
-              <Pencil size={13} aria-hidden="true" className="text-ink-secondary" />
-              {t("botPanel.editPersona")}
-            </button>
           </div>
 
           {tab === "details" && (

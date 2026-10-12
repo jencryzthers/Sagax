@@ -31,6 +31,7 @@ struct MascotGalleryView: View {
                 case "trombi": trombis
                 case "shiba": shibas
                 case "frog": frogs
+                case "crab": crabs
                 case "group": groups
                 default: owls
                 }
@@ -167,6 +168,29 @@ struct MascotGalleryView: View {
                 FrogMascotView(color: "green", size: 85, animated: true)
                 FrogMascotView(color: "green", size: 85, expression: .curious, animated: true)
                 FrogMascotView(color: "green", size: 85, animated: true, hopping: true)
+            }
+        }
+    }
+
+    private var crabs: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(CrabSkin.allCases, id: \.self) { skin in
+                row(skin.rawValue) {
+                    let look = CompleteMascotLook(character: .crab, crabSkin: skin)
+                    character(look, "orange", .none, 24)
+                    character(look, "orange", .none, 42)
+                    character(look, "blue", .none, 42)
+                    character(look, "orange", .none, 85)
+                }
+            }
+            row("moods: listening, speaking, sleeping") {
+                let look = CompleteMascotLook(character: .crab)
+                ForEach([MausState.listening, .notifying, .sleeping], id: \.rawValue) { state in
+                    character(look, "orange", .none, 60, state)
+                }
+            }
+            row("idle, animated") {
+                CrabMascotView(color: "orange", size: 85, animated: true)
             }
         }
     }

@@ -29,6 +29,7 @@ import type { ShibaExpression } from "./shiba-art";
 import { GrumpMascot } from "./GrumpMascot";
 import { OgreMascot } from "./OgreMascot";
 import { FrogMascot } from "./FrogMascot";
+import { CrabMascot } from "./CrabMascot";
 import type { FrogExpression } from "./frog-art";
 import type { FxMoveRequest } from "./skin-fx/skin-fx";
 
@@ -311,6 +312,9 @@ function CharacterAvatar({ look, color, size, state, animated = true, label, mov
   }
   if (full.character === "frog") {
     return <FrogMascot skin={full.skins.frog} color={color} size={size} mood={bunbuMoodFor(state)} expression={frogExpressionFor(state)} animated={animated} move={move} moveBody label={label ?? null} />;
+  }
+  if (full.character === "crab") {
+    return <CrabMascot skin={full.skins.crab} color={color} size={size} mood={bunbuMoodFor(state)} expression={frogExpressionFor(state)} animated={animated} move={move} moveBody label={label ?? null} />;
   }
   if (full.character === "bunbu") {
     return <BunbuMascot skin={full.skins.bunbu} color={color} size={size} mood={bunbuMoodFor(state)} animated={animated} move={move} moveBody label={label ?? null} />;

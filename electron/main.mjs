@@ -3358,6 +3358,7 @@ const floatingBotWindows = createFloatingBotWindows({
   BrowserWindow,
   screen,
   ipcMain,
+  Menu,
   getMainWindow: () => mainWindow,
   isTrustedMain: (event) => isDesktopUiSender(event),
   pageUrl: () => `${detachedPageOrigin()}/?${FLOATING_QUERY}`,
@@ -3368,9 +3369,7 @@ const floatingBotWindows = createFloatingBotWindows({
   focusMain: () => {
     const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
     if (!win) return;
-    if (win.isMinimized()) win.restore();
-    win.show();
-    win.focus();
+    bringMainWindowForward(win);
   },
   log: (line) => {
     slog(line);

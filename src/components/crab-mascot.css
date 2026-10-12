@@ -1,0 +1,54 @@
+/* Crab (CrabMascot.tsx): CSS idle of the app's avatars, a slow bob, a blink,
+   the four legs ticking a little while it stands. Origins are view-box units
+   (crab-art.ts CRAB_PIVOTS). The desktop mascot and a move drive the same
+   groups from the rig (crab-moves.ts) instead: the loops stand down
+   (.crab-rig). Reduced motion keeps it still. */
+
+.crab-mascot :is(.crab-whole, .crab-arm, .crab-leg, .crab-eyes, .crab-eye) {
+  transform-box: view-box;
+}
+.crab-live:not(.crab-rig) .crab-whole { transform-origin: 50px 100px; }
+.crab-live:not(.crab-rig) .crab-arm-l { transform-origin: 17px 64px; }
+.crab-live:not(.crab-rig) .crab-arm-r { transform-origin: 83px 64px; }
+.crab-live:not(.crab-rig) .crab-eye-l { transform-origin: 32px 64px; }
+.crab-live:not(.crab-rig) .crab-eye-r { transform-origin: 68px 64px; }
+.crab-live:not(.crab-rig) .crab-leg-0 { transform-origin: 26px 88px; }
+.crab-live:not(.crab-rig) .crab-leg-1 { transform-origin: 38px 88px; }
+.crab-live:not(.crab-rig) .crab-leg-2 { transform-origin: 62px 88px; }
+.crab-live:not(.crab-rig) .crab-leg-3 { transform-origin: 74px 88px; }
+
+.crab-live:not(.crab-rig) .crab-whole { animation: crab-bob 2.4s ease-in-out infinite; }
+.crab-live:not(.crab-rig) .crab-eye { animation: crab-blink 3.2s ease-in-out infinite; }
+.crab-live:not(.crab-rig) .crab-leg-0,
+.crab-live:not(.crab-rig) .crab-leg-2 { animation: crab-tick 0.48s ease-in-out infinite; }
+.crab-live:not(.crab-rig) .crab-leg-1,
+.crab-live:not(.crab-rig) .crab-leg-3 { animation: crab-tick 0.48s ease-in-out 0.24s infinite; }
+.crab-live:not(.crab-rig).crab-mood-speaking .crab-whole { animation: crab-talk 0.42s ease-in-out infinite alternate; }
+.crab-live:not(.crab-rig).crab-mood-listening .crab-whole { transform: rotate(-4deg); transition: transform 0.35s ease-out; }
+.crab-live:not(.crab-rig).crab-mood-sleeping .crab-eye { animation: none; transform: scaleY(0.12); }
+.crab-live:not(.crab-rig).crab-mood-sleeping .crab-whole { animation-duration: 3.6s; }
+.crab-live:not(.crab-rig).crab-mood-sleeping .crab-leg { animation: none; }
+
+@keyframes crab-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4%); }
+}
+@keyframes crab-blink {
+  0%, 42%, 58%, 100% { transform: scaleY(1); }
+  50% { transform: scaleY(0.12); }
+}
+@keyframes crab-tick {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-18%); }
+}
+@keyframes crab-talk {
+  from { transform: translateY(0) scaleY(0.98); }
+  to { transform: translateY(-3%) scaleY(1.03); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crab-mascot :is(.crab-whole, .crab-arm, .crab-leg, .crab-eyes, .crab-eye) {
+    animation: none !important;
+    transition: none !important;
+  }
+}
