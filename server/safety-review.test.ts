@@ -1,7 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { flushAdminActivity } from "./admin-activity.ts";
 import {
   openSafetyHold,
@@ -18,18 +18,24 @@ import { callUserSandboxTool, type ToolExec } from "./user-sandbox-tools.ts";
 import { SAFER_WRITE, SAFETY_REFUSAL_FINAL } from "../shared/safety-review.ts";
 
 const dirs: string[] = [];
+let dataDir = "";
+
+beforeEach(() => {
+  dataDir = mkdtempSync(join(tmpdir(), "sagax-safety-"));
+  dirs.push(dataDir);
+  setSafetyDataDirForTests(dataDir);
+});
 
 afterEach(async () => {
   delete process.env.SAGAX_MISUSE_GUARDRAILS;
   resetSafetyReviewForTests();
-  await flushAdminActivity();
+  if (dataDir) await flushAdminActivity(dataDir);
+  dataDir = "";
   for (const dir of dirs.splice(0)) await removeTempDir(dir);
 });
 
 function enforce(): void {
-  const dir = mkdtempSync(join(tmpdir(), "sagax-safety-"));
-  dirs.push(dir);
-  setSafetyDataDirForTests(dir);
+  setSafetyDataDirForTests(dataDir);
   process.env.SAGAX_MISUSE_GUARDRAILS = "enforce";
 }
 

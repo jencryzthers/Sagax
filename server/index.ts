@@ -12854,7 +12854,8 @@ function misuseTextRefusal(
 /** The turn's person, including a solo operator, for the safety review. */
 function safetyPrincipal(threadId: string): { principalId?: string; triage: boolean } {
   const speaker = turnSpeakers.get(threadId);
-  const principalId = turnSpeakerPrincipals.get(threadId) ?? speaker?.principalId;
+  const fromSpeaker = speaker && "principalId" in speaker ? speaker.principalId : undefined;
+  const principalId = turnSpeakerPrincipals.get(threadId) ?? fromSpeaker;
   return misuseActor(principalId, speaker?.origin);
 }
 
