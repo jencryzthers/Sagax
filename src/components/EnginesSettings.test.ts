@@ -220,7 +220,7 @@ describe("Settings → Engines → setup cards", () => {
     fixture.instances = [openai({ state: "unavailable", reason: "No API key" })];
     const before = renderToStaticMarkup(createElement(EnginesSettings));
     expect(before).toContain("OpenAI needs an API key");
-    expect(before).toContain("Open API keys");
+    expect(before).toContain("Add the key");
     expect(before).not.toContain("Change key");
 
     fixture.instances = [openai({ state: "available", authenticated: true, version: null })];
@@ -234,7 +234,7 @@ describe("Settings → Engines → setup cards", () => {
     // A remote client cannot reach this server's key settings.
     vi.stubGlobal("window", { ogb: { remoteClient: { active: true } } });
     const remote = renderToStaticMarkup(createElement(EnginesSettings));
-    expect(remote).toContain("open Settings → API keys on the computer running Sagax");
+    expect(remote).toContain("open Settings &gt; Models and accounts on the computer running Sagax");
     expect(remote).not.toContain("Change key");
 
     // A Company-managed key is not the person's to change.

@@ -10,6 +10,7 @@ import { SettingsText } from "./SettingsLink";
 import { copyText } from "@/lib/copy-text";
 import { DEVICE_SIGN_IN_COPY, DeviceSignIn, deviceSignInProvider } from "./DeviceSignIn";
 import { ClaudeSignIn } from "./ClaudeSignIn";
+import { keyRowForEngine, openProviderKeyDialog } from "./settings/ProviderKeys";
 
 type Platform = "darwin" | "win32" | "linux";
 
@@ -33,7 +34,7 @@ export function needsSignIn(instance: InstanceInfo | undefined): boolean {
   return instance?.snapshot.state === "available" && instance.snapshot.authenticated === false;
 }
 
-/** The card EngineSetup shows for this engine is its sign-in — not an API
+/** The card EngineSetup shows for this engine is its sign-in: not an API
  * key row, an install, or a note that it cannot be set up here. A caller
  * that words a line around that card (a failed turn's headline) asks this,
  * so the line and the card never disagree. */
@@ -259,7 +260,7 @@ export function EngineUpdateNotice({
 }
 
 /** Like the update notice, minus the command: there is nothing to run, only
- * something to know — the message says what and where to change it. */
+ * something to know: the message says what and where to change it. */
 export function EngineWarningNotice({
   warning,
   className,
@@ -411,7 +412,7 @@ function ManagedEngineSetup({ instance, signInOnly }: { instance: InstanceInfo; 
 }
 
 /** Engines that run on a pasted API key. Their setup is the key row in
- * Settings → API keys, never a terminal command or a sign-in. Claude on the
+ * Settings > Models and accounts, never a terminal command or a sign-in. Claude on the
  * workspace key still needs its CLI first, which the install card covers. */
 export function isApiKeyEngine(instance: InstanceInfo | undefined): boolean {
   if (!instance || instance.access !== "api" || instance.managed) return false;
@@ -445,7 +446,7 @@ function GrokKeyInstead({ className, unframed }: { className?: string; unframed:
       {!remote && (
         <button
           type="button"
-          onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "connections" })}
+          onClick={() => { dispatch({ type: "toggleAppSettings", open: true, section: "engines" }); openProviderKeyDialog("xai"); }}
           className="mt-3 flex items-center gap-1.5 rounded-lg bg-raised px-3 py-1.5 text-[12.5px] font-medium text-ink hover:bg-raised-hover"
         >
           <KeyRound size={13} aria-hidden="true" />
@@ -474,7 +475,7 @@ function ApiKeyEngineSetup({ instance, className, unframed, configured = false }
           <div className="text-[13px] font-semibold text-ink">{t(copy.title, { name: instance.displayName })}</div>
           <p className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">
             {copy.description === "engineSetup.apiKey.description" ? (
-              <SettingsText text={t(copy.description)} links={{ settings: { section: "connections", cardId: "connections.providers" } }} />
+              <SettingsText text={t(copy.description)} links={{ settings: { section: "engines", cardId: "engines.keys" } }} />
             ) : t(copy.description)}
           </p>
         </div>
@@ -486,7 +487,7 @@ function ApiKeyEngineSetup({ instance, className, unframed, configured = false }
       {!remote && (
         <button
           type="button"
-          onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "connections" })}
+          onClick={() => { dispatch({ type: "toggleAppSettings", open: true, section: "engines" }); openProviderKeyDialog(keyRowForEngine(instance.driverKind, instance.instanceId)); }}
           className="mt-3 flex items-center gap-1.5 rounded-lg bg-raised px-3 py-1.5 text-[12.5px] font-medium text-ink hover:bg-raised-hover"
         >
           <KeyRound size={13} aria-hidden="true" />

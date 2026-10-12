@@ -1,5 +1,5 @@
 // App settings, as a real modal with sections rather than one long panel.
-// Per-bot settings (persona, model, computer) live in BotSettingsDialog — this
+// Per-bot settings (persona, model, computer) live in BotSettingsDialog: this
 // is the stuff shared by every bot: who you are, your keys, and the
 // machine your bots can borrow.
 import { useRetroSkin } from "./RetroChromeHost";
@@ -18,7 +18,7 @@ import { launchBridges } from "@/lib/launch";
 import { servedPage } from "@/lib/desktop";
 import { brand } from "@/lib/brand";
 import { ManagedByOrganization, ServerModeCard, useServerMode } from "./ServerModeSettings";
-import { AnthropicEveryClaudeBot, ApiKeyRow, OpenAiCompatUrl, OpenCodeProviderKeys, VpsConnection } from "./ApiKeys";
+import { ApiKeyRow, VpsConnection } from "./ApiKeys";
 import { DecisionModelSettings } from "./DecisionModelSettings";
 import { LiveCallInstallationSettings } from "./LiveCallSettings";
 import { ImageGenerationSettings } from "./settings/ImageGenerationSettings";
@@ -84,7 +84,7 @@ const COMPOSIO_PLATFORM_URL = "https://platform.composio.dev";
 
 // `labelKey`, not a label: t() reads the active pack when it is called, so a
 // label resolved here at module scope would freeze the language the app booted
-// in. The English keywords stay untranslated — they are a search index, and a
+// in. The English keywords stay untranslated: they are a search index, and a
 // pack that omits them still matches what people type.
 export const SECTIONS: Array<{
   id: AppSettingsSection;
@@ -962,7 +962,7 @@ function BrowserProfilesRow() {
 }
 
 /** Writes a redacted diagnostics file to a location the user picks. The
- * report holds versions, configured-or-not booleans and the server.log tail —
+ * report holds versions, configured-or-not booleans and the server.log tail:
  * never credential values (the desktop shell does not read secret fields). */
 function DiagnosticsRow() {
   const [exporting, setExporting] = useState(false);
@@ -1382,35 +1382,19 @@ export function SettingsModal() {
 
             {section === "connections" && (
               <>
-                <p className="text-[13px] leading-[18px] text-ink-secondary">{t("settings.connections.subtitle")}</p>
                 {state.config?.composio.mode === "managed" ? (
                   <div className="rounded-lg border border-accent/25 bg-accent/10 px-3 py-2 text-[13px] text-accent-text">
                     {t("settings.connections.ready")}
                   </div>
                 ) : null}
-                <Card
-                  collapsible
+                {/* Model provider keys moved to Models and accounts (2026-10-12). */}
+                <SettingsSubPageRow
                   cardId="connections.providers"
                   title={t("keys.providers.title")}
-                  subtitle={t("keys.providers.subtitle")}
                   summary={configuredSummary(state.config, ["openai", "anthropic", "xai", "openrouter", "mistral", "openaiCompat"])}
-                >
-                  <div className="flex flex-col gap-4">
-                    <ApiKeyRow section="openai" testProvider="openai" />
-                    <ApiKeyRow section="anthropic" testProvider="anthropic" />
-                    <AnthropicEveryClaudeBot />
-                    <ApiKeyRow section="xai" testProvider="xai" />
-                    <ApiKeyRow section="openrouter" testProvider="openrouter" />
-                    <ApiKeyRow section="mistral" testProvider="mistral" />
-                    <details data-api-keys-other className="rounded-lg border border-hairline/40 bg-inset px-3 py-2" open={Boolean(state.config?.openaiCompat?.configured)}>
-                      <summary className="cursor-pointer text-[13px] text-ink-secondary">{t("keys.other.title")}</summary>
-                      <div className="mt-3 flex flex-col gap-4">
-                        <ApiKeyRow section="openaiCompat" testProvider="openaiCompat" />
-                        <OpenAiCompatUrl />
-                      </div>
-                    </details>
-                  </div>
-                </Card>
+                  actionLabel={t("providerKeys.openPage")}
+                  onOpen={() => dispatch({ type: "toggleAppSettings", open: true, section: "engines" })}
+                />
                 {connectedAppsEnabled(state.config) && <Card
                   collapsible
                   cardId="connections.apps"
@@ -1426,25 +1410,18 @@ export function SettingsModal() {
                 >
                   <ApiKeyRow section="composio" />
                 </Card>}
-                <Card
+                {(boatComputerEnabled(state.config) || vpsComputerEnabled(state.config)) && <Card
                   collapsible
                   cardId="connections.integrations"
                   defaultOpen={false}
                   title={t("keys.integrations.title")}
-                  summary={configuredSummary(state.config, ["box", "vps", "opencodeGo"])}
+                  summary={configuredSummary(state.config, ["box", "vps"])}
                 >
                   <div className="flex flex-col gap-4">
                     {boatComputerEnabled(state.config) && <ApiKeyRow section="box" />}
                     {vpsComputerEnabled(state.config) && <VpsConnection />}
-                    <ApiKeyRow section="opencodeGo" />
-                    <p className="-mt-2 text-[11.5px] leading-relaxed text-ink-secondary">
-                      {/* {command} marks where the code chip goes, so a translator can move it */}
-                      {t("keys.opencode.providersHint").split("{command}").flatMap((part, index) =>
-                        index === 0 ? [part] : [<code key={index} className="font-mono">opencode auth login</code>, part])}
-                    </p>
-                    <OpenCodeProviderKeys />
                   </div>
-                </Card>
+                </Card>}
                 <Card
                   collapsible
                   cardId="connections.voice"
@@ -1487,7 +1464,7 @@ export function SettingsModal() {
                     hosted server. Shown for the desktop app's own server (#950) AND when this desktop is
                     a remote client of a hosted workspace: its requests carry that server's session, and
                     Settings there is the only place that server's phones can be paired from (MOCA-84).
-                    The server decides who may act — an owner or an admin session — not this gate. */}
+                    The server decides who may act (an owner or an admin session), not this gate. */}
                 <ServerPairingCard
                   focusRequest={computerPairs ? 0 : state.appSettingsPhonePairing}
                   initialPairingCodes={readMembership(state.config).pairingCodes}

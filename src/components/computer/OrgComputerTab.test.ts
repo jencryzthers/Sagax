@@ -150,9 +150,10 @@ describe("Computer tab on an organization server", () => {
 describe("the bot's Works on", () => {
   it("uses the same place names as the composer chip, with the meaning in each tooltip", () => {
     const markup = renderToStaticMarkup(createElement(WorksOnControl, { value: "cloud", onChange: () => {}, disabled: {}, organization: true }));
-    expect(markup).toContain('class="mb-4 rounded-xl border border-hairline/40 p-4"');
-    expect(markup).toContain('<div id="works-on-setting" class="text-[13px] font-medium text-ink">Works on</div>');
-    expect(markup).toMatch(/id="works-on-setting-hint" class="mt-0.5 text-\[13px\] text-ink-secondary">Where this bot works\./);
+    // a section of the Access pane (no card); its meaning behind the info button
+    expect(markup).toContain('class="border-t border-hairline/40 pt-5"');
+    expect(markup).toContain('<h3 id="works-on-setting" class="text-[13px] font-medium text-ink">Works on</h3>');
+    expect(markup).toMatch(/<span id="works-on-setting-hint">Where this bot works\./);
     expect(markup.match(/role="radio"/g)).toHaveLength(6);
     for (const label of [">Auto (Cloud)<", ">Cloud (server environment)<", ">Local VM<", ">This computer<", ">Browser<", ">Off<"]) expect(markup).toContain(label);
     expect(markup).toMatch(/aria-checked="true"[^>]*data-works-on-choice="cloud"/);

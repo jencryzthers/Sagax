@@ -42,14 +42,19 @@ describe("bot settings caption inset", () => {
 });
 
 describe("bot panel header and tabs", () => {
-  it("draws the mascot menu button (...) as the same round control as its neighbours", () => {
+  it("keeps the header to round controls and puts Edit bot on the mascot as a pencil", () => {
     vi.stubGlobal("window", { ogb: { platform: "darwin" } });
     const html = renderToStaticMarkup(createElement(DesktopCapabilitiesProvider, null, createElement(BotSettingsDialog, { bot })));
     const classOf = (marker: RegExp) => html.match(marker)?.[1] ?? html.match(marker)?.[2];
-    const menu = classOf(/<button[^>]*data-mascot-menu-button=""[^>]*class="([^"]*)"|<button[^>]*class="([^"]*)"[^>]*data-mascot-menu-button=""/);
     const close = classOf(/<button[^>]*aria-label="Close"[^>]*class="([^"]*)"|<button[^>]*class="([^"]*)"[^>]*aria-label="Close"/);
-    expect(menu).toBe(CIRCLE_BUTTON);
     expect(close).toBe(CIRCLE_BUTTON);
+    // no "..." in the header: the pencil sits on the mascot, after it
+    expect(html).not.toContain("data-mascot-menu-button");
+    const badge = html.match(/<button[^>]*data-persona-edit-badge=""[^>]*>/)?.[0] ?? "";
+    expect(badge).toContain('aria-label="Edit bot"');
+    expect(badge).toContain('title="Edit bot"');
+    expect(badge).toContain("size-7");
+    expect(html.indexOf("data-persona-edit-badge")).toBeGreaterThan(html.indexOf("data-avatar-edit"));
   });
 
   it("offers one Edit persona button after the tab bar, outside the tab list", () => {
