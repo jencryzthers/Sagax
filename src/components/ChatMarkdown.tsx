@@ -56,12 +56,15 @@ import { t } from "../lib/i18n";
 import {
   headingSlug,
   isInlineRasterDataUrl,
+  liftClaudeChatBlocks,
+  parseArtifactPage,
   parseCalloutMarker,
   parseEmailBlock,
   richFenceKind,
   unclosedFenceOffset,
   type CalloutKind,
 } from "../lib/rich-blocks";
+import { ArtifactCard } from "./ArtifactCard";
 import { EmailCard } from "./EmailCard";
 import { WidgetFrame } from "./WidgetFrame";
 import { ChartBlock } from "./ChartBlock";
@@ -950,11 +953,15 @@ const NORMALIZED_CACHE_MAX = TRANSCRIPT_WINDOW_SIZE * 2;
 function normalizeMessageMarkdown(text: string) {
   const cached = normalizedCache.get(text);
   if (cached) return cached;
+  // Claude.ai <antArtifact> tags become the fences this renderer already
+  // draws (widget, mermaid, chart, code). Lift before table repair so a
+  // tag that contains pipes is not treated as a table.
+  const lifted = liftClaudeChatBlocks(text);
   // A near-miss table from a model renders as an unreadable run of pipes
   // unless it is repaired before parsing. Table repair moves image source
   // offsets, so image messages skip that repair but still normalize math.
-  const imageOffsets = text.includes(MARKDOWN_IMAGE) ? new Map<number, number>() : undefined;
-  const source = normalizeMathDelimiters(imageOffsets ? text : repairMarkdownTables(text), imageOffsets);
+  const imageOffsets = lifted.includes(MARKDOWN_IMAGE) ? new Map<number, number>() : undefined;
+  const source = normalizeMathDelimiters(imageOffsets ? lifted : repairMarkdownTables(lifted), imageOffsets);
   if (normalizedCache.size >= NORMALIZED_CACHE_MAX) {
     const first = normalizedCache.keys().next().value;
     if (first !== undefined) normalizedCache.delete(first);
@@ -1137,7 +1144,11 @@ function ChatMarkdownComponent({ text, message, mentionPeers = NO_MENTION_PEERS,
         const kind = richFenceKind(lang);
         const email = kind === "email" || !kind ? parseEmailBlock(code, lang) : null;
         if (email) return <EmailCard draft={email} pending={pending} />;
-        if (kind === "widget") return <WidgetFrame code={code} pending={pending} />;
+        if (kind === "widget") {
+          const page = parseArtifactPage(code);
+          if (page) return <ArtifactCard page={page} pending={pending} />;
+          return <WidgetFrame code={code} pending={pending} />;
+        }
         if (kind === "chart") return <ChartBlock code={code} pending={pending} />;
         if (kind === "csv" && !pending) {
           const model = tableModelFromDelimited(code, lang);
