@@ -139,6 +139,7 @@ describe("bot setup and tools in the real renderer", () => {
     // Adding a server can close the plugins overlay. Re-open it and open
     // the fixture row so the workspace toggle is in the snapshot.
     if (!(await snapshot()).includes("Turn fixture on")) {
+      await openPersona("Access");
       await click("Manage in Connect apps");
       await expect.poll(() => evaluate("Boolean(document.querySelector('[data-plugins-connected]'))"), { timeout: 10_000 }).toBe(true);
       await evaluate("document.querySelector('[data-plugins-connected]')?.click(); true");

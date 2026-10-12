@@ -137,6 +137,7 @@ describe("Preset bots in the real renderer", () => {
       await ui("screenshot", "--out", evidence(shot));
       await click("Create bot");
       await expect.poll(async () => (await bots()).length, { timeout: 15_000 }).toBe(before.length + 1);
+      await expect.poll(async () => !(await snapshot()).includes("Starting role"), { timeout: 10_000 }).toBe(true);
       return (await bots()).find((bot) => !before.some((old) => old.id === bot.id))!;
     };
     const fromFile = await create(`preset:${filePreset!.id}`, "Skills, added switched off: follow-up", "new-bot-file");

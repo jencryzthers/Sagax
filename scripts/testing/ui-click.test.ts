@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { clickByAccessibleNameJs, openProfileAria, overlaysOpenJs } from "./ui-click.ts";
 
@@ -25,5 +26,14 @@ describe("renderer e2e click helpers", () => {
   it("treats the bot catalog modal as an overlay that covers the sidebar", () => {
     expect(overlaysOpenJs()).toContain("data-bot-catalog-modal");
     expect(overlaysOpenJs()).toContain("[role=dialog]");
+  });
+});
+
+describe("openNewBotDialog reuse", () => {
+  it("reuses an open dialog only when Create bot is on it", () => {
+    const src = readFileSync(new URL("./compose-flow.ts", import.meta.url), "utf8");
+    expect(src).toContain('trim() === "Create bot"');
+    expect(src).toContain("createBotReady");
+    expect(src).toContain('snap.includes("Create bot")');
   });
 });

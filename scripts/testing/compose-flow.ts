@@ -67,8 +67,9 @@ export async function openTemplatesCatalog(flow: CatalogFlow): Promise<void> {
 /** NewBotDialog with Starting role: Team map, a named team, New Bot. */
 export async function openNewBotDialog(flow: NewBotFlow): Promise<void> {
   const hasStartingRole = async () => (await flow.snapshot()).includes("Starting role");
-  if (await hasStartingRole()) return;
-  await dismissOverlays(flow, (snap) => snap.includes("Starting role"));
+  const createBotReady = async () => Boolean(await flow.evaluate(`Boolean([...document.querySelectorAll("[role=dialog] button")].find((button) => (button.textContent || "").trim() === "Create bot"))`));
+  if (await hasStartingRole() && await createBotReady()) return;
+  await dismissOverlays(flow, (snap) => snap.includes("Starting role") && snap.includes("Create bot"));
   const click = (name: string) => clickAccessible(flow, name);
 
   const hasNewBot = async () => {
