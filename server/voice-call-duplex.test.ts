@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   admitDuplexSend,
   dropCancelledVoiceEvent,
+  DUPLEX_INTERRUPT_WAIT_MS,
   duplexEpoch,
   isStaleAssistantOutput,
   isThreadBusyError,
@@ -123,6 +124,20 @@ describe("duplex replace slot", () => {
       },
     });
     await expect(timed).resolves.toBe("timeout");
+  });
+
+  it("default waitForThreadIdle times out at 300 ms after abort, not 2500", async () => {
+    expect(DUPLEX_INTERRUPT_WAIT_MS).toBe(300);
+    let now = 0;
+    const timed = waitForThreadIdle(() => true, {
+      now: () => now,
+      sleep: async (ms) => {
+        now += ms;
+      },
+    });
+    await expect(timed).resolves.toBe("timeout");
+    expect(now).toBeGreaterThanOrEqual(300);
+    expect(now).toBeLessThan(400);
   });
 });
 

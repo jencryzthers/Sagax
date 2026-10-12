@@ -12513,12 +12513,16 @@ async function startDuplexCallTurn(
     if (admit.discardQueue) discardSteeredQueue(current.id, threadId);
     if (admit.interrupt) {
       await stopDirectThreadByPerson(current.id, threadId);
-      await waitForThreadIdle(() => threadBusy(botId, threadId), { capMs: DUPLEX_INTERRUPT_WAIT_MS });
     }
     discardSteeredQueue(current.id, threadId);
   }
   if (!epoch.isLatest(mine)) return { ok: true as const, threadId, superseded: true as const };
   const deadline = Date.now() + DUPLEX_INTERRUPT_WAIT_MS;
+  if (admit.action === "replace" && admit.interrupt) {
+    await waitForThreadIdle(() => threadBusy(botId, threadId), {
+      capMs: Math.max(0, deadline - Date.now()),
+    });
+  }
   while (true) {
     if (!epoch.isLatest(mine)) return { ok: true as const, threadId, superseded: true as const };
     try {

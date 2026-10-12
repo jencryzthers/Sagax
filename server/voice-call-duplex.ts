@@ -33,8 +33,9 @@ export function admitDuplexSend(input: {
 }
 
 /** How long a duplex send waits for the interrupted turn to settle before
- * starting the new one. Cap so a stuck interrupt cannot hang the 202. */
-export const DUPLEX_INTERRUPT_WAIT_MS = 2_500;
+ * starting the new one. Idle wait and thread_busy retry share this budget
+ * after the abort is acknowledged. */
+export const DUPLEX_INTERRUPT_WAIT_MS = 300;
 
 /** One increasing token per thread: only the latest duplex replace starts. */
 export function duplexEpoch(): { claim: () => number; isLatest: (token: number) => boolean } {
