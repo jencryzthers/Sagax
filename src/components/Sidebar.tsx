@@ -39,7 +39,8 @@ import { browseBotsEnabled, connectedAppsEnabled, llmThreadTitlesEnabled } from 
 import { templatesEntryActions } from "@/lib/templates-entry";
 import { useAdvancedMode } from "@/lib/interface-mode";
 
-import { BotAvatar, InitialsAvatar } from "./Avatar";
+import { InitialsAvatar } from "./Avatar";
+import { SidebarMascotAvatar, SidebarMascotProvider } from "./SidebarMascotAvatar";
 import { stateForBot } from "@/lib/mascot";
 import { mascotRowAnimated } from "@/lib/mascot-animate";
 import { cn } from "@/lib/cn";
@@ -328,7 +329,7 @@ export function StackedMauses({ members, density, viewerId }: { members: Bot[]; 
     const b = members[0];
     return (
       <div className={cn("flex shrink-0 items-center justify-center", slotSize)}>
-        {b ? <BotAvatar bot={b} primary={isViewersPrimaryBot(b, viewerId)} primaryRingClassName="ring-sidebar" state="happy" size={singleSize} animated={false} /> : <Users size={24} className="text-sidebar-ink-secondary" />}
+        {b ? <SidebarMascotAvatar botId={b.id} bot={b} primary={isViewersPrimaryBot(b, viewerId)} primaryRingClassName="ring-sidebar" state="happy" size={singleSize} animated={false} /> : <Users size={24} className="text-sidebar-ink-secondary" />}
       </div>
     );
   }
@@ -343,7 +344,7 @@ export function StackedMauses({ members, density, viewerId }: { members: Bot[]; 
           hover and selected rows. The faces simply overlap. */}
       {shown.map((b, index) => (
         <span key={b.id} className={cn("absolute rounded-full", spots[index])}>
-          <BotAvatar bot={b} primary={isViewersPrimaryBot(b, viewerId)} primaryRingClassName="ring-sidebar" state="idle" size={face} animated={false} />
+          <SidebarMascotAvatar botId={b.id} bot={b} primary={isViewersPrimaryBot(b, viewerId)} primaryRingClassName="ring-sidebar" state="idle" size={face} animated={false} />
         </span>
       ))}
     </div>
@@ -1876,7 +1877,8 @@ export function BotListItem({
       {/* flex, not inline: an inline wrapper adds a baseline gap under the
           avatar and makes the row taller than before the presence dot */}
       <span className="relative flex shrink-0" title={iconOnly ? undefined : [bot.name, title].filter(Boolean).join(" · ")}>
-        <BotAvatar
+        <SidebarMascotAvatar
+          botId={bot.id}
           bot={bot}
           primary={primary}
           primaryRingClassName="ring-sidebar"
@@ -2054,7 +2056,7 @@ export function ArchivedBotRow({
 }) {
   return (
     <div className="flex min-h-[82px] items-center gap-3 border-b border-hairline/35 px-1 py-3">
-      <BotAvatar bot={bot} state="happy" size={42} animated={false} />
+      <SidebarMascotAvatar botId={bot.id} bot={bot} state="happy" size={42} animated={false} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-[14px] font-medium text-ink">{bot.name}</div>
         <div className="mt-0.5 truncate text-[12.5px] text-ink-secondary">{bot.title || t("sidebar.archived.botFallback")}</div>
@@ -2843,6 +2845,7 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
     onSelect: () => setArchivedBotsOpen(true),
   }] : [];
   return (
+    <SidebarMascotProvider rootRef={sidebarRef}>
     <aside
       ref={sidebarRef}
       tabIndex={-1}
@@ -2992,7 +2995,7 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
                       : selected ? "bg-sidebar-card" : "hover:bg-sidebar-hover/60",
                   )}
                 >
-                  <BotAvatar bot={bot} primary={isViewersPrimaryBot(bot, viewerId)} primaryRingClassName={selected && density !== "icons" ? "ring-sidebar-card" : "ring-sidebar"} state="idle" size={density === "icons" ? 36 : 64} animated={false} />
+                  <SidebarMascotAvatar botId={bot.id} bot={bot} primary={isViewersPrimaryBot(bot, viewerId)} primaryRingClassName={selected && density !== "icons" ? "ring-sidebar-card" : "ring-sidebar"} state="idle" size={density === "icons" ? 36 : 64} animated={false} />
                   {density !== "icons" && <span className="w-full truncate text-center text-[12px] leading-4 text-sidebar-ink">{bot.name}</span>}
                   {density !== "icons" && title ? (
                     <LabelTag text={title} size="small" className="max-w-full" />
@@ -3414,5 +3417,6 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
         className="app-resize-handle -right-[3px]"
       />
     </aside>
+    </SidebarMascotProvider>
   );
 }
