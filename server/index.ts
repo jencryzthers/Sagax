@@ -722,6 +722,7 @@ import {
   type Viewer,
 } from "./bot-visibility.ts";
 import { serviceThreadViewer, serviceViewerClosed } from "./service-viewer.ts";
+import { browserNavigationRefusal } from "./browser-navigation.ts";
 import { describeBrand, loadBrand } from "./brand.ts";
 import { deliverSseFrame } from "./sse-fanout.ts";
 import {
@@ -27282,6 +27283,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         if (body?.method !== "tools/list" && body?.method !== "tools/call") {
           return json(res, 400, { error: "unsupported browser method" });
+        }
+        if (body.method === "tools/call") {
+          const refusal = browserNavigationRefusal(body.params);
+          if (refusal) return json(res, 400, { error: refusal });
         }
         const result = await browserRuntime.agentRpc(browser.session, browser.spec, body.method, body.params, () => {
           requireActiveInternalCapability();
