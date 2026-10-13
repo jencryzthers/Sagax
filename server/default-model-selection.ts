@@ -1,4 +1,5 @@
 import type { EffortLevel, EngineAccess, ModelCatalog, ModelSelection, ProviderSnapshot } from "./contracts.ts";
+import { effortAcceptedByEngine } from "../shared/ultracode-effort.ts";
 
 export interface SelectableInstance {
   instanceId: string;
@@ -7,6 +8,7 @@ export interface SelectableInstance {
   models: ModelCatalog;
   capabilities?: { effortLevels?: readonly EffortLevel[]; modelVariants?: boolean };
   access?: EngineAccess;
+  enabled?: boolean;
 }
 
 /** What an enrolled organisation adds to the choice. Both are omitted (or
@@ -30,8 +32,12 @@ export function signedOut(instance: SelectableInstance): boolean {
 /** The ready rule: an engine can run a turn now when it is available, the
  * organisation allows it, and it is not signed out (signedOut). */
 export function readyToRun(instance: SelectableInstance, context: DefaultSelectionContext = {}): boolean {
-  return instance.snapshot.state === "available" && context.refusal?.(instance) === undefined && !signedOut(instance);
+  return instance.enabled !== false && instance.snapshot.state === "available" && context.refusal?.(instance) === undefined && !signedOut(instance);
 }
+
+const defaultModel = (instance: SelectableInstance) => instance.models.default.trim()
+  ? instance.models.default
+  : instance.models.options.find((model) => model.id.trim())?.id ?? "";
 
 /** The engine a new bot gets, and the one a bot moved off a removed engine
  * gets (computer-engine-removal.ts): one picker for both.
@@ -46,11 +52,13 @@ export function selectDefaultModelSelection(
   preferred?: ModelSelection,
   context: DefaultSelectionContext = {},
 ): ModelSelection {
-  if (preferred) {
+  if (preferred && (preferred.instanceId || preferred.model)) {
     const instance = instances.find((candidate) => candidate.instanceId === preferred.instanceId);
     if (
       instance?.snapshot.state !== "available" ||
-      instance.snapshot.authenticated === false ||
+      instance.enabled === false ||
+      signedOut(instance) ||
+      !preferred.model.trim() ||
       // An organisation that disallows the saved engine makes it unusable,
       // exactly like an unavailable one: setup, never another provider.
       context.refusal?.(instance) !== undefined ||
@@ -62,18 +70,18 @@ export function selectDefaultModelSelection(
     const selection = { ...preferred };
     // A saved effort can outlive driver support. Keep the intentional model,
     // but let the provider use its own effort default instead of failing turn 1.
-    if (selection.effort && !instance.capabilities?.effortLevels?.includes(selection.effort)) delete selection.effort;
+    if (selection.effort && !effortAcceptedByEngine(selection.effort, instance.capabilities?.effortLevels ?? [])) delete selection.effort;
     return selection;
   }
   // The organisation's policy is inert (no refusal) unless this desktop is enrolled.
-  const available = instances.filter((instance) => instance.snapshot.state === "available" && context.refusal?.(instance) === undefined);
+  const available = instances.filter((instance) => instance.enabled !== false && instance.snapshot.state === "available" && context.refusal?.(instance) === undefined && defaultModel(instance));
   const ready = available.filter((instance) => readyToRun(instance, context));
   const company = context.company;
   const personal = company && instances.some((instance) => company(instance.instanceId))
     ? claudeFirst(ready.filter((instance) => !company(instance.instanceId)))
     : undefined;
   const pick = personal ?? claudeFirst(ready) ?? claudeFirst(available);
-  return { instanceId: pick?.instanceId ?? "", model: pick?.models.default ?? "" };
+  return { instanceId: pick?.instanceId ?? "", model: pick ? defaultModel(pick) : "" };
 }
 
 /** Complete a new bot's selection with the template's effort
@@ -86,7 +94,7 @@ export function withNewBotEffort(
   effort: EffortLevel | undefined,
   offered: readonly EffortLevel[] | undefined,
 ): ModelSelection {
-  if (!effort || selection.effort !== undefined || selection.variant !== undefined || !offered?.includes(effort)) {
+  if (!effort || selection.effort !== undefined || selection.variant !== undefined || !effortAcceptedByEngine(effort, offered ?? [])) {
     return selection;
   }
   return { ...selection, effort };

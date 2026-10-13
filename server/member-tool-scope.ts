@@ -72,8 +72,17 @@ export const MEMBER_OWN_SCOPE_AGENT_TOOLS: Readonly<Record<string, MemberToolFam
  *   add_mcp_server  starts a local program on the server
  *   attach_file     reads any path on the server into the chat
  *   vm_exec         a shell command
- *   shared_computer files, a terminal or the screen of a shared desktop */
-export const HOST_LEVEL_AGENT_TOOLS: ReadonlySet<string> = new Set(["act", "add_mcp_server", "attach_file", "vm_exec", "shared_computer"]);
+ *   shared_computer files, a terminal or the screen of a shared desktop
+ *   list_terminal_resources, offer_shell_terminal
+ *                   the terminal-capable resources and a shell on one
+ *   launch_cloud_agent, cloud_agent_follow_up, cancel_cloud_agent,
+ *   archive_cloud_agent
+ *                   a cloud coding agent run on a provider account */
+export const HOST_LEVEL_AGENT_TOOLS: ReadonlySet<string> = new Set([
+  "act", "add_mcp_server", "attach_file", "vm_exec", "shared_computer",
+  "list_terminal_resources", "offer_shell_terminal",
+  "launch_cloud_agent", "cloud_agent_follow_up", "cancel_cloud_agent", "archive_cloud_agent",
+]);
 
 /** The agents tool a provider's tool name names, or null. Accepts the
  * spellings the engines report for Sagax's own `agents` MCP server:

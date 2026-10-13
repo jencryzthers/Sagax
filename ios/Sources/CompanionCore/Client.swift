@@ -42,6 +42,10 @@ public struct Connection: Codable, Hashable, Identifiable, Sendable {
     /// LAN or Bonjour origin for local pairing. Absent alongside a nil kind
     /// policy on connections saved before route consent existed.
     public var allowedLocalRouteURLs: Set<String>?
+    /// The exact Tailscale MagicDNS host this pairing consented to. A device
+    /// bearer is sent only to this host. Absent means no Tailscale consent,
+    /// including connections saved before the host was recorded.
+    public var allowedTailnetHost: String?
     /// P-256 HPKE recipient point learned only from the camera-scanned QR.
     /// It is public key material; the phone never receives the private key.
     public var secretPublicKey: String?
@@ -70,6 +74,7 @@ public struct Connection: Codable, Hashable, Identifiable, Sendable {
         endpoints: [CompanionEndpoint]? = nil,
         allowedRouteKinds: Set<CompanionEndpointKind>? = nil,
         allowedLocalRouteURLs: Set<String>? = nil,
+        allowedTailnetHost: String? = nil,
         secretPublicKey: String? = nil,
         companionDeviceId: String? = nil,
         serverEnvironmentId: String? = nil,
@@ -84,6 +89,7 @@ public struct Connection: Codable, Hashable, Identifiable, Sendable {
         self.endpoints = endpoints
         self.allowedRouteKinds = allowedRouteKinds
         self.allowedLocalRouteURLs = allowedLocalRouteURLs
+        self.allowedTailnetHost = allowedTailnetHost
         self.secretPublicKey = secretPublicKey
         self.companionDeviceId = companionDeviceId
         self.serverEnvironmentId = serverEnvironmentId
@@ -1473,6 +1479,17 @@ public struct CompanionClient: Sendable {
         ).bots
     }
 
+    /// Ask for one ConnectWise change. The server writes an approval card;
+    /// this call does not write to ConnectWise.
+    @discardableResult
+    public func requestCwAction(threadId: String, action: CwActionBody, botId: String?) async throws -> CwActionReceipt {
+        let encoded = try JSONEncoder().encode(action)
+        let object = try JSONSerialization.jsonObject(with: encoded)
+        var body: [String: Any] = ["action": object]
+        if let botId { body["botId"] = botId }
+        return try await send(try makeRequest("POST", "/api/threads/\(threadId)/cw-actions", body: body), as: CwActionReceipt.self)
+    }
+
     @discardableResult
     public func send(text: String, toBot botId: String, threadId: String? = nil) async throws -> SendReceipt {
         var body = ["text": text]
@@ -1573,8 +1590,100 @@ public struct CompanionClient: Sendable {
         return try await send(request, as: ClaudeUpdateResponse.self).version
     }
 
+    /// Start the computer's own provider sign-in. The answer is a page and,
+    /// for a device code, the code to type there. It never carries a token.
+    public func startEngineSignInRequest(instanceId: String) throws -> URLRequest {
+        guard Self.signInInstanceID(instanceId) else { throw APIError.badURL }
+        return try makeRequest("POST", "/api/instances/\(instanceId)/auth/start", body: [:])
+    }
+
+    public func startEngineSignIn(instanceId: String) async throws -> EngineSignInState {
+        try await send(try startEngineSignInRequest(instanceId: instanceId), as: EngineSignInEnvelope.self).auth
+    }
+
+    public func engineSignInStatusRequest(instanceId: String, flowId: String) throws -> URLRequest {
+        guard Self.signInInstanceID(instanceId), Self.signInFlowID(flowId) else { throw APIError.badURL }
+        return try makeRequest(
+            "GET",
+            "/api/instances/\(instanceId)/auth/status",
+            query: [URLQueryItem(name: "flowId", value: flowId)]
+        )
+    }
+
+    public func engineSignInStatus(instanceId: String, flowId: String) async throws -> EngineSignInState {
+        try await send(try engineSignInStatusRequest(instanceId: instanceId, flowId: flowId), as: EngineSignInEnvelope.self).auth
+    }
+
+    public func cancelEngineSignInRequest(instanceId: String, flowId: String) throws -> URLRequest {
+        guard Self.signInInstanceID(instanceId), Self.signInFlowID(flowId) else { throw APIError.badURL }
+        return try makeRequest("POST", "/api/instances/\(instanceId)/auth/cancel", body: ["flowId": flowId])
+    }
+
+    public func cancelEngineSignIn(instanceId: String, flowId: String) async throws {
+        try await send(try cancelEngineSignInRequest(instanceId: instanceId, flowId: flowId))
+    }
+
+    /// `code` is the short code from the provider's page (Claude). It is sent
+    /// once and never stored on the phone.
+    public func completeEngineSignInRequest(instanceId: String, flowId: String, code: String) throws -> URLRequest {
+        guard Self.signInInstanceID(instanceId), Self.signInFlowID(flowId) else { throw APIError.badURL }
+        let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 2048, !trimmed.contains("\u{0}") else { throw APIError.badURL }
+        return try makeRequest(
+            "POST",
+            "/api/instances/\(instanceId)/auth/complete",
+            body: ["flowId": flowId, "code": trimmed]
+        )
+    }
+
+    public func completeEngineSignIn(instanceId: String, flowId: String, code: String) async throws {
+        try await send(try completeEngineSignInRequest(instanceId: instanceId, flowId: flowId, code: code))
+    }
+
+    public func engineAccessKeyStatusRequest(instanceId: String) throws -> URLRequest {
+        guard Self.signInInstanceID(instanceId) else { throw APIError.badURL }
+        return try makeRequest("GET", "/api/instances/\(instanceId)/api-key")
+    }
+
+    /// Whether a key is saved. The computer never returns the key itself.
+    public func engineAccessKeyConfigured(instanceId: String) async throws -> Bool {
+        try await send(try engineAccessKeyStatusRequest(instanceId: instanceId), as: EngineAccessKeyStatus.self).configured
+    }
+
+    public func saveEngineAccessKeyRequest(instanceId: String, key: String) throws -> URLRequest {
+        guard Self.signInInstanceID(instanceId) else { throw APIError.badURL }
+        guard key.count <= 4096, !key.contains("\u{0}") else { throw APIError.badURL }
+        return try makeRequest("POST", "/api/instances/\(instanceId)/api-key", body: ["key": key])
+    }
+
+    public func saveEngineAccessKey(instanceId: String, key: String) async throws -> Bool {
+        try await send(try saveEngineAccessKeyRequest(instanceId: instanceId, key: key), as: EngineAccessKeyStatus.self).configured
+    }
+
     private struct ClaudeUpdateResponse: Decodable {
         let version: String
+    }
+
+    private struct EngineSignInEnvelope: Decodable {
+        var auth: EngineSignInState
+    }
+
+    private struct EngineAccessKeyStatus: Decodable {
+        var configured: Bool
+    }
+
+    /// `validInstanceID` still allows a run of dots. These routes reject it,
+    /// matching the companion's `(?!\.+\/)` guard.
+    private static func signInInstanceID(_ value: String) -> Bool {
+        validInstanceID(value) && value.contains { $0 != "." }
+    }
+
+    private static func signInFlowID(_ value: String) -> Bool {
+        (1...80).contains(value.utf8.count) && value.contains { $0 != "." }
+            && value.utf8.allSatisfy { byte in
+                (48...57).contains(byte) || (65...90).contains(byte) || (97...122).contains(byte)
+                    || byte == 45 || byte == 95 || byte == 46
+            }
     }
 
     /// Matches the harness's `[\w.-]+` instance route component.

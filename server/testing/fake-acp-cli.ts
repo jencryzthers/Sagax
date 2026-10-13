@@ -15,6 +15,7 @@
 //                       session, so its load succeeds.
 //   FAKE_ACP_CACHED_LIVE_LOAD  acknowledge session/load of a live session but
 //                       keep its original MCP credentials, matching Qwen.
+//   FAKE_ACP_TEXT_REPLY  answer every session/prompt with only this text.
 //   FAKE_ACP_MODE   happy (default) | image | empty-reply | reasoning-only | exit-early | fail-after-text | hang | hang-initialize | stall-after-text | stall-first-prompt | unkeyed-tool | no-auth | auth-required | permission | question
 //                   | ask-question-unsupported (send a cursor/ask_question server→client
 //                     request mid-prompt; the driver must answer -32601 method
@@ -27,7 +28,10 @@
 //                     session/new's mcpServers, call list_bots + ask_bot on a
 //                     peer, and reply with what the peer said — the comms e2e)
 //                   | delegate-peer (same as ask-peer but uses delegate_bot —
-//                     returns immediately, the peer runs after our turn)
+//                     returns immediately, the peer runs after our turn.
+//                     With FAKE_ACP_REDELEGATE_FILE set, the first wake that
+//                     saw the result delegates a second task, once, and
+//                     writes that file)
 //                   | chief-delegate (delegates only for an ASSIGN_TO_PEER
 //                     prompt; ordinary follow-ups stay responsive)
 //                   | create-peer (a Primary Bot creates a specialist, then delegates
@@ -61,10 +65,12 @@
 //                     servers reconnected, history read back), a prompt
 //                     waits FAKE_ACP_FIRST_TOKEN_MS, then streams
 //                     FAKE_ACP_VOICE_REPLY word by word FAKE_ACP_TOKEN_MS
-//                     apart. With FAKE_ACP_VOICE_TOOL=<tool>, each prompt
-//                     first calls that tool on the injected agents MCP
-//                     server and ends its reply with "mcp:<tool>:ok" or
-//                     "mcp:<tool>:error")
+//                     apart. session/cancel stops that answer and resolves
+//                     the prompt cancelled, so a speculative reissue does
+//                     not wait out the sentence. With FAKE_ACP_VOICE_TOOL=<tool>,
+//                     each prompt first calls that tool on the injected
+//                     agents MCP server and ends its reply with
+//                     "mcp:<tool>:ok" or "mcp:<tool>:error")
 //                   | mcp-tools (connect every server in session/new's mcpServers
 //                     the way the agent's own client does, stdio or http,
 //                     with grok 1.0.25's initialize (FAKE_ACP_MCP_HANDSHAKE JSON
@@ -270,9 +276,10 @@ const configOptions = () => {
 // cursor-shaped surface: the session advertises `models.availableModels` with
 // parameterised ids (`default[]`) that differ from the argv `--model` slugs
 // (`auto`). Off unless FAKE_ACP_SESSION_MODELS is set, so every existing mode
-// stays byte-identical. Format: "id|Name,id|Name" — the name is optional.
+// stays byte-identical. Format: "id|Name,id|Name" — the name is optional, and
+// commas inside an id's `[...]` parameters do not split it.
 const acpModels = (process.env.FAKE_ACP_SESSION_MODELS ?? "")
-  .split(",")
+  .split(/,(?![^[]*\])/)
   .filter(Boolean)
   .map((entry) => {
     const [modelId, name] = entry.split("|");
@@ -356,6 +363,10 @@ const dumpEnv = Object.fromEntries(
     "FACTORY_API_KEY",
     "UNSLOTH_STUDIO_AUTH_TOKEN",
     "CURSOR_API_KEY",
+    "CLINE_API_KEY",
+    "CLINE_PROVIDER",
+    "CLINE_MODEL",
+    "CLINE_MCP_SETTINGS_PATH",
     "CURSOR_AUTH_TOKEN",
     "KIMI_MODEL_NAME",
     "KIMI_MODEL_API_KEY",
@@ -500,6 +511,7 @@ const configCalls: Array<{ method: string; params: unknown }> = [];
 // pending server→client permission request id → resolver
 let pendingPermissionId: number | null = null;
 let onPermissionAnswered: ((allowed: boolean) => void) | null = null;
+let lastPermissionCancelled = false;
 // pending server→client cursor/ask_question probe → resolver (the unsupported
 // method the driver must reject rather than guess a shape for)
 let pendingAskQuestionId: number | null = null;
@@ -610,7 +622,7 @@ function failRpc(msg: { method: string; id: unknown }): boolean {
 
 /** Minimal one-shot MCP stdio client: initialize, call each tool in
  * sequence, return the text of the last result. Dependency-free. */
-function driveMcp(entry: McpEntry, calls: Array<{ name: string; args: (prev: string) => object }>, strict = false): Promise<string> {
+function driveMcp(entry: McpEntry, calls: Array<{ name: string | (() => string); args: (prev: string) => object }>, strict = false): Promise<string> {
   return new Promise((resolve, reject) => {
     const env = { ...process.env };
     for (const { name, value } of entry.env ?? []) env[name] = value;
@@ -628,7 +640,8 @@ function driveMcp(entry: McpEntry, calls: Array<{ name: string; args: (prev: str
         return resolve(last);
       }
       const call = calls[step];
-      write({ jsonrpc: "2.0", id: step + 2, method: "tools/call", params: { name: call.name, arguments: call.args(last) } });
+      const args = call.args(last);
+      write({ jsonrpc: "2.0", id: step + 2, method: "tools/call", params: { name: typeof call.name === "function" ? call.name() : call.name, arguments: args } });
     };
     let buf = "";
     child.stdout.on("data", (c) => {
@@ -697,6 +710,12 @@ const bootAt = Date.now();
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 const envMs = (name: string) => Math.max(0, Number(process.env[name]) || 0);
 let voiceQueue: Promise<void> = Promise.resolve();
+/** Set once a cache-prime prompt has been answered, so the next spoken
+ * prompt can use FAKE_ACP_CACHED_FIRST_TOKEN_MS. Unset keeps the cold delay. */
+let voiceCachePrimed = false;
+/** The spoken prompt still streaming. session/cancel resolves it and the
+ * loop stops, so a replaced utterance does not hold the thread. */
+let voiceInFlight: { id: number; settled: boolean } | null = null;
 async function voiceDelay(msg: any): Promise<void> {
   if (msg.method === "initialize") await pause(bootAt + envMs("FAKE_ACP_COLD_MS") - Date.now());
   else if (msg.method === "session/new" || msg.method === "session/load" || msg.method === "session/resume") await pause(envMs("FAKE_ACP_LOAD_MS"));
@@ -734,6 +753,7 @@ function handle(msg: any) {
   if (msg.id !== undefined && (msg.result !== undefined || msg.error !== undefined) && msg.id === pendingPermissionId) {
     pendingPermissionId = null;
     const chosen = msg.result?.outcome?.optionId;
+    lastPermissionCancelled = msg.result?.outcome?.outcome === "cancelled";
     // which option the client picked, for tests asserting allow_always
     if (process.env.FAKE_ACP_PERMISSION_ANSWER) writeFileSync(process.env.FAKE_ACP_PERMISSION_ANSWER, String(chosen ?? "cancelled"));
     onPermissionAnswered?.(typeof chosen === "string" && chosen.startsWith("allow"));
@@ -779,6 +799,10 @@ function handle(msg: any) {
       break;
     }
     case "authenticate":
+      if (mode === "authenticate-failed") {
+        out({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: "Login expired" } });
+        break;
+      }
       result(msg.id, {});
       break;
     case "_x.ai/mcp/list":
@@ -835,7 +859,7 @@ function handle(msg: any) {
       const cachedLiveLoad = process.env.FAKE_ACP_CACHED_LIVE_LOAD === "1" && liveSession === msg.params?.sessionId;
       // like a real agent that reconnects its MCP servers on load, so a
       // later turn on this process carries that turn's own token
-      if ((mode === "safe-agent-reads" || mode === "voice" || mode === "chief-delegate") && !cachedLiveLoad) {
+      if ((mode === "safe-agent-reads" || mode === "voice" || mode === "chief-delegate" || mode === "create-peer") && !cachedLiveLoad) {
         agentsMcp = (msg.params?.mcpServers ?? []).find((server: any) => server.name === "agents") ?? null;
       }
       if (process.env.FAKE_ACP_DUMP) {
@@ -876,7 +900,8 @@ function handle(msg: any) {
         // an older agent that predates these methods
         return out({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "method not found" } });
       }
-      if (mode === "set-model-invalid-params" && msg.method === "session/set_model") {
+      if (msg.method === "session/set_model" && (mode === "set-model-invalid-params" ||
+          (mode === "set-model-invalid-after-first" && configCalls.some((call) => call.method === "session/set_model")))) {
         // an agent whose ACP model namespace does not contain the id it was
         // sent — Cursor's answer when handed an argv slug like `auto`.
         return out({ jsonrpc: "2.0", id: msg.id, error: { code: -32602, message: "Invalid params" } });
@@ -974,6 +999,13 @@ function handle(msg: any) {
         hangKeepAlive = setInterval(() => {}, 1_000);
         return;
       }
+      // FAKE_ACP_TEXT_REPLY: a plain text answer and nothing else, the shape of
+      // memory upkeep's one-shot call (drivers/acp/background-text.ts)
+      if (process.env.FAKE_ACP_TEXT_REPLY !== undefined) {
+        out({ jsonrpc: "2.0", method: "session/update", params: { sessionId: msg.params?.sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: process.env.FAKE_ACP_TEXT_REPLY } } } });
+        result(msg.id, { stopReason: "end_turn", _meta: { inputTokens: 12, outputTokens: 4 } });
+        return;
+      }
       if (mode === "hang") {
         // never resolve the prompt on our own — lets tests exercise interrupt
         hangingPromptId = msg.id;
@@ -1012,21 +1044,48 @@ function handle(msg: any) {
             : { stopReason: "end_turn", _meta: { inputTokens: 10, outputTokens: 5 } },
         );
       };
+      const promptHead = String(msg.params?.prompt?.[0]?.text ?? "");
+      if (promptHead.includes("[sagax-cache-prime]")) {
+        voiceCachePrimed = true;
+        out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: "ok" } } } });
+        complete();
+        return;
+      }
       if (mode === "voice") {
+        const job = { id: msg.id as number, settled: false };
+        voiceInFlight = job;
+        const finish = (body: Record<string, unknown>) => {
+          if (job.settled) return;
+          job.settled = true;
+          if (voiceInFlight === job) voiceInFlight = null;
+          emitUsageUpdates();
+          recordMethod("session/prompt.result");
+          result(msg.id, body);
+        };
         void (async () => {
-          await pause(envMs("FAKE_ACP_FIRST_TOKEN_MS"));
+          // After a cache prime, FAKE_ACP_CACHED_FIRST_TOKEN_MS (when set)
+          // stands in for a prefix-cache hit. Unset keeps the cold delay,
+          // including an explicit 0.
+          const cached = process.env.FAKE_ACP_CACHED_FIRST_TOKEN_MS;
+          const firstToken = voiceCachePrimed && cached !== undefined
+            ? envMs("FAKE_ACP_CACHED_FIRST_TOKEN_MS")
+            : envMs("FAKE_ACP_FIRST_TOKEN_MS");
+          await pause(firstToken);
+          if (job.settled) return;
           let reply = process.env.FAKE_ACP_VOICE_REPLY || "Sure. It is sunny in Montreal today, with a high of twenty degrees and a light wind. Do you want the forecast for tomorrow too?";
           const tool = process.env.FAKE_ACP_VOICE_TOOL;
           if (tool) {
             const ok = agentsMcp ? await driveMcp(agentsMcp, [{ name: tool, args: () => ({}) }], true).then(() => true, () => false) : false;
             reply += ` mcp:${tool}:${ok ? "ok" : "error"}`;
           }
+          if (job.settled) return;
           const tokenMs = envMs("FAKE_ACP_TOKEN_MS");
           for (const word of reply.match(/\S+\s*/g) ?? [reply]) {
+            if (job.settled) return;
             out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: word } } } });
             if (tokenMs) await pause(tokenMs);
           }
-          complete();
+          finish({ stopReason: "end_turn", _meta: { inputTokens: 10, outputTokens: 5 } });
         })();
         return;
       }
@@ -1089,6 +1148,23 @@ function handle(msg: any) {
         fakeLog("branch: wokeFromDelegation");
         const failed = promptText.includes("[A delegated task failed]");
         const sawResult = promptText.includes("replied to the delegated task");
+        const redelegateFile = process.env.FAKE_ACP_REDELEGATE_FILE;
+        if (mode === "delegate-peer" && agentsMcp && sawResult && redelegateFile && !existsSync(redelegateFile)) {
+          writeFileSync(redelegateFile, "1");
+          void driveMcp(agentsMcp, [
+            { name: "list_bots", args: () => ({}) },
+            { name: "delegate_bot", args: (list) => ({ bot_id: /id: ([\w-]+)/.exec(list)?.[1] ?? "", message: "second delegated task" }) },
+          ])
+            .then((reply) => {
+              out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: `delegated again: ${reply}` } } } });
+              complete();
+            })
+            .catch((e) => {
+              out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: `delegate error: ${(e as Error).message}` } } } });
+              complete();
+            });
+          return;
+        }
         out({
           jsonrpc: "2.0",
           method: "session/update",
@@ -1251,22 +1327,31 @@ function handle(msg: any) {
         return;
       }
       if (mode === "create-peer" && agentsMcp) {
+        // Below Full access create_bot only shows the team setup card. Once
+        // the person applies it the Chief resumes, finds Pixel and delegates.
+        let listed = "";
         void driveMcp(agentsMcp, [
+          { name: "list_bots", args: () => ({}) },
           {
             name: "create_bot",
-            args: () => ({
-              name: "Pixel",
-              role: "Product designer",
-              instructions: "Design and review the user experience.",
-            }),
+            args: (bots) => {
+              listed = bots;
+              return {
+                name: "Pixel",
+                role: "Product designer",
+                instructions: "Design and review the user experience.",
+              };
+            },
           },
           {
-            name: "delegate_bot",
-            args: (created) => ({
-              bot_id: /id: ([\w-]+)/.exec(created)?.[1] ?? "",
-              message: "Review the new onboarding flow.",
-              reason: "design review",
-            }),
+            // The routine turn has delegate_bot. The resumed turn after the
+            // card is a person's turn, which coordinates instead.
+            name: () => (listed.includes("coordinate_bots") ? "coordinate_bots" : "delegate_bot"),
+            args: (created) => {
+              const id = /id: ([\w-]+)/.exec(created)?.[1] ?? /^- Pixel\b.*?\[id: ([\w-]+)/m.exec(listed)?.[1] ?? "";
+              const message = "Review the new onboarding flow.";
+              return listed.includes("coordinate_bots") ? { bot_ids: [id], message } : { bot_id: id, message, reason: "design review" };
+            },
           },
         ])
           .then((reply) => {
@@ -1422,6 +1507,12 @@ function handle(msg: any) {
       if (mode === "question") {
         pendingPermissionId = 9002;
         onPermissionAnswered = () => {
+          // FAKE_ACP_HOLD_ON_CANCELLED: a cancelled question leaves the prompt
+          // open until session/cancel, the way Antigravity's agent does
+          if (process.env.FAKE_ACP_HOLD_ON_CANCELLED && lastPermissionCancelled) {
+            hangingPromptId = msg.id;
+            return;
+          }
           out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: "answered the question" } } } });
           complete();
         };
@@ -1465,6 +1556,13 @@ function handle(msg: any) {
       // the interrupted prompt resolves as cancelled. FAKE_ACP_CANCEL_REPLY
       // = "error" rejects it instead, any other value is the stopReason the
       // agent answers with (agents differ on how a cancel settles).
+      if (voiceInFlight && !voiceInFlight.settled) {
+        const job = voiceInFlight;
+        job.settled = true;
+        voiceInFlight = null;
+        recordMethod("session/prompt.result");
+        result(job.id, { stopReason: "cancelled", _meta: {} });
+      }
       if (hangingPromptId !== null) {
         const cancelReply = process.env.FAKE_ACP_CANCEL_REPLY;
         if (cancelReply === "error") out({ jsonrpc: "2.0", id: hangingPromptId, error: { code: -32800, message: "Request cancelled" } });

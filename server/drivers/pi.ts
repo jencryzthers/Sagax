@@ -37,7 +37,7 @@ import {
 } from "./prompt-split.ts";
 import type { PromptSplitReceipt } from "./prompt-split.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
-import { commandSummary, toolDetailPreview } from "../tool-summary.ts";
+import { commandSummary, cwToolResult, toolDetailPreview } from "../tool-summary.ts";
 import { filesField, writtenFilesFromToolInput } from "../thread-files.ts";
 
 import type {
@@ -54,7 +54,7 @@ import type {
   TurnAccessInput,
   TurnImageInput,
 } from "../contracts.ts";
-import { EFFORT_LEVELS } from "../../shared/wire.ts";
+import { NATIVE_EFFORT_LEVELS, ULTRACODE_EFFORT } from "../../shared/ultracode-effort.ts";
 import { newEventId, newId } from "../contracts.ts";
 import { parseAskQuestions, parseChoices, questionAnswersByQuestion } from "../../shared/ask-question.ts";
 import {
@@ -129,8 +129,10 @@ function piNativeLogMessage(message: Record<string, unknown>): Record<string, un
 /** Harness effort → pi thinking level (`set_thinking_level`). The sets match
  * one-for-one except for the name of the lowest rung: the harness calls it
  * "none", pi calls it "off". Exported for the test. */
-export function piThinkingLevel(effort: EffortLevel): (typeof EFFORT_LEVELS)[number] | "off" {
-  return effort === "none" ? "off" : effort;
+export function piThinkingLevel(effort: EffortLevel): (typeof NATIVE_EFFORT_LEVELS)[number] | "off" {
+  if (effort === "none") return "off";
+  if (effort === ULTRACODE_EFFORT) return "max";
+  return effort;
 }
 
 /** Mirror of the Claude driver's integration → stdio MCP mount: every entry is
@@ -162,6 +164,7 @@ export function buildMcpServers(turn: SendTurnInput): Record<string, unknown> | 
     };
   }
   if (turn.integrations?.browser) servers.browser = { ...turn.integrations.browser };
+  if (turn.integrations?.data) servers.data = { ...turn.integrations.data };
   for (const [name, server] of Object.entries(turn.integrations?.custom ?? {})) servers[name] = { ...server, scope: "custom" };
   for (const [name, server] of Object.entries(servers)) {
     if (parsed.scope !== undefined && !canUseMcpServer(parsed.scope, name)) { delete servers[name]; continue; }
@@ -1025,6 +1028,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
               itemId: evt.toolCallId,
               ok: !evt.isError,
               output: toolDetailPreview(evt.result),
+              ...(evt.isError ? {} : cwToolResult(typeof evt.toolName === "string" ? evt.toolName : undefined, evt.result)),
             });
             return;
           }
@@ -1197,7 +1201,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
         }
       }));
       child.on("error", (err) => {
-        const fail = describeSpawnFailure(err as NodeJS.ErrnoException, config.cli);
+        const fail = describeSpawnFailure(err as NodeJS.ErrnoException, config.cli, turn.cwd);
         rejectWaiters(new Error(fail.message));
         emit({ ...base(threadId, turnId), type: "runtime.error", message: fail.message, setup: fail.setup });
         settle(false);
@@ -1408,6 +1412,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
           phoneMcp: true,
           customMcp: true,
           browserMcp: true,
+          dataMcp: true,
           // Host control (the user's real Mac) rides the pi-native permission
           // card (`ctx.ui.confirm` → extension_ui_request) gated in the
           // extension, so it is offered exactly when the other engines offer
@@ -1420,7 +1425,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
           // Reasoning effort pins pi's thinking level per turn (none → off).
           // xhigh/max only land on models that expose them; pi rejects an
           // unsupported level and the turn keeps the engine default.
-          effortLevels: EFFORT_LEVELS,
+          effortLevels: NATIVE_EFFORT_LEVELS,
           // The flags are added only when the turn sets withholdHostTools,
           // which an organization server always does for this capability.
           withholdsHostTools: true,

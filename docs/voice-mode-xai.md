@@ -20,7 +20,7 @@ fail if a call reaches any xAI path other than `/v1/stt`, `/v1/tts` and
 ## The bot knows it is on the phone
 
 Every turn said on a call is sent with `voiceCall` (`{ callId, interrupted?,
-language? }`, stored on the person's message as `Message.voiceCall`; words
+language?, duplex? }`, stored on the person's message as `Message.voiceCall`; words
 typed to a bot while its call is live carry the call id too). For such a turn
 the server adds a hidden "Phone call" section to the bot's system prompt
 (`server/voice-call-prompt.ts`): a live phone call with the person, words from
@@ -54,7 +54,44 @@ starts, stays alive and ends (`POST /api/bots/<id>/voice/call`
 lasts is a call turn, whatever path it takes (typed words, a queued line
 steered with the Steer button, a retry). A call never closed expires after
 20 minutes without a turn. On a call, words sent while the bot works always
-join its turn (no parallel or after chooser).
+join its turn (no parallel or after chooser), unless Advanced >
+"Full-duplex conversation" is on: then a new utterance interrupts the
+in-flight turn, discards the steer queue, and starts only those words
+(issue #292). The flag is on by default in internal, TestFlight and
+dev builds (kill-switch in Advanced). Public App Store builds stay
+off. Typed chat still keeps its queue on Stop.
+
+## Full-duplex conversation (issue #292)
+
+The stacked answers JC heard were not the TTS sentence queue (that is
+one reply's clauses, cancelled on barge-in). They were the harness
+steer queue: talking while the bot was thinking did not interrupt
+(`call-machine.ts`), a send that raced `stoppingThreads` was
+`queueSteeredMessage`, and drain played each leftover utterance as
+the next answer.
+
+`CallSettings.fullDuplex` (device-local, `omb.voiceCall.v1`, default
+on for internal / TestFlight / dev) plus `voiceCall.duplex` on the send:
+confirmed speech while the bot is busy or speaking cancels that turn; the
+server never steers or queues those words. The thinking cue is 400 ms
+instead of 1200 ms so
+the line is not dead air. Approvals stay spoken yes or no and are not
+cancelled. Tools still run on the bot; the prompt already asks for a
+spoken "Je regarde ça..." before slow work. A duplex send that races
+another is latest-wins (the slower one is superseded, never queued).
+`startTurn` thread_busy is retried until the interrupt cap. Cancelled
+turns stop streaming (`content.delta` of that turnId is not broadcast).
+The client speech fence (`speech-fence.ts`, iOS `CallConversation`)
+keeps `dropOldReply` across the send, so a dying answer that lands
+after the new user line is marked interrupted and never spoken.
+
+xAI Speech-to-Speech (`wss://api.x.ai/v1/realtime`, grok-voice-latest)
+is still not the brain: it would drop Sagax tools, memory, approvals
+and MCP. Tests: `src/lib/voice-mode/duplex-policy.test.ts`,
+`speech-fence.test.ts`, `call-logic.test.ts`,
+`server/voice-call-duplex.test.ts`,
+`scripts/voice-duplex-harness.test.ts`,
+`server/voice-call-reliability.e2e.test.ts` (duplex case).
 
 Each utterance has an `utteranceId` (also its `sendId`): the server
 delivers it once, and answers a second send of it with the first receipt.
@@ -81,7 +118,11 @@ the call says it did not get through.
 
 Before synthesis the call strips any markdown, emoji, URL or HTML the bot
 still wrote, and stops at the follow-up rule (`src/lib/voice-mode/spoken.ts`,
-then the server's `server/tts/speech-text.ts`).
+then the server's `server/tts/speech-text.ts`). A French call
+(`language` `fr` or `fr-*`) then reads times, prices, short ordinals and
+titles aloud (`server/tts/french-reading.ts`: "14 h 30" as "14 heures 30",
+"25 $" as "25 dollars"). A spoken note sent with `/voice/speak` stays
+verbatim.
 
 ## A live call, like a phone
 
@@ -94,12 +135,13 @@ the configured TTS provider, half duplex).
 
 - **Full duplex.** The microphone stays open for the whole call. While the bot
   speaks, the person can talk over it: on the first voiced frame (32 ms) the
-  bot is ducked to 12% within 30 ms; once speech is confirmed (160 ms of
-  voice over the bot) its voice fades out in 60 ms, every queued sentence is
-  dropped, and the bot's running turn is interrupted (`/interrupt`) if it is
-  still writing. What it had written stays in the transcript, marked
-  interrupted, and the new words become the next turn. A cough or a click
-  only ducks it for a moment.
+  bot is ducked to 12% within 10 ms; once speech is confirmed (128 ms, four
+  frames over the bot) its voice fades out in 12 ms, so it is silent by
+  140 ms. Every queued sentence is dropped, and the bot's running turn is
+  interrupted (`/interrupt`) if it is still writing. What it had written
+  stays in the transcript, marked interrupted, and the new words become the
+  next turn. A cough or a click (three frames, 96 ms) only ducks it for a
+  moment.
 - **Turns.** Silero VAD v5 (on this computer, `models/silero-vad-v5.onnx`)
   gives a voice probability per 32 ms frame; `turns.ts` starts a turn after
   about 190 ms of voice and ends it after an adaptive silence. Settings >
@@ -134,9 +176,12 @@ the configured TTS provider, half duplex).
   Control Center > Mic Mode > Voice Isolation filters the room further (apps
   cannot set it). The neural VAD ignores steady noise, keyboards and music;
   a level gate ignores far-field voices once the person's level is known.
-- **Echo.** Beside Chromium's echo canceller, `echo.ts` learns the echo
-  path's coupling while the bot speaks and refuses voice frames that are no
-  louder than the bot's own residue, so the bot never interrupts itself.
+- **Echo.** Beside Chromium's echo canceller, `echo.ts` keeps 512 ms of
+  playback and lines the microphone up with it (a delay of up to 384 ms, so
+  a speakerphone or a Bluetooth speaker is still the bot). It learns the
+  coupling and refuses frames no louder than that delayed residue. For the
+  first second the coupling stays at least at its prior. The person barging
+  in is far louder at once, so the bot never interrupts itself.
 - **Only my voice.** Optional: the person records about six seconds of speech
   once (Settings in the bar, "Record my voice"); a CAM++ speaker embedding
   (3D-Speaker, Apache-2.0, int8, `models/campplus-sv-en-int8.onnx`) makes a
@@ -228,7 +273,15 @@ What keeps it short:
   final punctuation and the silence is confident (Silero under 0.15), the
   turn ends after 288, 352 or 576 ms (Short, Normal, Patient) instead of the
   adaptive endpoint. A pause inside a sentence never ends it early; words
-  said right after are joined back (`voiceCall.continues`).
+  said right after are joined back (`voiceCall.continues`). A long Québec
+  sentence (eight words, or about three seconds of French, such as "Combien
+  de temps pour aller de Montréal à Québec en voiture?") does not use that
+  short window: with final punctuation it needs 512 ms of confident silence,
+  and while the partial still ends on a linking word ("à", "de", "pis",
+  "faque") the extra wait is capped at 400 ms past the endpoint. A short
+  question stays on the short window. After 128 ms of confident silence the
+  call sends one `finalize` so the last word can arrive during the wait; a
+  second finalize with no new audio is not sent.
 - **The voice's ending counts ("Faster end of turn", Advanced, on by
   default).** The call reads the pitch and energy of the last 400 ms of
   speech before a silence, on this computer (`src/lib/voice-mode/prosody.ts`:
@@ -256,8 +309,12 @@ What keeps it short:
   as its complete version (`voiceCall.continues`).
 - **The first clause speaks first.** Over POST, the first sentence is cut at
   a comma after about six words (36 characters). With the streaming voice
-  there is no character wait: the first clause goes at its first comma once
-  it has two words (`STREAMING_CLAUSES`), since the socket is already open.
+  there is no character wait: the first clause goes at a one-word
+  punctuated opener ("Well,", "Sure,") or at a space after two words
+  (`STREAMING_CLAUSES`), since the socket is already open. An unpunctuated
+  first grok token ("Four") opens the utterance as a lead (`say` with
+  `more: true`, xAI `text.delta` only) so TTS can start while the rest of
+  that clause is still being written; `append` / `finish` then `text.done`.
 - **Streaming voice (Advanced, on by default).** One socket for the call:
   the page opens `GET /voice/speech` (voice, speed and language in the
   query) when the call starts, and the server opens xAI's streaming text to
@@ -266,7 +323,8 @@ What keeps it short:
   `Authorization` header; `server/tts/grok.ts` `openSpeechStream`). Each
   clause of the answer is sent the moment it is written (`{"type":"say"}`)
   and becomes one xAI utterance (`text.delta`, `text.done`), spoken one after
-  the other on the same socket; its PCM comes back to the page as binary
+  the other on the same socket; a lead token uses `more: true` then
+  `append` / `finish`. PCM comes back to the page as binary
   frames between `start` and `done` and plays through the same player as a
   POST body (`src/lib/voice-mode/speech-stream.ts`). Barge-in, hold, hang-up
   and a reissued turn cancel a clause (`{"type":"cancel"}`): dropped from the
@@ -280,9 +338,12 @@ What keeps it short:
   logs it once. A clause the socket failed before any of its audio arrived is
   spoken over POST; one cut mid-way ends where it was cut (never said twice).
   A clause without audio progress for 8 s, or a clear not confirmed in 2 s,
-  counts as a dropped socket. Changing the voice, speed or language mid-call
-  opens a socket for them at the next clause, which waits for it (a clause
-  said while another is still in flight goes over POST). Hold, mute,
+  counts as a dropped socket. xAI closes a streaming socket around 600 s;
+  while nothing is in flight the server rotates it at 540 s and does not
+  count that as a failure. Changing the voice, speed or language mid-call
+  reopens the socket at once when nothing is in flight, so the next clause
+  does not pay the reconnect before its first audio; a clause said while
+  another is still in flight goes over POST. Hold, mute,
   hang-up, the transcript card and the thread card are the same either way.
 - **A warm connection to xAI's speech.** Each turn's end (`finalize`) opens
   a pooled connection to api.x.ai (at most every 2 s), so the first
@@ -309,6 +370,12 @@ default, or `post`), `BENCH_FASTER_END` (1 or 0), `BENCH_UNPUNCTUATED=1`
 (the words never carry punctuation) and `BENCH_REPLY` (the engine's
 answer). Its microphone's voiced frames are a voice-like tone whose last
 400 ms fall and fade, so the pitch reading sees a statement end.
+
+Release acceptance is a separate 32-turn run with hard gates (p50 at most
+800 ms, every turn at most 2,500 ms, no spoken overlap). Pull-request CI
+enforces those gates on the synthetic profile only.
+`pnpm voice:acceptance:real -- --enforce` is the real-provider run, and a
+release waits on it. Recipe: [docs/verification/voice-acceptance.md](verification/voice-acceptance.md).
 
 ## Stable tools during a call
 
@@ -430,6 +497,9 @@ the server's own voice routes.
   verdict on synthetic contours (falling, rising, flat filler, mid-word),
   and the turn detector using it.
 - `server/tts/grok.test.ts`: the xAI requests (speed, language, STT form).
+- `src/lib/voice-mode/duplex-policy.test.ts`, `call-logic.test.ts` duplex
+  cases, `server/voice-call-duplex.test.ts`, `scripts/voice-duplex-harness.test.ts`:
+  full-duplex barge-in while thinking, admit never queues, one active turn.
 - `src/lib/voice-mode/call-logic.test.ts`: the call's state machine (barge-in,
   cancellation, hold, mute), endpointing and its adaptation, the echo guard,
   the sentence splitter.
@@ -441,7 +511,7 @@ the server's own voice routes.
 - `src/lib/voice-mode/player.test.ts`, `stt-stream.test.ts`: what was heard
   at a cut, xAI finalize semantics.
 - `src/lib/voice-mode/call.test.ts`: the call with fake devices (one turn,
-  barge-in under 160 ms, a cough, the streamed answer, Only my voice, push to
+  barge-in silent by 140 ms, a cough, the streamed answer, Only my voice, push to
   talk, mute, hold, a language change, the upload fallback).
 - `src/lib/voice-mode/models.test.ts`: the real models on recorded fixtures
   (speech, noise, keyboard, music, a TV across the room, echo, barge-in;
@@ -457,5 +527,10 @@ the server's own voice routes.
   `pnpm exec vite build && node --experimental-strip-types scripts/verify-voice-mode.ts`.
   It drives the call through `window.__sagaxVoiceCall`, which exists only
   when `localStorage["omb.voiceCall.debug"]` is `"1"`.
+
+- Voice acceptance (`pnpm voice:acceptance`, and
+  `pnpm voice:acceptance:real -- --enforce` before a release): the 32-turn
+  ledger, the latency gates, and the provider-path audit. Recipe:
+  [docs/verification/voice-acceptance.md](verification/voice-acceptance.md).
 
 A change to the server routes needs the server image redeployed.

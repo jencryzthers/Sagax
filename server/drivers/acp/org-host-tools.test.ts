@@ -142,7 +142,11 @@ describe("organization server: each admitted ACP engine withholds its own tools"
     expect(config.mcp_servers).toBeUndefined();
     expect(config.hooks).toBeUndefined();
     expect(config.model).toEqual({ default: "fixture", provider: "custom" });
-    expect(readFileSync(join(org.env.HERMES_HOME!, ".env"), "utf8")).toBe("FIXTURE=1\n");
+    // The source `.env` is not a turn's file: a sentinel that lives only
+    // there must not be linked or copied into the private home.
+    expect(readFileSync(join(f.home, ".hermes", ".env"), "utf8")).toBe("FIXTURE=1\n");
+    const privateEnv = join(org.env.HERMES_HOME!, ".env");
+    expect(() => readFileSync(privateEnv, "utf8")).toThrow();
     expect(real(org.cwd)).toBe(real(withheldWorkspace()));
   });
 
@@ -173,9 +177,11 @@ describe("organization server: each admitted ACP engine withholds its own tools"
     expect(acpHostToolRequest({ kind: "edit", title: "write notes.txt" })).toBe(true);
     expect(acpHostToolRequest({ kind: "delete", title: "rm" })).toBe(true);
     expect(acpHostToolRequest({ kind: "move", title: "mv" })).toBe(true);
-    expect(acpHostToolRequest({ kind: "execute", title: "mcp__agents__list_bots" })).toBe(false);
+    expect(acpHostToolRequest({ kind: "execute", title: "mcp__agents__list_bots" })).toBe(true);
     expect(acpHostToolRequest({ kind: "other", title: "anything" })).toBe(false);
-    expect(acpHostToolRequest({ kind: "fetch", title: "mcp_notes_read" })).toBe(false);
+    expect(acpHostToolRequest({ kind: "fetch", title: "mcp_notes_read" })).toBe(true);
+    expect(acpHostToolRequest({ kind: "fetch", title: "mcp__agents__list_bots" })).toBe(false);
+    expect(acpHostToolRequest({ kind: "read", title: "mcp__browser__navigate" })).toBe(false);
   });
 
   it("names exactly the MCP servers Sagax passes a turn", () => {

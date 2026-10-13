@@ -127,8 +127,8 @@ describe("control-omb ui drives the real renderer", () => {
     await ui("type", info.ui, "--name", "Message Pepper", "--text", "Find the striped zebra");
     await ui("press", info.ui, "--keys", "Enter");
     await ui("wait-settle", info.ui, "--timeout", "60");
-    await ui("click", info.ui, "--name", "More");
-    await ui("click", info.ui, "--name", "Find in conversation");
+    await ui("eval", info.ui, "--js", `window.dispatchEvent(new KeyboardEvent("keydown", { key: "f", ctrlKey: true, bubbles: true, cancelable: true })); true`);
+    await expect.poll(async () => (await ui("snapshot", info.ui)).snapshot, { timeout: 10_000 }).toContain("Find in this conversation");
     await ui("type", info.ui, "--name", "Find in this conversation", "--text", "zebra");
     const highlighted = async () => (await ui("eval", info.ui, "--js", "[...CSS.highlights.get('search-result-text') ?? []][0]?.toString() ?? null")).result;
     await expect.poll(async () => (await ui("snapshot", info.ui)).snapshot, { timeout: 10_000 }).toContain("1 of 1");
@@ -153,7 +153,16 @@ describe("control-omb ui drives the real renderer", () => {
     await ui("type", info.ui, "--name", "Find in this conversation", "--text", "fake claude");
     await expect.poll(highlighted, { timeout: 10_000 }).toBe("fake claude");
     await ui("press", info.ui, "--keys", "Escape");
-    await ui("type", info.ui, "--name", "Search bots and messages", "--text", "zebra");
+    await ui("click", info.ui, "--name", "Search bots and messages");
+    await expect.poll(async () => (await ui("snapshot", info.ui)).snapshot, { timeout: 10_000 }).toContain("Command palette");
+    await ui("eval", info.ui, "--js", `(() => {
+      const input = document.querySelector('[role="dialog"][aria-label="Command palette"] input');
+      if (!(input instanceof HTMLInputElement)) throw new Error("palette input missing");
+      input.focus();
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "zebra");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      return input.value;
+    })()`);
     await expect.poll(async () => (await ui("eval", info.ui, "--js", "[...document.querySelectorAll('mark')].some(mark => mark.textContent === 'zebra')")).result, { timeout: 10_000 }).toBe(true);
     await ui("eval", info.ui, "--js", "[...document.querySelectorAll('mark')].find(mark => mark.textContent === 'zebra').closest('button').click(); true");
     await expect.poll(highlighted, { timeout: 10_000 }).toBe("zebra");
@@ -400,7 +409,17 @@ describe("control-omb ui drives the real renderer", () => {
     expect(collapsed.snapshot).toContain("Expand the run");
     expect(collapsed.snapshot).not.toContain('list "Run steps"');
 
-    await ui("click", info.ui, "--name", "More");
+    await ui("click", info.ui, "--name", "You");
+    await ui("click", info.ui, "--name", "Settings");
+    await ui("click", info.ui, "--name", "Appearance");
+    await ui("eval", info.ui, "--js", `(() => {
+      const sw = document.querySelector('[aria-label="Show the Inspector button"]');
+      if (!sw) throw new Error("Show the Inspector button is missing");
+      if (sw.getAttribute("aria-checked") !== "true") sw.click();
+      return true;
+    })()`);
+    await ui("click", info.ui, "--name", "Close settings");
+    await expect.poll(async () => (await ui("snapshot", info.ui)).snapshot, { timeout: 10_000 }).toContain("Inspector");
     await ui("click", info.ui, "--name", "Inspector");
     const inspected = await ui("snapshot", info.ui);
     const runLog = (inspected.snapshot as string).slice((inspected.snapshot as string).indexOf('complementary "Inspector"'));

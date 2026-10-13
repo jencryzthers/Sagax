@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Bot as BotIcon, Loader2, Menu, Plus } from "lucide-react";
 import { setInterfaceModeRole, useAdvancedMode } from "@/lib/interface-mode";
 import { usePerspicaxOrg } from "@/lib/perspicax-org";
-import { openNotificationTarget, StoreProvider, useStore } from "@/state/store";
+import { openBot, openNotificationTarget, StoreProvider, useStore } from "@/state/store";
+import { useShowThreads } from "@/lib/thread-preferences";
 import { useWelcomeViewer, WelcomeGate } from "@/components/onboarding/WelcomeGate";
 import { mainConversation } from "@/lib/main-view";
 import { GuidedTour } from "@/components/onboarding/GuidedTour";
@@ -11,6 +12,7 @@ import { ThreadRefsProvider } from "@/components/ThreadRefs";
 import { initAnalytics } from "@/lib/analytics";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatView } from "@/components/ChatView";
+import { BackgroundWorkPanel } from "@/components/BackgroundWorkPanel";
 import { GroupView } from "@/components/GroupView";
 import { PersonPanel } from "@/components/PersonPanel";
 import { ComposeToPicker } from "@/components/ComposeToPicker";
@@ -23,7 +25,7 @@ import { useServerMode } from "@/components/ServerModeSettings";
 import { WorkspaceBackupRecovery } from "@/components/WorkspaceBackupSettings";
 import { ReleaseNotesPrompt } from "@/components/ReleaseNotesPrompt";
 import { UpdateBanner } from "@/components/UpdateBanner";
-import { DesktopCapabilitiesProvider, useDesktopCapabilities } from "@/components/DesktopCapabilities";
+import { DesktopCapabilitiesProvider, useCaptionChrome, useDesktopCapabilities, WindowDragStrip } from "@/components/DesktopCapabilities";
 import { WindowCaptionButtons } from "@/components/WindowCaptionButtons";
 import { NoEngines } from "@/components/NoEngines";
 
@@ -38,7 +40,9 @@ import { RetroBootSlot, RetroChromeSlot } from "@/components/RetroChromeHost";
 import { setLocale, t } from "@/lib/i18n";
 import { shouldOpenKeyboardShortcuts } from "@/lib/keyboard-shortcuts";
 import { effectiveLanguage, useLanguageChoice } from "@/lib/language-preference";
+import { normalizeInboxDeepLink } from "@/lib/inbox-deep-link";
 import { openThreadVisible, pageOpenThreadTarget, type OpenThreadTarget } from "@/lib/open-thread-hash";
+import { saveSidebarAttentionPinned } from "@/lib/sidebar-preferences";
 import { botShowsUnread } from "@/lib/bot-unread";
 import { badgeCount } from "@/lib/attention";
 import { dockBadge, useLocalSwitch } from "@/lib/notification-preferences";
@@ -47,10 +51,14 @@ import { viewerBotsReadOnly, viewerCanCreateBots } from "@/lib/viewer";
 import { phonePairingSettingsAction, takePhonePairingRequest } from "@/lib/phone-pairing";
 import { botsReadOnlyText } from "@/lib/permissions";
 import { ModelWindowHost } from "./components/ModelWindowHost";
+import { useExternalChatLinks } from "@/hooks/use-external-chat-links";
+import { ChatNotice } from "@/components/ChatErrorBanner";
 
 function Shell() {
   const { state, dispatch } = useStore();
+  const showThreads = useShowThreads();
   const { capabilities } = useDesktopCapabilities();
+  const captionChrome = useCaptionChrome();
   const unreadCount =
     state.bots.filter((bot) => !bot.hidden && botShowsUnread(bot)).length +
     state.groups.filter((group) => group.unread).length;
@@ -90,7 +98,7 @@ function Shell() {
     const target = openThreadTarget.current;
     if (!target || !openThreadVisible(target, state)) return;
     openThreadTarget.current = null;
-    openNotificationTarget(dispatch, target, state);
+    openNotificationTarget(dispatch, target, state, showThreads);
   }, [state.bots, state.groups, dispatch]);
   // "Use your Cloud on your phone" opens the Cloud in this window at
   // /?desktop-settings=phone: its own phone pairing, in any window, on any
@@ -101,6 +109,13 @@ function Shell() {
     window.history.replaceState(null, "", rest);
     dispatch(phonePairingSettingsAction());
   }, [dispatch]);
+  // `?view=inbox` and the legacy `?view=todo` / `#todo` alias pin the inbox
+  // panel when it is shown in the sidebar.
+  useEffect(() => {
+    if (!normalizeInboxDeepLink(window.location)) return;
+    saveSidebarAttentionPinned(true);
+  }, []);
+  useExternalChatLinks(state, dispatch);
   // Mobile-only drawer state. Above md, none of these properties are emitted
   // at all — Sidebar scopes every mobile class with max-md: rather than
   // cancelling them with md:, which would still emit a translate value and
@@ -187,20 +202,20 @@ function Shell() {
         const target = bots[Number(e.key) - 1];
         if (target) {
           e.preventDefault();
-          dispatch({ type: "select", id: target.id });
+          openBot(dispatch, target, showThreads);
         }
       } else if (e.shiftKey && (e.key === "[" || e.key === "]")) {
         const idx = bots.findIndex((b) => b.id === state.selectedId);
         const next = bots[(idx + (e.key === "]" ? 1 : -1) + bots.length) % bots.length];
         if (next) {
           e.preventDefault();
-          dispatch({ type: "select", id: next.id });
+          openBot(dispatch, next, showThreads);
         }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [state.bots, state.selectedId, state.shortcutsOpen, composeOpen, dispatch]);
+  }, [state.bots, state.selectedId, state.shortcutsOpen, composeOpen, showThreads, dispatch]);
 
   // The Dock / taskbar count: every unread conversation (a person's direct
   // message included), unless this computer turned the badge off.
@@ -331,6 +346,7 @@ function Shell() {
       {/* What's new sits above the update dialog. Both are outside the layout flow. */}
       <ReleaseNotesPrompt />
       <UpdateBanner />
+      {/* The one bottom-left card at a time (only the star is left in Sagax). */}
       {/* Hibou 98 only: title bar, menus and toolbar (renders nothing otherwise) */}
       <RetroChromeSlot slot="top" onNewBot={() => setComposeOpen((open) => !open)} />
       <div className="app-shell-row relative flex min-h-0 flex-1">
@@ -379,12 +395,18 @@ function Shell() {
       ) : group ? (
         <GroupView key={group.id} group={group} />
       ) : bot ? (
-        <ChatView bot={bot} />
+        <div className="flex h-full min-h-0 min-w-0 flex-1">
+          <ChatView bot={bot} />
+          <BackgroundWorkPanel bot={bot} />
+        </div>
       ) : (
         state.connected ? (
           // Connected with no bot: an empty state that invites creating one,
           // not a spinner (nothing is loading).
-          <main className="flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-app text-ink-secondary">
+          <main className="relative flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-app text-ink-secondary">
+            <WindowDragStrip />
+            {/* a chat link opened with no bots here still says it found nothing */}
+            <div className="w-full max-w-md"><ChatNotice notice={state.notice} /></div>
             <BotIcon size={28} aria-hidden />
             <div className="text-center">
               <div className="text-[15px] text-ink">{t("app.empty.title")}</div>
@@ -400,7 +422,8 @@ function Shell() {
             )}
           </main>
         ) : (
-        <main className="flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-app text-ink-secondary">
+        <main className="relative flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-app text-ink-secondary">
+          <WindowDragStrip />
           <Loader2 size={20} className="animate-spin" />
           <div className="text-[14px]">
             {"Connecting to the bot server…"}
@@ -457,6 +480,16 @@ function Shell() {
       <CallEngineHost />
       <FloatingBotsHost />
       <RetroBootSlot />
+      {/* The drawer button comes before every header in the DOM, and a later
+          drag region wins, so on a narrow window the header's drag region
+          swallowed it. This no-drag twin, after the headers, cuts the
+          button's corner back out. It paints nothing and takes no clicks. */}
+      <span
+        aria-hidden
+        data-drawer-button-no-drag
+        style={captionChrome.noDragStyle}
+        className="pointer-events-none absolute left-3 top-3 size-[30px] md:hidden"
+      />
       </div>
       <RetroChromeSlot slot="status" />
       {/* Renderer-drawn caption buttons for the overlay-less frameless

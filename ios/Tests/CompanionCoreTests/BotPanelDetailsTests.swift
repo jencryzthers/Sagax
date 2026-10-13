@@ -59,6 +59,14 @@ final class BotPanelDetailsTests: XCTestCase {
         "startedBy":{"kind":"routine","name":"Daily"}}],"subagents":[]}
         """#.utf8))
         XCTAssertEqual(list.items.count, 2)
+        let withLaunched = try JSONDecoder().decode(BotActivityList.self, from: Data(#"""
+        {"items":[],"subagents":[],"launchedAgents":[{"id":"thread:a1","targetBotId":"peer","targetBotName":"Peer",
+        "title":"Peer: Fix CI","status":"failed","startedAt":1,"updatedAt":2,"threadId":"a1",
+        "pullRequest":{"number":200,"url":"https://github.com/o/r/pull/200"}}]}
+        """#.utf8))
+        XCTAssertEqual(withLaunched.launchedAgents.count, 1)
+        XCTAssertEqual(withLaunched.launchedAgents[0].pullRequest?.number, 200)
+        XCTAssertEqual(withLaunched.launchedAgents[0].asActivityItem().botId, "peer")
         XCTAssertEqual(list.items[0].status, .running)
         XCTAssertTrue(list.items[0].stoppable)
         XCTAssertEqual(list.items[1].status, .finished, "an unknown status reads as finished")
@@ -338,6 +346,11 @@ final class BotPanelDetailsTests: XCTestCase {
         XCTAssertTrue(earned.skinLocked(.owl, skin: "inferno", current: "none"))
         XCTAssertTrue(earned.characterLocked(.trombi, current: .owl))
         XCTAssertTrue(earned.characterLocked(.shape, current: .owl), "Shapes waits on a linked Grok account")
+        XCTAssertTrue(earned.characterLocked(.crab, current: .owl))
+        XCTAssertFalse(earned.characterLocked(.crab, current: .crab), "what the bot wears stays usable")
+        XCTAssertFalse(MascotUnlocks.nothingLocked.characterLocked(.crab, current: .owl))
+        let crab = MascotUnlocks(enforced: true, keys: ["character:crab"])
+        XCTAssertFalse(crab.characterLocked(.crab, current: .owl))
         XCTAssertFalse(earned.skinUnlocked(.shape, skin: "plain"), "a locked character's Common skins stay locked")
         XCTAssertFalse(earned.skinUnlocked(.trombi, skin: "classic"), "a locked character's Common skins stay locked")
         XCTAssertFalse(MascotUnlocks.nothingLocked.skinLocked(.trombi, skin: "neon", current: "classic"))

@@ -74,9 +74,10 @@ export type RuntimeEvent = RuntimeEventBase &
         usage?: { input: number; output: number; cachedInput?: number };
       }
     | {
-        /** A resumable terminal: the turn exhausted its model/tool budget or
-         * died on tool errors, and a structured handoff was persisted. The
-         * harness may start a `Continue:` thread automatically. */
+        /** A resumable terminal: the turn exhausted its model/tool budget,
+         * and a structured handoff was persisted. The harness may start a
+         * `Continue:` thread automatically; an assigned turn's requester gets
+         * the handoff with the stop instead (server/turn-continuation.ts). */
         type: "cap.exhausted";
         /** Absolute path to the persisted handoff for the dead turn. */
         handoffPath: string;
@@ -124,7 +125,16 @@ export type RuntimeEvent = RuntimeEventBase &
         parentItemId?: string;
       }
     | { type: "item.updated"; itemType: "tool" | "reasoning"; tokens?: number | null }
-    | { type: "item.completed"; itemType: "tool"; ok: boolean; output?: string }
+    | {
+        type: "item.completed";
+        itemType: "tool";
+        ok: boolean;
+        output?: string;
+        /** A ConnectWise call's whole result (server/tool-summary.ts
+         * cwToolResult), read once for its widget. Never broadcast, never
+         * written to the event log. */
+        resultText?: string;
+      }
     | { type: "item.completed"; itemType: "assistant_text"; text: string }
     /** Provider-generated raster bytes. This event is folded into the
      * private attachment store and is never forwarded to renderer SSE: a

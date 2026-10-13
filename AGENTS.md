@@ -929,6 +929,46 @@ Tests: `server/model-auto.test.ts`, `server/auto-model.e2e.test.ts`,
 `server/team-setup-requests.test.ts`, `shared/viewer-bot-overrides.test.ts`,
 `src/lib/auto-model.test.ts`, `src/components/ModelPicker.interaction.test.ts`.
 
+## Misuse guardrails (2026-10-12)
+
+End users must not use a bot for privilege escalation, escape from the
+server environment, tampering with antivirus or logs, attacks on third
+parties, malware, reading the platform's files (`bots.json`, `messages.db`,
+`idp_key`, and the rest), destruction of the server, or resource abuse.
+Defensive security work (SentinelOne triage and the like) is the permission
+`security.triage` in Perspicax. It allows that work only. It does not lift
+a block. Details, the flag, and the French refusals:
+[`docs/security/misuse-guardrails.md`](docs/security/misuse-guardrails.md).
+
+- `SAGAX_MISUSE_GUARDRAILS` is `off`, `shadow`, or `enforce`. The default is
+  `shadow`: classify and write `misuse.shadow` (category `security` on the
+  admin activity log), refuse nothing. `enforce` refuses, alerts tenant
+  admins (`admin-action`, admins only), and locks a principal after 5
+  attempts in 10 minutes (15 minutes, 429 `misuse_locked`).
+- The prompt section `misuse-policy` is first in `buildSystemPrompt`, ahead
+  of the persona and the soul, and it is not a control. The server
+  classifies messages, shell, file, the shared-computer terminal,
+  `flow_action`, and MCP. The MCP gate subprocess blocks hard categories
+  only, and only in enforce mode.
+- The container limits, the metadata deny `169.254.0.0/16`, and the masked
+  host `/proc` entries stay on regardless of the flag. The path allowlist
+  follows the flag.
+- What a person reads is Québec French, with no anglicism. Tests:
+  `shared/misuse-guardrails.test.ts`, `server/misuse-guardrails.test.ts`.
+- Safety review uses the same flag. Shadow writes `safety.shadow` and
+  changes nothing. Enforce reviews shell, MCP, computer use, and routine
+  writes before they run: a hard block stays a 403 refusal, never a card
+  Full or Auto can accept; a risky call gets a safer path once, then a
+  native approval card the person accepts; denial and expiry are final for
+  that fingerprint, and for a destructive git intent, a prompt disclosure,
+  or a credential grab across rewording. Reads are auto-approved. Writes
+  and unknown tools wait. Outbound mail is a draft, then the existing send
+  card. Tool results, pages, files, and other bots' messages are wrapped
+  as `<<<UNTRUSTED>>>` and are not instructions. `security.triage` still
+  covers defensive work only. The tool guard (`SAGAX_TOOL_GUARD`) and the
+  agent card guard are unchanged. Tests: `shared/safety-review.test.ts`,
+  `server/safety-review.test.ts`.
+
 ## Bot actions
 
 A bot calls the same function as the button or the route (`act` in the
@@ -1024,12 +1064,22 @@ built-in driver is missing from the lock or a pin's `bin` differs from the
 driver's default `cli`.
 
 - Dockerfile: `scripts/install-engines.mjs` installs the selection named by
-  `ENGINE_SET` (`none` default, the public image; `all`, what Perspicax's
-  `infra/scripts/build-push.sh` passes; `open`, only redistributable
-  licences; or ids), runs each `<cli> --version` (the build fails if one does
-  not start) and writes `/app/engines/manifest.json`. The legacy `ENGINES`
-  (npm specs) and `NATIVE_ENGINES` (native ids) build arguments still
-  override the lock's npm and native sets; `none` drops a kind.
+  `ENGINE_SET` (`all` default, since the 2026-10-12 GOX image
+  `pulsa-bot-server:main-20004735` shipped `engineSet none` when the arg was
+  omitted; `none` and `open` are explicit opt-outs; or ids). The build also
+  defaults `SAGAX_REQUIRE_ENGINES=1`, which fails the image when the set is
+  not the full lock. `scripts/build-production-image.sh` and
+  `.github/workflows/docker.yml` pass `ENGINE_SET=all`. OCI labels record
+  the commit (`org.opencontainers.image.revision`), the build time
+  (`org.opencontainers.image.created`) and `io.sagax.engine-set`. The legacy
+  `ENGINES` (npm specs) and `NATIVE_ENGINES` (native ids) build arguments
+  still override the lock's npm and native sets; `none` drops a kind. A
+  non-empty override that drops an engine fails the require flag. GOX deploys
+  through `deploy/gox/deploy-pulsabot.sh`: it refuses the same short set,
+  smoke-tests `/healthz` and the engine startup log, and on failure rolls
+  back to `/opt/pulsatrix/pulsabot-image.prev` then runs
+  `docker compose up -d --force-recreate --no-deps pulsabot-caddy`. Prune
+  keeps the running image and that previous image.
 - Installed by `ENGINE_SET=all`: Claude Code, Codex, pi, Gemini CLI, Kimi
   Code, Qwen Code, OpenCode, Droid (npm, global), Grok Build and Cursor Agent
   (native, `/opt/sagax-engines/<id>/<version>`, linked in `/usr/local/bin`),
@@ -1043,7 +1093,9 @@ driver's default `cli`.
   each preinstalled CLI runs `--version` once at boot, the result is logged
   (`[engines] claude: ...`) and is the instance's installed state from then
   on (`selfCheckedEngine` in `server/index.ts`): `engineInstalled` and
-  `/api/health` no longer probe those engines per request. An instance with
+  `/api/health` no longer probe those engines per request. A manifest whose
+  set is not `all`, or an engine that did not start, also logs
+  `[engines] engine_missing ...`. An instance with
   its own `config.cli` is probed as before. An engine of `notPreinstalled`
   that is absent answers `notAvailable` (the reason) on `/api/me/engines` and
   `/api/health`; the UI then reads "Not available on this server"
@@ -1166,9 +1218,17 @@ fake xAI: `scripts/verify-voice-mode.ts`. Details: `docs/voice-mode-xai.md`.
   backoff) switch the call to POST for good, logged once; a clause failed
   before any audio is spoken over POST, one cut mid-way is never said twice.
   Barge-in ducks then cancels the bot's voice and interrupts its running
-  turn. Tests: `call-logic.test.ts`, `call.test.ts`, `speech-stream.test.ts`,
+  turn. "Full-duplex conversation" (Advanced, on by default in internal /
+  TestFlight / dev, kill-switch in the panel, `CallSettings.fullDuplex`):
+  talking while the bot works or speaks cancels that turn, discards the
+  steer queue, and starts only the latest utterance (`voiceCall.duplex`,
+  issue #292). Off: words said while it works join that turn. Tests:
+  `call-logic.test.ts`, `voice-build.test.ts`,
+  `call.test.ts`, `duplex-policy.test.ts`, `speech-fence.test.ts`,
+  `speech-stream.test.ts`,
   `models.test.ts`, `server/voice-speech-session.test.ts`,
-  `server/voice-call.e2e.test.ts`.
+  `server/voice-call.e2e.test.ts`, `server/voice-call-duplex.test.ts`,
+  `scripts/voice-duplex-harness.test.ts`.
 - "Faster end of turn" (Advanced, on by default; never in Patient nor push
   to talk): `prosody.ts` reads the pitch and energy of the last 400 ms
   before a silence on the computer; a falling, fading or clearly rising
@@ -1374,7 +1434,7 @@ Electron restart (no HMR); launch-test them before committing.
   call, Open in Sagax; Switch bot (`switch:<botId>`) and Moves
   (`move:<clip>`, the list of `moves.ts`, shared with the Appearance gallery);
   Hide for 1 hour (`snooze`, `hiddenUntil`, the window reopens by itself) and
-  Hide (`dock`); On the desktop (always on top, fly away, activity) and
+  Put back in the window (`dock`); On the desktop (always on top, fly away, activity) and
   Settings (Settings > Appearance). Items may be separators, greyed or one
   level of submenu (`menuTemplate`). A move goes from main straight to that
   window (`floating-bot:move`), never through the brain. A switch re-keys the
@@ -1437,6 +1497,13 @@ Electron restart (no HMR); launch-test them before committing.
   `:not(.frog-rig)` like the Shiba's. A Mastery character: its unlocks are in
   `shared/mascot-unlocks.ts` only. iOS draws it from the generated
   `FrogStillArt.swift`.
+- Crab (the pixel-rect crab, a free default with the owl) follows the same
+  contract (docs/mascots.md): art as data in `crab-art.ts` (only
+  axis-aligned rectangles, a coral fill and two black square eyes), skins in
+  `skin-fx/crab-skins.tsx` (all common), moves as keyframe tracks in
+  `crab-moves.ts` laid over the idle life by `CrabRig`. Its CSS origins are
+  scoped to `:not(.crab-rig)`. Do not brand it Claude or Clawd. iOS draws it
+  from `CrabArt.swift` (hand-written rects, palettes fixture-checked).
 - Shapes: clean-room, 2026-10-08. The Shapes character matches the look
   and behaviour JC measured on a public avatar studio, written entirely in
   our own code: no code, data table, path or asset of that site was copied
@@ -1514,6 +1581,23 @@ not open a shared machine. Keep these rules, each covered by `server/user-sandbo
 
 - Only `sagax-sandboxd` (`server/sandboxd.ts`) holds the Docker socket; the
   Sagax server calls it with signed requests (`server/sandboxd-auth.ts`).
+  `SANDBOX_BACKEND` defaults to `docker`. `kubernetes`
+  (`server/sandboxd-k8s.ts`) is the same API with one Pod and one PVC per
+  person, NetworkPolicies for egress, and no docker.sock. It runs; it does
+  not exit. Secret encryption and NetworkPolicy enforcement are operator
+  attestations. Sagax keeps both provisioners and routes with
+  `SAGAX_SANDBOX_CANARY_PEOPLE`, `SAGAX_SANDBOX_CANARY_BOTS` and
+  `SAGAX_SANDBOX_ROUTE` (`server/sandbox-route.ts`). `docker` on that route
+  sends everyone back to the Docker provisioner. The Kubernetes URL is
+  https with `SAGAX_SANDBOXD_TLS_CA`. Manifests are `deploy/k8s/`
+  (`provisioner/`, `sandboxes/`, `helm/`, `tofu/`). Copy a workspace with
+  `scripts/sandbox-workspace-migrate.ts` (source kept, checksums, both
+  directions). Runbook: `docs/ops/sandboxes/cutover-rollback.md`. Tests:
+  `server/sandboxd-k8s-spec.test.ts`, `server/sandboxd-k8s.test.ts`,
+  `server/sandbox-route.test.ts`, `server/sandbox-backend.test.ts`,
+  `server/sandbox-workspace-copy.test.ts`; kind only with
+  `SAGAX_SANDBOX_K8S_INTEGRATION=1` (`scripts/sandbox-k8s-kind.sh`).
+  Design and the SOC 2 mapping: `docs/sandbox-kubernetes.md`.
 - The provisioner API is keyed by person (`sandboxKeyForPrincipal`); never add
   a bot parameter. Every create body passes `assertSandboxIsolation()`.
 - Engines get no shell, file or fetch tool of their own there
@@ -2737,8 +2821,8 @@ still pushes the person's other phones. Tests: `server/push/hub.test.ts`,
 
 ## Upstream sync
 
-Last sync: 2026-10-08, upstream `milind-soni/OpenMausBot` main at
-`ac9dc481` (0.1.101) merged into Sagax; `baseVersion` follows it. Upstream
+Last sync: 2026-10-12, upstream `milind-soni/OpenMausBot` main at
+`295f947d` (0.1.107) merged into Sagax; `baseVersion` follows it. Upstream
 removed `ios/` and `android/` in 0.1.97 (#2382); Sagax keeps its own native
 apps, so those paths stay ours on every later merge. To repeat:
 

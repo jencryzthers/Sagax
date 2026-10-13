@@ -26,6 +26,7 @@ const fixture = vi.hoisted(() => {
     bots: [] as unknown[],
     // state.config: an organization server's allowed model providers ride on it
     config: null as unknown,
+    showUnready: false,
   };
 });
 vi.mock("@/lib/perspicax-org", async (importOriginal) => ({
@@ -61,7 +62,7 @@ vi.mock("@/state/store", async (importOriginal) => ({
 // These cases cover the full picker; Simple mode has its own file.
 vi.mock("@/lib/interface-mode", () => ({ useAdvancedMode: () => true, setAdvancedMode: () => {} }));
 vi.mock("@/lib/unready-providers-preference", () => ({
-  useShowUnreadyProviders: () => false,
+  useShowUnreadyProviders: () => fixture.showUnready,
   setShowUnreadyProviders: () => {},
 }));
 
@@ -178,6 +179,7 @@ beforeEach(() => {
   fixture.myEngines = null;
   fixture.bots = [];
   fixture.config = null;
+  fixture.showUnready = false;
 });
 afterEach(() => vi.useRealTimers());
 
@@ -192,7 +194,8 @@ describe("ModelPicker with a signed-out or missing Claude", () => {
     const html = menu(render(forBot).html);
     expect(html).toContain("Continue with ChatGPT");
     expect(html).toContain("Available models appear after");
-    expect(html).not.toContain("codex login");
+    // the terminal command stays behind its disclosure (#386)
+    expect(html).toMatch(/<details data-manual-command[^>]*>[\s\S]*codex login[\s\S]*<\/details>/);
     expect(html).not.toContain("Local models will appear");
   });
 
@@ -230,7 +233,7 @@ describe("ModelPicker with a signed-out or missing Claude", () => {
     fixture.instances = [codex, notFound()];
     const html = open(bot("claude", "claude-opus-5-5")).html;
     expect(html).toContain('aria-label="Claude"');
-    expect(html).toContain("Install Claude");
+    expect(html).toContain("Set up Claude");
     expect(html).toContain("`claude` CLI not found");
     expect(html).toContain("npm install -g @anthropic-ai/claude-code");
     // Local models need the CLI too, so there is no way in to them yet.

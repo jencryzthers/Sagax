@@ -5,7 +5,7 @@
 // own transcript and its own provider session — so sensitive work, a
 // long job and a quick question can sit side by side under one agent.
 import { copyText } from "@/lib/copy-text";
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Archive, ArchiveRestore, BellOff, Check, ChevronLeft, Clock, FolderInput, Link2, Loader2, MessagesSquare, MoreHorizontal, Pencil, Pin, PinOff, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { api, currentTaskBot, useStore, type Bot, type BotProject, type Group, type GroupTaskUpdatePatch, type Task } from "@/state/store";
 import { approvalModeFor } from "../../shared/approval-mode";
@@ -308,7 +308,7 @@ function ConversationTaskPicker({
       : t("task.switch");
   const grouped = folders ? groupThreadTasks(tasks, folders, query) : null;
   // Only this conversation's own threads: no other bot's or room's thread
-  // ever rides in here (JC, 2026-10-08). The sidebar's Active Threads panel
+  // ever rides in here (JC, 2026-10-08). The sidebar's inbox panel
   // is the cross-bot view.
   const visible = grouped ? grouped.flatMap((group) => group.tasks) : filterTasks(tasks, query);
   const looking = query.trim();
@@ -413,6 +413,8 @@ function ConversationTaskPicker({
                   ) : (
                     <button
                       type="button"
+                      data-sidebar-thread-row={task.threadId}
+                      aria-current={active ? "page" : undefined}
                       onClick={(e) => {
                         if (taskPickerPointerIntent("click", e.detail) !== "select") return;
                         if (!active) onSwitch(task.threadId);
@@ -723,6 +725,13 @@ export function TaskPicker({ bot, initialOpen = false }: { bot: Bot; initialOpen
  * the bot's, it shows only while threads are on (Settings > Appearance). */
 export function GroupTaskPicker({ group }: { group: Group }) {
   const { dispatch } = useStore();
+  // each thread of a room works on its own: its row says so, not the room
+  const tasks = useMemo(() => {
+    return (group.tasks ?? []).map((task) => ({
+      ...task,
+      busy: Boolean(task.working || task.busyBotId),
+    }));
+  }, [group.tasks]);
   // Like a bot's and a person's: in the header location only; the sidebar
   // location lists the room's threads under its row instead, never both.
   const threadsOn = useShowThreads();
@@ -731,8 +740,8 @@ export function GroupTaskPicker({ group }: { group: Group }) {
   return (
     <ConversationTaskPicker
       threadId={group.threadId}
-      tasks={orderedThreadList(group.tasks ?? [])}
-      busy={Boolean(group.working || group.busyBotId)}
+      tasks={orderedThreadList(tasks)}
+      busy={false}
       onNew={() => dispatch({ type: "newGroupTask", groupId: group.id })}
       onSwitch={(threadId) => dispatch({ type: "switchGroupTask", groupId: group.id, threadId })}
       onRename={(threadId, title) => dispatch({ type: "renameGroupTask", groupId: group.id, threadId, title })}

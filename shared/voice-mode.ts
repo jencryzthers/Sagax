@@ -83,9 +83,13 @@ export function isVoiceModeLanguage(code: unknown): code is string {
   return typeof code === "string" && LANGUAGE_CODES.has(code);
 }
 
-/** The TTS `language` for a picked language: itself when xAI speaks it, else "auto". */
+/** The TTS `language` for a picked language: itself when xAI speaks it.
+ * A French region (`fr-CA`) speaks as `fr`. Anything else is "auto". */
 export function ttsLanguage(code: string): string {
-  return TTS_LANGUAGES.has(code) ? code : "auto";
+  if (TTS_LANGUAGES.has(code)) return code;
+  const base = code.split("-")[0]!.toLowerCase();
+  if (base === "fr") return "fr";
+  return "auto";
 }
 
 /** The STT `language` hint for a picked language, or undefined (detect). */

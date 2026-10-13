@@ -9,13 +9,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const { httpsRequestMock } = vi.hoisted(() => ({ httpsRequestMock: vi.fn() }));
 vi.mock("node:https", () => ({ request: httpsRequestMock }));
 
-import {
+// The test setup reaches this module through config.ts (public-fetch.ts) with
+// the real node:https before the mock above exists; load it again with the mock.
+vi.resetModules();
+const {
   CUSTOM_DOMAIN_CHALLENGE_PATH,
   createCustomDomainVerifier,
   customDomainIpv4,
   isPublicDomainAddress,
   normalizeCustomDomain,
-} from "./custom-domain.ts";
+} = await import("./custom-domain.ts");
 
 const environmentId = "2cac4256-d238-49a4-bab5-227183911e55";
 const publicAddress: LookupAddress = { address: "8.8.8.8", family: 4 };
@@ -91,7 +94,7 @@ describe("public-address policy", () => {
     "0.0.0.0", "0.2.3.4", "10.2.3.4", "100.64.1.2", "127.0.0.1", "169.254.169.254",
     "172.16.4.2", "172.31.255.255", "192.0.0.1", "192.0.2.4", "192.88.99.1",
     "192.168.1.2", "198.18.0.1", "198.19.255.255", "198.51.100.1", "203.0.113.1",
-    "224.0.0.1", "239.255.255.255", "240.0.0.1", "255.255.255.255", "garbage",
+    "168.63.129.16", "224.0.0.1", "239.255.255.255", "240.0.0.1", "255.255.255.255", "garbage",
     "::", "::1", "::ffff:127.0.0.1", "::ffff:8.8.8.8", "fc00::1", "fd12::1", "fe80::1",
     "ff00::1", "64:ff9b::a00:1", "2001:db8::1", "2001::1", "2002:7f00:1::", "3fff::1",
   ])("rejects %s", (address) => {

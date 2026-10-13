@@ -1437,24 +1437,34 @@
         }
       }
     },
-    "Bot intro animation": {
+    "Search and + at top": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bot intro animation"
+            "value": "Search and + at top"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Animation d'entrée du bot"
+            "value": "Recherche et bouton + en haut"
           }
-        },
-        "pt-BR": {
+        }
+      }
+    },
+    "Place search and the new button at the top of the home instead of the bottom.": {
+      "localizations": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Animação de entrada do bot"
+            "value": "Place search and the new button at the top of the home instead of the bottom."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher la recherche et le bouton + en haut de l'accueil plutôt qu'en bas."
           }
         }
       }
@@ -8351,56 +8361,146 @@
     },
     "voiceCall.title": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Voice" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Appel vocal" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appel vocal"
+          }
+        }
       }
     },
     "voiceCall.menu": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Voice call menu" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Menu de l'appel vocal" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice call menu"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu de l'appel vocal"
+          }
+        }
       }
     },
     "voiceCall.copy": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Copy transcript" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Copier la transcription" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy transcript"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier la transcription"
+          }
+        }
       }
     },
     "voiceCall.copied": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Copied" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Copié" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copié"
+          }
+        }
       }
     },
     "voiceCall.collapse": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Collapse voice call" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Réduire l'appel vocal" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collapse voice call"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réduire l'appel vocal"
+          }
+        }
       }
     },
     "voiceCall.up": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Thumbs up" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Pouce vers le haut" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thumbs up"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pouce vers le haut"
+          }
+        }
       }
     },
     "voiceCall.down": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Thumbs down" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Pouce vers le bas" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thumbs down"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pouce vers le bas"
+          }
+        }
       }
     },
     "voiceCall.empty": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Nothing said yet." } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Rien de dit encore." } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing said yet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rien de dit encore."
+          }
+        }
       }
     },
     "voiceCall.you": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "You" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Toi" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toi"
+          }
+        }
       }
     },
     "Voice": {
@@ -8961,24 +9061,24 @@
         }
       }
     },
-    "Needs attention": {
+    "Inbox": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Needs attention"
+            "value": "Inbox"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "À traiter"
+            "value": "Boîte de réception"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Precisa de atenção"
+            "value": "Caixa de entrada"
           }
         }
       }
@@ -14585,6 +14685,22 @@
         }
       }
     },
+    "settings.brandFooter.copyright": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "© 2026 Pulsatrix Technologies Inc. All rights reserved."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "© 2026 Pulsatrix Technologies Inc. Tous droits réservés."
+          }
+        }
+      }
+    },
     "Server address": {
       "localizations": {
         "en": {
@@ -19957,6 +20073,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "Código"
+          }
+        }
+      }
+    },
+    "Run failed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run failed"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exécution échouée"
           }
         }
       }
@@ -32557,6 +32689,28 @@
         }
       }
     },
+    "Claude": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        }
+      }
+    },
     "Streaks": {
       "localizations": {
         "en": {
@@ -33037,6 +33191,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "Título desbloqueado: %@"
+          }
+        }
+      }
+    },
+    "Look unlocked: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Look unlocked: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allure débloquée : %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visual desbloqueado: %@"
+          }
+        }
+      }
+    },
+    "Move unlocked: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move unlocked: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mouvement débloqué : %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movimento desbloqueado: %@"
+          }
+        }
+      }
+    },
+    "Accessory unlocked: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accessory unlocked: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accessoire débloqué : %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acessório desbloqueado: %@"
+          }
+        }
+      }
+    },
+    "Effect unlocked: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effect unlocked: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effet débloqué : %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efeito desbloqueado: %@"
+          }
+        }
+      }
+    },
+    "a surprise character": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a surprise character"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "un personnage surprise"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "um personagem surpresa"
+          }
+        }
+      }
+    },
+    "a surprise look": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a surprise look"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "une allure surprise"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "um visual surpresa"
           }
         }
       }
@@ -35016,7 +35302,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não atribuído"
+            "value": "Sem atribuição"
           }
         }
       }
@@ -52643,28 +52929,6 @@
         }
       }
     },
-    "Unassigned": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unassigned"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Non assigné"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sem atribuição"
-          }
-        }
-      }
-    },
     "Where every bot in this group runs its shell and file tools.": {
       "localizations": {
         "en": {
@@ -53160,7 +53424,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vous préférez un terminal ?"
+            "value": "Vous préférez taper la commande vous-même ?"
           }
         },
         "pt-BR": {
@@ -59709,6 +59973,438 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ precisa da permissão %2$@. Peça a um administrador para adicioná-la no Perspicax."
+          }
+        }
+      }
+    },
+    "youtube.fetchTranscript": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get full transcript"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obtenir la transcription complète"
+          }
+        }
+      }
+    },
+    "youtube.handoffPrompt": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Here is the full transcript of the YouTube video %@:\n\n%@\n\nSummarize it for me."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voici la transcription complète de la vidéo YouTube %@ :\n\n%@\n\nRésume-la pour moi."
+          }
+        }
+      }
+    },
+    "youtube.playerTitle": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YouTube video"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vidéo YouTube"
+          }
+        }
+      }
+    },
+    "youtube.searchTranscript": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search transcript"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher dans la transcription"
+          }
+        }
+      }
+    },
+    "youtube.sendToBot": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send to bot"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer au robot"
+          }
+        }
+      }
+    },
+    "youtube.transcriptEmpty": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No transcript loaded yet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune transcription chargée."
+          }
+        }
+      }
+    },
+    "youtube.transcriptError": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not load the transcript."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de charger la transcription."
+          }
+        }
+      }
+    },
+    "youtube.transcriptLoading": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading transcript…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement de la transcription…"
+          }
+        }
+      }
+    },
+    "youtube.transcriptPanel": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcript"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription"
+          }
+        }
+      }
+    },
+    "Open sign-in": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open sign-in"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir la connexion"
+          }
+        }
+      }
+    },
+    "Cancel sign-in": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel sign-in"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuler la connexion"
+          }
+        }
+      }
+    },
+    "Waiting for you to finish signing in…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for you to finish signing in…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente de la fin de la connexion…"
+          }
+        }
+      }
+    },
+    "Enter this code on the sign-in page": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter this code on the sign-in page"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrez ce code sur la page de connexion"
+          }
+        }
+      }
+    },
+    "Paste the code from that page": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste the code from that page"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collez le code affiché sur cette page"
+          }
+        }
+      }
+    },
+    "Finish sign-in": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finish sign-in"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminer la connexion"
+          }
+        }
+      }
+    },
+    "Access key": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Access key"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clé d’accès"
+          }
+        }
+      }
+    },
+    "Paste the access key": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste the access key"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collez la clé d’accès"
+          }
+        }
+      }
+    },
+    "Save key": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save key"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrer la clé"
+          }
+        }
+      }
+    },
+    "Remove key": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove key"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retirer la clé"
+          }
+        }
+      }
+    },
+    "Key saved": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Key saved"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clé enregistrée"
+          }
+        }
+      }
+    },
+    "Key removed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Key removed"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clé retirée"
+          }
+        }
+      }
+    },
+    "Or paste an access key": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Or paste an access key"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ou collez une clé d’accès"
+          }
+        }
+      }
+    },
+    "Sign-in could not be completed. Try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in could not be completed. Try again."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion n’a pas abouti. Réessayez."
+          }
+        }
+      }
+    },
+    "Connected. Your models are being refreshed.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected. Your models are being refreshed."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecté. Vos modèles se mettent à jour."
+          }
+        }
+      }
+    },
+    "The sign-in page could not be opened.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The sign-in page could not be opened."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La page de connexion n’a pas pu être ouverte."
+          }
+        }
+      }
+    },
+    "Sign-in was cancelled.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in was cancelled."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion a été annulée."
+          }
+        }
+      }
+    },
+    "This sign-in expired. Start again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This sign-in expired. Start again."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette connexion a expiré. Commencez de nouveau."
           }
         }
       }

@@ -13,6 +13,28 @@ describe("tailscale helpers", () => {
     expect(parseTailscaleStatus("t", "not json")).toBeNull();
   });
 
+  it("keeps only this tailnet's own MagicDNS name", () => {
+    const foreign = parseTailscaleStatus("t", JSON.stringify({
+      BackendState: "Running",
+      CurrentTailnet: { MagicDNSSuffix: "mine.ts.net" },
+      Self: { DNSName: "other.evil.ts.net." },
+      Peer: { "nodekey:peer": { DNSName: "peer.mine.ts.net." } },
+    }));
+    expect(foreign?.dnsName).toBeNull();
+    const own = parseTailscaleStatus("t", JSON.stringify({
+      BackendState: "Running",
+      CurrentTailnet: { MagicDNSSuffix: "mine.ts.net" },
+      Self: { DNSName: "laptop.mine.ts.net." },
+      Peer: { "nodekey:peer": { DNSName: "peer.mine.ts.net." } },
+    }));
+    expect(own?.dnsName).toBe("laptop.mine.ts.net");
+    const peerOnly = parseTailscaleStatus("t", JSON.stringify({
+      CurrentTailnet: { MagicDNSSuffix: "mine.ts.net" },
+      Peer: { "nodekey:peer": { DNSName: "peer.mine.ts.net." } },
+    }));
+    expect(peerOnly?.dnsName).toBeNull();
+  });
+
   it("classifies stderr into a closed set and never needs the raw text again", () => {
     expect(classifyTailscaleStderr("Logged out.\nLog in at: https://login.tailscale.com/a/tskey-auth-secret")).toBe("not-logged-in");
     expect(classifyTailscaleStderr("failed to connect to local tailscaled; is Tailscale running?")).toBe("not-running");

@@ -168,7 +168,7 @@ export function PermissionsSection({
       </PaneSection>}
 
       {commandAllowlistTarget && <CommandAllowlistDialog
-        key={commandAllowlistTarget.botId}
+        key={`command-allowlist:${commandAllowlistTarget.botId}`}
         {...commandAllowlistTarget}
         onClose={() => setCommandAllowlistTarget(null)}
       />}

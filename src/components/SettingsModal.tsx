@@ -61,6 +61,7 @@ import { InitialsAvatar } from "./Avatar";
 import { profileInitials, profileLabel } from "./SidebarProfileMenu";
 import { ManagedProfileIdentity } from "./ManagedProfileIdentity";
 import { MyLabelField } from "./settings/MyLabelField";
+import { CloudAgentProvidersSettings } from "./settings/CloudAgentProvidersSettings";
 import { managedProfile } from "@/lib/profile-management";
 import { ThreadConcurrencySettings } from "./ThreadConcurrencySettings";
 import { AutomaticRecoverySettings } from "./AutomaticRecoverySettings";
@@ -76,6 +77,7 @@ import { setShowUnreadyProviders, useShowUnreadyProviders } from "@/lib/unready-
 import { parseSidebarDensity, setSidebarDensity, SIDEBAR_DENSITIES, useSidebarDensity, type SidebarDensity } from "@/lib/sidebar-preferences";
 import { currentPhonePairingTarget } from "@/lib/phone-pairing";
 import { setShowRunCard, useShowRunCard } from "@/lib/run-card-preferences";
+import { parseSendKey, SEND_KEYS, sendKeyLabel, setSendKey, useSendKey } from "@/lib/send-key";
 import { setShowSidebarLogo, useShowSidebarLogo } from "@/lib/sidebar-logo-preferences";
 import { setShowRoutinesBadge, useShowRoutinesBadge } from "@/lib/routines-badge-preferences";
 import { setShowInspectorButton, useShowInspectorButton } from "@/lib/inspector-preferences";
@@ -95,12 +97,12 @@ export const SECTIONS: Array<{
 }> = [
   { id: "general", labelKey: "settings.section.general", icon: User, keywords: ["profile", "name", "email", "about me", "about", "suggestions", "suggested", "memory", "updates", "effort", "new bots", "reasoning", "threads", "parallel", "concurrency", "cleanup", "retention", "event log", "event-log", "log size", "automatic recovery", "backup model", "fallback", "routines", "conversation", "schedule"] },
   { id: "organization", labelKey: "settings.section.organization", icon: Building2, keywords: ["company", "organization", "organisation", "sign in", "enroll", "managed", "models", "disconnect", "workspace", "cloud", "hosted", "vps", "server", "servers", "connect", "pair", "switch", "local"] },
-  { id: "appearance", labelKey: "settings.section.appearance", icon: Palette, keywords: ["skin", "theme", "appearance", "advanced", "simple", "mode", "tools", "tool calls", "threads", "show threads", "hide threads", "sidebar", "hidden", "hide", "show", "density", "compact", "comfortable", "avatars", "display", "run", "this run", "run card", "commands", "mascot", "owl", "desktop", "fly", "floating", "app icon", "dock", "icon", "taskbar", "providers", "sign-in", "unconfigured", "fournisseurs", "connexion", "non configurés"] },
+  { id: "appearance", labelKey: "settings.section.appearance", icon: Palette, keywords: ["skin", "theme", "appearance", "advanced", "simple", "mode", "tools", "tool calls", "threads", "show threads", "hide threads", "sidebar", "hidden", "hide", "show", "density", "compact", "comfortable", "avatars", "display", "run", "this run", "run card", "commands", "mascot", "owl", "desktop", "fly", "floating", "app icon", "dock", "icon", "taskbar", "providers", "sign-in", "unconfigured", "fournisseurs", "connexion", "non configurés", "send", "enter", "return", "shift+enter", "ctrl+enter", "cmd+enter", "⌘+enter", "new line", "keyboard", "ime", "japanese"] },
   { id: "notifications", labelKey: "settings.section.notifications", icon: Bell, keywords: ["notifications", "notification", "sound", "sounds", "mute", "silent", "chime", "alert", "alerts", "banner", "badge", "dock", "unread", "nudge", "wizz", "shake", "secousse", "son", "persistent", "stay"] },
   { id: "memory", labelKey: "settings.section.memory", icon: BookOpen, keywords: ["memory", "obsidian", "vault", "sync", "git", "perspicax", "mémoire", "cache", "pending"] },
   { id: "privacy", labelKey: "settings.section.privacy", icon: ShieldCheck, keywords: ["privacy", "read receipts", "seen", "vu", "confidentialité", "accusés de lecture", "presence", "online", "away", "offline", "last seen", "status", "en ligne", "absent", "hors ligne", "privacidade"] },
   { id: "experimental", labelKey: "settings.section.experimental", icon: FlaskConical, keywords: ["early", "preview", "learn", "skill", "authoring", "browser", "profiles"] },
-  { id: "connections", labelKey: "settings.section.connections", icon: KeyRound, keywords: ["keys", "api", "api key", "api keys", "connections", "composio", "box", "xai", "mistral", "vps", "router", "openrouter", "base url", "openai", "anthropic", "groq", "opencode", "provider"] },
+  { id: "connections", labelKey: "settings.section.connections", icon: KeyRound, keywords: ["keys", "api", "api key", "api keys", "connections", "composio", "box", "xai", "mistral", "cerebras", "vps", "router", "openrouter", "base url", "openai", "anthropic", "groq", "opencode", "provider"] },
   { id: "decisionModel", labelKey: "settings.section.decisionModel", icon: Zap, keywords: ["decision", "jev", "typesafe", "routing", "auto", "rooms", "who answers"] },
   { id: "engines", labelKey: "settings.section.engines", icon: Terminal, keywords: ["models", "model providers", "engines", "claude", "codex", "grok", "providers", "cli", "sign in", "subscription"] },
   { id: "companion", labelKey: "settings.section.companion", icon: TabletSmartphone, keywords: ["companion", "device", "phone", "desktop", "client", "host", "pair", "pairing", "mobile", "https", "secure", "tailscale", "wifi", "remote", "advanced", "domain", "dns", "self-hosted", "server", "caddy"] },
@@ -299,7 +301,7 @@ function OperatorProfileFields() {
   );
 }
 
-type ConnectionKey = "openai" | "openrouter" | "anthropic" | "openaiCompat" | "xai" | "mistral" | "composio" | "box" | "vps" | "opencodeGo";
+type ConnectionKey = "openai" | "openrouter" | "anthropic" | "openaiCompat" | "xai" | "mistral" | "cerebras" | "groq" | "composio" | "box" | "vps" | "opencodeGo";
 
 /** "Set" / "Not set" for one connection, "2 of 4 set" for a group. Reads
  * only the configured flags the server returns; never a secret. */
@@ -603,6 +605,25 @@ function FontRow() {
       >
         {FONT_IDS.map((id) => (
           <option key={id} value={id}>{t(`settings.font.${id}`)}</option>
+        ))}
+      </select>
+    </SettingRow>
+  );
+}
+
+/** Which keys send a message (Enter, Shift+Enter or Ctrl/Cmd+Enter), on this device only. */
+function SendKeyRow() {
+  const sendKey = useSendKey();
+  return (
+    <SettingRow title={t("settings.sendKey.title")} subtitle={t("settings.sendKey.subtitle", { key: sendKeyLabel("mod-enter") })}>
+      <select
+        value={sendKey}
+        aria-label={t("settings.sendKey.title")}
+        onChange={(event) => setSendKey(parseSendKey(event.target.value))}
+        className="w-full max-w-[240px] rounded-lg border border-border bg-ink/[0.03] px-2.5 py-1.5 text-[13px] leading-[18px] text-ink focus:border-border-strong focus:outline-none"
+      >
+        {SEND_KEYS.map((mode) => (
+          <option key={mode} value={mode}>{sendKeyLabel(mode)}</option>
         ))}
       </select>
     </SettingRow>
@@ -1366,6 +1387,7 @@ export function SettingsModal() {
                 )}
                 <div className="rounded-[14px] border-[0.5px] border-border py-1">
                   <FontRow />
+                  <SendKeyRow />
                   <SidebarDensityRow />
                   <SidebarLogoRow />
                   <RoutinesBadgeRow />
@@ -1403,10 +1425,11 @@ export function SettingsModal() {
                 <SettingsSubPageRow
                   cardId="connections.providers"
                   title={t("keys.providers.title")}
-                  summary={configuredSummary(state.config, ["openai", "anthropic", "xai", "openrouter", "mistral", "openaiCompat"])}
+                  summary={configuredSummary(state.config, ["openai", "anthropic", "xai", "openrouter", "mistral", "cerebras", "groq", "openaiCompat"])}
                   actionLabel={t("providerKeys.openPage")}
                   onOpen={() => dispatch({ type: "toggleAppSettings", open: true, section: "engines" })}
                 />
+                <CloudAgentProvidersSettings />
                 {connectedAppsEnabled(state.config) && <Card
                   collapsible
                   cardId="connections.apps"

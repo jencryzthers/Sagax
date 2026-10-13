@@ -5,6 +5,7 @@ import {
   Archive,
   BellDot,
   Check,
+  CheckCheck,
   ChevronRight,
   ClipboardCopy,
   ArrowLeftRight,
@@ -12,6 +13,7 @@ import {
   EyeOff,
   Folder,
   FolderMinus,
+  FolderOpen,
   FolderPlus,
   Loader2,
   MoreHorizontal,
@@ -29,7 +31,7 @@ import {
   LayoutGrid,
   UserRoundPen,
 } from "lucide-react";
-import { api, openBotCatalog, useStore, formatTime, visibleMessages, currentTaskBot, type AppState, type Bot, type BotProject, type ConfigStatus, type FolderOwnerKind, type Group, type GroupTaskUpdatePatch, type InstanceInfo, type Message } from "@/state/store";
+import { api, openBotCatalog, useStore, formatTime, visibleMessages, currentTaskBot, botOpensTo, openBot, type AppState, type Bot, type BotProject, type ConfigStatus, type FolderOwnerKind, type Group, type GroupTaskUpdatePatch, type InstanceInfo, type Message } from "@/state/store";
 
 import { peerLine } from "@/lib/peer-message";
 import { viewerMayDeleteGroup, viewerOwnsGroup } from "@/lib/group-owner";
@@ -39,7 +41,8 @@ import { browseBotsEnabled, connectedAppsEnabled, llmThreadTitlesEnabled } from 
 import { templatesEntryActions } from "@/lib/templates-entry";
 import { useAdvancedMode } from "@/lib/interface-mode";
 
-import { BotAvatar, InitialsAvatar } from "./Avatar";
+import { InitialsAvatar } from "./Avatar";
+import { SidebarMascotAvatar, SidebarMascotProvider } from "./SidebarMascotAvatar";
 import { stateForBot } from "@/lib/mascot";
 import { mascotRowAnimated } from "@/lib/mascot-animate";
 import { cn } from "@/lib/cn";
@@ -84,6 +87,7 @@ import {
 import type { LocaleKey } from "@/locales";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { WorkingDots } from "./WorkingIndicator";
+import { ultracodeFromSelection } from "@/lib/ultracode-chrome";
 import { StatusDot } from "./StatusDot";
 import { nextRename } from "@/lib/rename";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
@@ -96,8 +100,10 @@ import { ShareTeamDialog } from "./ShareTeamDialog";
 import { TeamDialog } from "./TeamDialog";
 import { RenameTitle } from "./RenameTitle";
 import { BotProjectDialog, FolderActions, FolderIcon, navigateThreadMenu } from "./BotProjects";
+import { NewTaskFolderDialog } from "./NewTaskFolderDialog";
+import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
 import { draggedFolder, draggedThread, FOLDER_DRAG_TYPE, THREAD_DRAG_TYPE, moveFolder, placeFolder } from "@/lib/folder-order";
-import { folderUnreadThreadIds, markFolderRead, markGroupFolderRead } from "@/lib/folder-read";
+import { botUnreadThreadIds, folderUnreadThreadIds, markBotRead, markFolderRead, markGroupFolderRead } from "@/lib/folder-read";
 import { personPickerThreads } from "@/lib/person-threads";
 import { approvalModeFor } from "../../shared/approval-mode";
 import { liveActivityLabel } from "@/lib/live-activity";
@@ -156,6 +162,8 @@ import { botShowsUnread, isInterBotThread } from "@/lib/bot-unread";
 import { SidebarBotActivity, sidebarBotActivityTasks } from "./SidebarBotActivity";
 import { citationPreviewText } from "@/lib/citations";
 import { groupMemberBots } from "@/lib/group-members";
+import { plainPreviewText } from "@/lib/plain-preview";
+import { isClientCancellation } from "../../shared/client-cancel";
 
 
 
@@ -263,12 +271,15 @@ function preview(bot: Bot, visible: Message[], instances: InstanceInfo[]): strin
     return (last.card.requestId && last.card.tool && !last.card.questionRequest && approvalCardOutcome(last.card)) || last.card.title;
   }
   // a failed turn reads as the chat row says it, never "error: …"
-  if (last.kind === "activity" && last.tool) return activityPreview(last.tool, botEngine(bot, instances));
+  if (last.kind === "activity" && last.tool) return activityPreview(last.tool, botEngine(bot, instances), last.dataResult);
   if (last.kind === "screen") return t("sidebar.preview.screenFrame");
   if (last.kind === "connector" && last.connector) return sidebarConnectorPreview(last.connector, t);
+  // one line of what the reply says, never the Markdown that draws it
+  // (`**[repo](https://…)**` reads as "repo")
   const peer = peerLine(last);
-  if (peer) return `${peer.name}: ${peer.body}`;
-  return citationPreviewText(last.text ?? "");
+  if (peer) return `${peer.name}: ${plainPreviewText(peer.body)}`;
+  if (last.role !== "user" && isClientCancellation(last.text ?? "")) return t("chat.turnStopped");
+  return plainPreviewText(citationPreviewText(last.text ?? ""));
 }
 
 export interface MenuState {
@@ -299,14 +310,18 @@ export function groupPreview(group: Group, bots: Bot[], config: ConfigStatus | n
   const last = lastNonReceipt(group.messages);
   if (!last) return t("sidebar.preview.noMessages");
   if (last.kind === "nudge" && last.nudge) return nudgeLineText(last.nudge, viewerId);
+  if (last.kind === "text" && last.role !== "user" && isClientCancellation(last.text ?? "")) {
+    const stopped = t("chat.turnStopped");
+    return last.from ? `${last.from.name}: ${stopped}` : stopped;
+  }
   const text = last.kind === "activity" && last.tool
-    ? activityPreview(last.tool, botEngine(bots.find((bot) => bot.id === last.from?.botId), instances))
+    ? activityPreview(last.tool, botEngine(bots.find((bot) => bot.id === last.from?.botId), instances), last.dataResult)
     : last.kind === "goal.run" && last.goalRun
       ? sidebarGoalRunPreview(last.goalRun)
       : last.kind === "connector" && last.connector
         ? sidebarConnectorPreview(last.connector, t)
         : (last.text ?? "");
-  const readable = citationPreviewText(text);
+  const readable = plainPreviewText(citationPreviewText(text));
   if (last.role === "user") {
     // Someone else's words (src/lib/viewer.ts): a direct conversation's row
     // already names them, a room's line says who.
@@ -328,7 +343,7 @@ export function StackedMauses({ members, density, viewerId }: { members: Bot[]; 
     const b = members[0];
     return (
       <div className={cn("flex shrink-0 items-center justify-center", slotSize)}>
-        {b ? <BotAvatar bot={b} primary={isViewersPrimaryBot(b, viewerId)} primaryRingClassName="ring-sidebar" state="happy" size={singleSize} animated={false} /> : <Users size={24} className="text-sidebar-ink-secondary" />}
+        {b ? <SidebarMascotAvatar botId={b.id} bot={b} primary={isViewersPrimaryBot(b, viewerId)} primaryRingClassName="ring-sidebar" state="happy" size={singleSize} animated={false} /> : <Users size={24} className="text-sidebar-ink-secondary" />}
       </div>
     );
   }
@@ -343,7 +358,7 @@ export function StackedMauses({ members, density, viewerId }: { members: Bot[]; 
           hover and selected rows. The faces simply overlap. */}
       {shown.map((b, index) => (
         <span key={b.id} className={cn("absolute rounded-full", spots[index])}>
-          <BotAvatar bot={b} primary={isViewersPrimaryBot(b, viewerId)} primaryRingClassName="ring-sidebar" state="idle" size={face} animated={false} />
+          <SidebarMascotAvatar botId={b.id} bot={b} primary={isViewersPrimaryBot(b, viewerId)} primaryRingClassName="ring-sidebar" state="idle" size={face} animated={false} />
         </span>
       ))}
     </div>
@@ -1107,11 +1122,35 @@ export function BotContextMenu({
   const motion = useHeldMenuMotion(menu);
   const shown = motion.value;
   const { state, dispatch } = useStore();
+  const showThreads = useShowThreads();
   const remoteClient = window.ogb?.remoteClient?.active === true;
   const personal = usePersonalLayout();
   const bot = shown ? state.bots.find((b) => b.id === shown.botId) : undefined;
   const floating = useSyncExternalStore(subscribeFloatingBots, () => (shown ? isBotFloating(shown.botId) : false), () => false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const latestMenu = useRef(menu);
+  useLayoutEffect(() => { latestMenu.current = menu; }, [menu]);
+  const readInFlight = useRef(false);
+  const [readingBotId, setReadingBotId] = useState<string | null>(null);
+  const [readError, setReadError] = useState<{ botId: string; message: string } | null>(null);
+  useEffect(() => { setReadError(null); }, [menu?.botId]);
+  const readAll = async (owner: Bot) => {
+    if (readInFlight.current) return;
+    readInFlight.current = true;
+    setReadingBotId(owner.id);
+    setReadError(null);
+    const openedMenu = menu;
+    try {
+      await markBotRead(owner, api, (updated) => dispatch({ type: "botPatched", bot: updated }));
+      if (latestMenu.current === openedMenu) onClose();
+    } catch (error) {
+      const guidance = t("sidebar.bot.markAllReadFailed");
+      setReadError({ botId: owner.id, message: error instanceof Error ? `${guidance} ${error.message}` : guidance });
+    } finally {
+      readInFlight.current = false;
+      setReadingBotId(null);
+    }
+  };
   useLayoutEffect(() => {
     const element = menuRef.current;
     if (!element || !shown) return;
@@ -1164,11 +1203,17 @@ export function BotContextMenu({
     : visibleBotCount <= 1
       ? t("sidebar.bot.archiveBlockedLast")
       : undefined;
+  // Another bot opens behind its settings as its row would (openBot); the
+  // bot on screen stays on the thread it shows.
+  const openForSettings = () => {
+    if (state.selectedId === bot.id) dispatch({ type: "select", id: bot.id });
+    else openBot(dispatch, bot, showThreads);
+  };
   const item = (
     icon: React.ReactNode,
     label: string,
     onClick?: () => void,
-    opts?: { danger?: boolean; disabled?: boolean; hint?: string; id?: string; showHint?: boolean },
+    opts?: { danger?: boolean; disabled?: boolean; hint?: string; id?: string; showHint?: boolean; keepOpen?: boolean },
   ) => (
     <button
       key={label}
@@ -1178,7 +1223,7 @@ export function BotContextMenu({
       disabled={opts?.disabled}
       onClick={() => {
         onClick?.();
-        onClose();
+        if (!opts?.keepOpen) onClose();
       }}
       title={opts?.hint}
       className={cn(
@@ -1273,8 +1318,8 @@ export function BotContextMenu({
           onMoveToSection?.(bot.id);
         })] : []),
         item(<Pencil size={16} className="text-ink" />, t("sidebar.bot.editProfile"), () => {
-          dispatch({ type: "select", id: bot.id });
-          dispatch({ type: "toggleSettings", open: true });
+          openForSettings();
+          if (!state.settingsOpen) dispatch({ type: "toggleSettings", open: true });
         }),
         item(<ClipboardCopy size={16} className="text-ink" />, t("sidebar.copyConversationId"), () => {
           void copyText(bot.threadId);
@@ -1303,6 +1348,12 @@ export function BotContextMenu({
         />] : []),
         item(<BellDot size={16} className="text-ink" />, t("sidebar.bot.markUnread"), () =>
           dispatch({ type: "markUnread", botId: bot.id }),
+        ),
+        item(
+          readingBotId === bot.id ? <Loader2 size={16} className="animate-spin text-ink-secondary" /> : <CheckCheck size={16} className="text-ink-secondary" />,
+          readingBotId === bot.id ? t("sidebar.bot.markingAllRead") : t("sidebar.bot.markAllRead"),
+          () => { void readAll(bot); },
+          { disabled: readingBotId !== null || botUnreadThreadIds(bot).length === 0, keepOpen: true },
         ),
         divider("d1"),
         item(<Cpu size={16} className="text-ink" />, t("sidebar.bot.model"), () => openModelWindow(bot.id), { id: "model" }),
@@ -1333,6 +1384,7 @@ export function BotContextMenu({
         />] : []),
       ]}
       {primaryItem && <>{divider("primary")}{primaryItem}</>}
+      {readError?.botId === bot.id && <p role="alert" className="px-3.5 py-2 text-[12px] text-danger">{readError.message}</p>}
     </div>,
     document.body,
   );
@@ -1416,7 +1468,7 @@ type ThreadTreeActions = Omit<Parameters<typeof SidebarThreadRow>[0], "task" | "
  * One tree for every owner of threads: a bot (BotThreadList) and a
  * conversation with a person (PersonThreadList); the owner decides only
  * where its actions go. */
-function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, tasks, projects, selected, density, query, hidden, actions, rowState, activeActivityLabel, onNew, onReorder, canMarkRead, markRead, children }: {
+function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, tasks, projects, selected, density, query, hidden, actions, rowState, activeActivityLabel, onNew, onNewInFolder, onReorder, canMarkRead, markRead, children }: {
   ownerId: string;
   ownerName: string;
   owner: FolderOwnerKind;
@@ -1434,6 +1486,9 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
   rowState?: (task: ThreadTreeTask) => Partial<ThreadTreeTask>;
   activeActivityLabel?: string;
   onNew: (projectId?: string) => void;
+  /** A new thread in a working folder the person picks (a bot's owner or an
+   * admin, Advanced mode): opens NewTaskFolderDialog. Absent: no such item. */
+  onNewInFolder?: () => void;
   onReorder: (projectIds: string[], onSaved: () => void, onError: (message: string) => void) => void;
   canMarkRead: (projectId: string) => boolean;
   markRead: (projectId: string) => Promise<void>;
@@ -1661,6 +1716,7 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
         onMouseDown={(event) => event.stopPropagation()}
         onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setListMenu(null); } else navigateThreadMenu(event); }}>
         <button type="button" role="menuitem" onClick={() => { setListMenu(null); onNew(); }} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-[12px] text-ink hover:bg-raised"><Plus size={12} />{t("task.newShort")}</button>
+        {onNewInFolder && <button type="button" role="menuitem" onClick={() => { setListMenu(null); onNewInFolder(); }} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-[12px] text-ink hover:bg-raised"><FolderOpen size={12} />{t("task.folder.new")}</button>}
         <button type="button" role="menuitem" onClick={() => { setListMenu(null); setCreatingProject(true); }} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-[12px] text-ink hover:bg-raised"><FolderPlus size={12} />{t("folder.new")}</button>
       </div>, document.body)}
       {creatingProject && <BotProjectDialog bot={folderOwner} owner={owner} onClose={() => setCreatingProject(false)} />}
@@ -1685,6 +1741,11 @@ export function BotThreadList({ bot, selected, density = "comfortable", query = 
   // ("Reading a file"), passed to the active thread's row while it works
   const activeActivityLabel = liveActivityLabel(visibleMessages(bot).at(-1));
   const generatedTitles = llmThreadTitlesEnabled(state.config);
+  // A new thread in a chosen working folder: a host path, so the owner of
+  // this computer or an admin, and only in Advanced mode (upstream #2550).
+  const canChooseFolder = useOwnerOrAdmin() === true;
+  const advanced = useAdvancedMode();
+  const [folderDialog, setFolderDialog] = useState(false);
   // One set of row actions per bot, so memoized rows skip the list's renders;
   // they read the bot as it is when used.
   const latest = useRef(bot);
@@ -1702,6 +1763,7 @@ export function BotThreadList({ bot, selected, density = "comfortable", query = 
       onArchive: (task: Row, archivedAt: number | null) => patch(task, { archivedAt }),
       onPin: (task: Row, pinned: boolean) => patch(task, { pinned }),
       onSnooze: (task: Row, snoozedUntil: number | null) => patch(task, { snoozedUntil }),
+      onLink: (task: Row, link: string | null) => patch(task, { link }),
       onRefreshPermissions: (task: Row) => {
         const current = latest.current;
         const mode = approvalModeFor(current);
@@ -1714,15 +1776,24 @@ export function BotThreadList({ bot, selected, density = "comfortable", query = 
   }, [botId, dispatch, generatedTitles]);
   const rowState = (task: ThreadTreeTask) => {
     const thread = currentTaskBot(bot, task.threadId);
-    return { busy: thread.busy, activity: thread.activity, waitingForTeammates: thread.waitingForTeammates };
+    return {
+      busy: thread.busy,
+      activity: thread.activity,
+      waitingForTeammates: thread.waitingForTeammates,
+      ultracode: Boolean(thread.busy && ultracodeFromSelection(thread.modelSelection)),
+    };
   };
   return (
     <ThreadTree ownerId={bot.id} ownerName={bot.name} owner="bot" folderOwner={bot} openThreadId={bot.threadId} tasks={tasks} projects={bot.projects ?? []}
       selected={selected} density={density} query={query} hidden={hidden} actions={actions} rowState={rowState} activeActivityLabel={activeActivityLabel}
       onNew={(projectId) => dispatch({ type: "newTask", botId: bot.id, ...(projectId ? { projectId } : {}) })}
+      onNewInFolder={canChooseFolder && advanced ? () => setFolderDialog(true) : undefined}
       onReorder={(projectIds, onSaved, onError) => dispatch({ type: "reorderProjects", botId: bot.id, projectIds, onSaved, onError })}
       canMarkRead={(projectId) => folderUnreadThreadIds(bot, projectId).length > 0}
       markRead={(projectId) => markFolderRead(bot, projectId, api, (updated) => dispatch({ type: "botPatched", bot: updated }))}>
+      {folderDialog && <NewTaskFolderDialog bot={bot} onClose={() => setFolderDialog(false)} onReturnFocus={() => {
+        document.querySelector<HTMLElement>(`[data-sidebar-bot-row="${CSS.escape(bot.id)}"]`)?.focus();
+      }} />}
       <FullAccessWarning
         open={permissionRefresh?.kind === "full"}
         scope="thread"
@@ -1834,7 +1905,7 @@ export function BotListItem({
   const avatarSize = iconOnly ? 36 : density === "compact" ? 28 : 44;
   // the visible branch, so a version switch changes the row with the chat
   const visible = useVisibleMessages(bot);
-  const last = visible.at(-1);
+  const last = lastNonReceipt(visible);
   // the role from Bot Settings → Title is not drawn in the row, as upstream:
   // a row is the name and what was last said. The role stays in the
   // avatar's tooltip and is read out with the name.
@@ -1876,7 +1947,8 @@ export function BotListItem({
       {/* flex, not inline: an inline wrapper adds a baseline gap under the
           avatar and makes the row taller than before the presence dot */}
       <span className="relative flex shrink-0" title={iconOnly ? undefined : [bot.name, title].filter(Boolean).join(" · ")}>
-        <BotAvatar
+        <SidebarMascotAvatar
+          botId={bot.id}
           bot={bot}
           primary={primary}
           primaryRingClassName="ring-sidebar"
@@ -1945,7 +2017,7 @@ export function BotListItem({
                   <span className="sr-only">{t("sidebar.preview.working")}</span>
                 </span>
               ) : (
-                <span className="truncate">{waiting ? t("sidebar.preview.waiting") : teammateWait ? t("sidebar.preview.waitingOnTeammate") : queued ? t("task.queued") : preview(bot, visible, instances)}</span>
+                <span dir="auto" className="truncate">{waiting ? t("sidebar.preview.waiting") : teammateWait ? t("sidebar.preview.waitingOnTeammate") : queued ? t("task.queued") : preview(bot, visible, instances)}</span>
               )}
             </span>
           )}
@@ -1958,8 +2030,11 @@ export function BotListItem({
   };
   // Threads off: an untouched extra thread never strands the person; the row
   // lands back on their latest conversation (see thread-home.ts).
+  // With threads hidden a server that names the bot's main thread decides
+  // (openBot, server/main-thread.ts); an older one without it keeps that rule.
   const openConversation = () => {
-    for (const action of openBotConversationActions(bot, showThreads)) dispatch(action);
+    if (showThreads || bot.mainThreadId) openBot(dispatch, bot, showThreads);
+    else for (const action of openBotConversationActions(bot, showThreads)) dispatch(action);
   };
   const onSelect = (event: React.MouseEvent) => {
     if (renaming) return;
@@ -1969,7 +2044,7 @@ export function BotListItem({
 
   return (
     <>
-    <div className="group relative" title={iconOnly ? bot.name : undefined}>
+    <div className="group relative" title={iconOnly ? [bot.name, bot.title?.trim()].filter(Boolean).join(" · ") : undefined}>
       {/* Keep this wrapper mounted while RenameTitle swaps its label for an
           input. Replacing the wrapper tree remounts RenameTitle, loses its
           editing state, and leaves the row stuck in rename mode. Omitting
@@ -2026,7 +2101,7 @@ export function BotListItem({
         them here and the header button is hidden, never both. Threads off:
         only the activity rows. */}
     {!iconOnly && threadsOpen && hasThreadList && inSidebar && <BotThreadList bot={bot} selected={selected} density={density} query={bot.name.toLowerCase().includes(query.toLowerCase()) || bot.title.toLowerCase().includes(query.toLowerCase()) ? "" : query} />}
-    {!showThreads && <SidebarBotActivity bot={bot} density={density} pendingQueued={pendingQueued} dispatch={dispatch} />}
+    {!showThreads && <SidebarBotActivity bot={bot} rowThreadId={selected ? bot.threadId : botOpensTo(bot, showThreads)} density={density} pendingQueued={pendingQueued} dispatch={dispatch} />}
     </>
   );
 }
@@ -2054,7 +2129,7 @@ export function ArchivedBotRow({
 }) {
   return (
     <div className="flex min-h-[82px] items-center gap-3 border-b border-hairline/35 px-1 py-3">
-      <BotAvatar bot={bot} state="happy" size={42} animated={false} />
+      <SidebarMascotAvatar botId={bot.id} bot={bot} state="happy" size={42} animated={false} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-[14px] font-medium text-ink">{bot.name}</div>
         <div className="mt-0.5 truncate text-[12.5px] text-ink-secondary">{bot.title || t("sidebar.archived.botFallback")}</div>
@@ -2083,7 +2158,7 @@ export function ArchivedBotRow({
   );
 }
 
-function ArchivedBotsPanel({
+export function ArchivedBotsPanel({
   bots,
   onClose,
   onRestored,
@@ -2093,6 +2168,7 @@ function ArchivedBotsPanel({
   onRestored: (message: string) => void;
 }) {
   const { state, dispatch } = useStore();
+  const showThreads = useShowThreads();
   const dialogRef = useRef<HTMLDivElement>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [restoringAll, setRestoringAll] = useState(false);
@@ -2125,7 +2201,7 @@ function ArchivedBotsPanel({
         body: JSON.stringify({ hidden: false }),
       });
       dispatch({ type: "botPatched", bot: response.bot });
-      dispatch({ type: "select", id: bot.id });
+      openBot(dispatch, response.bot, showThreads);
       onRestored(t("sidebar.archived.restored", { name: bot.name }));
       if (bots.length === 1) onClose();
     } catch (cause) {
@@ -2148,8 +2224,8 @@ function ArchivedBotsPanel({
         ),
       );
       for (const response of responses) dispatch({ type: "botPatched", bot: response.bot });
-      const first = bots[0];
-      if (first) dispatch({ type: "select", id: first.id });
+      const first = responses[0]?.bot;
+      if (first) openBot(dispatch, first, showThreads);
       onRestored(
         bots.length === 1
           ? t("sidebar.archived.restoredOne")
@@ -2594,7 +2670,7 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
       dispatch({ type: "botPatched", bot: response.bot });
       if (state.selectedId === bot.id) {
         const next = activeBots.find((candidate) => candidate.id !== bot.id);
-        if (next) dispatch({ type: "select", id: next.id });
+        if (next) openBot(dispatch, next, showThreads);
       }
       setTeamFeedback({
         error: false,
@@ -2631,7 +2707,7 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
         body: JSON.stringify({ hidden: false }),
       });
       dispatch({ type: "botPatched", bot: response.bot });
-      dispatch({ type: "select", id: bot.id });
+      openBot(dispatch, response.bot, showThreads);
       setTeamFeedback({ error: false, text: t("sidebar.archived.restored", { name: bot.name }) });
     } catch (cause) {
       setTeamFeedback({ error: true, text: cause instanceof Error ? cause.message : String(cause) });
@@ -2843,6 +2919,7 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
     onSelect: () => setArchivedBotsOpen(true),
   }] : [];
   return (
+    <SidebarMascotProvider rootRef={sidebarRef}>
     <aside
       ref={sidebarRef}
       tabIndex={-1}
@@ -2992,7 +3069,7 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
                       : selected ? "bg-sidebar-card" : "hover:bg-sidebar-hover/60",
                   )}
                 >
-                  <BotAvatar bot={bot} primary={isViewersPrimaryBot(bot, viewerId)} primaryRingClassName={selected && density !== "icons" ? "ring-sidebar-card" : "ring-sidebar"} state="idle" size={density === "icons" ? 36 : 64} animated={false} />
+                  <SidebarMascotAvatar botId={bot.id} bot={bot} primary={isViewersPrimaryBot(bot, viewerId)} primaryRingClassName={selected && density !== "icons" ? "ring-sidebar-card" : "ring-sidebar"} state="idle" size={density === "icons" ? 36 : 64} animated={false} />
                   {density !== "icons" && <span className="w-full truncate text-center text-[12px] leading-4 text-sidebar-ink">{bot.name}</span>}
                   {density !== "icons" && title ? (
                     <LabelTag text={title} size="small" className="max-w-full" />
@@ -3414,5 +3491,6 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
         className="app-resize-handle -right-[3px]"
       />
     </aside>
+    </SidebarMascotProvider>
   );
 }

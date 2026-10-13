@@ -6,6 +6,11 @@
 //
 //   FAKE_CLAUDE_MODE   happy (default) | exit-early | hang | malformed |
 //                      dead-session (fails only when --resume is passed)
+//                      | stale-session (a --resume launch answers each
+//                        message with the error result 2.1.295 gives a
+//                        session it no longer has, with no init, and stays
+//                        up until stdin ends) | error-result (every launch
+//                        answers that way, resumed or not)
 //                      | resume-dies-after-init (a --resume launch emits
 //                        init, then exits without result or output)
 //                      | stream (partial-message text deltas before the
@@ -14,7 +19,14 @@
 //                        sends, captured from 2.1.263)
 //                      | api-error (the CLI reports a non-auth API error as
 //                        assistant text, then an error result; no model output)
-//   FAKE_CLAUDE_API_ERROR text for the api-error frame (default: overloaded).
+//                      | usage-limit (the account's usage limit refused the
+//                        call: the api-error frame and result 2.1.295 sends,
+//                        code usage_limit_reached, carrying the refused window)
+//   FAKE_CLAUDE_API_ERROR text for the api-error frame (default: overloaded;
+//                      for usage-limit, the weekly limit's words).
+//   FAKE_CLAUDE_RATE_LIMIT JSON rate_limit_info: each turn reports it in a
+//                      `rate_limit_event` after init, as the CLI does from the
+//                      API's headers ({status, rateLimitType, resetsAt, …}).
 //   FAKE_CLAUDE_GATE_DIR with slow: a prompt carrying [gate:NAME] holds its
 //                      reply until <dir>/NAME exists (its last marker).
 //   FAKE_CLAUDE_RELEASE with hang: the turn ends normally once this file exists.
@@ -106,6 +118,9 @@
 //                      announced the continuation yet.
 //   FAKE_CLAUDE_LATE_STEER_SILENT 1: the late turn prints `init` and then
 //                      nothing at all — a continuation that never speaks.
+//   FAKE_CLAUDE_SLOW_FINISH_GATE path: `slow` replies once this file exists;
+//                      a body of exactly "fail" then ends the turn as an
+//                      engine error (is_error) instead of a success.
 //   FAKE_CLAUDE_SLOW_TAIL_TOOL 1: `slow` makes one more tool call right
 //                      before its reply — a fold seam the harness sees after
 //                      a steer that was already too late to be folded.
@@ -175,11 +190,35 @@
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, closeSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { runRoomHandoffAgent } from "./room-handoff-agent.ts";
 
 const mode = process.env.FAKE_CLAUDE_MODE ?? "happy";
+
+// Concurrent bot/room turns share a capture path. Publish whole JSON in one
+// rename so neither another writer nor a test reader can see a partial dump.
+// Kept local like the Codex fake: subprocess fixtures cannot import ../atomic.
+const writeDumpAtomic = (path: string, contents: string): void => {
+  const tmp = `${path}.${process.pid}.tmp`;
+  const delays = [5, 10, 20, 40, 80];
+  try {
+    writeFileSync(tmp, contents);
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        renameSync(tmp, path);
+        return;
+      } catch (error) {
+        // Windows indexers can briefly hold either file open.
+        const code = (error as NodeJS.ErrnoException).code ?? "";
+        if (!["EPERM", "EACCES", "EBUSY"].includes(code) || attempt >= delays.length) throw error;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delays[attempt]);
+      }
+    }
+  } finally {
+    try { unlinkSync(tmp); } catch { /* already renamed, or failed cleanup */ }
+  }
+};
 
 // Follow the spawning server down, including on Windows where ppid does
 // not change after parent exit. Inline: fakes must stay self-contained.
@@ -358,7 +397,7 @@ if (["text", "json"].includes(argAfter("--output-format") ?? "")) {
   const upkeepCall = /You are the (?:CAPTURE|TIDY|ORGANIZE) step of a memory system/.test(prompt);
   const oneShotDump = process.env.FAKE_CLAUDE_TEXT_DUMP ?? (upkeepCall ? undefined : process.env.FAKE_CLAUDE_DUMP);
   if (oneShotDump) {
-    writeFileSync(
+    writeDumpAtomic(
       oneShotDump,
       JSON.stringify({ pid: process.pid, argv, env: process.env, prompt, mcpConfig: null }, null, 2),
     );
@@ -606,7 +645,7 @@ const playTurn = (prompt: JsonValue, late = false) => {
   if (process.env.FAKE_CLAUDE_PROMPTS) appendFileSync(process.env.FAKE_CLAUDE_PROMPTS, `${JSON.stringify(prompt)}\n`);
   if (!late && process.env.FAKE_CLAUDE_DUMP) {
     launchFiles ??= readLaunchFiles();
-    writeFileSync(
+    writeDumpAtomic(
       process.env.FAKE_CLAUDE_DUMP,
       JSON.stringify({ pid: process.pid, argv, env: process.env, cwd: process.cwd(), prompt, ...launchFiles }, null, 2),
     );
@@ -632,6 +671,17 @@ const playTurn = (prompt: JsonValue, late = false) => {
   if (mode === "dead-session" && argv.includes("--resume")) {
     process.stderr.write(`fake-claude: No conversation found with session ID: ${argAfter("--resume")}\n`);
     process.exit(1);
+  }
+  // The same, as 2.1.295 says it after a long idle: an error result for the
+  // message, no `init`, and the process stays up for the next one.
+  if ((mode === "stale-session" && argv.includes("--resume")) || mode === "error-result") {
+    out({
+      type: "result", subtype: "error_during_execution", duration_ms: 0, is_error: true, num_turns: 0, stop_reason: null,
+      session_id: sessionId, total_cost_usd: 0, errors: [`No conversation found with session ID: ${sessionId}`],
+    });
+    turnRunning = false;
+    finishIfDone();
+    return;
   }
 
   if (mode === "exit-early") {
@@ -669,6 +719,8 @@ const playTurn = (prompt: JsonValue, late = false) => {
 
   // the real CLI re-announces init on every turn of a live process
   out({ type: "system", subtype: "init", session_id: sessionId, model, permissionMode, tools });
+  const rateLimit = process.env.FAKE_CLAUDE_RATE_LIMIT ? JSON.parse(process.env.FAKE_CLAUDE_RATE_LIMIT) : null;
+  if (rateLimit) out({ type: "rate_limit_event", rate_limit_info: rateLimit, session_id: sessionId });
 
   // a continuation that announces itself and then never speaks again
   if (lateContinuation && process.env.FAKE_CLAUDE_LATE_STEER_SILENT) {
@@ -687,6 +739,19 @@ const playTurn = (prompt: JsonValue, late = false) => {
 
   const resumedError = process.env.FAKE_CLAUDE_RESUMED_API_ERROR === "1" && argv.includes("--resume") && !resumedErrorPlayed;
   if (resumedError) resumedErrorPlayed = true;
+  if (mode === "usage-limit") {
+    // captured from 2.1.295 for an account past its weekly limit
+    const text = process.env.FAKE_CLAUDE_API_ERROR ?? "You've hit your weekly limit \u00b7 resets Oct 12 at 2:30pm (Asia/Calcutta)";
+    out({
+      type: "assistant", message: { model: "<synthetic>", stop_reason: "stop_sequence", content: [{ type: "text", text }] },
+      error: "rate_limit", is_api_error_message: true, api_error: "usage_limit_reached",
+      ...(rateLimit ? { api_error_params: { rate_limit_info: rateLimit } } : {}),
+    });
+    out({ type: "result", subtype: "success", is_error: true, stop_reason: "stop_sequence", terminal_reason: "api_error", api_error: "usage_limit_reached", result: text });
+    turnRunning = false;
+    finishIfDone();
+    return;
+  }
   if (mode === "api-error" || resumedError) {
     const text = process.env.FAKE_CLAUDE_API_ERROR ?? "API Error: 529 Overloaded. This is a server-side issue, usually temporary.";
     out({ type: "assistant", message: { model: "<synthetic>", content: [{ type: "text", text }] }, error: "unknown", is_api_error_message: true });
@@ -802,6 +867,17 @@ async function playVoiceTurn(prompt: JsonValue): Promise<void> {
   out({ type: "system", subtype: "init", session_id: sessionId, model, permissionMode, tools });
   replay(prompt);
   await pause(Number(process.env.FAKE_CLAUDE_FIRST_TOKEN_MS) || 0);
+  const promptText = typeof prompt === "string" ? prompt : JSON.stringify(prompt);
+  // The phrase stays in later turns' context. Only the turn that asks, with
+  // the words at the end of the prompt, runs the tool.
+  const ticketAt = promptText.toLowerCase().lastIndexOf("ticket count");
+  const ticketTail = ticketAt >= 0 ? promptText.slice(ticketAt + "ticket count".length) : "";
+  const ticketTurn = ticketAt >= 0 && ticketTail.length <= 160 && !/[A-Za-zÀ-ÿ]{4,}/.test(ticketTail);
+  if (process.env.FAKE_CLAUDE_VOICE_TOOL === "1" && ticketTurn) {
+    const id = `tu-voice-${process.pid}-${++toolUseCount}`;
+    out({ type: "assistant", message: { content: [{ type: "tool_use", id, name: "Bash", input: { command: "echo 3" } }] } });
+    out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, is_error: false, content: [{ type: "text", text: "3" }] }] } });
+  }
   const reply = process.env.FAKE_CLAUDE_VOICE_REPLY || "Sure. It is sunny in Montreal today, with a high of twenty degrees and a light wind. Do you want the forecast for tomorrow too?";
   const tokenMs = Number(process.env.FAKE_CLAUDE_TOKEN_MS) || 0;
   const words = reply.match(/\S+\s*/g) ?? [reply];
@@ -1044,7 +1120,16 @@ const playReply = (prompt: JsonValue, mcpNote: string) => {
     // a gap a test can steer into; the closing reply carries anything that
     // was folded in, the way the real CLI includes a mid-turn message in
     // the same turn's next model call
+    let heldToolId: string | undefined;
+    if (process.env.FAKE_CLAUDE_HOLD_AFTER_TOOL) {
+      // emit tool_use and wait: interrupt must abort this in-flight call
+      heldToolId = `tu-${process.pid}-${++toolUseCount}`;
+      out({ type: "assistant", message: { content: [{ type: "tool_use", id: heldToolId, name: "Bash", input: { command: "sleep 30" } }] } });
+    }
     const finishSlowTurn = () => {
+      if (heldToolId) {
+        out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: heldToolId, is_error: false, content: [{ type: "text", text: "late-tool" }] }] } });
+      }
       if (process.env.FAKE_CLAUDE_SLOW_TAIL_TOOL) {
         // one more tool call before the reply: a fold seam the harness sees
         // AFTER a steer that this turn's stdin drain had already passed by
@@ -1055,6 +1140,14 @@ const playReply = (prompt: JsonValue, mcpNote: string) => {
       const tail = steered.length ? ` + steered: ${steered.join(" | ")}` : "";
       replaySteered();
       out({ type: "assistant", message: { content: [{ type: "text", text: `reply to: ${promptText(prompt)}${tail}` }] } });
+      // a finish gate that reads "fail" ends the turn as an engine error
+      const gate = process.env.FAKE_CLAUDE_SLOW_FINISH_GATE;
+      if (!lateContinuation && gate && readFileSync(gate, "utf8").trim() === "fail") {
+        out({ type: "result", is_error: true, stop_reason: "error", result: "fixture turn failed" });
+        turnRunning = false;
+        finishIfDone();
+        return;
+      }
       finish();
     };
     // a late steer's turn holds on its own gate, so a test can look at the
@@ -1062,8 +1155,13 @@ const playReply = (prompt: JsonValue, mcpNote: string) => {
     // FAKE_CLAUDE_GATE_DIR: a prompt carrying [gate:NAME] holds until
     // <dir>/NAME exists, so a test can finish several turns in any order.
     const gateDir = process.env.FAKE_CLAUDE_GATE_DIR;
-    // the last marker: a prompt may quote earlier lines before its request
-    const marker = gateDir ? [...promptText(prompt).matchAll(/\[gate:([\w-]+)\]/g)].at(-1)?.[1] : undefined;
+    // A parallel brief quotes earlier turns under "Recent lines" and puts
+    // this request after "Request:". Only this request's [gate:NAME] holds
+    // the turn; a quoted gate from the parent would deadlock both.
+    const whole = promptText(prompt);
+    const requestAt = whole.lastIndexOf("\nRequest:\n");
+    const region = requestAt >= 0 ? whole.slice(requestAt) : whole;
+    const marker = gateDir ? [...region.matchAll(/\[gate:([\w-]+)\]/g)].at(-1)?.[1] : undefined;
     const finishGate = marker && gateDir ? join(gateDir, marker)
       : lateContinuation ? process.env.FAKE_CLAUDE_LATE_STEER_GATE : process.env.FAKE_CLAUDE_SLOW_FINISH_GATE;
     if (finishGate) {

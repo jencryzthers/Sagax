@@ -116,7 +116,10 @@ class LiveCallChatWiringTest {
                         json(200, """{"call":${call("ended")}}""")
                     }
                     request.path == "/api/live/call" -> json(200, """{"call":null}""")
+                    request.method == "GET" && request.path?.substringBefore("?") == "/api/config" ->
+                        json(200, """{"live":{"enabled":true}}""")
                     request.path == "/api/instances" -> json(200, """{"instances":[]}""")
+                    request.path == "/api/config" -> json(200, """{"live":{"enabled":true,"configured":true,"voice":"marin"}}""")
                     request.path?.startsWith("/api/threads/") == true -> json(200, """{"messages":[],"hasMore":false}""")
                     else -> MockResponse().setResponseCode(404)
                 }
@@ -136,7 +139,7 @@ class LiveCallChatWiringTest {
         mount { chatScreen() }
         compose.onNodeWithText("via call").assertIsDisplayed()
 
-        compose.onNodeWithContentDescription("Call Scout").performClick()
+        clickCall()
         compose.waitUntil(10_000) { requests.any { it.path == "/api/live/session" } }
         compose.onNodeWithText("Connecting…").assertIsDisplayed()
         attach()
@@ -166,7 +169,7 @@ class LiveCallChatWiringTest {
     @Test
     fun `a phone's first call says what it sends to OpenAI first, once`() {
         mount(disclosureShown = false) { chatScreen() }
-        compose.onNodeWithContentDescription("Call Scout").performClick()
+        clickCall()
         compose.onNodeWithText(LiveCallRules.DISCLOSURE).assertIsDisplayed()
         compose.onNodeWithText("Cancel").performClick()
         compose.waitForIdle()
@@ -228,7 +231,7 @@ class LiveCallChatWiringTest {
         mount(bots = listOf(longChat)) { chatScreen(longChat) }
         compose.waitUntil(5_000) { compose.onAllNodesWithText(NEWEST, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
 
-        compose.onNodeWithContentDescription("Call Scout").performClick()
+        clickCall()
         compose.waitUntil(10_000) { requests.any { it.path == "/api/live/session" } }
         compose.onNodeWithText("Connecting…").assertIsDisplayed()
         assertNewestAbove("Live call")
@@ -306,6 +309,13 @@ class LiveCallChatWiringTest {
         }
     }
 
+    private fun clickCall() {
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithContentDescription("Call Scout").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithContentDescription("Call Scout").performClick()
+    }
+
     /**
      * The newest message is whole above the bar [description] names: its last
      * line ends at or above the bar's top. Its own size and place, not what
@@ -317,6 +327,12 @@ class LiveCallChatWiringTest {
         val bottom = newest.positionInRoot.y + newest.size.height
         val bar = compose.onNodeWithContentDescription(description).fetchSemanticsNode().boundsInRoot
         assertTrue(bottom <= bar.top, "the newest message runs under the bar: it ends at $bottom, the bar starts at ${bar.top}")
+    }
+
+    private fun waitForCallButton() {
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithContentDescription("Call Scout").fetchSemanticsNodes().isNotEmpty()
+        }
     }
 
     @Composable

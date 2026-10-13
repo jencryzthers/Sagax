@@ -3,7 +3,7 @@
 // a turn withholds them (SendTurnInput.withholdHostTools) and shell and files
 // go through the person's server environment instead
 // (server/user-sandbox-tools.ts, docs/user-sandbox.md).
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -146,14 +146,19 @@ export function piHostToolArgs(withhold: boolean): string[] {
   return ["--no-builtin-tools", "--exclude-tools", PI_HOST_TOOLS.join(","), "--no-extensions"];
 }
 
-/** An ACP `session/request_permission` that would act on this machine: a
- * command, a file change, a move or a delete, not a call to one of Sagax's
- * MCP tools (titled `mcp__…`, `mcp.…` or `mcp:…`). Declined outright on a
- * withheld turn (acp/core.ts). */
+/** Sagax MCP tools a withheld turn may still call. A title that merely
+ * starts with "mcp" is not one of them. */
+const SAGAX_MCP_TITLE = /^mcp__(?:agents|browser|composio|computer)(?:__|$)/i;
+
+/** An ACP `session/request_permission` that would act on this machine.
+ * A command, a file change, a move or a delete is declined whatever its
+ * title. A read or a fetch is declined unless the title is one of Sagax's
+ * own MCP tools. Declined outright on a withheld turn (acp/core.ts). */
 export function acpHostToolRequest(toolCall: { kind?: unknown; title?: unknown }): boolean {
   const kind = String(toolCall.kind ?? "");
-  if (!["execute", "edit", "delete", "move"].includes(kind)) return false;
-  return !/^mcp(?:__|[.:_])/i.test(String(toolCall.title ?? ""));
+  if (["execute", "edit", "delete", "move"].includes(kind)) return true;
+  if (kind === "read" || kind === "fetch") return !SAGAX_MCP_TITLE.test(String(toolCall.title ?? ""));
+  return false;
 }
 
 /** The approval parameters of a withheld Codex turn: read-only, asking (so
@@ -430,29 +435,57 @@ export function hermesOrgConfig(source: string): string {
   return stringifyYaml(next);
 }
 
-/** Points a withheld Hermes turn at a home Sagax owns
- * (`<data>/engine-policies/hermes-org`): its config.yaml is hermesOrgConfig
- * of the server's; `.env` and `auth.json` are links to the server's, so a
- * key or a login is used where it is, never copied. */
-export function hermesHostToolEnv(env: Record<string, string | undefined>, withhold: boolean, sourceHome: string): void {
-  if (!withhold) return;
-  const home = join(DATA_DIR, "engine-policies", "hermes-org");
+/** A Hermes turn gets a home Sagax owns and never reads the source `.env`.
+ * Withheld (organization): `engine-policies/hermes-org`, config rewritten by
+ * hermesOrgConfig. Solo: `engine-policies/hermes-solo`, config.yaml copied
+ * only when it is a regular file. `auth.json` may be a link to a regular
+ * file. `.env` is a regular file of the lines Sagax manages, or absent. */
+export function hermesTurnHome(
+  env: Record<string, string | undefined>,
+  options: { withhold: boolean; sourceHome: string; envText: string; dataDir?: string },
+): void {
+  const root = options.dataDir ?? DATA_DIR;
+  const home = join(root, "engine-policies", options.withhold ? "hermes-org" : "hermes-solo");
   mkdirSync(home, { recursive: true, mode: 0o700 });
-  let source = "";
-  try { source = readFileSync(join(sourceHome, "config.yaml"), "utf8"); } catch { source = ""; }
-  const config = hermesOrgConfig(source);
-  const path = join(home, "config.yaml");
-  let current: string | null = null;
-  try { current = readFileSync(path, "utf8"); } catch { current = null; }
-  if (current !== config) writeFileSync(path, config, { mode: 0o600 });
-  for (const name of [".env", "auth.json"]) {
-    const link = join(home, name), target = join(sourceHome, name);
-    let existing: string | null = null;
-    try { existing = lstatSync(link).isSymbolicLink() ? readlinkSync(link) : "not-a-link"; } catch { existing = null; }
-    if (existing === target) continue;
-    if (existing !== null) rmSync(link, { force: true });
-    if (existsSync(target)) symlinkSync(target, link);
+  const configPath = join(home, "config.yaml");
+  if (options.withhold) {
+    let source = "";
+    try {
+      const stat = lstatSync(join(options.sourceHome, "config.yaml"));
+      if (stat.isFile()) source = readFileSync(join(options.sourceHome, "config.yaml"), "utf8");
+    } catch { source = ""; }
+    const config = hermesOrgConfig(source);
+    let current: string | null = null;
+    try { current = readFileSync(configPath, "utf8"); } catch { current = null; }
+    if (current !== config) writeFileSync(configPath, config, { mode: 0o600 });
+  } else {
+    let copied: string | null = null;
+    try {
+      const stat = lstatSync(join(options.sourceHome, "config.yaml"));
+      if (stat.isFile()) copied = readFileSync(join(options.sourceHome, "config.yaml"), "utf8");
+    } catch { copied = null; }
+    if (copied !== null) {
+      let current: string | null = null;
+      try { current = readFileSync(configPath, "utf8"); } catch { current = null; }
+      if (current !== copied) writeFileSync(configPath, copied, { mode: 0o600 });
+    }
   }
+  const authLink = join(home, "auth.json");
+  const authTarget = join(options.sourceHome, "auth.json");
+  let existingAuth: string | null = null;
+  try { existingAuth = lstatSync(authLink).isSymbolicLink() ? readlinkSync(authLink) : "not-a-link"; } catch { existingAuth = null; }
+  if (existingAuth !== authTarget) {
+    if (existingAuth !== null) rmSync(authLink, { force: true });
+    let regular = false;
+    try { regular = lstatSync(authTarget).isFile(); } catch { regular = false; }
+    if (regular) symlinkSync(authTarget, authLink);
+  }
+  const envPath = join(home, ".env");
+  try {
+    if (lstatSync(envPath).isSymbolicLink()) rmSync(envPath);
+  } catch { /* absent */ }
+  if (options.envText) writeFileSync(envPath, options.envText, { mode: 0o600 });
+  else rmSync(envPath, { force: true });
   env.HERMES_HOME = home;
 }
 

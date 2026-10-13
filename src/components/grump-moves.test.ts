@@ -186,13 +186,17 @@ describe("Grump's moves", () => {
     expect(grumpReducedFace("blink")).toBeNull();
   });
 
+  it("plays the crab's scuttle clip as a pounce, so a crab menu move never leaves Grump still", () => {
+    expect(grumpMoveFor("scuttle")).toBe("pounce");
+  });
+
   it("maps every desktop clip it has a move for, and keeps the long clips as held activities", () => {
     for (const [clip, move] of Object.entries(GRUMP_CLIP_MOVES)) {
       expect(isGrumpMove(move), clip).toBe(true);
       expect(GRUMP_MOVE_TIMING[move].loop, clip).toBe(false);
     }
     // every timed desktop clip plays something on Grump
-    for (const clip of Object.keys(CLIP_MS)) if (clip !== "turn") expect(grumpMoveFor(clip), clip).not.toBeNull();
+    for (const clip of Object.keys(CLIP_MS)) if (clip !== "turn" && clip !== "scuttle") expect(grumpMoveFor(clip), clip).not.toBeNull();
     expect(GRUMP_HELD_CLIPS).toMatchObject({ walk: "walk", sleep: "sleep", drag: "drag" });
     for (const move of Object.values(GRUMP_HELD_CLIPS)) expect(GRUMP_MOVE_TIMING[move].loop).toBe(true);
     expect(grumpMoveFor("stretch")).toBe("stretch");

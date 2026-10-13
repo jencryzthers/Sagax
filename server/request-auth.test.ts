@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearSessionCookie,
@@ -27,6 +27,7 @@ import {
   requiredScope,
   routePermission,
   PERMISSION_ROUTES,
+  readWorkerRelayToken,
   resolveLoopbackTrust,
   resolveRequestAuth,
   sanitizeSource,
@@ -631,6 +632,8 @@ describe("resolveRequestAuth", () => {
     ["DELETE", "/api/fleet/workspaces/acme"],
     ["POST", "/api/fleet/upgrade"],
     ["POST", "/api/instances/antigravity/auth/complete"],
+    ["GET", "/api/instances/cursor/api-key"],
+    ["POST", "/api/instances/cursor/api-key"],
   ])("requires admin for server Settings: %s %s", (method, path) => {
     expect(requiredScope(method, path.split("?")[0]!)).toBe("admin");
     const client = pairedToken(["client"]);
@@ -716,11 +719,20 @@ describe("loopback trust: owner on one person's machine, service on a shared wor
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  // Every call the deployed cloud Slack worker makes to the runtime
-  // (openmaus-cloud server/slack-worker.ts, every released version), plus
-  // the bot capability routes and liveness. None of these may break.
+  // Liveness, identity, and the turn-scoped capability routes. The old
+  // Slack-worker data plane is in DENIED_SERVICE_CALLS: a bot's shell is
+  // the same session-less loopback caller.
   const SERVICE_CALLS: Array<[string, string]> = [
     ["GET", "/api/health"],
+    ["GET", "/api/auth/session"],
+    ["GET", "/api/edition"],
+    ["GET", "/api/brand"],
+    ["POST", "/api/internal/ask-bot"],
+    ["GET", "/api/internal/agents"],
+    ["POST", "/api/internal/hook"],
+    ["POST", "/api/testing/internal-capability"],
+  ];
+  const DENIED_SERVICE_CALLS: Array<[string, string]> = [
     ["GET", "/api/bots?messages=0"],
     ["GET", "/api/threads/thread-1/messages?limit=0"],
     ["GET", "/api/threads/thread-1/messages?limit=200&before=m-1"],
@@ -731,11 +743,6 @@ describe("loopback trust: owner on one person's machine, service on a shared wor
     ["POST", "/api/bots/bot-1/requests/job_0123456789abcdef/interrupt"],
     ["DELETE", "/api/bots/bot-1/queue/queue-1"],
     ["POST", "/api/threads/thread-1/respond"],
-    ["GET", "/api/auth/session"],
-    ["POST", "/api/internal/ask-bot"],
-    ["GET", "/api/internal/agents"],
-    ["POST", "/api/internal/hook"],
-    ["POST", "/api/testing/internal-capability"],
   ];
   // Admin changes a bot's shell must not make as the owner.
   const ADMIN_CALLS: Array<[string, string]> = [
@@ -753,7 +760,7 @@ describe("loopback trust: owner on one person's machine, service on a shared wor
 
   it("keeps the owner exactly as before when no trust is given or trust is owner", () => {
     for (const trust of [undefined, "owner"] as const) {
-      for (const [method, path] of [...SERVICE_CALLS, ...ADMIN_CALLS]) {
+      for (const [method, path] of [...SERVICE_CALLS, ...DENIED_SERVICE_CALLS, ...ADMIN_CALLS]) {
         expect(check(method, path, { trust }).auth, `${method} ${path}`).toEqual({ kind: "loopback", scopes: ["admin", "client"] });
       }
     }
@@ -763,12 +770,46 @@ describe("loopback trust: owner on one person's machine, service on a shared wor
     for (const [method, path] of SERVICE_CALLS) {
       expect(check(method, path, { trust: "service" }).auth, `${method} ${path}`).toEqual({ kind: "loopback", scopes: ["client"], trust: "service" });
     }
-    for (const [method, path] of ADMIN_CALLS) {
+    for (const [method, path] of [...DENIED_SERVICE_CALLS, ...ADMIN_CALLS]) {
       const denied = check(method, path, { trust: "service" });
       expect(denied.auth, `${method} ${path}`).toBeNull();
       expect(denied.status).toBe(403);
       expect(denied.error).toMatch(/shared server.*sign in/);
     }
+  });
+
+  it("opens the worker data plane only to the relay token, never to a bot shell", () => {
+    const token = "r".repeat(43);
+    const header = "x-sagax-worker-relay";
+    const asWorker = (method: string, path: string, presented: string | false = token) =>
+      resolveRequestAuth(request({ ...local, ...(presented === false ? {} : { [header]: presented }) }, method), {
+        sessions, cookieName, streamPath: "/api/events", url: new URL(path, "http://x"),
+        loopbackTrust: "service", workerRelayToken: token,
+      });
+    for (const [method, path] of DENIED_SERVICE_CALLS) {
+      expect(asWorker(method, path).auth, `${method} ${path}`).toEqual({
+        kind: "loopback", scopes: ["client"], trust: "service", relay: "worker",
+      });
+      expect(asWorker(method, path, false).auth, `shell ${method} ${path}`).toBeNull();
+      expect(asWorker(method, path, "s".repeat(43)).auth, `wrong ${method} ${path}`).toBeNull();
+    }
+    for (const [method, path] of ADMIN_CALLS) {
+      expect(asWorker(method, path).auth, `admin ${method} ${path}`).toBeNull();
+    }
+    expect(asWorker("GET", "/api/health").auth).toEqual({ kind: "loopback", scopes: ["client"], trust: "service" });
+    expect(asWorker("GET", "/api/bots?messages=0", "").auth).toBeNull();
+  });
+
+  it("reads a one-line relay token and ignores a short or multiline value without echoing it", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const good = "r".repeat(43);
+    expect(readWorkerRelayToken({ SAGAX_WORKER_RELAY_TOKEN: good })).toBe(good);
+    expect(readWorkerRelayToken({})).toBeUndefined();
+    expect(readWorkerRelayToken({ SAGAX_WORKER_RELAY_TOKEN: "" })).toBeUndefined();
+    expect(readWorkerRelayToken({ SAGAX_WORKER_RELAY_TOKEN: "short" })).toBeUndefined();
+    expect(readWorkerRelayToken({ SAGAX_WORKER_RELAY_TOKEN: `${good}\nextra` })).toBeUndefined();
+    expect(warn.mock.calls.flat().join(" ")).not.toContain(good.slice(0, 8));
+    warn.mockRestore();
   });
 
   it("still admits a real session with its own scopes on a service-trust server", () => {

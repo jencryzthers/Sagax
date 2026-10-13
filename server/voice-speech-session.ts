@@ -4,7 +4,9 @@
 // clause of the bot's answer as it is written; each one is an xAI utterance
 // (`text.delta`, `text.done`), spoken one after the other on the same open
 // socket, its PCM forwarded to the page as binary frames between `start`
-// and `done`. A cancelled clause (barge-in, hold, hang-up) is dropped from
+// and `done`. A lead token (`say` with `more: true`) sends `text.delta`
+// without `text.done`; `append` grows it; `finish` ends it. A cancelled
+// clause (barge-in, hold, hang-up) is dropped from
 // the queue, or, when it is the one speaking, cleared at xAI (`text.clear`,
 // confirmed by `audio.clear`): nothing of it reaches the page after.
 //
@@ -27,6 +29,9 @@ export const SPEECH_STALL_MS = 8_000;
 export const SPEECH_CLEAR_MS = 2_000;
 /** A clause id from the page. */
 export const SPEECH_ID = /^[\w-]{1,64}$/;
+/** xAI closes a streaming socket around 600 s. Rotate while idle before that,
+ * so the next clause is not the one that discovers the socket is gone. */
+export const SPEECH_SOCKET_AGE_MS = 540_000;
 
 /** What the server says to the page (JSON text frames; audio is binary). */
 export type SpeechFrame =
@@ -55,6 +60,8 @@ export interface SpeechSessionDeps {
   backoffMs?: readonly number[];
   stallMs?: number;
   clearMs?: number;
+  /** override the idle rotation (tests) */
+  maxAgeMs?: number;
 }
 
 export interface SpeechSession {
@@ -70,17 +77,25 @@ interface Clause {
   id: string;
   text: string;
   cancelled?: boolean;
+  /** page opened this utterance on a lead token (`more: true`) */
+  more?: boolean;
+  /** page sent `finish` (text.done). A complete `say` starts finished. */
+  finished?: boolean;
 }
 
 export function createSpeechSession(deps: SpeechSessionDeps): SpeechSession {
   const backoff = deps.backoffMs ?? SPEECH_BACKOFF_MS;
   const stallMs = deps.stallMs ?? SPEECH_STALL_MS;
   const clearMs = deps.clearMs ?? SPEECH_CLEAR_MS;
+  const maxAgeMs = deps.maxAgeMs ?? SPEECH_SOCKET_AGE_MS;
   let upstream: SpeechStream | null = null;
   let open = false;
   let failures = 0;
   let closed = false;
   let gone = false;
+  let rotating = false;
+  let aged = false;
+  let ageTimer: ReturnType<typeof setTimeout> | null = null;
   let queue: Clause[] = [];
   let current: Clause | null = null;
   let clearing = false;
@@ -96,6 +111,28 @@ export function createSpeechSession(deps: SpeechSessionDeps): SpeechSession {
     if (watchdog) clearTimeout(watchdog);
     watchdog = null;
   };
+  const clearAge = () => {
+    if (ageTimer) clearTimeout(ageTimer);
+    ageTimer = null;
+  };
+  const scheduleAge = () => {
+    clearAge();
+    aged = false;
+    ageTimer = setTimeout(() => {
+      ageTimer = null;
+      aged = true;
+      rotateIfIdle();
+    }, maxAgeMs);
+    ageTimer.unref?.();
+  };
+  /** The socket is old and nothing is in flight: reconnect without counting
+   * a failure, so a long call does not fall back to POST. */
+  const rotateIfIdle = () => {
+    if (!aged || closed || current || clearing || queue.length || !open || !upstream) return;
+    aged = false;
+    rotating = true;
+    upstream.close();
+  };
   /** no progress for `ms`: treat the socket as dropped */
   const arm = (ms: number) => {
     disarm();
@@ -109,11 +146,19 @@ export function createSpeechSession(deps: SpeechSessionDeps): SpeechSession {
   const pump = () => {
     if (closed || !open || current || clearing || !upstream) return;
     const next = queue.shift();
-    if (!next) return;
+    if (!next) {
+      rotateIfIdle();
+      return;
+    }
     current = next;
     deps.usage(next.text.length);
     send({ type: "start", id: next.id });
-    upstream.speak(next.text);
+    if (next.more) {
+      upstream.delta(next.text);
+      if (next.finished) upstream.done();
+    } else {
+      upstream.speak(next.text);
+    }
     arm(stallMs);
   };
 
@@ -128,6 +173,14 @@ export function createSpeechSession(deps: SpeechSessionDeps): SpeechSession {
   const lost = (socket: SpeechStream) => {
     if (socket !== upstream) return;
     disarm();
+    if (rotating) {
+      rotating = false;
+      upstream = null;
+      open = false;
+      if (closed) return;
+      connect();
+      return;
+    }
     const wasOpen = open;
     upstream = null;
     open = false;
@@ -187,6 +240,7 @@ export function createSpeechSession(deps: SpeechSessionDeps): SpeechSession {
       open = true;
       failures = 0;
       resolveReady(true);
+      scheduleAge();
       pump();
     }, () => {});
   };
@@ -215,21 +269,45 @@ export function createSpeechSession(deps: SpeechSessionDeps): SpeechSession {
       let parsed: unknown;
       try { parsed = JSON.parse(text); } catch { return; }
       if (!parsed || typeof parsed !== "object") return;
-      const frame = parsed as { type?: unknown; id?: unknown; text?: unknown };
+      const frame = parsed as { type?: unknown; id?: unknown; text?: unknown; more?: unknown };
       const id = frame.id;
       if (typeof id !== "string" || !SPEECH_ID.test(id)) return;
       if (frame.type === "cancel") return cancel(id);
+      if (frame.type === "append") {
+        if (typeof frame.text !== "string" || !frame.text) return;
+        if (current && current.id === id && !current.cancelled) {
+          current.text += frame.text;
+          deps.usage(frame.text.length);
+          if (open) upstream?.delta(frame.text);
+          return;
+        }
+        const queued = queue.find((clause) => clause.id === id);
+        if (queued) queued.text += frame.text;
+        return;
+      }
+      if (frame.type === "finish") {
+        if (current && current.id === id && !current.cancelled) {
+          current.finished = true;
+          if (open) upstream?.done();
+          return;
+        }
+        const queued = queue.find((clause) => clause.id === id);
+        if (queued) queued.finished = true;
+        return;
+      }
       if (frame.type !== "say" || typeof frame.text !== "string") return;
       if (gone) return send({ type: "error", ids: [id] });
       const clean = deps.speakable(frame.text);
       if (!clean) return send({ type: "skip", id });
-      queue.push({ id, text: clean });
+      const more = frame.more === true;
+      queue.push({ id, text: clean, more, finished: !more });
       pump();
     },
     close() {
       if (closed) return;
       closed = true;
       disarm();
+      clearAge();
       if (retry) clearTimeout(retry);
       retry = null;
       resolveReady(false);

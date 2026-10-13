@@ -15,11 +15,17 @@ class FakeUpstream implements SpeechStream {
   ready: Promise<void>;
   private open!: () => void;
   private refuse!: (error: Error) => void;
-  constructor(readonly handlers: SpeechStreamHandlers) {
+  readonly handlers: SpeechStreamHandlers;
+  constructor(handlers: SpeechStreamHandlers) {
+    this.handlers = handlers;
     this.ready = new Promise((resolve, reject) => { this.open = resolve; this.refuse = reject; });
     this.ready.catch(() => {});
   }
-  speak(text: string) { this.spoken.push(text); }
+  deltas: string[] = [];
+  dones = 0;
+  speak(text: string) { this.delta(text); this.done(); }
+  delta(text: string) { this.deltas.push(text); this.spoken.push(text); }
+  done() { this.dones += 1; }
   clear() { this.clears += 1; }
   close() {
     if (this.closed) return;
@@ -32,7 +38,7 @@ class FakeUpstream implements SpeechStream {
   drop() { this.close(); }
 }
 
-function make() {
+function make(maxAgeMs?: number) {
   const upstreams: FakeUpstream[] = [];
   const frames: SpeechFrame[] = [];
   const audio: number[] = [];
@@ -52,10 +58,14 @@ function make() {
     closePage,
     log,
     sampleRate: 24_000,
+    ...(maxAgeMs !== undefined ? { maxAgeMs } : {}),
   });
   const say = (id: string, text: string) => session.message(JSON.stringify({ type: "say", id, text }));
+  const sayMore = (id: string, text: string) => session.message(JSON.stringify({ type: "say", id, text, more: true }));
+  const append = (id: string, text: string) => session.message(JSON.stringify({ type: "append", id, text }));
+  const finish = (id: string) => session.message(JSON.stringify({ type: "finish", id }));
   const cancel = (id: string) => session.message(JSON.stringify({ type: "cancel", id }));
-  return { session, upstreams, up: () => upstreams.at(-1)!, frames, audio, usage, log, closePage, say, cancel };
+  return { session, upstreams, up: () => upstreams.at(-1)!, frames, audio, usage, log, closePage, say, sayMore, append, finish, cancel };
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -80,6 +90,27 @@ describe("streaming voice session (server side)", () => {
     expect(t.frames).toEqual([{ type: "start", id: "c1" }, { type: "done", id: "c1" }, { type: "start", id: "c2" }, { type: "done", id: "c2" }]);
     expect(t.audio).toEqual([4800, 2400]);
     expect(t.usage).toEqual([8, 15]);
+  });
+
+  it("a lead clause sends text.delta without text.done until finish", async () => {
+    const t = make();
+    t.up().accept();
+    await t.session.ready;
+    t.sayMore("c1", "Four");
+    await flush();
+    expect(t.up().deltas).toEqual(["Four"]);
+    expect(t.up().dones).toBe(0);
+    expect(t.frames).toEqual([{ type: "start", id: "c1" }]);
+    t.up().handlers.onAudio(new Uint8Array(400));
+    t.append("c1", " is");
+    t.finish("c1");
+    await flush();
+    expect(t.up().deltas).toEqual(["Four", " is"]);
+    expect(t.up().dones).toBe(1);
+    t.up().handlers.onAudio(new Uint8Array(400));
+    t.up().handlers.onDone();
+    expect(t.frames).toEqual([{ type: "start", id: "c1" }, { type: "done", id: "c1" }]);
+    expect(t.audio).toEqual([400, 400]);
   });
 
   it("a clause with nothing speakable is skipped, never sent to xAI; a bad frame is ignored", async () => {
@@ -201,6 +232,44 @@ describe("streaming voice session (server side)", () => {
     const t = make();
     t.up().drop();
     expect(await t.session.ready).toBe(false);
+    t.session.close();
+  });
+
+  it("an idle socket past the age limit reconnects without a failure, and the next clause still speaks", async () => {
+    vi.useFakeTimers();
+    const t = make(50);
+    t.up().accept();
+    await t.session.ready;
+    await vi.advanceTimersByTimeAsync(49);
+    expect(t.upstreams).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(t.upstreams).toHaveLength(2);
+    expect(t.upstreams[0]!.closed).toBe(true);
+    expect(t.frames.filter((frame) => frame.type === "error" || frame.type === "fallback")).toEqual([]);
+    expect(t.log).not.toHaveBeenCalled();
+    t.up().accept();
+    await vi.advanceTimersByTimeAsync(0);
+    t.say("c9", "Encore.");
+    expect(t.up().spoken).toEqual(["Encore."]);
+    t.session.close();
+  });
+
+  it("a clause in flight is not cut at the age limit; the socket rotates once it is idle", async () => {
+    vi.useFakeTimers();
+    const t = make(50);
+    t.up().accept();
+    await t.session.ready;
+    t.say("c1", "Longue.");
+    expect(t.up().spoken).toEqual(["Longue."]);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(t.up().closed).toBe(false);
+    expect(t.upstreams).toHaveLength(1);
+    t.up().handlers.onAudio(new Uint8Array(10));
+    t.up().handlers.onDone();
+    expect(t.frames).toContainEqual({ type: "done", id: "c1" });
+    expect(t.upstreams).toHaveLength(2);
+    expect(t.upstreams[0]!.closed).toBe(true);
+    expect(t.frames.filter((frame) => frame.type === "error" || frame.type === "fallback")).toEqual([]);
     t.session.close();
   });
 
