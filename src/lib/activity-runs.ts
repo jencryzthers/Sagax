@@ -10,6 +10,7 @@ import { formatElapsed } from "@/lib/working-time";
 import { t } from "@/lib/i18n";
 import { autoWorkerLine } from "@/lib/auto-model";
 import { failedTurnCause } from "../../shared/failed-turn";
+import { isStoppedTurnName } from "../../shared/client-cancel";
 import { localDay } from "@/lib/transcript-derivations";
 
 export type ActivityTranscriptItem =
@@ -22,8 +23,9 @@ export type TranscriptItem =
 
 /** A status row rather than a tool step: `recovery:` when automatic recovery
  * changes this conversation's engine, `notice:` when the engine runs another
- * model than the saved one. Both must remain visible and are never folded. */
-export function statusActivity(message: Message): { kind: "recovery" | "notice"; text: string } | null {
+ * model than the saved one, `stopped:` when the person or the client stopped
+ * the turn. All three must remain visible and are never folded. */
+export function statusActivity(message: Message): { kind: "recovery" | "notice" | "stopped"; text: string } | null {
   const name = message.kind === "activity" ? message.tool?.name : undefined;
   if (name?.startsWith("recovery:")) return { kind: "recovery", text: name.slice("recovery:".length).trim() };
   if (name?.startsWith("notice:")) {
@@ -31,6 +33,7 @@ export function statusActivity(message: Message): { kind: "recovery" | "notice";
     if (message.autoModel?.role === "worker") return { kind: "notice", text: autoWorkerLine(message.autoModel) };
     return { kind: "notice", text: name.slice("notice:".length).trim() };
   }
+  if (name && isStoppedTurnName(name)) return { kind: "stopped", text: name.slice("stopped:".length).trim() };
   return null;
 }
 
@@ -56,7 +59,7 @@ export function isTurnStoppedNotice(message: Message): boolean {
 function foldable(message: Message): boolean {
   const tool = message.tool;
   if (message.kind !== "activity" || !tool) return false;
-  if (message.comm || message.threadRef || isStatusActivity(message)) return false;
+  if (message.comm || message.threadRef || message.dataResult || isStatusActivity(message)) return false;
   if (tool.ok !== true) return false;
   return failedTurnCause(tool.name) === null;
 }

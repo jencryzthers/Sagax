@@ -15,7 +15,9 @@ class FakeUpstream implements SpeechStream {
   ready: Promise<void>;
   private open!: () => void;
   private refuse!: (error: Error) => void;
-  constructor(readonly handlers: SpeechStreamHandlers) {
+  readonly handlers: SpeechStreamHandlers;
+  constructor(handlers: SpeechStreamHandlers) {
+    this.handlers = handlers;
     this.ready = new Promise((resolve, reject) => { this.open = resolve; this.refuse = reject; });
     this.ready.catch(() => {});
   }

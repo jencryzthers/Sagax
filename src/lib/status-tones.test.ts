@@ -32,6 +32,7 @@ describe("semantic tones", () => {
   it("keeps the verdict tones for work that earns them", () => {
     expect(read("src/components/RoutineRunCard.tsx")).toContain("bg-warning/15 text-warning");
     expect(read("src/components/bot-settings/ActivitySteps.tsx")).toContain('"bg-success" : "bg-danger"');
-    expect(read("src/components/SecretRequestCard.tsx")).toMatch(/bg-success\/15[^"]*text-success/);
+    // a saved key folds into the ask card's settled line, checked in green
+    expect(read("src/components/AskCard.tsx")).toContain('className="text-success/80"');
   });
 });

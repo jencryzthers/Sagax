@@ -24,7 +24,7 @@ import { useServerMode } from "@/components/ServerModeSettings";
 import { WorkspaceBackupRecovery } from "@/components/WorkspaceBackupSettings";
 import { ReleaseNotesPrompt } from "@/components/ReleaseNotesPrompt";
 import { UpdateBanner } from "@/components/UpdateBanner";
-import { DesktopCapabilitiesProvider, useDesktopCapabilities } from "@/components/DesktopCapabilities";
+import { DesktopCapabilitiesProvider, useCaptionChrome, useDesktopCapabilities, WindowDragStrip } from "@/components/DesktopCapabilities";
 import { WindowCaptionButtons } from "@/components/WindowCaptionButtons";
 import { NoEngines } from "@/components/NoEngines";
 
@@ -50,10 +50,13 @@ import { viewerBotsReadOnly, viewerCanCreateBots } from "@/lib/viewer";
 import { phonePairingSettingsAction, takePhonePairingRequest } from "@/lib/phone-pairing";
 import { botsReadOnlyText } from "@/lib/permissions";
 import { ModelWindowHost } from "./components/ModelWindowHost";
+import { useExternalChatLinks } from "@/hooks/use-external-chat-links";
+import { ChatNotice } from "@/components/ChatErrorBanner";
 
 function Shell() {
   const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
+  const captionChrome = useCaptionChrome();
   const unreadCount =
     state.bots.filter((bot) => !bot.hidden && botShowsUnread(bot)).length +
     state.groups.filter((group) => group.unread).length;
@@ -110,6 +113,7 @@ function Shell() {
     if (!normalizeInboxDeepLink(window.location)) return;
     saveSidebarAttentionPinned(true);
   }, []);
+  useExternalChatLinks(state, dispatch);
   // Mobile-only drawer state. Above md, none of these properties are emitted
   // at all — Sidebar scopes every mobile class with max-md: rather than
   // cancelling them with md:, which would still emit a translate value and
@@ -340,6 +344,7 @@ function Shell() {
       {/* What's new sits above the update dialog. Both are outside the layout flow. */}
       <ReleaseNotesPrompt />
       <UpdateBanner />
+      {/* The one bottom-left card at a time (only the star is left in Sagax). */}
       {/* Hibou 98 only: title bar, menus and toolbar (renders nothing otherwise) */}
       <RetroChromeSlot slot="top" onNewBot={() => setComposeOpen((open) => !open)} />
       <div className="app-shell-row relative flex min-h-0 flex-1">
@@ -396,7 +401,10 @@ function Shell() {
         state.connected ? (
           // Connected with no bot: an empty state that invites creating one,
           // not a spinner (nothing is loading).
-          <main className="flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-app text-ink-secondary">
+          <main className="relative flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-app text-ink-secondary">
+            <WindowDragStrip />
+            {/* a chat link opened with no bots here still says it found nothing */}
+            <div className="w-full max-w-md"><ChatNotice notice={state.notice} /></div>
             <BotIcon size={28} aria-hidden />
             <div className="text-center">
               <div className="text-[15px] text-ink">{t("app.empty.title")}</div>
@@ -412,7 +420,8 @@ function Shell() {
             )}
           </main>
         ) : (
-        <main className="flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-app text-ink-secondary">
+        <main className="relative flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-app text-ink-secondary">
+          <WindowDragStrip />
           <Loader2 size={20} className="animate-spin" />
           <div className="text-[14px]">
             {"Connecting to the bot server…"}
@@ -469,6 +478,16 @@ function Shell() {
       <CallEngineHost />
       <FloatingBotsHost />
       <RetroBootSlot />
+      {/* The drawer button comes before every header in the DOM, and a later
+          drag region wins, so on a narrow window the header's drag region
+          swallowed it. This no-drag twin, after the headers, cuts the
+          button's corner back out. It paints nothing and takes no clicks. */}
+      <span
+        aria-hidden
+        data-drawer-button-no-drag
+        style={captionChrome.noDragStyle}
+        className="pointer-events-none absolute left-3 top-3 size-[30px] md:hidden"
+      />
       </div>
       <RetroChromeSlot slot="status" />
       {/* Renderer-drawn caption buttons for the overlay-less frameless

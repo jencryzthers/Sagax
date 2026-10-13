@@ -14,6 +14,20 @@ ipcRenderer.on("package:install", (_event, url) => {
   for (const listener of packageInstallListeners) listener(url);
 });
 
+// A chat link opened from outside the app. Held until the page subscribes,
+// then handed over once: replaying it to a remounted listener would yank the
+// person back to that chat.
+let pendingChatLink = null;
+const chatLinkListeners = new Set();
+ipcRenderer.on("chat:open", (_event, link) => {
+  if (typeof link !== "string") return;
+  if (!chatLinkListeners.size) {
+    pendingChatLink = link;
+    return;
+  }
+  for (const listener of chatLinkListeners) listener(link);
+});
+
 // Main can finish loading the document before React subscribes. Retain only
 // the fixed organisation action, never a destination supplied by a renderer.
 const FIXED_SETTINGS_ACTIONS = new Set(["organization"]);
@@ -40,13 +54,14 @@ const REMOTE_SAFE = new Set(["platform", "getCapabilities", "onCapabilitiesChang
 // the Hibou 98 assistant (windows that only draw what the page sends), the
 // window's caption buttons, the app menu's Preferences and Release notes,
 // links in the system browser, native confirmations, this app's updater,
-// server mode's state and way out, and in server mode the person's own
-// "Share this computer" for that server (each grant confirmed in a native
-// dialog). Main checks
+// server mode's state and way out, chat links opened from outside the app
+// (a listener only: main sends them, the page asks nothing), and in server
+// mode the person's own "Share this computer" for that server (each grant
+// confirmed in a native dialog). Main checks
 // every one of these channels again (local-origin.cjs desktopUiOnly, and
 // sharingUiOnly for the server-mode server only). Nothing that reads this
 // computer's files, screen, logins or secrets is handed to the page.
-const BUNDLED_EXTRA = new Set(["floatingBots", "retroAssistant", "windowControls", "onOpenAppSettings", "openExternal", "confirm", "updater", "serverMode", "computerSharing", "appIcon", "orgMemory"]);
+const BUNDLED_EXTRA = new Set(["floatingBots", "retroAssistant", "windowControls", "onOpenAppSettings", "openExternal", "confirm", "updater", "serverMode", "computerSharing", "appIcon", "orgMemory", "onChatLink"]);
 let bundledPage = false;
 // main.mjs always answers this channel: a sendSync nobody answers would
 // block this page for good (a test harness must answer it too).
@@ -63,7 +78,7 @@ if (!isLocalPage) {
 // Only main can request a fresh snapshot; there is no renderer-callable method.
 const COMPANY_BACKUP_CLIENT_KEYS = [
   "omb-drafts", "omb-draft-attachments", "omb-draft-send-ids", "omb-draft-channel-modes",
-  "omb-skin", "omb-show-threads", "omb-show-run-card", "omb-show-unready-providers", "openmausbot.sidebarDensity",
+  "omb-skin", "omb-show-threads", "omb-show-run-card", "omb-show-unready-providers", "omb-send-key", "openmausbot.sidebarDensity",
   "openmausbot.sidebarCollapsedSections.v1", "openmausbot.sidebarSectionOrder.v1",
   "omb-analytics-opt-out", "openmausbot.remote-voice.v1",
 ];
@@ -262,6 +277,18 @@ const bridge = {
     packageInstallListeners.add(cb);
     if (pendingPackageInstallUrl) cb(pendingPackageInstallUrl);
     return () => packageInstallListeners.delete(cb);
+  },
+  /** A chat link (sagax:// or openmausbot://, thread/… or bot/…) opened from
+   * outside the app; main hands it over in the openmausbot:// form. In server
+   * mode main sends it to the bundled organization page (BUNDLED_EXTRA). */
+  onChatLink: (cb) => {
+    chatLinkListeners.add(cb);
+    if (pendingChatLink) {
+      const link = pendingChatLink;
+      pendingChatLink = null;
+      cb(link);
+    }
+    return () => chatLinkListeners.delete(cb);
   },
   /** Mirrors durable unread state into the native Dock/taskbar badge. */
   setUnreadCount: (count) => ipcRenderer.send("desktop:unread-count", count),

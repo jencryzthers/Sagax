@@ -5,7 +5,8 @@
 // environment is just {id, name, origin}, plus `org: true` for an
 // organization server (one that signs people in with Pulsatrix, probed by
 // org-join.mjs): the desktop draws ITS OWN bundled UI on that origin
-// (electron/bundled-ui.cjs) instead of whatever the server image serves.
+// (electron/bundled-ui.cjs) instead of whatever the server image serves,
+// and `microphone: true` once the person allowed a saved server a Live call.
 // The session credential is the HttpOnly cookie the /pair page set for that
 // origin, held by Chromium's cookie jar, never by this file.
 //
@@ -217,7 +218,14 @@ function parseEnvironments(raw) {
     if (!origin || !id || id === LOCAL_ID || seen.has(id) || seen.has(origin)) continue;
     seen.add(id);
     seen.add(origin);
-    environments.push({ id, name: cleanName(entry?.name, nameFromOrigin(origin)), origin, ...(entry?.org === true ? { org: true } : {}) });
+    // `microphone: true` only once the person allowed this server a Live call.
+    environments.push({
+      id,
+      name: cleanName(entry?.name, nameFromOrigin(origin)),
+      origin,
+      ...(entry?.org === true ? { org: true } : {}),
+      ...(entry?.microphone === true ? { microphone: true } : {}),
+    });
   }
   // Server mode survives a restart only on an organization server it saved.
   const serverModeId = typeof value?.serverModeId === "string" && environments.some((e) => e.id === value.serverModeId && e.org === true)
@@ -255,6 +263,13 @@ function withoutEnvironment(state, id) {
   const environments = state.environments.filter((e) => e.id !== id);
   const next = { environments, activeId: state.activeId === id ? LOCAL_ID : state.activeId };
   return state.serverModeId && state.serverModeId !== id ? { ...next, serverModeId: state.serverModeId } : next;
+}
+
+/** The person allowed this saved server the microphone (asked on its first
+ * Live call); forgetting the server drops the record and the answer with it. */
+function withMicrophone(state, id) {
+  if (!state.environments.some((e) => e.id === id)) return state;
+  return { ...state, environments: state.environments.map((e) => (e.id === id ? { ...e, microphone: true } : e)) };
 }
 
 /** In server mode only the locked server can be active. */
@@ -323,6 +338,7 @@ module.exports = {
   serializeEnvironments,
   withActive,
   withEnvironment,
+  withMicrophone,
   withoutEnvironment,
   workspaceMenuTemplate,
   workspaceNavigationAllowed,

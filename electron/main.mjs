@@ -29,6 +29,7 @@ import { createServerSupervisor } from "./server-supervisor.mjs";
 import { serverChildLaunch } from "./server-child-launch.mjs";
 import { packageUrlFromCommandLine, packageUrlFromDeepLink } from "./package-link.mjs";
 import { createOrganizationEntry, ORGANIZATION_DEEP_LINK, isOrganizationDeepLink, takeOrganizationDeepLink, organizationRestartIntent, withOrganizationRestartIntent, withoutOrganizationRestartIntent } from "./organization-entry.mjs";
+import { chatLinkFrom } from "./chat-link.mjs";
 import { createRotatingLog } from "./log-file.mjs";
 import { createOrgJoin, forgetDetail } from "./org-join.mjs";
 import { createOwnerIdentitySync } from "./owner-identity.mjs";
@@ -180,6 +181,7 @@ let desktopWorkspaceManager = null;
 let desktopWorkspaceOwner = null;
 let pendingOrganizationEntry = takeOrganizationDeepLink(process.argv);
 let pendingPackageInstallUrl = pendingOrganizationEntry ? null : packageUrlFromCommandLine(process.argv);
+let pendingChatLink = pendingOrganizationEntry ? null : chatLinkInArgv(process.argv);
 let organizationEntryReady = false;
 let mainWindow = null;
 const serverUnavailableWindows = new WeakSet();
@@ -295,31 +297,97 @@ nativeAutoUpdater.on("before-quit-for-update", () => {
   releaseSingleInstanceLock(app);
 });
 
-function deliverPackageInstall(win) {
-  if (!pendingPackageInstallUrl || !win || win.isDestroyed()) return;
-  if (win.webContents.isLoadingMainFrame()) return;
-  // A package installs into THIS computer's workspace, so it is handed to the
-  // local UI only. Showing a remote server: switch back to Local first; the
-  // pending link is delivered when that page finishes loading.
+/** Hand a pending link to THIS computer's UI. False while it has to wait: the
+ * page is loading, or a remote server is showing, in which case the window
+ * switches back to Local and the link is delivered when that page loads. */
+function sendToLocalPage(win, channel, value) {
+  if (!win || win.isDestroyed() || win.webContents.isLoadingMainFrame()) return false;
   let showingLocal = false;
   try {
     showingLocal = new URL(win.webContents.getURL()).origin === rendererOrigin();
   } catch {}
   if (!showingLocal) {
     if (activeEnvironment(environmentsState)) void workspaceMenuAction(() => switchEnvironment(LOCAL_ID));
-    return;
+    return false;
   }
-  win.webContents.send("package:install", pendingPackageInstallUrl);
-  pendingPackageInstallUrl = null;
+  win.webContents.send(channel, value);
+  return true;
+}
+
+// A package installs into this computer's workspace.
+function deliverPackageInstall(win = mainWindow) {
+  if (pendingPackageInstallUrl && sendToLocalPage(win, "package:install", pendingPackageInstallUrl)) pendingPackageInstallUrl = null;
+}
+
+/** A chat link (electron/chat-link.mjs) under either of this app's schemes
+ * (AGENTS.md "Legacy names"): a sagax:// link is handed to the page in the
+ * openmausbot:// form its parser reads (src/lib/thread-refs.ts). */
+function chatLinkOf(value) {
+  return chatLinkFrom(typeof value === "string" ? value.trim().replace(/^sagax:\/\//i, "openmausbot://") : value);
+}
+function chatLinkInArgv(argv) {
+  for (const value of Array.isArray(argv) ? argv : []) {
+    const link = chatLinkOf(value);
+    if (link) return link;
+  }
+  return null;
+}
+
+/** Server mode's own page: the organization server drawn with this app's
+ * bundle (bundled-ui.cjs). Its chats are that server's, so a chat link goes
+ * there; server mode never switches to Local. */
+function sendToServerModePage(win, channel, value) {
+  const locked = serverModeEnvironment(environmentsState);
+  if (!locked || !win || win.isDestroyed() || win.webContents.isLoadingMainFrame()) return false;
+  let showingServer = false;
+  try {
+    showingServer = new URL(win.webContents.getURL()).origin === new URL(locked.origin).origin;
+  } catch {}
+  if (!showingServer) return false;
+  win.webContents.send(channel, value);
+  return true;
+}
+
+// A chat link names a chat on this computer, or in server mode on the
+// organization server.
+function deliverChatLink(win = mainWindow) {
+  if (!pendingChatLink) return;
+  const sent = serverModeEnvironment(environmentsState)
+    ? sendToServerModePage(win, "chat:open", pendingChatLink)
+    : sendToLocalPage(win, "chat:open", pendingChatLink);
+  if (sent) pendingChatLink = null;
+}
+
+// Set once boot has made its first window; until then boot owns window creation.
+let openWindowForLink = null;
+
+/** Bring the app forward for a link. macOS keeps running with every window
+ * closed, and open-url does not fire activate there, so a link that finds no
+ * window opens one; its pending link is delivered when that page loads. */
+function revealForLink() {
+  if (desktopTray?.show()) return;
+  // The app window, where the link opens, even when another window (a
+  // desktop viewer) had focus. While the loading screen is up it owns that.
+  const appWindow = !startupScreen && mainWindow && !mainWindow.isDestroyed() ? [mainWindow] : BrowserWindow.getAllWindows();
+  if (activateExistingWindow(appWindow)) return;
+  openWindowForLink?.();
 }
 
 function queuePackageInstall(rawLink) {
   const packageUrl = packageUrlFromDeepLink(rawLink);
   if (!packageUrl) return false;
   pendingPackageInstallUrl = packageUrl;
-  if (!desktopTray?.show()) activateExistingWindow(BrowserWindow.getAllWindows());
-  const target = BrowserWindow.getAllWindows().find((win) => !win.isDestroyed());
-  deliverPackageInstall(target);
+  revealForLink();
+  deliverPackageInstall();
+  return true;
+}
+
+function queueChatLink(rawLink) {
+  const link = chatLinkOf(rawLink);
+  if (!link) return false;
+  pendingChatLink = link;
+  revealForLink();
+  deliverChatLink();
   return true;
 }
 
@@ -548,7 +616,7 @@ app.on("open-url", (event, url) => {
     event.preventDefault();
     return;
   }
-  if (!queueOrganizationEntry(url) && !queuePackageInstall(url)) return;
+  if (!queueOrganizationEntry(url) && !queuePackageInstall(url) && !queueChatLink(url)) return;
   event.preventDefault();
 });
 
@@ -561,9 +629,13 @@ app.on("second-instance", (_event, commandLine) => {
   }
   const packageUrl = packageUrlFromCommandLine(commandLine);
   if (packageUrl) pendingPackageInstallUrl = packageUrl;
-  if (!desktopTray?.show()) activateExistingWindow(BrowserWindow.getAllWindows());
-  const target = BrowserWindow.getAllWindows().find((win) => !win.isDestroyed());
-  deliverPackageInstall(target);
+  const chatLink = chatLinkInArgv(commandLine);
+  if (chatLink) pendingChatLink = chatLink;
+  revealForLink();
+  // The app window, not whichever window is listed first: the loading
+  // screen or a desktop viewer can be, and neither is the chat page.
+  deliverPackageInstall();
+  deliverChatLink();
 });
 
 // Packaged: the harness server ships in Resources (compiled JS, zero deps)
@@ -2112,7 +2184,7 @@ ipcMain.on("desktop:notify-withdraw", (event, withdrawKey) => {
 // The app switches by loading the chosen server's own UI (electron/menu.mjs).
 // Only {id, name, origin} is stored here; the session credential is the
 // HttpOnly cookie /pair set for that origin, kept by Chromium's cookie jar.
-const { LOCAL_ID, activeEnvironment, allowedOrigins, bundledOrigin, parseEnvironments, parseHostedWorkspaceLink, serializeEnvironments, serverModeEnvironment, withActive, withEnvironment, withOrganizationUpgrade, withServerMode, withoutEnvironment, withoutServerMode, workspaceMenuTemplate, workspaceNavigationAllowed, workspaceSenderAllowed, workspaceSummary, workspaceWindowTitle } = environmentsModule;
+const { LOCAL_ID, activeEnvironment, allowedOrigins, bundledOrigin, parseEnvironments, parseHostedWorkspaceLink, serializeEnvironments, serverModeEnvironment, withActive, withEnvironment, withMicrophone, withOrganizationUpgrade, withServerMode, withoutEnvironment, withoutServerMode, workspaceMenuTemplate, workspaceNavigationAllowed, workspaceSenderAllowed, workspaceSummary, workspaceWindowTitle } = environmentsModule;
 let environmentsState = { environments: [], activeId: LOCAL_ID };
 let computerSharing;
 const sharingPrompts = new Set();
@@ -2721,6 +2793,36 @@ async function isOrganizationServer(origin) {
   }
 }
 
+// A saved server hears the microphone only once the person said yes: asked on
+// its first Live call (one dialog per server at a time), remembered on its
+// record so forgetting the server takes it back. "Don't Allow" holds until the
+// app quits or the server is forgotten, so a page cannot keep re-asking.
+const remoteMicrophoneAsks = new Map();
+const remoteMicrophoneRefused = new Set();
+function askRemoteMicrophone(origin) {
+  const env = activeEnvironment(environmentsState);
+  if (!env || env.origin !== origin || env.microphone === true || remoteMicrophoneRefused.has(origin)) return null;
+  if (!remoteMicrophoneAsks.has(origin)) {
+    const ask = (async () => {
+      const options = {
+        type: "question",
+        buttons: ["Allow", "Don’t Allow"],
+        defaultId: 1,
+        cancelId: 1,
+        message: `Allow “${env.name}” to use the microphone?`,
+        detail: `${new URL(origin).host} wants to hear you for a Live call. Allow only a server you trust; this app remembers your answer for this server until you forget it.`,
+      };
+      const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+      const { response } = parent ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options);
+      if (response !== 0) return void remoteMicrophoneRefused.add(origin);
+      // Saved on the same record only if it is still there (not forgotten meanwhile).
+      if (environmentsState.environments.some((e) => e.id === env.id && e.origin === origin)) persistEnvironments(withMicrophone(environmentsState, env.id));
+    })().finally(() => remoteMicrophoneAsks.delete(origin));
+    remoteMicrophoneAsks.set(origin, ask);
+  }
+  return remoteMicrophoneAsks.get(origin);
+}
+
 async function forgetEnvironment(id) {
   const env = environmentsState.environments.find((e) => e.id === id);
   if (!env) return;
@@ -2739,6 +2841,7 @@ async function forgetEnvironment(id) {
   });
   if (response !== 0) return;
   sharingController().forget(env);
+  remoteMicrophoneRefused.delete(env.origin);
   const wasActive = environmentsState.activeId === id;
   persistEnvironments(withoutEnvironment(environmentsState, id));
   // Leave a removed workspace immediately; forgetting an inactive connection
@@ -2970,7 +3073,13 @@ function createWindow({ deferNavigation = false } = {}) {
     });
     void workspaceMenuAction(() => switchEnvironment(LOCAL_ID));
   });
-  win.webContents.on("did-finish-load", () => deliverPackageInstall(win));
+  // A pending link is handed over once the page has stopped loading. Not on
+  // did-finish-load: Electron still reports the main frame as loading then,
+  // and the hand-off's own guard would refuse it.
+  win.webContents.on("did-stop-loading", () => {
+    deliverPackageInstall(win);
+    deliverChatLink(win);
+  });
   win.webContents.on("did-finish-load", () => void offerComputerSharing(win));
 
   // Native context menu for text inputs — without this, right-click does
@@ -4247,13 +4356,16 @@ app.whenReady().then(async () => {
   // Voice mode in server mode: the bundled UI drawn on the organization
   // server's origin (bundled-ui.cjs) may open the microphone, nothing else.
   // The active paired server, in this window's main frame, may also write
-  // the clipboard (its copy buttons); it never reads it, and each request is
-  // decided again, so a server switch withdraws it at once.
+  // the clipboard (its copy buttons), and use the microphone once the person
+  // allowed it (askRemoteMicrophone); it never reads the clipboard, and each
+  // request is decided again, so a server switch withdraws it at once.
   appPermissions = appPermissionHandlers({
     rendererOrigin,
     mainContents: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null),
     microphoneOrigins: () => [bundledOrigin(environmentsState)],
     activeRemoteOrigin: () => activeEnvironment(environmentsState)?.origin ?? null,
+    activeRemoteMicrophone: () => activeEnvironment(environmentsState)?.microphone === true,
+    askRemoteMicrophone,
   });
   session.defaultSession.setPermissionRequestHandler(appPermissions.request);
   session.defaultSession.setPermissionCheckHandler(appPermissions.check);
@@ -4307,6 +4419,9 @@ app.whenReady().then(async () => {
   // by itself; only "Restart to update", the person's click, installs
   startUpdater();
   refreshApplicationMenu();
+  openWindowForLink = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) createWindow();
+  };
   app.on("activate", () => {
     if (desktopTray?.show()) return;
     // the window the red button hid (macOS) comes back as it was

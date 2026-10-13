@@ -124,6 +124,14 @@ describe("thread control placement", () => {
     expect(markup).not.toContain("<button");
     expect(renderToStaticMarkup(createElement(ErrorRow, { message: "Network timeout", onRetry: () => {} }))).toContain("<button");
   });
+  it("draws Retry and the next action on the 28px control step", () => {
+    const retry = renderToStaticMarkup(createElement(ErrorRow, { message: "Network timeout", onRetry: () => {} }));
+    const action = renderToStaticMarkup(createElement(ErrorRow, { message: "Network timeout", action: { label: "Open", onClick: () => {} } }));
+    for (const markup of [retry, action]) {
+      expect(markup).toContain('class="ui-button ui-button-md ');
+      expect(markup).not.toContain("text-[12.5px]");
+    }
+  });
   it("directs ChatGPT plan limits to usage settings rather than repeatedly retrying", () => {
     const markup = renderToStaticMarkup(createElement(ErrorRow, { message: "ChatGPT plan usage limit reached (subscription_sharing_usage_limit_exceeded)", onRetry: () => {} }));
     expect(markup).toContain("Manage usage");
@@ -159,6 +167,17 @@ describe("thread control placement", () => {
       expect(row).not.toContain("isn&#x27;t signed in");
       expect(activityPreview(update, engine)).toBe("Claude Code 2.1.268 does not support this model");
     }
+  });
+  it("opens a failed turn with a technical cause on one plain line, the engine's words under Details", () => {
+    const raw = 'API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}';
+    const markup = renderToStaticMarkup(createElement(FailedTurnRow, { tool: { name: `error: ${raw}`, ok: false }, engine: undefined, onRetry: () => {} }));
+    expect(markup).toContain(">The service is busy right now. Try again in a moment.</span>");
+    expect(markup).toMatch(/<summary[^>]*>Details<\/summary><p[^>]*>API Error: 529/);
+    expect(markup).toContain(" Retry</button>");
+    // a cause already written for a person stays the headline, with nothing to expand
+    const plain = renderToStaticMarkup(createElement(FailedTurnRow, { tool: { name: "error: no activity for 10 minutes — the turn was stopped", ok: false }, engine: undefined }));
+    expect(plain).toContain(">no activity for 10 minutes — the turn was stopped</span>");
+    expect(plain).not.toContain(">Details</summary>");
   });
   it("offers to update Claude Code for a too-old install, or hands over the command", () => {
     const claude = { instanceId: "claude", driverKind: "claudeAgent", displayName: "Claude", snapshot: { state: "available", authenticated: true } } as InstanceInfo;

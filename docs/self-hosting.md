@@ -332,7 +332,7 @@ Like `opencode` in a terminal, it reads provider keys from its environment
 (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`,
 `KIMI_API_KEY`, `MOONSHOT_API_KEY`, `MINIMAX_API_KEY`) and offers those
 providers' models, billed to that key. It does so only where the server's
-environment is one person's own: never on an OMB Cloud home, a hosted team
+environment is one person's own: never on MausBot Cloud, a hosted team
 workspace, an organisation-managed desktop, or a server whose sign-in list
 lets other people in (users, more than one admin, or a whole domain).
 Providers added with `opencode auth login` work everywhere.
@@ -1562,8 +1562,11 @@ docker compose -f deploy/docker-compose.yml pull omb && docker compose -f deploy
 git pull && pnpm install && sudo systemctl restart openmausbot          # from source
 ```
 
-Routines and queued work survive restarts; in-flight turns do not, so
-update between runs.
+Routines and queued work survive restarts. A teammate turn in flight runs
+again once at the next start, told to check what it already did, and the bot
+that asked for it is told. A person's own turn and a running routine are not
+run again: the conversation says it was interrupted. Update between runs
+where you can.
 
 Stop the server before a filesystem backup so SQLite is copied consistently.
 Back up the entire app data directory and, separately, the service user's

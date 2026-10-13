@@ -19,11 +19,12 @@ import { CIRCLE_BUTTON } from "@/lib/circle-button";
 
 const bot = { id: "bot-1", name: "Maily", title: "", description: "Sorts the inbox.", messages: [], tasks: [] } as never as Bot;
 // The provider reads window.ogb.platform on render, so each case sees its stub.
-const header = () => {
+const headerTag = () => {
   const html = renderToStaticMarkup(createElement(DesktopCapabilitiesProvider, null, createElement(BotSettingsDialog, { bot })));
   // The top bar holds only the controls; the name sits under the avatar.
-  return html.match(/<div class="(content-topbar [^"]*)"/)?.[1] ?? "";
+  return html.match(/<div[^>]*class="content-topbar [^"]*"[^>]*>/)?.[0] ?? "";
 };
+const header = () => headerTag().match(/class="([^"]*)"/)?.[1] ?? "";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -39,6 +40,16 @@ describe("bot settings caption inset", () => {
     expect(classes).toContain("h-12");
     expect(classes).not.toContain("pt-[28px]");
   });
+
+  it.each([["darwin", true], ["win32", true], ["linux", false]] as const)(
+    "makes the header a window drag region on %s: %s",
+    (platform, drags) => {
+      vi.stubGlobal("window", { ogb: { platform } });
+      const tag = headerTag();
+      expect(tag.includes("data-window-drag")).toBe(drags);
+      expect(tag.includes("-webkit-app-region:drag")).toBe(drags);
+    },
+  );
 });
 
 describe("bot panel header and tabs", () => {

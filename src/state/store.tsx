@@ -18,6 +18,7 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import type { BotVisibility, CardAnswerer, CloudBackend, ConnectorToolGrant, EffortLevel, InstalledPackageMetadata, LiveCallState, LiveSettings, ServerFrame, GroupThreadUsage, SteerQueueReason, VoiceCallMark } from "../../shared/wire";
+import { DATA_ROUTES, type DataSheet, type DataTable } from "../../shared/data-surface";
 import type { TurnDigest } from "../../shared/digest";
 import type { MessageReaction } from "../../shared/reactions";
 import type { AutoModelRecord } from "../../shared/auto-model";
@@ -52,10 +53,12 @@ import { terminalRequestBehavior } from "../../shared/terminal-request";
 import type { Routine, RoutineInput, RoutineRun, RoutineRunStatusFilter } from "@/lib/routines";
 import type { WebhookAttempt, WebhookIngressStatus, WebhookTrigger } from "@/lib/webhooks";
 import { botShowsUnread } from "@/lib/bot-unread";
+import { firstUnreadMessageId, threadOpensUnread, threadReadCursor } from "@/lib/unread-divider";
 import type { ComputerStart } from "@/lib/computer-start";
 import { answerResponse, dismissResponse } from "@/lib/card-answer";
 import { currentCall, voiceCallId } from "@/lib/call";
 import { approvalWithdrawKey, showNotification, withdrawNotification, type NotificationTarget } from "@/lib/notify";
+import { readLastConversation, rememberConversation } from "@/lib/last-conversation";
 import { speaker } from "@/lib/tts";
 import { roleProfilePatch, type BotRole } from "@/lib/bot-roles";
 import { t } from "@/lib/i18n";
@@ -283,6 +286,9 @@ export interface Message {
   /** Auto: the model this delivered work ran on (the delegation card and the
    * worker's activity row). */
   autoModel?: AutoModelRecord;
+  /** coordinate_bots delivery identity, as stored: the request a teammate
+   * sent into this thread, or the result it reported back. */
+  roomRequest?: { id: string; phase: "request" | "result" };
   /** Emoji reactions, one entry per emoji with who put it there
    * (shared/reactions.ts; read through normalizeReactions). */
   reactions?: MessageReaction[];
@@ -292,6 +298,7 @@ export interface Message {
   threadRef?: { botId: string; threadId: string; title: string; gone?: boolean };
   /** A parallel task this line belongs to (shared/parallel-tasks.ts). */
   parallelTask?: ParallelTaskRef;
+  dataResult?: import("../../shared/wire").WireMessage["dataResult"];
   /** sent while the bot was mid-turn; auto-sends when the turn settles.
    * Rendered only while the bot is busy, so a flag stranded by a server
    * restart never shows a promise nothing will keep. */
@@ -324,6 +331,9 @@ export interface Group {
   unread: boolean;
   /** Kept in the home's pinned row, like a bot. Only true is a pin. */
   pinned?: boolean;
+  /** The newest message on screen the last time the person read this
+   * conversation. The New divider goes after it. */
+  lastReadMessageId?: string;
   createdAt: number;
   /** auto-created bot⇄bot channel (ask_bot exchanges mirror here) */
   dm?: boolean;
@@ -397,6 +407,10 @@ export interface GroupTask {
   unread?: boolean;
   /** A person conversation: the thread it was before threads ("General"). */
   general?: true;
+  /** Whether a turn is actively running in this thread. */
+  working?: boolean;
+  /** The member bot currently speaking or generating in this thread, if any. */
+  busyBotId?: string | null;
 }
 
 export interface ModelSelection {
@@ -448,6 +462,9 @@ export interface Task {
    * readout anchors here so it survives thread switches. Absent while idle. */
   turnStartedAt?: number;
   unread?: boolean;
+  /** The newest message on screen the last time the person read this
+   * conversation. The New divider goes after it. */
+  lastReadMessageId?: string;
   pinnedMessageId?: string;
   /** where this conversation works, when pinned: by the person from the
    * composer, or by its first Auto turn to the place it reached. Wins over
@@ -750,6 +767,15 @@ function rewindThreadUpdatedAt(state: AppState, threadId: string, messages: { at
   };
 }
 
+/** The New divider for a conversation being opened. One that opens unread
+ * gets a fresh one; opening the same conversation again keeps its divider,
+ * and any other conversation has none. */
+function openedUnreadDivider(state: AppState, threadId: string, unread: boolean, messages: readonly Message[], lastReadMessageId?: string): AppState["unreadDivider"] {
+  if (!unread) return state.unreadDivider?.threadId === threadId ? state.unreadDivider : null;
+  const messageId = firstUnreadMessageId(messages, lastReadMessageId);
+  return messageId ? { threadId, messageId } : null;
+}
+
 /** The visible conversation: walk parentId links from the active leaf back
  * to the root. Falls back to the flat list for pre-branching payloads. */
 export function visibleMessages(bot: Pick<Bot, "messages" | "activeLeafId">): Message[] {
@@ -771,6 +797,7 @@ export interface ConfigStatus {
   xai?: { configured: boolean };
   mistral?: { configured: boolean };
   cerebras?: { configured: boolean };
+  groq?: { configured: boolean };
   /** `everyClaudeBot`: the key runs every Claude bot, not only "Claude (API key)". */
   anthropic?: { configured: boolean; everyClaudeBot?: boolean };
   openai?: { configured: boolean };
@@ -950,7 +977,7 @@ export interface BrowserProfile {
 // Settings shows (a saved key's Test button used to vanish that way).
 export type ConfigStatusFrame = Pick<
   ConfigStatus,
-  "xai" | "mistral" | "cerebras" | "anthropic" | "openai" | "openrouter" | "openaiCompat" | "fleet" | "composio" | "box" | "vps" | "rooms" | "mcp" | "threads" | "automaticRecovery" | "localVm" | "opencodeGo" | "tts" | "decider" | "imageGen" | "live" | "profile" | "language" | "features" | "onboarding" | "browserEngine" | "browserProfiles" | "edition" | "budgets" | "billing" | "managedPolicy" | "viewer" | "allowedEngines"
+  "xai" | "mistral" | "cerebras" | "groq" | "anthropic" | "openai" | "openrouter" | "openaiCompat" | "fleet" | "composio" | "box" | "vps" | "rooms" | "mcp" | "threads" | "automaticRecovery" | "localVm" | "opencodeGo" | "tts" | "decider" | "imageGen" | "live" | "profile" | "language" | "features" | "onboarding" | "browserEngine" | "browserProfiles" | "edition" | "budgets" | "billing" | "managedPolicy" | "viewer" | "allowedEngines"
 >;
 
 export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
@@ -958,6 +985,7 @@ export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
     xai: frame.xai,
     mistral: frame.mistral,
     cerebras: frame.cerebras,
+    groq: frame.groq,
     anthropic: frame.anthropic,
     openai: frame.openai,
     openrouter: frame.openrouter,
@@ -1241,13 +1269,29 @@ export interface AppState {
    * (the bot's hands are refused server-side); helpReason = the bot's open
    * plea for the person to take over */
   computerControl: Record<string, { held: boolean; helpReason: string | null }>;
+  /** Each bot's data sheet (cards and loaded tables, never rows), loaded
+   * when its Data tab first opens and replaced whole by every `data` frame.
+   * The grid pages rows itself, so a sheet stays small. */
+  dataSheets: Record<string, DataSheet>;
+  /** The bot's table catalog as GET /data last reported it: DuckDB's own
+   * list, not a copy on the sheet, so a load and a CREATE agree. */
+  dataTables: Record<string, DataTable[]>;
+  dataResultFocus: { botId: string; id: string; requestId: number; consumed: boolean } | null;
+  /** Only the currently mounted Data view, not the last Open in Data request. */
+  dataView: import("@/lib/composer-attachments").DataViewContext | null;
   /** a search hit to scroll to once its thread is on screen; nonce lets the
    * same message be focused twice in a row */
   focusMessage: { threadId: string; messageId: string; matchText?: string; nonce: number; consumed: boolean } | null;
+  /** The New divider: the first message of the open conversation that came
+   * in while the person was away. Taken from its unread flag when it opens,
+   * so it holds still while that conversation stays open. */
+  unreadDivider: { threadId: string; messageId: string } | null;
   connected: boolean;
+  /** Bots and rooms have loaded once: a link opened at launch can resolve. */
+  hydrated?: true;
   error: string | null;
   /** a quiet, non-error line above the transcript; clears itself */
-  notice: { kind: "thread-gone"; botName: string | null } | null;
+  notice: { kind: "thread-gone" | "bot-gone"; botName: string | null } | null;
   /** a thread the person asked to open (chip or #Title link): the sidebar
    * expands its bot and scrolls the row into view once it is current */
   revealThread: { threadId: string; nonce: number } | null;
@@ -1364,6 +1408,8 @@ export type Action =
       sections?: string[];
       computerControl: Record<string, { held: boolean; helpReason: string | null }>;
       botQueuedMessages?: AppState["pendingQueued"];
+      /** the conversation open on this device last launch, for the first hydrate */
+      resumeId?: string;
     }
   | { type: "botQueues"; queues: AppState["pendingQueued"] }
   | { type: "sections"; sections: string[] }
@@ -1447,6 +1493,8 @@ export type Action =
       /** while the conversation works: join, run in parallel or wait
        * (shared/parallel-tasks.ts); absent = join (the server default) */
       busyMode?: BusySendMode;
+      /** The Data result the person is viewing, for the model only; never part of the text. */
+      dataContext?: import("../../shared/data-context").DataContext;
       onError?: () => void;
       /** the server took the message (its receipt came back) */
       onSent?: () => void;
@@ -1488,7 +1536,7 @@ export type Action =
       /** Local UI recovery hook for voice flows. Never sent to the server. */
       onError?: (message: string) => void;
     }
-  | { type: "newTask"; botId: string; projectId?: string }
+  | { type: "newTask"; botId: string; projectId?: string; cwd?: string; onCreated?: () => void; onError?: (message: string) => void }
   | { type: "switchTask"; botId: string; threadId: string }
   | { type: "taskSwitched"; bot: Bot }
   | { type: "renameTask"; botId: string; threadId: string; title: string }
@@ -1522,6 +1570,10 @@ export type Action =
   | { type: "optimisticMessageRemoved"; threadId: string; sendId: string; restoreLeafId?: string | null }
   | { type: "computerStart"; botId: string; start: ComputerStart | null }
   | { type: "computerControl"; botId: string; held: boolean; helpReason: string | null }
+  /** A whole sheet from the server: a `data` frame or the first GET. */
+  | { type: "dataSheet"; sheet: DataSheet; tables?: DataTable[] }
+  | { type: "dataView"; view: AppState["dataView"] }
+  | { type: "loadDataSheet"; botId: string; onError?: (message: string) => void }
   | { type: "modelVariantRuntime"; event: RuntimeEvent }
   | { type: "setModel"; botId: string; selection: ModelSelection; threadId?: string; updateBotDefault?: boolean }
   | { type: "interrupt"; botId: string; threadId?: string; expectedUtteranceId?: string; onError?: () => void }
@@ -1541,10 +1593,13 @@ export type Action =
   | { type: "toggleTriggers"; open?: boolean }
   | { type: "toggleNewBot"; open?: boolean }
   | { type: "toggleComputer"; open?: boolean }
+  | { type: "openDataResult"; botId: string; cardId: string }
+  | { type: "dataResultFocusConsumed"; requestId: number }
   | { type: "toggleInspector"; open?: boolean }
   | { type: "toggleActivity"; open?: boolean }
   | { type: "focusMessage"; threadId: string; messageId: string; matchText?: string }
   | { type: "focusMessageConsumed"; nonce: number }
+  | { type: "unreadDividerDone"; threadId: string }
   | { type: "toggleAppSettings"; open?: boolean; section?: AppSettingsSection; subPage?: string; phonePairing?: boolean }
   | { type: "toggleAchievements"; open?: boolean }
   | { type: "openBotCatalog"; section?: "templates"; installUrl?: string }
@@ -1882,8 +1937,13 @@ export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "hydrate": {
       const known = (id: string) => action.bots.some((b) => b.id === id) || action.groups.some((g) => g.id === id);
+      const resume = action.resumeId;
+      // A remembered conversation only counts while it still resolves to a
+      // visible bot or a room; a deleted or hidden one falls back as before.
+      const resumed =
+        resume && (action.bots.some((b) => b.id === resume && !b.hidden) || action.groups.some((g) => g.id === resume)) ? resume : "";
       const selectedId =
-        state.selectedId && known(state.selectedId) ? state.selectedId : (action.bots[0]?.id ?? action.groups.find((g) => !g.dm)?.id ?? "");
+        state.selectedId && known(state.selectedId) ? state.selectedId : resumed || (action.bots[0]?.id ?? action.groups.find((g) => !g.dm)?.id ?? "");
       const hydrated = {
         ...state,
         bots: action.bots.map((bot) => {
@@ -1897,6 +1957,7 @@ export function reducer(state: AppState, action: Action): AppState {
         sections: action.sections ?? [],
         computerControl: action.computerControl,
         selectedId,
+        hydrated: true as const,
         backgroundThreadEvents: {},
         loadingOlder: {},
         transcriptGeneration: {},
@@ -2077,21 +2138,27 @@ export function reducer(state: AppState, action: Action): AppState {
     case "select": {
       const leaving = Boolean(state.threadReturn) && action.id !== state.selectedId && action.id !== state.threadReturn?.ownerId;
       const base = leaving ? { ...state, threadReturn: null } : state;
-      if (base.groups.some((g) => g.id === action.id)) {
+      const room = base.groups.find((g) => g.id === action.id);
+      if (room) {
         return clearThreadReturnIfHome({
           ...base,
           ...panelFollowsSelection(base, action.id),
+          unreadDivider: openedUnreadDivider(base, room.threadId, Boolean(room.unread), room.messages, room.lastReadMessageId),
           activeView: "chat",
           selectedId: action.id,
           botSettingsSection: action.id !== base.selectedId ? "overview" : base.botSettingsSection,
           groups: base.groups.map((g) => (g.id === action.id ? { ...g, unread: false } : g)),
         });
       }
+      const opened = base.bots.find((b) => b.id === action.id);
       return clearThreadReturnIfHome(updateBot(
         withMascotMotion(
           {
             ...base,
             ...panelFollowsSelection(base, action.id),
+            unreadDivider: opened
+              ? openedUnreadDivider(base, opened.threadId, threadOpensUnread(opened), visibleMessages(opened), threadReadCursor(opened))
+              : base.unreadDivider,
             activeView: "chat",
             selectedId: action.id,
             botSettingsSection: action.id !== base.selectedId ? "overview" : base.botSettingsSection,
@@ -2524,6 +2591,18 @@ export function reducer(state: AppState, action: Action): AppState {
     case "focusMessageConsumed":
       if (!state.focusMessage || state.focusMessage.nonce !== action.nonce) return state;
       return { ...state, focusMessage: { ...state.focusMessage, consumed: true } };
+    case "unreadDividerDone":
+      return state.unreadDivider?.threadId === action.threadId ? { ...state, unreadDivider: null } : state;
+    case "openDataResult": {
+      if (!state.bots.some((bot) => bot.id === action.botId)) return state;
+      // The same path as clicking the bot, so unread and the read cursor
+      // settle the way `select` does; then the Computer panel opens on it.
+      const selected = reducer(reducer(state, { type: "select", id: action.botId }), { type: "toggleComputer", open: true });
+      return { ...selected, dataResultFocus: { botId: action.botId, id: action.cardId, requestId: (state.dataResultFocus?.requestId ?? 0) + 1, consumed: false } };
+    }
+    case "dataResultFocusConsumed":
+      return state.dataResultFocus?.requestId === action.requestId
+        ? { ...state, dataResultFocus: { ...state.dataResultFocus, consumed: true } } : state;
     case "toggleComputer": {
       const open = action.open ?? !state.computerOpen;
       return {
@@ -2826,7 +2905,9 @@ export function reducer(state: AppState, action: Action): AppState {
     case "regenerateTaskTitle":
       return state;
     case "newTask":
-      return { ...state, selectedId: action.botId, activeView: "chat" };
+      // A chosen folder may fail validation. Keep the conversation beneath
+      // its dialog in place until the server confirms the new thread.
+      return action.cwd !== undefined ? state : { ...state, selectedId: action.botId, activeView: "chat" };
     case "switchTask": {
       // Older background frames are already represented by the next server
       // snapshot. Only frames racing that request need replaying over it.
@@ -2925,6 +3006,12 @@ export function reducer(state: AppState, action: Action): AppState {
       for (const frame of state.backgroundThreadEvents[action.bot.threadId] ?? []) switched = reducer(switched, frame);
       const { [action.bot.threadId]: _settled, ...backgroundThreadEvents } = switched.backgroundThreadEvents;
       switched = { ...switched, backgroundThreadEvents };
+      // Only the conversation on screen draws a divider; a bot in the
+      // background moving to another thread leaves it alone.
+      const opened = switched.bots.find((bot) => bot.id === action.bot.id);
+      if (opened && opened.id === switched.selectedId) {
+        switched = { ...switched, unreadDivider: openedUnreadDivider(switched, opened.threadId, threadOpensUnread(opened), visibleMessages(opened), threadReadCursor(opened)) };
+      }
       return clearThreadReturnIfHome(reconcileModelVariantSessions(reconcileSnapshotQueues(switched, [action.bot])));
     }
     case "newBot":
@@ -2951,13 +3038,22 @@ export function reducer(state: AppState, action: Action): AppState {
     case "clearRoutineRuns":
     case "refreshTaskPermissions":
     case "followBotModel":
+    case "loadDataSheet":
       return state;
+    case "dataSheet":
+      return {
+        ...state,
+        dataSheets: { ...state.dataSheets, [action.sheet.botId]: action.sheet },
+        ...(action.tables ? { dataTables: { ...state.dataTables, [action.sheet.botId]: action.tables } } : {}),
+      };
+    case "dataView":
+      return { ...state, dataView: action.view };
     case "sendGroup": {
       if (!action.sendId) return state;
       const group = state.groups.find((candidate) => candidate.id === action.groupId);
-      const threadId = action.threadId ?? group?.threadId;
-      if (!group || threadId !== group.threadId) return state;
-      if (group.messages.some((message) => message.sendId === action.sendId)) return state;
+      if (!group) return state;
+      const threadId: string = action.threadId ?? group.threadId;
+      if (threadId === group.threadId && group.messages.some((message) => message.sendId === action.sendId)) return state;
       const message = optimisticUserMessage(
         action.text,
         action.sendId,
@@ -2965,14 +3061,33 @@ export function reducer(state: AppState, action: Action): AppState {
         null,
         action.mode ?? "chat",
       );
-      return bumpThreadUpdatedAt({
-        ...state,
-        groups: state.groups.map((candidate) => candidate.id === group.id
+      const stamped = bumpThreadUpdatedAt(state, threadId, message.at);
+      if (threadId !== group.threadId) return stamped;
+      return {
+        ...stamped,
+        groups: stamped.groups.map((candidate) => candidate.id === group.id
           ? { ...candidate, messages: [...candidate.messages, message] }
           : candidate),
-      }, threadId, message.at);
+      };
     }
   }
+}
+
+/** GET sheet answers with the sheet itself or wrapped as `{ sheet }`; an
+ * empty answer (a bot that has never used data) is an empty sheet. */
+/** GET /data answers `{ sheet, tables }`; a `data` frame carries only the sheet. */
+export function dataTablesFromResponse(body: unknown): DataTable[] {
+  const tables = body && typeof body === "object" && "tables" in body ? (body as { tables: unknown }).tables : undefined;
+  return Array.isArray(tables) ? (tables as DataTable[]).filter((table) => table && typeof table.name === "string") : [];
+}
+
+export function dataSheetFromResponse(body: unknown, botId: string): DataSheet {
+  const candidate = body && typeof body === "object" && "sheet" in body ? (body as { sheet: unknown }).sheet : body;
+  if (candidate && typeof candidate === "object" && Array.isArray((candidate as DataSheet).cards)) {
+    const sheet = candidate as DataSheet;
+    return { ...sheet, botId: sheet.botId || botId, sources: Array.isArray(sheet.sources) ? sheet.sources : [] };
+  }
+  return { version: 1, botId, cards: [], sources: [], updatedAt: new Date(0).toISOString() };
 }
 
 export const initialState: AppState = {
@@ -3027,7 +3142,12 @@ export const initialState: AppState = {
   computerStarts: {},
   deletingBots: {},
   computerControl: {},
+  dataSheets: {},
+  dataTables: {},
+  dataResultFocus: null,
+  dataView: null,
   focusMessage: null,
+  unreadDivider: null,
   connected: false,
   error: null,
   notice: null,
@@ -3122,7 +3242,12 @@ export async function api<T = any>(path: string, init?: RequestInit & { timeoutM
         : AbortSignal.timeout(timeoutMs),
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(permissionMissingMessage(body) ?? body.error ?? `${res.status} ${res.statusText}`, res.status, body);
+  if (!res.ok) {
+    const error = body?.error;
+    const message = permissionMissingMessage(body)
+      ?? (typeof error === "string" ? error : typeof error?.message === "string" ? error.message : `${res.status} ${res.statusText}`);
+    throw new ApiError(message, res.status, body);
+  }
   return body;
 }
 
@@ -3460,6 +3585,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     rawDispatch({ type: "error", message: null });
   }, []);
   useChatErrorClear(state.error, clearChatError);
+  // Every selection path lands on state.selectedId, so one effect is the
+  // whole remember; an empty selection must never overwrite it.
+  useEffect(() => {
+    if (state.selectedId) rememberConversation(state.selectedId);
+  }, [state.selectedId]);
   const botPatchQueue = useMemo(
     () =>
       createBotPatchQueue({
@@ -3488,6 +3618,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const dispatch = useMemo(() => {
     const navigation = new Map<string, number>();
+    let selectionRevision = 0;
     const olderPagesInFlight = new Set<string>();
     let creatingBot = false;
     const showError = (e: unknown) => {
@@ -3596,6 +3727,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
 
     const wrapped: React.Dispatch<Action> = (action) => {
+      // Deferred folder creation may select its bot only while it is still
+      // the latest navigation intent, even if the person went away and back.
+      if (["select", "newTask", "switchTask", "newGroupTask", "switchGroupTask", "showChat", "showRoutines", "showTeamMap"].includes(action.type)) selectionRevision++;
       // Pin before any await or optimistic state change, including legacy
       // callers such as keyboard shortcuts and voice controls.
       action = pinBotThreadAction(action, stateRef.current.bots);
@@ -3728,6 +3862,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "cancelRoutineRun":
           api(`/api/routine-runs/${action.runId}/cancel`, { method: "POST" }).catch(showError);
           break;
+        // The Data tab's sheet. The panel runs and cancels SQL itself (it
+        // owns the request to abort); those answer through the server's
+        // `data` frame (the whole sheet), so every window sees the same
+        // cards. A panel-local onError keeps a server without the surface
+        // from raising the app-wide error line.
+        case "loadDataSheet":
+          api(DATA_ROUTES.sheet(action.botId))
+            .then((body) => rawDispatch({ type: "dataSheet", sheet: dataSheetFromResponse(body, action.botId), tables: dataTablesFromResponse(body) }))
+            .catch((error) => (action.onError ?? showError)(error instanceof Error ? error.message : String(error)));
+          break;
         case "markRoutineRunSeen":
           api(`/api/routine-runs/${action.runId}/seen`, { method: "POST" }).catch(showError);
           break;
@@ -3810,7 +3954,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           void waitForExecutionSettings(botBeforeSend ? [botBeforeSend] : [], threadId)
             .then(() => api(`/api/bots/${action.botId}/messages`, {
                 method: "POST",
-                body: JSON.stringify({ text: action.text, replyToId: action.replyToId, threadId, sendId, ...(voiceCall ? { voiceCall } : {}), ...(busyMode ? { busyMode } : {}) }),
+                body: JSON.stringify({ text: action.text, replyToId: action.replyToId, threadId, sendId, ...(voiceCall ? { voiceCall } : {}), ...(busyMode ? { busyMode } : {}), ...(action.dataContext ? { dataContext: action.dataContext } : {}) }),
               }))
             .then((body) => {
               action.onSent?.();
@@ -4058,18 +4202,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             () => {},
           );
           break;
+        case "openDataResult":
         case "select": {
-          const bot = stateRef.current.bots.find((b) => b.id === action.id);
-          const group = stateRef.current.groups.find((g) => g.id === action.id);
+          const id = action.type === "select" ? action.id : action.botId;
+          const bot = stateRef.current.bots.find((b) => b.id === id);
+          const group = stateRef.current.groups.find((g) => g.id === id);
           if (bot?.unread) {
-            api(`/api/bots/${action.id}/read`, { method: "POST", body: JSON.stringify({ threadId: bot.threadId }) }).catch(() => {});
+            api(`/api/bots/${id}/read`, { method: "POST", body: JSON.stringify({ threadId: bot.threadId }) }).catch(() => {});
           } else if (group?.peopleDm) {
             // per thread: the one open, or the whole conversation when only
             // the conversation itself was marked unread
             const read = peopleDmReadTarget(group);
-            if (read) api(`/api/groups/${action.id}/read`, { method: "POST", body: JSON.stringify(read) }).catch(() => {});
+            if (read) api(`/api/groups/${id}/read`, { method: "POST", body: JSON.stringify(read) }).catch(() => {});
           } else if (group?.unread) {
-            api(`/api/groups/${action.id}/read`, { method: "POST" }).catch(() => {});
+            api(`/api/groups/${id}/read`, { method: "POST" }).catch(() => {});
           }
           break;
         }
@@ -4264,18 +4410,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }
           const revision = (navigation.get(action.botId) ?? 0) + 1;
           navigation.set(action.botId, revision);
+          const selectedAtStart = selectionRevision;
           const ready = action.type === "newTask"
             ? botPatchQueue.flush(action.botId)
             : Promise.resolve();
           // A new task's thread is empty, so only the switch needs a page.
           void ready.then(() => api<{ bot: Bot }>(action.type === "newTask"
             ? `/api/bots/${action.botId}/tasks`
-            : `/api/bots/${action.botId}/tasks/${action.threadId}?messages=${MESSAGE_PAGE_SIZE}`, { method: "POST", body: JSON.stringify(action.type === "newTask" ? { projectId: action.projectId } : {}) }))
+            : `/api/bots/${action.botId}/tasks/${action.threadId}?messages=${MESSAGE_PAGE_SIZE}`, { method: "POST", body: JSON.stringify(action.type === "newTask" ? { projectId: action.projectId, cwd: action.cwd } : {}) }))
             .then((r) => {
+              if (action.type === "newTask") action.onCreated?.();
               if (!r?.bot || navigation.get(action.botId) !== revision) return;
+              const selectsAfterCreation = action.type === "newTask" && action.cwd !== undefined;
+              if (selectsAfterCreation && selectionRevision !== selectedAtStart) return;
               dispatch({ type: "taskSwitched", bot: r.bot });
+              if (selectsAfterCreation) rawDispatch({ type: "select", id: action.botId });
             })
-            .catch(showError);
+            .catch((error) => {
+              if (action.type === "newTask" && action.onError) action.onError(error instanceof Error ? error.message : String(error));
+              else showError(error);
+            });
           break;
         }
         case "renameTask":
@@ -4493,6 +4647,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             sections: sections ?? [],
             computerControl: computerControl ?? {},
             botQueuedMessages,
+            resumeId: readLastConversation() ?? undefined,
           });
         });
       const peripherals = peripheralParts.map((part) => ({
@@ -4729,6 +4884,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             held: frame.held === true,
             helpReason: typeof frame.helpReason === "string" ? frame.helpReason : null,
           });
+          break;
+        case "data":
+          rawDispatch({ type: "dataSheet", sheet: frame.sheet });
           break;
         case "bot.deleted":
           botPatchQueue.cancel(frame.botId);

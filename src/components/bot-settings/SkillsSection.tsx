@@ -18,6 +18,7 @@ import { Switch } from "../SettingsPrimitives";
 import { inputCls } from "./field";
 import { PaneEmpty, PaneSection } from "./PaneSection";
 import { OrgSkillsCard } from "./OrgSkillsCard";
+import { WriteCommandCard } from "./WriteCommandCard";
 
 export interface ManagedSkill {
   name: string;
@@ -541,6 +542,8 @@ export function SkillsSection({ bot }: { bot: Bot }) {
         )}
         {error && <div role="alert" className="mt-2 text-[12px] text-danger">{error}</div>}
       </PaneSection>
+
+      {skillWrites && <WriteCommandCard bot={bot} taken={skills.map((skill) => skill.name)} onSaved={() => void refresh()} />}
 
       {skillWrites && <OrgSkillsCard bot={bot} onAdded={() => void refresh()} />}
 

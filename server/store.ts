@@ -149,7 +149,7 @@ export function toWireTask(task: TaskRecord, botModel: ModelSelection): WireTask
 
 const TASK_PATCH_FIELDS = [
   "title", "projectId", "modelSelection", "approvalMode", "autoApprove", "alwaysAllow",
-  "unread", "rewound", "archivedAt", "pinned", "pinnedMessageId", "resumeCursors", "lastInstanceId", "cwd",
+  "unread", "lastReadMessageId", "rewound", "archivedAt", "pinned", "pinnedMessageId", "resumeCursors", "lastInstanceId", "cwd",
   "routineRunId", "surface", "surfaceSource", "snoozedUntil", "appliedCompactionId", "contextSummaries", "contextFloor", "lastContextModel",
   "autoModel",
 ] as const satisfies readonly (keyof TaskRecord)[];
@@ -173,6 +173,11 @@ function persistedPin<T extends { pinned?: boolean }>(task: T): T {
 function redactBotAuthored<T extends Omit<Message, "id" | "at"> & { at?: number }>(message: T): T {
   if (message.role !== "bot") return message;
   const out = { ...message };
+  if (out.dataResult) out.dataResult = {
+    ...out.dataResult,
+    title: redactSecretsInText(out.dataResult.title),
+    ...(out.dataResult.sql === undefined ? {} : { sql: redactSecretsInText(out.dataResult.sql) }),
+  };
   if (typeof out.text === "string") out.text = redactSecretsInText(out.text);
   if (out.compaction) out.compaction = { ...out.compaction, summary: redactSecretsInText(out.compaction.summary) };
   if (out.tool?.name) {
@@ -1448,7 +1453,7 @@ export class Store {
     );
   }
 
-  patchGroup(id: string, patch: Partial<Pick<GroupRecord, "name" | "memberIds" | "humanIds" | "defaultResponder" | "bulletin" | "unread" | "pinned" | "busyBotId" | "cwd" | "pinnedMessageId" | "section" | "setupCompletedAt" | "setupSkippedAt" | "audienceFloor" | "installedPackage" | "createdBy" | "peopleDm" | "unreadFor" | "memoryEnabled" | "turnTimeoutMinutes" | "tasks" | "mentionAll">>): GroupRecord | null {
+  patchGroup(id: string, patch: Partial<Pick<GroupRecord, "name" | "memberIds" | "humanIds" | "defaultResponder" | "bulletin" | "unread" | "lastReadMessageId" | "pinned" | "busyBotId" | "cwd" | "pinnedMessageId" | "section" | "setupCompletedAt" | "setupSkippedAt" | "audienceFloor" | "installedPackage" | "createdBy" | "peopleDm" | "unreadFor" | "memoryEnabled" | "turnTimeoutMinutes" | "tasks" | "mentionAll">>): GroupRecord | null {
     const group = this.group(id);
     if (!group) return null;
     if (Object.prototype.hasOwnProperty.call(patch, "humanIds")) {
@@ -1944,7 +1949,7 @@ export class Store {
    * (same parent, new text) and becomes the active leaf. `sendId` is the
    * client's identity for this edit, so its instant bubble reconciles onto
    * the canonical message and a network retry cannot fork twice. */
-  branchMessage(threadId: string, sourceId: string, text: string, sendId?: string, sender?: Message["sender"]): Message | null {
+  branchMessage(threadId: string, sourceId: string, text: string, sendId?: string, sender?: Message["sender"], dataContext?: Message["dataContext"]): Message | null {
     const t = this.thread(threadId);
     const source = t.messages.find((m) => m.id === sourceId);
     if (!source) return null;
@@ -1958,6 +1963,7 @@ export class Store {
       replyToId: source.replyToId,
       ...(sendId ? { sendId } : {}),
       ...(sender ? { sender } : {}),
+      ...(dataContext ? { dataContext } : {}),
     };
     t.messages.push(full);
     t.activeLeafId = full.id;
@@ -2129,6 +2135,9 @@ export class Store {
           title: "", description: "", soul: "", notifications: true, color: COLORS[nextBots.length % COLORS.length], unread: false,
           resumeCursors: {}, createdAt, ...operation.fields, modelSelection,
           approvalMode: "auto", autoApprove: true, composio: false, approvePeerComms: false,
+          // No connector tools until someone grants them. An absent record
+          // would mean every tool once connected apps are turned on.
+          connectorTools: {},
           // A Primary Bot's new teammate is seen by exactly the Primary Bot's audience:
           // a restricted Primary Bot never creates a bot everyone sees.
           ...(chief.visibility && chief.visibility !== "everyone" ? { visibility: structuredClone(chief.visibility) } : {}),
@@ -3227,7 +3236,7 @@ export class Store {
    * model unless the caller hands it another one: a thread opened from
    * another of this bot's threads keeps the model a person picked there. */
   createTask(botId: string, title?: string, activate = true, projectId?: string, openedBy?: TaskOpenedBy, approvalMode?: "ask" | "full",
-    ownerPrincipalId?: string, modelSelection?: ModelSelection, hidden = false): TaskRecord | null {
+    ownerPrincipalId?: string, modelSelection?: ModelSelection, hidden = false, cwd?: string): TaskRecord | null {
     const bot = this.bot(botId);
     if (!bot) return null;
     if (projectId !== undefined && !this.project(botId, projectId)) return null;
@@ -3239,6 +3248,9 @@ export class Store {
       title: threadTitleFrom(title),
       createdAt,
       updatedAt: createdAt,
+      // Only a new task can receive an explicit working folder. The HTTP
+      // caller validates it; subsequent turns use the existing pin unchanged.
+      ...(cwd !== undefined ? { cwd } : {}),
       ...(projectId ? { projectId } : {}),
       ...(openedBy ? { openedBy: structuredClone(openedBy) } : {}),
       // Set with the task, never after: a thread is never briefly someone else's.

@@ -107,6 +107,7 @@ import {
 } from "@/lib/routines";
 import { api, openNotificationTarget, useStore, type Bot, type Group } from "@/state/store";
 import { viewerCanCreateBots } from "@/lib/viewer";
+import { RoutineScheduleNote } from "./RoutineScheduleNote";
 
 const HOUR_HEIGHT = 64;
 const DAY_CHIP_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
@@ -692,11 +693,7 @@ function EventEditor({
                   {kind === "routine" && <><option value="monthly">Monthly</option><option value="yearly">Yearly</option><option value="cron">Custom cron (advanced)</option></>}
                 </select>
               </div>
-              {kind === "routine" && (
-                <p className="text-[11px] leading-relaxed text-ink-secondary">
-                  Runs while Sagax is open on this computer — it cannot wake a sleeping Mac. A run missed by less than 12 hours still happens when the app is back; for 24/7, run Sagax on a VPS.
-                </p>
-              )}
+              {kind === "routine" && <RoutineScheduleNote />}
               {isCronChoice(recurrence) && kind === "routine" && cron && <CronScheduleFields choice={recurrence} value={cronDraft} onChange={(draft) => { setCronDraft(draft); setCronChanged(true); }} runs={cron.runs} error={cron.error} />}
               {recurrence === "custom" && (
                 <div className="flex flex-wrap gap-1.5">
