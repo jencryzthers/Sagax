@@ -46,7 +46,9 @@ import { z } from "zod";
 import { boundedContextText, selectReplay, DEFAULT_REBUILD_BYTES, MAX_SUMMARY_BYTES, type CompactionRecord } from "./context-rebuild.ts";
 import { draftSummary, foldPoint } from "./compaction-summary.ts";
 import { compactBudget, contextWindowFor, defaultCompactAt, nativeCompactionPoint, shouldCompact } from "./context-budget.ts";
-import { autoCompactWindow, resolveClaudeConfigDir } from "./drivers/claude.ts";
+import { autoCompactWindow, ClaudeDriver, resolveClaudeConfigDir } from "./drivers/claude.ts";
+import { claudeAccountLinked } from "./claude-account.ts";
+import { claudeActivityEvents, isClaudeComputerTool } from "./claude-activity.ts";
 import { provenRequestPerson, SharedComputers, sharedComputerOperation, sharedComputerRegistration } from "./shared-computers.ts";
 import { createUserComputerRouter } from "./user-computers.ts";
 import { SharedComputerControl } from "./shared-computer-control.ts";
@@ -737,6 +739,7 @@ import { OrgTeams } from "./org-teams.ts";
 import { keyVia, materializeEngineAccess, providersOfDriver, resolveEngineAccess, subscriptionDriver, turnPayer, type AccessPayer, type SubscriptionDriver, type EngineCredentialInput, type EngineCredentialPlan, type NoAccessCause, type TurnAccess } from "./engine-credentials.ts";
 import { configKeyPatch, engineKeyScope, engineKeyTarget, EngineKeyError, fileKeyConfigured, hermesProviderEnv, normalizeEngineKey, writeFileEngineKey } from "./engine-api-keys.ts";
 import { isLoginDriver, loginCliFor, PrincipalEngineLogins } from "./principal-engine-logins.ts";
+import { isLoginDriver, LOGIN_MARKER, loginCliFor, PrincipalEngineLogins } from "./principal-engine-logins.ts";
 import { createSectionChannelRoutes, migrationOwner, recordAccess, SectionChannels, sectionShareGrants } from "./section-channels.ts";
 import { createBotGrantRoutes, visibleGrants, wireGrants } from "./bot-grants.ts";
 import { createBotPerspicaxRoutes } from "./bot-perspicax.ts";
@@ -852,8 +855,8 @@ import { createDesktopAppearanceRoutes } from "./routes/desktop-appearance.ts";
 import { createDesktopAppearanceStore } from "./desktop-appearance.ts";
 import { achievementFrameAllowed, achievementRequestEvents, achievementSendEvents, activityEvents, createAchievementStore, routineRunEvents, type AchievementEvent } from "./achievements.ts";
 import { createAchievementRoutes } from "./routes/achievements.ts";
-import { lockedLookChange, masteryDelegationFacts, masteryFrameFacts, masteryRequestFacts, masterySendFacts, threadCensus, type LookRefusal, type PersonFact } from "./achievements-mastery.ts";
-import { grandfatheredFromBots } from "../shared/achievements.ts";
+import { lockedLookChange, masteryDelegationFacts, masteryFrameFacts, masteryRequestFacts, masterySendFacts, modelFamily, threadCensus, type LookRefusal, type PersonFact } from "./achievements-mastery.ts";
+import { grandfatheredFromBots, migratedCrabFromBots } from "../shared/achievements.ts";
 import { createBotMemoryRoutes } from "./routes/bot-memory.ts";
 import { createToolGrantRoutes } from "./routes/tool-grants.ts";
 import { createBotWorkspaceRoutes } from "./routes/bot-workspace.ts";
@@ -1109,12 +1112,13 @@ const viewerBotOverrideStore = createViewerBotOverrideStore(DATA_DIR);
 // Each person's achievements (server/achievements.ts). On first use a
 // person keeps every character and skin their bots already wear
 // (grandfathering): on a solo server every bot, on an organization server
-// the bots they own.
+// the bots they own. People already wearing the crab keep it once
+// (migratedCrab), without linking Claude and without replaying the first pass.
+const achievementBots = (person: string) => IDENTITY.kind === "perspicax" ? store.bots.filter((bot) => effectiveBotOwner(bot) === person) : store.bots;
 const achievementStore = createAchievementStore({
   dataDir: DATA_DIR,
-  grandfather: (person) => grandfatheredFromBots(
-    IDENTITY.kind === "perspicax" ? store.bots.filter((bot) => effectiveBotOwner(bot) === person) : store.bots,
-  ),
+  grandfather: (person) => grandfatheredFromBots(achievementBots(person)),
+  grandfatherCrab: (person) => migratedCrabFromBots(achievementBots(person)),
 });
 /** When each voice call was first heard from, for its length (bounded in achievementSendEvents). */
 const achievementCallStarts = new Map<string, number>();
@@ -1290,6 +1294,14 @@ function observeAchievementFrame(payload: Record<string, unknown>): void {
       /* a bonus: never fail the frame */
     }
   }
+  if (payload.kind === "runtime" && payload.event && typeof payload.event === "object") {
+    const event = payload.event as { type?: unknown; threadId?: unknown; provider?: unknown };
+    if (event.type === "turn.completed" && typeof event.threadId === "string") {
+      const model = masteryThreadModel(event.threadId) ?? (typeof event.provider === "string" ? event.provider : null);
+      const family = modelFamily(model);
+      recordAchievements(achievementThreadPerson(event.threadId), claudeActivityEvents({ family, kind: "turn", model }));
+    }
+  }
   if (payload.kind === "routine.run" && payload.run && typeof payload.run === "object") {
     const run = payload.run as { id?: unknown; status?: unknown; routineId?: unknown };
     const events = routineRunEvents(run);
@@ -1298,12 +1310,21 @@ function observeAchievementFrame(payload: Record<string, unknown>): void {
     const bot = routine ? store.bot(routine.botId) : undefined;
     const runAs: unknown = routine?.runAs;
     const runAsPerson = typeof runAs === "string" ? runAs : runAs && typeof runAs === "object" ? (runAs as { principalId?: string }).principalId : undefined;
-    recordAchievements(runAsPerson || (bot ? effectiveBotOwner(bot) : null), events);
+    const person = runAsPerson || (bot ? effectiveBotOwner(bot) : null);
+    recordAchievements(person, events);
+    const model = bot?.modelSelection?.model ?? null;
+    recordAchievements(person, claudeActivityEvents({ family: modelFamily(model), kind: "routine" }));
     return;
   }
   if ((payload.kind === "message" || payload.kind === "message.patch") && typeof payload.threadId === "string" && payload.message && typeof payload.message === "object") {
     const events = activityEvents(payload.message as Parameters<typeof activityEvents>[0]);
     if (events.length) recordAchievements(achievementThreadPerson(payload.threadId), events);
+    const family = modelFamily(masteryThreadModel(payload.threadId));
+    const extra: AchievementEvent[] = [];
+    if ((payload.message as { tool?: { parentItemId?: unknown } }).tool?.parentItemId) extra.push(...claudeActivityEvents({ family, kind: "subagent" }));
+    const toolName = typeof (payload.message as { tool?: { name?: unknown } }).tool?.name === "string" ? (payload.message as { tool: { name: string } }).tool.name : "";
+    if (isClaudeComputerTool(toolName)) extra.push(...claudeActivityEvents({ family, kind: "computer" }));
+    recordAchievements(achievementThreadPerson(payload.threadId), extra);
   }
 }
 /** A person's "where bots work" preference (shared/bot-workplace.ts). */
@@ -1517,7 +1538,22 @@ function customDomainStatus() {
     serverIpv4: DESKTOP_MANAGED ? null : customDomainIpv4(),
   };
 }
-const registry = new ProviderRegistry(BUILT_IN_DRIVERS);
+const registry = new ProviderRegistry(
+  IDENTITY.kind === "perspicax"
+    ? BUILT_IN_DRIVERS
+    : BUILT_IN_DRIVERS.map((driver) =>
+        driver.driverKind === "claudeAgent"
+          ? {
+              ...ClaudeDriver,
+              create: (input) =>
+                ClaudeDriver.create({
+                  ...input,
+                  onClaudeLinked: () => recordAchievements(localPrincipalId(), [{ type: "claude.linked" }]),
+                }),
+            }
+          : driver,
+      ),
+);
 // The approval gates below hand this their model selection — or a driver
 // view they already hold — and let the registry resolve the driver, instead
 // of each site unwrapping registry.cliTarget(...)?.driverKind itself.
@@ -5860,6 +5896,7 @@ const engineLogins = IDENTITY.kind === "perspicax"
       const cli = loginCliFor(entry.driver, configured, registry.cliTarget(instanceId)?.cli);
       return { driver: entry.driver, cli, environment: entry.environment ?? {} };
     },
+    onClaudeLinked: (person) => recordAchievements(person, [{ type: "claude.linked" }]),
   })
   : null;
 /** Slice 4: shared sidebar sections (section-channels.ts), organization mode. */
@@ -22379,6 +22416,18 @@ ROUTES.push(createAchievementRoutes({
   store: achievementStore,
   person: (auth) => actorPrincipalId(auth) || null,
   unlocked: (person, unlocked) => broadcast({ kind: "achievements", audience: person, unlocked }),
+  linked: (person) => {
+    if (IDENTITY.kind === "perspicax") {
+      const signedIn = engineLogins?.signedIn(person, "claudeAgent") === true;
+      const sub = principals.byId(person)?.subject?.iss === IDENTITY.issuer ? principals.byId(person)?.subject?.sub : undefined;
+      const held = sub ? perspicaxDirectory?.providerKeys(sub) ?? [] : [];
+      const myKey = providersOfDriver("claudeAgent").some((provider) => held.includes(provider));
+      return claudeAccountLinked({ signedIn, myKey, orgKey: false });
+    }
+    const dir = resolveClaudeConfigDir(undefined, process.env);
+    const loginMarker = existsSync(join(dir, LOGIN_MARKER));
+    return claudeAccountLinked({ loginMarker, anthropicConfigured: Boolean(cfg.anthropic?.key) });
+  },
 }));
 ROUTES.push(createMediaWidgetRoutes());
 ROUTES.push(createDesktopBridgeRoutes({
@@ -35858,9 +35907,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return startOrQueueDirectMessage(bot.id, threadId, text, replyTo, sendId, messageSender(auth), trigger, speakerFor(auth), voiceCall, undefined, dataContext);
         },
       );
-      recordAchievements(actorPrincipalId(auth), achievementSendEvents({ text, parallel: busyMode === "parallel", ...(voiceCall ? { voiceCall } : {}) }, achievementCallStarts, Date.now()));
+      const person = actorPrincipalId(auth);
+      recordAchievements(person, achievementSendEvents({ text, parallel: busyMode === "parallel", ...(voiceCall ? { voiceCall } : {}) }, achievementCallStarts, Date.now()));
+      if (voiceCall) {
+        const family = modelFamily(masteryThreadModel(threadId));
+        recordAchievements(person, claudeActivityEvents({ family, kind: "voice" }));
+      }
       // a correction into the running turn (steer, queued into it) counts for Prompter
-      recordMastery(masterySendFacts({ threadId, text, steered: busyMode === "steer" && (receipt as { queued?: unknown }).queued === true }, actorPrincipalId(auth)));
+      recordMastery(masterySendFacts({ threadId, text, steered: busyMode === "steer" && (receipt as { queued?: unknown }).queued === true }, person));
       return json(res, 202, receipt);
     }
 
@@ -38495,6 +38549,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (patch.profile && typeof patch.profile.email === "string") {
         if (patch.profile.email.trim()) principals.localOperator(patch.profile.email);
         else principals.setEmail(principals.localOperator().id, "");
+      }
+      if (IDENTITY.kind !== "perspicax" && typeof patch.anthropic?.key === "string" && patch.anthropic.key.trim()) {
+        recordAchievements(localPrincipalId(), [{ type: "claude.linked" }]);
       }
       for (const key of resetKeys) if (key) forgetKey(key);
       // Desktops already counting down move to the new window at once, in
