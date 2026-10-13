@@ -76,7 +76,8 @@ export function readLinkFile(path: string, expect: LinkExpectation): LinkFileRea
       : { ok: false, code: "not_a_file", reason: `the link file cannot be read (${code ?? "error"})` };
   }
   if (!stat.isFile()) return { ok: false, code: "not_a_file", reason: "the link file is not a regular file" };
-  if ((stat.mode & 0o007) !== 0) return { ok: false, code: "mode", reason: "the link file is readable by other users; make it 0640 or 0600" };
+  // Windows reports no POSIX permission bits (every file reads as 0666): the ACL of the folder guards the file there
+  if (process.platform !== "win32" && (stat.mode & 0o007) !== 0) return { ok: false, code: "mode", reason: "the link file is readable by other users; make it 0640 or 0600" };
   if (stat.size > LINK_FILE_MAX_BYTES) return { ok: false, code: "size", reason: "the link file is larger than 4 KiB" };
   let parsed: unknown;
   try {

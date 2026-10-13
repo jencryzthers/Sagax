@@ -228,7 +228,8 @@ describe("sandbox audit log", () => {
     expect(JSON.parse(lines[1]!).action).toBe("sandbox.pod.create");
     const link = join(dir, "linked.jsonl");
     symlinkSync(file, link);
-    expect(() => createSandboxAudit({ file: link })).toThrow();
+    // O_NOFOLLOW does not exist on Windows; the provisioner that writes this log runs on Linux only
+    if (process.platform !== "win32") expect(() => createSandboxAudit({ file: link })).toThrow();
     expect(() => createSandboxAudit({ file, shipUrl: "http://collector.example/in" })).toThrow(/https/);
     const posts: { url: string; body: string }[] = [];
     const shipped = createSandboxAudit({

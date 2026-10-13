@@ -525,6 +525,10 @@ it("keeps the person's request on work handed on after a card answer, and only w
   const afterCard = await briefed("CARD_ONE_BRIEF");
   expect(afterCard).toMatch(assignedBy(f.chief.name));
   expect(afterCard).toContain(personLineage("PERSON_CARD_ONE please tidy the team"));
+  // the hand-off returns to the chief: let the lead finish and the chief's
+  // resume end (idle alone passes while it waits for its teammate), or the next
+  // message lands in that resume instead of the turn that raises the second card
+  await f.wait();
 
   f.plan[f.chief.id] = propose("late-card", "CARD_TWO_BRIEF check the team");
   await f.send("PERSON_CARD_TWO please tidy the team again");

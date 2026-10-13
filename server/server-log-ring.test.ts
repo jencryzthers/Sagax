@@ -63,8 +63,8 @@ describe("the server log window on disk (2026-10-11)", () => {
     first.persistTo(dir);
     first.push("warn", "[engines] after");
     first.flush();
-    expect(statSync(dir).mode & 0o777).toBe(0o700);
-    expect(statSync(join(dir, "current.jsonl")).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") expect(statSync(dir).mode & 0o777).toBe(0o700);
+    if (process.platform !== "win32") expect(statSync(join(dir, "current.jsonl")).mode & 0o777).toBe(0o600);
 
     const second = new ServerLogRing({ now: () => 2 });
     second.push("error", "early in the next run");
