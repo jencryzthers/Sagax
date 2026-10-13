@@ -143,6 +143,7 @@ export type AutoVerdictSource =
   | "allow-rule"
   | "safety-hold"
   | "safety-read"
+  | "widget-approval"
   | "no-grant";
 
 export interface AutoVerdict {
@@ -172,6 +173,9 @@ export function autoVerdict(
     safetyHold?: boolean;
     /** Safety review: a read-only call may run without a card. */
     safetyAllow?: boolean;
+    /** The person allowed this exact ConnectWise change on a widget's
+     * approval card (server/cw-widget-actions.ts): one write, one record. */
+    widgetApproved?: boolean;
   },
 ): AutoVerdict {
   // A question is for a person, whatever channel it arrived on — and
@@ -184,6 +188,7 @@ export function autoVerdict(
   // saved Allow rule, and before a gate, so none of those answer it.
   if (context?.safetyHold) return { approve: null, source: "safety-hold" };
   if (context?.safetyAllow) return { approve: `approved ${tool} (read-only)`, source: "safety-read" };
+  if (context?.widgetApproved) return { approve: `approved ${tool} (approved in the ConnectWise widget)`, source: "widget-approval" };
   // Full's promise is literal: even a sandbox widening is approved. Entering
   // Full is separately consent-gated by the bot PATCH endpoint, and the
   // request.opened caller invokes this for permissions only, never questions.
