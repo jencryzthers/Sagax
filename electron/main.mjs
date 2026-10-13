@@ -430,6 +430,12 @@ function watchSignInRedeem(win, origin) {
   const filter = { urls: [`${origin}/api/auth/pair`, `${origin}/api/auth/pair?*`] };
   requests.onCompleted(filter, (details) => {
     if (details.method !== "POST") return;
+    // The /pair page's look-up of whose credential it is (?preview=1) redeems
+    // nothing: keep waiting for the redeem itself.
+    if (/[?&]preview=1(?:&|$)/.test(details.url ?? "")) {
+      signInLog(`preview POST ${origin}/api/auth/pair answered ${details.statusCode}`);
+      return;
+    }
     signInLog(`redeem POST ${origin}/api/auth/pair answered ${details.statusCode}${details.responseHeaders && Object.keys(details.responseHeaders).some((h) => h.toLowerCase() === "set-cookie") ? " with a session cookie" : ""}`);
     stop();
     // Signed in: the local server learns who its owner is there.

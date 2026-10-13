@@ -6746,6 +6746,8 @@
       "pair.pulsatrix.errorBrowser": "6f6a4e969c0700ea433d8f2c4f24bae6e27ebe3c2604109d70bc82fb2dcf77d3",
       "pair.pulsatrix.errorClient": "d3fdeb6d989b4064ef674bfe0d99c88b1c28450cda4be05a5ff7e6d95b34d1a1",
       "pair.pulsatrix.errorRateLimited": "063414f7f731095c9571d95de448e5538fa8d43e6145800929b96c3d70e34a18",
+      "pair.pulsatrix.errorSpent": "3a41b5a18579954391709b04b10388304f787e08263a2e16ed33cf5409f9565e",
+      "pair.pulsatrix.errorRestarted": "1e747a4d6cd237c6857b83e12fc9f15af350f9685f6ed4d0b254aec851a03011",
       "pair.pulsatrix.errorReturn": "85c62c281b2921c8879a9f001d526376c519e3c196951a4916a1a54f1b1cd92d",
       "pair.pulsatrix.errorRole": "47ebfe148d3486666660621300a91de534eb12bef1031c7998c7da7eab6689a2",
       "pair.pulsatrix.errorTimeout": "19d4c237869626f8e04ee006b5bc687ef744a929530c4a6cc5007cebd73a4de4",
