@@ -2911,6 +2911,7 @@
   "pair.pulsatrix.errorRateLimited": "Sagax Business est occupé en ce moment. Attendez une minute et réessayez.",
   "pair.pulsatrix.errorReturn": "Cette connexion ne peut pas revenir vers l'application qui l'a demandée. Recommencez depuis l'application.",
   "pair.pulsatrix.errorRole": "Ce compte ne peut pas se connecter à Sagax. Demandez à un administrateur dans Sagax Business.",
+  "pair.pulsatrix.errorSpent": "Cette connexion a déjà servi ou a expiré. Reconnectez-vous avec Sagax Business.",
   "pair.pulsatrix.errorTimeout": "La connexion dans le navigateur a pris trop de temps. Recommencez.",
   "pair.pulsatrix.errorUnavailable": "Pulsatrix est injoignable. Réessayez dans un instant.",
   "pair.pulsatrix.errorUnreachable": "Le serveur est injoignable. Vérifiez la connexion et réessayez.",

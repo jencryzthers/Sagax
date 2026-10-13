@@ -3944,6 +3944,7 @@
   "pair.pulsatrix.errorRateLimited": "Sagax Business is busy right now. Wait a minute and try again.",
   "pair.pulsatrix.errorReturn": "This sign-in cannot come back to the app that asked for it. Start again from the app.",
   "pair.pulsatrix.errorRole": "This account cannot sign in to Sagax. Ask an admin in Sagax Business.",
+  "pair.pulsatrix.errorSpent": "This sign-in was already used or has expired. Sign in again with Sagax Business.",
   "pair.pulsatrix.errorTimeout": "The sign-in in your browser took too long. Start again.",
   "pair.pulsatrix.errorUnavailable": "Pulsatrix could not be reached. Try again in a moment.",
   "pair.pulsatrix.errorUnreachable": "The server could not be reached. Check the connection and try again.",
