@@ -306,13 +306,13 @@ export function WorkspaceFilesSection({
 
   return (
     <div className="flex flex-col gap-3" data-workspace-files="">
-      <p className="flex items-center gap-1.5 text-[13px] text-ink-secondary">
+      <div className="flex items-center gap-1.5 text-[13px] text-ink-secondary">
         <span>{t("persona.files.short")}</span>
         <HelpTip label={t("settings.moreAbout", { title: t("botSettings.nav.files") })}>
           <span className="block">{t("persona.files.intro")}</span>
           {advanced && listing && <span className="mt-2 block break-all font-mono" data-workspace-path="">{listing.workspacePath}</span>}
         </HelpTip>
-      </p>
+      </div>
 
       <div className="flex flex-wrap items-center gap-2">
         <input

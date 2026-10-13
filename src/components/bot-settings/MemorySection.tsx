@@ -599,10 +599,10 @@ export function MemoryUpkeepCard({
         onChange={onToggle}
       />
       {limited && (
-        <p className="mt-2 flex items-center gap-1.5 text-[12.5px] text-ink-secondary">
+        <div className="mt-2 flex items-center gap-1.5 text-[12.5px] text-ink-secondary">
           <span>{t("botPanel.memory.limited")}</span>
           <HelpTip label={t("botPanel.memory.limited")}>{t("botPanel.memory.noSteps")}</HelpTip>
-        </p>
+        </div>
       )}
       {enabled && (
         <div className="mt-3 flex flex-wrap items-center gap-3">

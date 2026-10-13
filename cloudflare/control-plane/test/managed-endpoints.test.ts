@@ -542,20 +542,16 @@ describe("Cloudflare API response contracts", () => {
 });
 
 describe("installation check-in round trips", () => {
-  // The local D1 adapter probes the schema (sqlite_master, then pragma_table_info).
-  // Those statements show up in the counted trips beside the application's own.
-  const PRAGMA_TABLE_INFO = Array.from({ length: 13 }, () => "SELECT pragma_table_info");
+  // countingD1 drops schema probes (sqlite_master, pragma_table_info): the local
+  // D1 adapter may issue them, production D1 does not bill them as trips.
   const CHECK_IN = [
     ["SELECT installation_credentials"],
-    ["SELECT sqlite_master"],
     ["UPDATE installation_credentials", "UPDATE installations"],
   ];
-  const SELF_CHECK_IN = [...CHECK_IN, PRAGMA_TABLE_INFO];
+  const SELF_CHECK_IN = CHECK_IN;
   const endpointLookupTrips = [
     ["SELECT installation_credentials"],
-    ["SELECT sqlite_master"],
     ["UPDATE installation_credentials", "UPDATE installations", "SELECT installation_endpoints"],
-    PRAGMA_TABLE_INFO,
   ];
   const checkIns = (installationId: string) => env.DB.prepare(
     `SELECT c.last_used_at, i.last_seen_at
@@ -638,14 +634,14 @@ describe("installation check-in round trips", () => {
     const wrongSecret = `${credential.slice(0, -1)}${credential.endsWith("A") ? "B" : "A"}`;
     expect(await lookup(wrongSecret)).toEqual({
       status: 401,
-      trips: [["SELECT installation_credentials"], ["SELECT sqlite_master"]],
+      trips: [["SELECT installation_credentials"]],
     });
     expect(await lookup("invalid")).toEqual({ status: 401, trips: [] });
     expect((await call(worker, `/v1/installations/${id}`, { method: "DELETE", token: owner.token })).status)
       .toBe(204);
     expect(await lookup(credential)).toEqual({
       status: 401,
-      trips: [["SELECT installation_credentials"], ["SELECT sqlite_master"]],
+      trips: [["SELECT installation_credentials"]],
     });
     expect(await checkIns(id)).toEqual(before);
   });
@@ -2853,7 +2849,9 @@ describe("managed endpoints in several Cloudflare accounts", () => {
     const logged = vi.spyOn(console, "log").mockImplementation(() => undefined);
     vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    await runScheduledCleanup(fixture.worker, fixture.vars);
+    // Twelve candidates: run at the code default (Workers Paid), not at the
+    // Workers Free limit of 4 that wrangler.jsonc sets for this deployment.
+    await runScheduledCleanup(fixture.worker, { ...fixture.vars, SAGAX_CLEANUP_SWEEP_LIMIT: "20" });
 
     const outcome = await env.DB.prepare(
       `SELECT provider_account, status, COUNT(*) AS count, SUM(cleanup_attempts) AS attempts

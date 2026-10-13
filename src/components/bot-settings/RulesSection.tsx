@@ -110,14 +110,14 @@ export function RulesSection({ bot, active, initial }: { bot: Bot; active: boole
 
   return (
     <div className="flex flex-col gap-3" data-rules-section="">
-      <p className="flex items-center gap-1.5 text-[13px] text-ink-secondary">
+      <div className="flex items-center gap-1.5 text-[13px] text-ink-secondary">
         <span>{t("persona.rules.short")}</span>
         <HelpTip label={t("settings.moreAbout", { title: t("botSettings.nav.rules") })}>
           <span className="block">{t("persona.rules.intro")}</span>
           <span data-rules-inheritance="" className="mt-2 block">{t("persona.rules.inheritance")}</span>
           {starter && !dirty && <span data-rules-starter="" className="mt-2 block">{t("persona.rules.starter")}</span>}
         </HelpTip>
-      </p>
+      </div>
       <MarkdownEditor
         ariaLabel={t("persona.rules.editorLabel")}
         value={draft}
