@@ -174,7 +174,7 @@ struct ComputerView: View {
 
     /// Organization full-screen computer stages share floating chrome in
     /// landscape (back, screen picker) over the picture.
-    private func orgImmersiveScreen<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    private func orgImmersiveScreen<Content: View>(@ViewBuilder content: @escaping () -> Content) -> some View {
         ComputerImmersiveShell(
             top: {
                 VStack(spacing: 12) {
