@@ -522,6 +522,7 @@ struct ChatView: View {
                     .frame(maxWidth: .infinity)
                     .environment(\.messageActions, messageActionContext)
                     .environment(\.citeIntoComposer, citeIntoComposer)
+                    .environment(\.youtubeSendToBot, youtubeSendToBot)
                     .environment(\.conversationGallery, conversationGallery)
                     .background(BottomFollowProbe(model: follow))
                 }

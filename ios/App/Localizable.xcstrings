@@ -8351,56 +8351,146 @@
     },
     "voiceCall.title": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Voice" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Appel vocal" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appel vocal"
+          }
+        }
       }
     },
     "voiceCall.menu": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Voice call menu" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Menu de l'appel vocal" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice call menu"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu de l'appel vocal"
+          }
+        }
       }
     },
     "voiceCall.copy": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Copy transcript" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Copier la transcription" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy transcript"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier la transcription"
+          }
+        }
       }
     },
     "voiceCall.copied": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Copied" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Copié" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copié"
+          }
+        }
       }
     },
     "voiceCall.collapse": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Collapse voice call" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Réduire l'appel vocal" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collapse voice call"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réduire l'appel vocal"
+          }
+        }
       }
     },
     "voiceCall.up": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Thumbs up" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Pouce vers le haut" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thumbs up"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pouce vers le haut"
+          }
+        }
       }
     },
     "voiceCall.down": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Thumbs down" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Pouce vers le bas" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thumbs down"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pouce vers le bas"
+          }
+        }
       }
     },
     "voiceCall.empty": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Nothing said yet." } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Rien de dit encore." } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing said yet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rien de dit encore."
+          }
+        }
       }
     },
     "voiceCall.you": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "You" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Toi" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toi"
+          }
+        }
       }
     },
     "Voice": {
@@ -35032,7 +35122,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não atribuído"
+            "value": "Sem atribuição"
           }
         }
       }
@@ -52659,28 +52749,6 @@
         }
       }
     },
-    "Unassigned": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unassigned"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Non assigné"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sem atribuição"
-          }
-        }
-      }
-    },
     "Where every bot in this group runs its shell and file tools.": {
       "localizations": {
         "en": {
@@ -59725,6 +59793,150 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ precisa da permissão %2$@. Peça a um administrador para adicioná-la no Perspicax."
+          }
+        }
+      }
+    },
+    "youtube.fetchTranscript": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get full transcript"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obtenir la transcription complète"
+          }
+        }
+      }
+    },
+    "youtube.handoffPrompt": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Here is the full transcript of the YouTube video %@:\n\n%@\n\nSummarize it for me."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voici la transcription complète de la vidéo YouTube %@ :\n\n%@\n\nRésume-la pour moi."
+          }
+        }
+      }
+    },
+    "youtube.playerTitle": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YouTube video"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vidéo YouTube"
+          }
+        }
+      }
+    },
+    "youtube.searchTranscript": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search transcript"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher dans la transcription"
+          }
+        }
+      }
+    },
+    "youtube.sendToBot": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send to bot"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer au robot"
+          }
+        }
+      }
+    },
+    "youtube.transcriptEmpty": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No transcript loaded yet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune transcription chargée."
+          }
+        }
+      }
+    },
+    "youtube.transcriptError": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not load the transcript."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de charger la transcription."
+          }
+        }
+      }
+    },
+    "youtube.transcriptLoading": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading transcript…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement de la transcription…"
+          }
+        }
+      }
+    },
+    "youtube.transcriptPanel": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcript"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription"
           }
         }
       }
