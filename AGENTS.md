@@ -1566,6 +1566,23 @@ not open a shared machine. Keep these rules, each covered by `server/user-sandbo
 
 - Only `sagax-sandboxd` (`server/sandboxd.ts`) holds the Docker socket; the
   Sagax server calls it with signed requests (`server/sandboxd-auth.ts`).
+  `SANDBOX_BACKEND` defaults to `docker`. `kubernetes`
+  (`server/sandboxd-k8s.ts`) is the same API with one Pod and one PVC per
+  person, NetworkPolicies for egress, and no docker.sock. It runs; it does
+  not exit. Secret encryption and NetworkPolicy enforcement are operator
+  attestations. Sagax keeps both provisioners and routes with
+  `SAGAX_SANDBOX_CANARY_PEOPLE`, `SAGAX_SANDBOX_CANARY_BOTS` and
+  `SAGAX_SANDBOX_ROUTE` (`server/sandbox-route.ts`). `docker` on that route
+  sends everyone back to the Docker provisioner. The Kubernetes URL is
+  https with `SAGAX_SANDBOXD_TLS_CA`. Manifests are `deploy/k8s/`
+  (`provisioner/`, `sandboxes/`, `helm/`, `tofu/`). Copy a workspace with
+  `scripts/sandbox-workspace-migrate.ts` (source kept, checksums, both
+  directions). Runbook: `docs/ops/sandboxes/cutover-rollback.md`. Tests:
+  `server/sandboxd-k8s-spec.test.ts`, `server/sandboxd-k8s.test.ts`,
+  `server/sandbox-route.test.ts`, `server/sandbox-backend.test.ts`,
+  `server/sandbox-workspace-copy.test.ts`; kind only with
+  `SAGAX_SANDBOX_K8S_INTEGRATION=1` (`scripts/sandbox-k8s-kind.sh`).
+  Design and the SOC 2 mapping: `docs/sandbox-kubernetes.md`.
 - The provisioner API is keyed by person (`sandboxKeyForPrincipal`); never add
   a bot parameter. Every create body passes `assertSandboxIsolation()`.
 - Engines get no shell, file or fetch tool of their own there
