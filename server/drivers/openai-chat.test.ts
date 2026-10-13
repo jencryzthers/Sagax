@@ -741,3 +741,35 @@ describe("createOpenAIChatRuntime rejected keys", () => {
     await instance.dispose();
   });
 });
+
+describe("interruptTurn duplex cap", () => {
+  it("returns within DUPLEX_INTERRUPT_WAIT_MS when the stream hangs, and does not delete a newer turn", async () => {
+    const { DUPLEX_INTERRUPT_WAIT_MS } = await import("../voice-call-duplex.ts");
+    let completions = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL) => {
+      if (!String(url).endsWith("/chat/completions")) return new Response(JSON.stringify({ data: [] }), { status: 200 });
+      completions += 1;
+      if (completions === 1) return await new Promise<Response>(() => { /* hang past abort */ });
+      return sse(`data: ${JSON.stringify({ choices: [{ delta: { content: "next" }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`);
+    }));
+    const instance = await OpenAICompatDriver.create({
+      instanceId: "compat", displayName: "Compat", enabled: true,
+      config: OpenAICompatDriver.decodeConfig({ url: "https://api.example.test/v1", apiKeyEnv: "K", model: "fixture" }),
+      environment: { K: "secret" },
+    });
+    const events: RuntimeEvent[] = [];
+    instance.adapter.onEvent((event) => events.push(event));
+    await instance.adapter.sendTurn({ threadId: "thread", text: "first" });
+    await vi.waitFor(() => {
+      if (!events.some((event) => event.type === "turn.started")) throw new Error("waiting");
+    });
+    expect(instance.adapter.hasSession("thread")).toBe(true);
+    const t0 = Date.now();
+    await instance.adapter.interruptTurn("thread");
+    expect(Date.now() - t0).toBeLessThan(DUPLEX_INTERRUPT_WAIT_MS + 250);
+    expect(instance.adapter.hasSession("thread")).toBe(false);
+    await instance.adapter.sendTurn({ threadId: "thread", text: "second" });
+    expect(instance.adapter.hasSession("thread")).toBe(true);
+    await instance.dispose();
+  }, 15_000);
+});

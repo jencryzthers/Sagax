@@ -119,6 +119,7 @@ class LiveCallChatWiringTest {
                     request.method == "GET" && request.path?.substringBefore("?") == "/api/config" ->
                         json(200, """{"live":{"enabled":true}}""")
                     request.path == "/api/instances" -> json(200, """{"instances":[]}""")
+                    request.path == "/api/config" -> json(200, """{"live":{"enabled":true,"configured":true,"voice":"marin"}}""")
                     request.path?.startsWith("/api/threads/") == true -> json(200, """{"messages":[],"hasMore":false}""")
                     else -> MockResponse().setResponseCode(404)
                 }
@@ -326,6 +327,12 @@ class LiveCallChatWiringTest {
         val bottom = newest.positionInRoot.y + newest.size.height
         val bar = compose.onNodeWithContentDescription(description).fetchSemanticsNode().boundsInRoot
         assertTrue(bottom <= bar.top, "the newest message runs under the bar: it ends at $bottom, the bar starts at ${bar.top}")
+    }
+
+    private fun waitForCallButton() {
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithContentDescription("Call Scout").fetchSemanticsNodes().isNotEmpty()
+        }
     }
 
     @Composable
