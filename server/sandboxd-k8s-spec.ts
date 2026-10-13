@@ -1,6 +1,8 @@
 // Pure Kubernetes objects for one sandbox: a Pod, a PVC and a NetworkPolicy.
 // No client and no cluster here, so the isolation rules are asserted in CI
 // the same way the Docker spec is (server/user-sandbox-spec.ts).
+import { isAbsolute } from "node:path";
+
 import { SANDBOX_INSTANCE_LABEL, SANDBOX_KEY_RE, SANDBOX_LABEL, SANDBOX_UID, SANDBOX_USER_LABEL, SANDBOX_WORKSPACE, cidrContains, parseCidr, sandboxLabels, sandboxNames, type SandboxdConfig } from "./user-sandbox-spec.ts";
 
 const MiB = 1024 * 1024;
@@ -92,7 +94,7 @@ export function kubernetesSandboxConfigFromEnv(env: NodeJS.ProcessEnv, sandbox: 
     throw new Error("SAGAX_SANDBOXD_TLS_CERT and SAGAX_SANDBOXD_TLS_KEY are required when SANDBOX_BACKEND=kubernetes");
   }
   const auditFile = env.SAGAX_SANDBOX_AUDIT_LOG?.trim() || "/var/log/sagax/sandbox-audit.jsonl";
-  if (auditFile.includes("\0") || !auditFile.startsWith("/")) throw new Error("SAGAX_SANDBOX_AUDIT_LOG must be an absolute path");
+  if (auditFile.includes("\0") || !isAbsolute(auditFile)) throw new Error("SAGAX_SANDBOX_AUDIT_LOG must be an absolute path");
   const auditShipUrl = env.SAGAX_SANDBOX_AUDIT_SHIP_URL?.trim() || undefined;
   if (auditShipUrl && !auditShipUrl.startsWith("https://")) throw new Error("SAGAX_SANDBOX_AUDIT_SHIP_URL must be https");
   const secretsEncryptedAttested = namedFlag(env.SAGAX_SANDBOX_K8S_SECRETS_ENCRYPTED, "SAGAX_SANDBOX_K8S_SECRETS_ENCRYPTED", false);

@@ -5,7 +5,7 @@
 // app resolves them (src/components/Avatar.tsx: an uploaded picture shows
 // only when its crop is not `mascot`, else the character), never a file path.
 import { createHash } from "node:crypto";
-import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from "node:fs";
 import { join } from "node:path";
 
 import { botAvatarProfile, clampAvatarFocus, clampAvatarZoom } from "../shared/bot-avatar.ts";
@@ -147,7 +147,11 @@ export function readBotAvatar(bot: LookSource, attachmentsDir: string, maxBytes 
   if (!file || botAvatarProfile(bot).avatarCrop === "mascot") return null;
   let fd: number;
   try {
-    fd = openSync(join(attachmentsDir, file), constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    const path = join(attachmentsDir, file);
+    // O_NOFOLLOW refuses a link at open where there is one; Windows has none
+    // (and opens what a link points at), so the entry is looked at first too.
+    if (process.platform === "win32" && !lstatSync(path).isFile()) return null;
+    fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
   } catch {
     return null;
   }

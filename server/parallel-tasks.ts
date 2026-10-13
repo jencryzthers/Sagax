@@ -95,7 +95,9 @@ export function prepareParallelWorkspace(input: {
 }): ParallelWorkspace {
   const parentCwd = input.parentCwd;
   if (!parentCwd || !existsSync(parentCwd)) return { kind: "own" };
-  const real = (path: string) => { try { return realpathSync(path); } catch { return resolve(path); } };
+  // native: on Windows git answers the long path while a temp folder can be
+  // the 8.3 short one (RUNNER~1); only the native call expands it.
+  const real = (path: string) => { try { return realpathSync.native(path); } catch { return resolve(path); } };
   const fromPrivate = relative(real(input.privateRoot), real(parentCwd));
   if (!fromPrivate.startsWith("..") && !isAbsolute(fromPrivate)) return { kind: "own" };
   const git = input.git ?? ((args: string[], cwd: string) => execFileSync("git", args, {
