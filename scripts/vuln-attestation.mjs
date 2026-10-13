@@ -39,7 +39,8 @@ export function mergeVulnPredicates(predicates) {
     if (!Array.isArray(found)) throw new Error("scanner.result.Results is not a list");
     results.push(...found);
   }
-  const result = { ...(base.scanner.result ?? {}), Results: results };
+  const current = base.scanner.result;
+  const result = current && typeof current === "object" ? { ...current, Results: results } : { Results: results };
   result.Summary = severityCounts({ scanner: { result } });
   base.scanner = { ...base.scanner, result };
   return base;
