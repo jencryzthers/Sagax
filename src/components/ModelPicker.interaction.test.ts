@@ -185,7 +185,9 @@ describe("ModelPicker with a signed-out or missing Claude", () => {
     const onCodex = bot("codex", "gpt-5.6");
     const opened = open(onCodex);
     expect(rail(opened)!.props.instances.map((instance) => instance.instanceId)).toEqual(["codex", "claude"]);
-    expect(opened.html).toContain('aria-label="Claude"');
+    // An unready provider stays off the rail until Appearance shows it.
+    // The rail still receives it and selects it when asked.
+    expect(opened.html).not.toContain('aria-label="Claude"');
 
     (rail(opened)!.props.onSelect as (instance: InstanceInfo) => void)(fixture.instances[1]);
     const browsing = menu(render(onCodex).html);

@@ -75,40 +75,46 @@ for (const stream of [xev.stdout, xev.stderr]) {
   });
 }
 
-const driverProcess = spawn(
-  driver,
-  [
-    "serve",
-    "--embedded",
-    "--no-overlay",
-    "--socket",
-    socketPath,
-    "--pid-file",
-    pidFile,
-    "--permission-mode",
-    "standard",
-  ],
-  {
-    env: {
-      ...process.env,
-      HOME: home,
-      XDG_RUNTIME_DIR: runtime,
-      XDG_SESSION_TYPE: "x11",
-      CUA_DRIVER_EMBEDDED: "1",
-      CUA_DRIVER_PARENT_LIVENESS_STDIN: "1",
-      CUA_DRIVER_RS_TELEMETRY_ENABLED: "false",
-      CUA_DRIVER_RS_UPDATE_CHECK: "false",
-    },
-    stdio: ["pipe", "ignore", "pipe"],
-  },
-);
+// The driver is started only after xdotool has seen the test window.
+// Starting it first holds the X server, and the search then waits out.
+let driverProcess;
 let driverError = "";
-driverProcess.stderr.setEncoding("utf8");
-driverProcess.stderr.on("data", (chunk) => {
-  driverError += chunk;
-});
 let proxy;
 let proxyError = "";
+function startDriver() {
+  driverProcess = spawn(
+    driver,
+    [
+      "serve",
+      "--embedded",
+      "--no-overlay",
+      "--socket",
+      socketPath,
+      "--pid-file",
+      pidFile,
+      "--permission-mode",
+      "standard",
+    ],
+    {
+      env: {
+        ...process.env,
+        HOME: home,
+        XDG_RUNTIME_DIR: runtime,
+        XDG_SESSION_TYPE: "x11",
+        CUA_DRIVER_EMBEDDED: "1",
+        CUA_DRIVER_PARENT_LIVENESS_STDIN: "1",
+        CUA_DRIVER_RS_TELEMETRY_ENABLED: "false",
+        CUA_DRIVER_RS_UPDATE_CHECK: "false",
+      },
+      stdio: ["pipe", "ignore", "pipe"],
+    },
+  );
+  driverError = "";
+  driverProcess.stderr.setEncoding("utf8");
+  driverProcess.stderr.on("data", (chunk) => {
+    driverError += chunk;
+  });
+}
 
 async function until(probe, description, timeout = 10_000) {
   const deadline = Date.now() + timeout;
@@ -224,19 +230,32 @@ async function stop(child) {
 }
 
 try {
-  const windowId = await until(async () => {
+  const windowDeadline = Date.now() + 10_000;
+  let windowSearchError = "";
+  let windowId = "";
+  while (Date.now() < windowDeadline) {
     if (xev.exitCode !== null || xev.signalCode !== null) {
       throw new Error(`xev exited before its test window appeared:\n${xevOutput}`);
     }
-    const { stdout } = await execFileAsync("xdotool", [
-      "search",
-      "--onlyvisible",
-      "--name",
-      `^${title}$`,
-    ]);
-    return stdout.trim().split(/\s+/)[0] || null;
-  }, "the unrelated X11 test window");
-  if (!windowId) throw new Error("xev test window did not appear");
+    try {
+      const { stdout } = await execFileAsync(
+        "xdotool",
+        ["search", "--onlyvisible", "--name", `^${title}$`],
+        { timeout: 2_000 },
+      );
+      windowId = stdout.trim().split(/\s+/)[0] || "";
+      if (windowId) break;
+    } catch (error) {
+      windowSearchError = error instanceof Error ? error.message : String(error);
+    }
+    await delay(50);
+  }
+  if (!windowId) {
+    throw new Error(
+      `timed out waiting for the unrelated X11 test window\n${windowSearchError}\n${windowManagerError}\n${xevOutput}`,
+    );
+  }
+  startDriver();
 
   const metadata = await until(
     async () => {
@@ -313,7 +332,7 @@ try {
   );
 } finally {
   if (proxy) await stop(proxy);
-  await stop(driverProcess);
+  if (driverProcess) await stop(driverProcess);
   if (xev.exitCode === null && xev.signalCode === null) xev.kill("SIGTERM");
   if (windowManager && windowManager.exitCode === null && windowManager.signalCode === null) {
     windowManager.kill("SIGTERM");
