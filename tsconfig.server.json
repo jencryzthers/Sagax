@@ -22,7 +22,9 @@
   "include": [
     "server",
     "companion",
-    "enterprise"
+    "enterprise",
+    "shared/profil-fiche.ts",
+    "shared/profil-fiche.test.ts"
   ],
   "exclude": [
     "server/drivers/pi-mcp-extension.ts"
