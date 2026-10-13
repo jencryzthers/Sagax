@@ -80,6 +80,8 @@ it("stamps askedAt where a person writes, never for a routine, a webhook, start_
 
     // Slack's worker relays a person's line through the guarded route.
     const { task: relayed } = await api("POST", `/api/bots/${bot.id}/tasks`, { title: "From Slack" }, 201);
+    // A guarded send needs the thread in Ask exactly; Sagax starts a thread in Approve for me.
+    await api("PATCH", `/api/bots/${bot.id}/tasks/${relayed.threadId}`, { approvalMode: "ask" });
     await api("POST", `/api/bots/${bot.id}/messages/guarded`, {
       threadId: relayed.threadId, sendId: randomUUID(), text: "Sent from Slack.", expectedActiveLeafId: null,
     }, 202);
@@ -97,7 +99,11 @@ it("stamps askedAt where a person writes, never for a routine, a webhook, start_
     expect(run.resultsThreadId).toBe(first);
 
     const hook = await api("POST", "/api/webhooks", { name: "Build", prompt: "Handle the build event.", botId: bot.id, runOn: "maus" }, 201);
-    const delivered = await fetch(hook.credential.url, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    const delivered = await fetch(hook.credential.endpointUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": "main-thread-hook", authorization: `Bearer ${hook.credential.token}` },
+      body: "{}",
+    });
     expect(delivered.status).toBe(202);
     const webhookThread = await finished((candidate) => candidate.webhookId === hook.webhook.id);
     await replied(bot.id, webhookThread, "Webhook handled.");
@@ -204,7 +210,11 @@ it("marks a job's review answer and a webhook post unread where they land", asyn
     expect(await unread(asker.id, asker.activeTaskId)).toBe(true);
 
     const hook = await api("POST", "/api/webhooks", { name: "Deploys", prompt: "", botId: asker.id, delivery: "post" }, 201);
-    const delivered = await fetch(hook.credential.url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "Deploy finished." }) });
+    const delivered = await fetch(hook.credential.endpointUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": "deploy-finished", authorization: `Bearer ${hook.credential.token}` },
+      body: JSON.stringify({ text: "Deploy finished." }),
+    });
     expect(delivered.ok).toBe(true);
     await expect.poll(async () => (await tasks(asker.id)).find((task) => task.title === "Updates")?.unread, { timeout: 20_000 }).toBe(true);
   } finally {

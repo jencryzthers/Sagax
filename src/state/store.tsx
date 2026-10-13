@@ -1823,7 +1823,8 @@ export function openThread(
     const threadReturn = threadReturnFor(state, target.threadId);
     openNotificationTarget(dispatch, target, state, threadsShown);
     dispatch({ type: "revealThread", threadId: target.threadId });
-    if (threadReturn) dispatch({ type: "setThreadReturn", threadReturn });
+    // The way back is a thread chip: with threads hidden the switch alone opens it.
+    if (threadReturn && threadsShown) dispatch({ type: "setThreadReturn", threadReturn });
     return true;
   }
   const bot = state.bots.find((candidate) => candidate.id === target.botId);
