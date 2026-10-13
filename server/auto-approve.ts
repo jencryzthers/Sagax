@@ -141,6 +141,8 @@ export type AutoVerdictSource =
   | "explicit-approval-block"
   | "outbound-guard"
   | "allow-rule"
+  | "safety-hold"
+  | "safety-read"
   | "no-grant";
 
 export interface AutoVerdict {
@@ -166,6 +168,10 @@ export function autoVerdict(
     /** The person saved an Allow rule for this exact gated MCP tool
      * (BotRecord.alwaysAllow "mcp:<server>__<tool>"). */
     ruleAllowed?: boolean;
+    /** Safety review: the person must accept this call. Full and Auto do not. */
+    safetyHold?: boolean;
+    /** Safety review: a read-only call may run without a card. */
+    safetyAllow?: boolean;
   },
 ): AutoVerdict {
   // A question is for a person, whatever channel it arrived on — and
@@ -174,6 +180,10 @@ export function autoVerdict(
   if (ASKS_A_PERSON.has(bareToolName(tool))) {
     return { approve: null, source: "no-grant" };
   }
+  // A safety hold is an explicit accept. It is checked before Full, before a
+  // saved Allow rule, and before a gate, so none of those answer it.
+  if (context?.safetyHold) return { approve: null, source: "safety-hold" };
+  if (context?.safetyAllow) return { approve: `approved ${tool} (read-only)`, source: "safety-read" };
   // Full's promise is literal: even a sandbox widening is approved. Entering
   // Full is separately consent-gated by the bot PATCH endpoint, and the
   // request.opened caller invokes this for permissions only, never questions.
@@ -219,6 +229,7 @@ export function approvalHeldNote(context: {
 }): HeldNoteKey | undefined {
   if (!context.permission) return undefined;
   if (context.source === "outbound-guard") return "approval.held.outbound";
+  if (context.source === "safety-hold") return "approval.held.native";
   if (context.source === "explicit-approval-block") return "approval.held.sandbox";
   if (context.source === "native-approval") return "approval.held.native";
   return undefined;
