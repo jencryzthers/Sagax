@@ -1,6 +1,9 @@
 // True concurrency on a duplex voice call (issue #292, Review 3).
-// A new topic forks even while the call thread is only thinking. Stop and
-// correction still replace. A background parallel task survives barge-in.
+// A new topic forks while the call thread's own tool runs (the work is
+// parked, not killed). Stop and correction still replace. A background
+// parallel task survives barge-in. While the call thread only thinks, a new
+// utterance replaces it: a call never turns the person's sentences into
+// parallel-task cards (2026-10-13, one card per partial and final).
 // POSIX-gated like the other CLI e2es (the fakes are shebang scripts).
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync } from "node:fs";
@@ -47,15 +50,21 @@ posixOnly("voice call true concurrency e2e", () => {
     text,
     voiceCall: { callId: CALL_ID, duplex: true, utteranceId },
   });
-  const busyCall = async (gate: string) => {
+  /** A call whose first turn holds on a tool (instance `claude`) or only
+   * thinks (instance `think`). */
+  const busyCall = async (gate: string, instanceId: "claude" | "think" = "claude") => {
     const bot = (await api("POST", "/api/bots")).body.bot;
-    await api("PATCH", `/api/bots/${bot.id}`, { modelSelection: { instanceId: "claude", model: "claude-fake" } });
+    await api("PATCH", `/api/bots/${bot.id}`, { modelSelection: { instanceId, model: "claude-fake" } });
     const sent = await api("POST", `/api/bots/${bot.id}/messages`, {
       threadId: bot.threadId,
       ...voice(`[gate:${gate}] look up the weather in Montreal`, `utt-${gate}`),
     });
-    expect(sent.status).toBe(202);
+    expect(sent.status, JSON.stringify(sent.body)).toBe(202);
     await waitFor(async () => (await getBot(bot.id)).busy === true, "the first turn to start");
+    if (instanceId === "claude") {
+      await waitFor(async () => (await messages(bot.threadId)).some((m) => m.kind === "activity" && m.tool?.name && m.tool.ok === undefined && !m.parallelTask),
+        "the first turn's tool in flight");
+    }
     return bot as { id: string; threadId: string };
   };
 
@@ -68,6 +77,11 @@ posixOnly("voice call true concurrency e2e", () => {
     writeFileSync(join(home, ".sagax", "config.json"), JSON.stringify({
       instances: {
         claude: {
+          driver: "claudeAgent",
+          environment: { FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_GATE_DIR: gates, FAKE_CLAUDE_HOLD_AFTER_TOOL: "1" },
+          config: { cli: FAKE_CLAUDE, permissionMode: "bypassPermissions" },
+        },
+        think: {
           driver: "claudeAgent",
           environment: { FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_GATE_DIR: gates },
           config: { cli: FAKE_CLAUDE, permissionMode: "bypassPermissions" },
@@ -105,7 +119,33 @@ posixOnly("voice call true concurrency e2e", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("a) B asked while A is only thinking: both complete, A is not cancelled", async () => {
+  it("a call with N utterances while the bot only thinks: no parallel task, one answered turn for the final words", async () => {
+    // JC 2026-10-13: a partial and its final each opened a "Tâche en
+    // parallèle" card ("And And Just wondering if you will be." / "... would be
+    // able to ..."). The person's words are the call, never background work.
+    const bot = await busyCall("thinkN", "think");
+    const send = (text: string, utteranceId: string, extra: Record<string, unknown> = {}) => api("POST", `/api/bots/${bot.id}/messages`, {
+      threadId: bot.threadId, text, voiceCall: { callId: CALL_ID, duplex: true, utteranceId, ...extra },
+    });
+    const partial = await send("[gate:nB] And And Just wondering if you will be.", "utt-nB-partial", { speculative: true });
+    expect(partial.status, JSON.stringify(partial.body)).toBe(202);
+    expect(partial.body.parallel).toBeUndefined();
+    const final = await send("[gate:nB] And And Just wondering if you would be able to check the ticket", "utt-nB-final", { continues: true });
+    expect(final.status, JSON.stringify(final.body)).toBe(202);
+    expect(final.body.parallel).toBeUndefined();
+    open("thinkN");
+    open("nB");
+    await waitFor(async () => (await messages(bot.threadId)).some((m) => m.role === "bot" && m.kind === "text" && m.text?.includes("would be able to")),
+      "the final words answered");
+    await waitFor(async () => (await tasks(bot.id)).every((task) => !task.busy), "the call settled");
+    const thread = await messages(bot.threadId);
+    expect(thread.filter((m) => m.parallelTask)).toEqual([]);
+    expect(await tasks(bot.id)).toHaveLength(1);
+    const answers = thread.filter((m) => m.role === "bot" && m.kind === "text" && m.text?.startsWith("reply to:"));
+    expect(answers.map((m) => m.text)).toEqual([expect.stringContaining("would be able to check the ticket")]);
+  }, 60_000);
+
+  it("a) B asked while A runs a tool: both complete, A is not cancelled", async () => {
     const bot = await busyCall("thinkA");
     const b = await api("POST", `/api/bots/${bot.id}/messages`, {
       threadId: bot.threadId,

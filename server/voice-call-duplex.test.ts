@@ -49,10 +49,13 @@ describe("admitDuplexSend", () => {
     })).toEqual({ action: "background" });
   });
 
-  it("a new topic while the call thread is only thinking forks, it does not replace", () => {
+  it("a new utterance while the call thread is only thinking replaces it, it never forks a parallel task", () => {
     expect(admitDuplexSend({
       duplex: true, botBusy: true, stopping: false, queued: false, backgroundWork: false, newTopic: true,
-    })).toEqual({ action: "background" });
+    })).toEqual({ action: "replace", interrupt: true, discardQueue: true });
+    expect(admitDuplexSend({
+      duplex: true, botBusy: true, stopping: false, queued: false, newTopic: true, speculative: true,
+    })).toEqual({ action: "replace", interrupt: true, discardQueue: true });
   });
 
   it("an explicit stop or correction still replaces a thinking turn", () => {
@@ -91,10 +94,13 @@ describe("admitDuplexSend", () => {
     })).toEqual({ action: "replace", interrupt: true, discardQueue: true });
   });
 
-  it("a continues send of a different utterance forks, it does not replace A", () => {
+  it("a continues send of a different utterance forks only while A runs a tool", () => {
+    expect(admitDuplexSend({
+      duplex: true, botBusy: true, stopping: false, queued: false, backgroundWork: true, newTopic: true, continues: true, sameUtterance: false,
+    })).toEqual({ action: "background" });
     expect(admitDuplexSend({
       duplex: true, botBusy: true, stopping: false, queued: false, newTopic: true, continues: true, sameUtterance: false,
-    })).toEqual({ action: "background" });
+    })).toEqual({ action: "replace", interrupt: true, discardQueue: true });
   });
 
   it("a speculative send while background work runs is admitted, not deferred", () => {
@@ -111,6 +117,20 @@ describe("continuesSameUtterance", () => {
   it("a longer STT final of the same words is the same utterance", () => {
     expect(continuesSameUtterance("Please wait twelve seconds", "Please wait twelve seconds, then count to two hundred")).toBe(true);
     expect(continuesSameUtterance("what time is it in Tokyo", "what time is it in Tokyo right now")).toBe(true);
+  });
+
+  it("an STT final that revises a word of the partial is still the same utterance", () => {
+    // 2026-10-13: the partial and the final of one sentence each forked a task
+    expect(continuesSameUtterance(
+      "And And Just wondering if you will be.",
+      "And And Just wondering if you would be able to look at the ticket",
+    )).toBe(true);
+    expect(matchingVoiceSibling(
+      [{ threadId: "b", text: "And And Just wondering if you will be." }],
+      "And And Just wondering if you would be able to look at the ticket",
+    )).toBe("b");
+    // a short line has no room for a revised word
+    expect(continuesSameUtterance("what time", "which time is it")).toBe(false);
   });
 
   it("a new topic is not a continuation of the live turn", () => {

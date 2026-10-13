@@ -13462,8 +13462,10 @@ async function startDuplexCallTurn(
       return startDuplexCallTurn(botId, sibling, text, replyTo, sendId, sender, trigger, speaker, voiceCall);
     }
   }
-  const backgroundWork = callHasParkableWork(threadMessages)
-    || store.tasks(current.id).some((task) => task.parallelOf?.threadId === threadId && parallelPending(task));
+  // Only the call turn's own in-flight tool parks a new topic. A pending
+  // parallel task is not touched by a replace, so it never makes the
+  // person's next sentence a parallel task of its own.
+  const backgroundWork = callHasParkableWork(threadMessages);
   const intent = classifyVoiceIntent(text);
   const sameUtterance = continuesSameUtterance(lastOwnUserVoiceText(threadMessages), text);
   const admit = admitDuplexSend({
