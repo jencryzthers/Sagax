@@ -36,6 +36,28 @@ describe("production image sources", () => {
     expect(workflow).not.toMatch(/file: deploy\/fly\/Dockerfile/);
   });
 
+  it("publishes both architectures, signs the digest, and attests the scan", () => {
+    const workflow = read(".github/workflows/docker.yml");
+    const publish = workflow.slice(workflow.indexOf("name: publish to GHCR"));
+    expect(publish).toContain("runs-on: ubuntu-latest");
+    expect(publish).toContain("id-token: write");
+    expect(publish).toContain("packages: write");
+    expect(publish).toContain("platforms: linux/amd64,linux/arm64");
+    expect(publish).toMatch(/docker\/setup-qemu-action@[0-9a-f]{40}/);
+    expect(publish).toMatch(/sigstore\/cosign-installer@[0-9a-f]{40}/);
+    expect(publish).toContain("cosign-release: v3.0.6");
+    expect(publish).toMatch(/aquasecurity\/setup-trivy@[0-9a-f]{40}/);
+    expect(publish).toContain("version: v0.75.0");
+    expect(publish).toContain("provenance: mode=max");
+    expect(publish).toContain('cosign sign --yes "${IMAGE}@${DIGEST}"');
+    expect(publish).toContain("cosign attest --yes --type vuln --predicate vuln.json");
+    expect(publish).toContain("https://cosign.sigstore.dev/attestation/vuln/v1");
+    expect(publish).toContain("https://token.actions.githubusercontent.com");
+    expect(publish).toContain("https://github.com/pulsatrixtechnologies/sagax/.github/workflows/docker.yml@<ref>");
+    expect(publish).toContain("node scripts/vuln-attestation.mjs vuln.json vuln-amd64.json vuln-arm64.json");
+    expect(publish).toContain("--platform");
+  });
+
   it("forwards the engine set from compose with an empty legacy ENGINES list", () => {
     const compose = read("deploy/docker-compose.yml");
     expect(compose).toContain("ENGINE_SET: ${ENGINE_SET:-all}");
