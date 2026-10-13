@@ -210,6 +210,21 @@ describe("thread control placement", () => {
     messages.push({ id: "next", role: "user", kind: "text", at: 4, text: "A different request" });
     expect(render()).not.toContain("Retry</button>");
   });
+  it("keeps Retry on a failed turn after hanging up, when the call's record is the last row", () => {
+    const messages: Bot["messages"] = [
+      { id: "ask", role: "user", kind: "text", at: 1, text: "Try the new model", via: "call", callId: "c1" },
+      { id: "error", role: "bot", kind: "activity", at: 2, tool: { name: "error: outdated engine", ok: false } },
+      {
+        id: "record", role: "bot", kind: "call", at: 3, text: "Call with Pepper · 0:42",
+        call: { callId: "c1", botId: "bot", client: "ios", startedAt: 0, endedAt: 3, seconds: 42, endReason: "hung-up" },
+      },
+    ];
+    const render = () => renderToStaticMarkup(createElement(ChatView, { bot: { ...bot, busy: false, messages } }));
+    expect(render()).toContain("Retry</button>");
+    expect(render()).toContain('data-testid="call-record"');
+    messages.push({ id: "next", role: "user", kind: "text", at: 4, text: "A different request" });
+    expect(render()).not.toContain("Retry</button>");
+  });
   it.each([false, true])("keeps recovery visible and outside tool folds when tool calls are %s", (showToolCalls) => {
     fixture.showToolCalls = showToolCalls;
     const explanation = "Automatic recovery: Qwen could not start. Trying Backup · fixture-model once in this thread.";
@@ -435,5 +450,31 @@ describe("a guest's composer on a Cloud home", () => {
     expect(allowed).toContain("<textarea");
     expect(allowed).toContain('data-testid="citation-toolbar"');
     fixture.canWrite = null;
+  });
+});
+
+const { awayFromMainThread, openBot } = await import("@/state/store");
+
+// Sagax shows the way back as ThreadsOffReturnLink in the banner stack, not
+// upstream's header button; the rule under it is the store's.
+describe("the way back to the bot's own conversation", () => {
+  const visiting: Bot = {
+    ...bot, threadId: "side", mainThreadId: "main",
+    tasks: [
+      { threadId: "main", title: "Our chat", createdAt: 1, busy: false, activity: "idle" },
+      { threadId: "side", title: "Routine report", createdAt: 2, busy: false, activity: "idle" },
+    ],
+  };
+
+  it("is offered with threads hidden while a side thread is open, and opens the main thread", () => {
+    expect(awayFromMainThread(visiting, false)).toBe(true);
+    fixture.dispatch.mockReset();
+    openBot(fixture.dispatch, visiting, false);
+    expect(fixture.dispatch.mock.calls.map(([action]) => action)).toContainEqual(expect.objectContaining({ threadId: "main" }));
+  });
+
+  it("never with threads shown, nor in the main thread itself", () => {
+    expect(awayFromMainThread(visiting, true)).toBe(false);
+    expect(awayFromMainThread({ ...visiting, threadId: "main" }, false)).toBe(false);
   });
 });

@@ -151,6 +151,7 @@ export const BOT_FIELD_POLICY: { readonly [K in keyof BotRecord]-?: FieldPolicy 
   grants: "sharing",
   directGrants: "sharing",
   threadId: "conversations",
+  mainThreadId: { drop: "derived from the bot's threads" },
   tasks: "conversations",
   pinnedMessageId: "conversations",
   unread: { drop: "this server's read state" },

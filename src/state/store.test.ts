@@ -12,6 +12,7 @@ import {
   initialState,
   liveCallFromFrame,
   loadSnapshotBoundary,
+  openBot,
   openNotificationTarget,
   openThread,
   persistBotUpdate,
@@ -33,6 +34,7 @@ import {
   type Action,
 } from "./store";
 import { LAST_CONVERSATION_KEY } from "@/lib/last-conversation";
+import { LAST_BOT_SECTION_KEY } from "@/lib/last-bot-section";
 import { transcriptLookups } from "@/lib/transcript-derivations";
 import { openLiveEvents, type LiveEventSourceLike, type LiveEventsPlatform } from "../lib/live-events";
 import type { ModelVariantState, RuntimeEvent } from "../../shared/runtime-events";
@@ -800,7 +802,7 @@ describe("notification routing", () => {
   it("selects the bot and switches to the notification's exact task", () => {
     const dispatch = vi.fn();
 
-    openNotificationTarget(dispatch, { botId: "bot-1", threadId: "detached-thread" }, { bots, groups });
+    openNotificationTarget(dispatch, { botId: "bot-1", threadId: "detached-thread" }, { bots, groups }, true);
 
     expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
       { type: "select", id: "bot-1" },
@@ -813,7 +815,7 @@ describe("notification routing", () => {
     // GROUP's thread id; the exact destination is the room itself
     const dispatch = vi.fn();
 
-    openNotificationTarget(dispatch, { botId: "bot-1", threadId: "room-thread" }, { bots, groups });
+    openNotificationTarget(dispatch, { botId: "bot-1", threadId: "room-thread" }, { bots, groups }, true);
 
     expect(dispatch.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "room-1" }]);
   });
@@ -822,7 +824,7 @@ describe("notification routing", () => {
     const dispatch = vi.fn();
     openNotificationTarget(dispatch, { botId: "runner", threadId: "detached-thread" }, {
       bots: [...bots, { id: "runner", threadId: "runner-thread", tasks: [] }], groups,
-    });
+    }, true);
     expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
       { type: "select", id: "bot-1" },
       { type: "switchTask", botId: "bot-1", threadId: "detached-thread" },
@@ -833,7 +835,7 @@ describe("notification routing", () => {
     // a routine run refused on the owner's credentials in another person's
     // private thread: the owner gets the run, never that thread
     const dispatch = vi.fn();
-    openNotificationTarget(dispatch, { botId: "bot-1", threadId: "", routineRunId: "run-9" }, { bots, groups });
+    openNotificationTarget(dispatch, { botId: "bot-1", threadId: "", routineRunId: "run-9" }, { bots, groups }, true);
     expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
       { type: "openBotActivity", botId: "bot-1", itemId: "run:run-9" },
     ]);
@@ -849,7 +851,7 @@ describe("notification routing", () => {
   it("opens the room and restores the exact inactive channel task", () => {
     const dispatch = vi.fn();
 
-    openNotificationTarget(dispatch, { botId: "bot-1", threadId: "older-room-thread" }, { bots, groups });
+    openNotificationTarget(dispatch, { botId: "bot-1", threadId: "older-room-thread" }, { bots, groups }, true);
 
     expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
       { type: "select", id: "room-1" },
@@ -859,14 +861,14 @@ describe("notification routing", () => {
 
   it("opens a person's room by its group id when the thread is not in its task list", () => {
     const dispatch = vi.fn();
-    openNotificationTarget(dispatch, { botId: "", threadId: "person-thread-2", groupId: "room-1" }, { bots, groups });
+    openNotificationTarget(dispatch, { botId: "", threadId: "person-thread-2", groupId: "room-1" }, { bots, groups }, true);
     expect(dispatch.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "room-1" }]);
   });
 
   it("lands on a plain bot select for a thread it cannot place, not an error", () => {
     const dispatch = vi.fn();
 
-    openNotificationTarget(dispatch, { botId: "bot-1", threadId: "deleted-task-thread" }, { bots, groups });
+    openNotificationTarget(dispatch, { botId: "bot-1", threadId: "deleted-task-thread" }, { bots, groups }, true);
 
     expect(dispatch.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "bot-1" }]);
   });
@@ -876,7 +878,7 @@ describe("notification routing", () => {
 
     it("selects the bot, switches the view to the thread and reveals its row", () => {
       const dispatch = vi.fn();
-      expect(openThread(dispatch, { botId: "bot-1", threadId: "detached-thread" }, { bots: named, groups })).toBe(true);
+      expect(openThread(dispatch, { botId: "bot-1", threadId: "detached-thread" }, { bots: named, groups }, true)).toBe(true);
       expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
         { type: "select", id: "bot-1" },
         { type: "switchTask", botId: "bot-1", threadId: "detached-thread" },
@@ -886,7 +888,7 @@ describe("notification routing", () => {
 
     it("remembers the conversation on screen so the chip has a way back", () => {
       const dispatch = vi.fn();
-      expect(openThread(dispatch, { botId: "bot-1", threadId: "detached-thread" }, { bots: named, groups, selectedId: "bot-1" })).toBe(true);
+      expect(openThread(dispatch, { botId: "bot-1", threadId: "detached-thread" }, { bots: named, groups, selectedId: "bot-1" }, true)).toBe(true);
       expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
         { type: "select", id: "bot-1" },
         { type: "switchTask", botId: "bot-1", threadId: "detached-thread" },
@@ -910,7 +912,7 @@ describe("notification routing", () => {
 
     it("opens a room thread through the room, not a bot switch", () => {
       const dispatch = vi.fn();
-      openThread(dispatch, { botId: "bot-1", threadId: "older-room-thread" }, { bots: named, groups });
+      openThread(dispatch, { botId: "bot-1", threadId: "older-room-thread" }, { bots: named, groups }, true);
       expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
         { type: "select", id: "room-1" },
         { type: "switchGroupTask", groupId: "room-1", threadId: "older-room-thread" },
@@ -920,7 +922,7 @@ describe("notification routing", () => {
 
     it("falls back to the bot with a quiet notice when the thread is gone, never a switch that would 404", () => {
       const dispatch = vi.fn();
-      expect(openThread(dispatch, { botId: "bot-1", threadId: "deleted-thread" }, { bots: named, groups })).toBe(false);
+      expect(openThread(dispatch, { botId: "bot-1", threadId: "deleted-thread" }, { bots: named, groups }, true)).toBe(false);
       expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
         { type: "select", id: "bot-1" },
         { type: "notice", notice: { kind: "thread-gone", botName: "Scout" } },
@@ -929,7 +931,7 @@ describe("notification routing", () => {
 
     it("only notices when even the bot is gone", () => {
       const dispatch = vi.fn();
-      expect(openThread(dispatch, { botId: "deleted-bot", threadId: "deleted-thread" }, { bots: named, groups })).toBe(false);
+      expect(openThread(dispatch, { botId: "deleted-bot", threadId: "deleted-thread" }, { bots: named, groups }, true)).toBe(false);
       expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
         { type: "notice", notice: { kind: "thread-gone", botName: null } },
       ]);
@@ -943,6 +945,90 @@ describe("notification routing", () => {
       const twice = reducer(once, { type: "revealThread", threadId: "t" });
       expect(once.revealThread).toEqual({ threadId: "t", nonce: 1 });
       expect(twice.revealThread?.nonce).toBe(2);
+    });
+  });
+
+  describe("openBot", () => {
+    // This window last opened "routine-report" from its activity row; the
+    // person last wrote in "later-chat", the bot's main thread.
+    const bot: Bot = {
+      id: "bot-1", threadId: "routine-report", mainThreadId: "later-chat", name: "Scout", title: "", description: "", color: "green",
+      notifications: true, unread: true, modelSelection: { instanceId: "test", model: "test" }, messages: [],
+      tasks: [
+        { threadId: "routine-report", title: "Reports", createdAt: 1, unread: true },
+        { threadId: "later-chat", title: "Later chat", createdAt: 2 },
+      ],
+    };
+    const opened = (target: Bot, threadsShown: boolean) => {
+      const dispatch = vi.fn();
+      openBot(dispatch, target, threadsShown);
+      return dispatch.mock.calls.map(([action]) => action);
+    };
+
+    it("opens the thread it was on while threads are shown", () => {
+      expect(opened(bot, true)).toEqual([{ type: "select", id: "bot-1" }]);
+    });
+
+    it("opens the bot's main thread while threads are hidden, the way its row would", () => {
+      expect(opened(bot, false)).toEqual([{ type: "switchTask", botId: "bot-1", threadId: "later-chat" }]);
+      expect(opened({ ...bot, threadId: "later-chat" }, false)).toEqual([{ type: "select", id: "bot-1" }]);
+      // A main thread this window has no row for yet, or none at all.
+      expect(opened({ ...bot, tasks: undefined }, false)).toEqual([{ type: "select", id: "bot-1" }]);
+      expect(opened({ ...bot, mainThreadId: undefined }, false)).toEqual([{ type: "select", id: "bot-1" }]);
+      // The switch selects the bot and leaves the thread it came from unread.
+      const switched = reducer({ ...initialState, bots: [bot], selectedId: "other", activeView: "routines" }, opened(bot, false)[0] as Action);
+      expect(switched).toMatchObject({ selectedId: "bot-1", activeView: "chat" });
+      expect(switched.bots[0]!.tasks!.find((task) => task.threadId === "routine-report")!.unread).toBe(true);
+    });
+
+    // A reply landed in "routine-report", where this window left the bot;
+    // a notification (or a chip, a link, a button) names another thread.
+    const followed = (threadId: string, threadsShown: boolean) => {
+      const dispatch = vi.fn();
+      openNotificationTarget(dispatch, { botId: "bot-1", threadId }, { bots: [bot], groups: [] }, threadsShown);
+      return dispatch.mock.calls.map(([action]) => action as Action);
+    };
+
+    it("opens a thread a notification names without passing the reply the bot was left on as read, with threads hidden", () => {
+      const actions = followed("later-chat", false);
+      expect(actions).toEqual([{ type: "switchTask", botId: "bot-1", threadId: "later-chat" }]);
+      // With only an activity row to reach it, the reply stays unread.
+      const opened = actions.reduce(reducer, { ...initialState, bots: [bot], selectedId: "other", activeView: "chat" });
+      expect(opened).toMatchObject({ selectedId: "bot-1", activeView: "chat" });
+      expect(opened.bots[0]!.tasks!.find((task) => task.threadId === "routine-report")!.unread).toBe(true);
+      // The thread it is on opens as it always did.
+      expect(followed("routine-report", false)).toEqual([
+        { type: "select", id: "bot-1" },
+        { type: "switchTask", botId: "bot-1", threadId: "routine-report" },
+      ]);
+    });
+
+    it("opens a thread a notification names as before while threads are shown", () => {
+      expect(followed("later-chat", true)).toEqual([
+        { type: "select", id: "bot-1" },
+        { type: "switchTask", botId: "bot-1", threadId: "later-chat" },
+      ]);
+    });
+
+    it("falls back from a thread it cannot place to the bot itself, its main thread with threads hidden", () => {
+      expect(followed("deleted-thread", false)).toEqual([{ type: "switchTask", botId: "bot-1", threadId: "later-chat" }]);
+      expect(followed("deleted-thread", true)).toEqual([{ type: "select", id: "bot-1" }]);
+      const named = [{ ...bot, name: "Scout" }];
+      const dispatch = vi.fn();
+      expect(openThread(dispatch, { botId: "bot-1", threadId: "deleted-thread" }, { bots: named, groups: [] }, false)).toBe(false);
+      expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
+        { type: "switchTask", botId: "bot-1", threadId: "later-chat" },
+        { type: "notice", notice: { kind: "thread-gone", botName: "Scout" } },
+      ]);
+    });
+
+    it("opens a chip's or a link's thread the same way, then reveals it", () => {
+      const dispatch = vi.fn();
+      expect(openThread(dispatch, { botId: "bot-1", threadId: "later-chat" }, { bots: [{ ...bot, name: "Scout" }], groups: [] }, false)).toBe(true);
+      expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
+        { type: "switchTask", botId: "bot-1", threadId: "later-chat" },
+        { type: "revealThread", threadId: "later-chat" },
+      ]);
     });
   });
 
@@ -2187,7 +2273,8 @@ describe("bot settings section", () => {
     expect(next.selectedId).toBe(other.id);
     expect(next.activeView).toBe("team-map");
     expect(next.settingsOpen).toBe(true);
-    expect(next.botSettingsSection).toBe("overview");
+    // the switch retargets the panel but keeps the section pointer
+    expect(next.botSettingsSection).toBe("routines");
     expect(next.botSettingsExpandAccordion).toBe(false);
 
     const model = reducer(next, { type: "toggleSettings", botId: bot.id, section: "routines" });
@@ -2211,71 +2298,103 @@ describe("bot settings section", () => {
     expect(reducer(state, { type: "toggleSettings", botId, section: "details" })).toBe(state);
   });
 
-  it("selecting a different bot resets botSettingsSection to overview", () => {
-    // Add bot A and select it
-    let state = reducer(initialState, {
-      type: "botAdded",
-      bot: { ...bot, id: "bot-a", threadId: "thread-a" },
-    });
-    // Add bot B (becomes selected automatically)
-    state = reducer(state, {
-      type: "botAdded",
-      bot: { ...bot, id: "bot-b", threadId: "thread-b" },
-    });
-    expect(state.selectedId).toBe("bot-b");
-
-    // Set section to "details" while bot-b is selected
-    state = reducer(state, {
-      type: "toggleSettings",
-      open: true,
-      section: "details",
-    });
-    expect(state.botSettingsSection).toBe("details");
-
-    // Select bot A → should reset to "overview" because we're changing bots
-    const next = reducer(state, {
-      type: "select",
-      id: "bot-a",
-    });
-    expect(next.botSettingsSection).toBe("overview");
+  it("an open that names a section marks a choice stored", () => {
+    const next = reducer(initialState, { type: "toggleSettings", open: true, section: "details" });
+    expect(next.botSettingsSectionStored).toBe(true);
+    expect(next.botSettingsExpandAccordion).toBe(true);
+    expect(next.botSettingsExpandRemembered).toBe(false);
   });
 
-  it("re-selecting the same bot keeps botSettingsSection, but selecting a different bot resets it", () => {
-    // Add bot A (becomes selected)
+  it("a fresh bare open with a stored choice expands the remembered section", () => {
+    // the launch init put the stored section and its flag on the state
+    const stored = { ...initialState, botSettingsSection: "model" as const, botSettingsSectionStored: true };
+    const next = reducer(stored, { type: "toggleSettings", open: true });
+    expect(next.settingsOpen).toBe(true);
+    expect(next.botSettingsSection).toBe("model");
+    expect(next.botSettingsExpandAccordion).toBe(true);
+    expect(next.botSettingsExpandRemembered).toBe(true);
+  });
+
+  it("a bare open while the panel is open collapses the rail", () => {
+    // the search box and the re-click on the open row, whether the row was
+    // remembered-expanded or deep-linked
+    const remembered = {
+      ...initialState,
+      settingsOpen: true,
+      botSettingsSection: "model" as const,
+      botSettingsExpandAccordion: true,
+      botSettingsExpandRemembered: true,
+      botSettingsSectionStored: true,
+    };
+    const collapsed = reducer(remembered, { type: "toggleSettings", open: true });
+    expect(collapsed.settingsOpen).toBe(true);
+    expect(collapsed.botSettingsSection).toBe("model");
+    expect(collapsed.botSettingsExpandAccordion).toBe(false);
+    expect(collapsed.botSettingsExpandRemembered).toBe(false);
+    expect(collapsed.botSettingsSectionStored).toBe(true);
+  });
+
+  it("a bare open with nothing stored keeps the rail collapsed", () => {
+    expect(initialState.botSettingsSection).toBe("overview");
+    expect(initialState.botSettingsExpandAccordion).toBe(false);
+    expect(initialState.botSettingsExpandRemembered).toBe(false);
+    expect(initialState.botSettingsSectionStored).toBe(false);
+    const next = reducer(initialState, { type: "toggleSettings", open: true });
+    expect(next.settingsOpen).toBe(true);
+    expect(next.botSettingsSection).toBe("overview");
+    expect(next.botSettingsExpandAccordion).toBe(false);
+    expect(next.botSettingsExpandRemembered).toBe(false);
+    expect(next.botSettingsSectionStored).toBe(false);
+  });
+
+  it("opening another bot's profile keeps the current section", () => {
+    const other = { ...bot, id: "other-bot" };
+    const state = {
+      ...initialState,
+      selectedId: bot.id,
+      bots: [bot, other],
+      settingsOpen: true,
+      botSettingsSection: "soul" as const,
+      botSettingsExpandAccordion: true,
+      botSettingsSectionStored: true,
+    };
+    const next = reducer(state, { type: "toggleSettings", botId: other.id });
+    expect(next.settingsOpen).toBe(true);
+    expect(next.botSettingsSection).toBe("soul");
+  });
+
+  it("selecting a different bot or room keeps the section pointer", () => {
+    // The panel remounts per bot (App keys it by bot id), so everything the
+    // expansion rides on must survive a bot or room switch.
     let state = reducer(initialState, {
       type: "botAdded",
       bot: { ...bot, id: "bot-a", threadId: "thread-a" },
     });
-    expect(state.selectedId).toBe("bot-a");
-
-    // Open settings with section "routines"
-    state = reducer(state, {
-      type: "toggleSettings",
-      open: true,
-      section: "routines",
-    });
-    expect(state.botSettingsSection).toBe("routines");
-
-    // Re-select bot A (same bot) → section should stay "routines"
-    state = reducer(state, {
-      type: "select",
-      id: "bot-a",
-    });
-    expect(state.botSettingsSection).toBe("routines");
-
-    // Add bot B (becomes selected)
     state = reducer(state, {
       type: "botAdded",
       bot: { ...bot, id: "bot-b", threadId: "thread-b" },
     });
-    expect(state.selectedId).toBe("bot-b");
-
-    // Select bot A again → should reset to "overview" because we're changing from bot-b to bot-a
-    state = reducer(state, {
-      type: "select",
-      id: "bot-a",
-    });
-    expect(state.botSettingsSection).toBe("overview");
+    const room = {
+      id: "room-1", name: "Room", threadId: "room-thread", memberIds: [], createdAt: 1,
+      defaultResponder: { kind: "everyone" }, bulletin: "", unread: false, messages: [],
+    } as Group;
+    state = {
+      ...state,
+      groups: [room],
+      settingsOpen: true,
+      botSettingsSection: "model" as const,
+      botSettingsExpandAccordion: true,
+      botSettingsExpandRemembered: true,
+      botSettingsSectionStored: true,
+    };
+    const kept = {
+      botSettingsSection: "model",
+      botSettingsExpandAccordion: true,
+      botSettingsExpandRemembered: true,
+      botSettingsSectionStored: true,
+    };
+    expect(reducer(state, { type: "select", id: "bot-a" })).toMatchObject(kept);
+    expect(reducer(state, { type: "select", id: room.id })).toMatchObject(kept);
   });
 });
 
@@ -2641,9 +2760,9 @@ describe("restoring the open conversation", () => {
       FixtureEventSource.opened.length = 0;
     });
 
-    /** Mount a provider whose storage starts at `seed` and wait for its
-     * initial load effect to open the app's stream. */
-    const boot = async (seed: Record<string, string> = {}) => {
+    /** Mount a provider whose storage starts at `seed` (or is the given
+     * surface) and wait for its initial load effect to open the app's stream. */
+    const boot = async (seed: Record<string, string> = {}, storage?: { getItem: (key: string) => string | null; setItem: (key: string, value: string) => void }) => {
       const stored = new Map<string, string>(Object.entries(seed));
       const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body)));
       const answers: Record<string, unknown> = {
@@ -2652,7 +2771,7 @@ describe("restoring the open conversation", () => {
         "/api/routines": { routines: [], runs: [] },
         "/api/webhooks": { webhooks: [], attempts: [], ingress: null },
       };
-      vi.stubGlobal("localStorage", {
+      vi.stubGlobal("localStorage", storage ?? {
         getItem: (key: string) => stored.get(key) ?? null,
         setItem: (key: string, value: string) => void stored.set(key, value),
       });
@@ -2700,6 +2819,83 @@ describe("restoring the open conversation", () => {
       await settle();
       expect(seen.selectedId).toBe("room-1");
       expect(stored.get(LAST_CONVERSATION_KEY)).toBe("room-1");
+    });
+
+    it("the provider remembers a section only while it is expanded", async () => {
+      const { stored, stream } = await boot({ [LAST_BOT_SECTION_KEY]: "model" });
+      stream.send(hello());
+      await settle();
+      // the launch init adopted the stored section without writing it back
+      expect(seen.botSettingsSection).toBe("model");
+      expect(seen.botSettingsSectionStored).toBe(true);
+      expect(stored.get(LAST_BOT_SECTION_KEY)).toBe("model");
+
+      // a remembered bare open expands the row and keeps the choice
+      flushSync(() => dispatch({ type: "toggleSettings", open: true }));
+      await settle();
+      expect(seen.botSettingsExpandRemembered).toBe(true);
+      expect(stored.get(LAST_BOT_SECTION_KEY)).toBe("model");
+
+      // a bare open while the panel is open collapses the rail and writes nothing
+      flushSync(() => dispatch({ type: "toggleSettings", open: true }));
+      await settle();
+      expect(seen.botSettingsExpandAccordion).toBe(false);
+      expect(stored.get(LAST_BOT_SECTION_KEY)).toBe("model");
+
+      // a deep link the panel itself shows (Sagax: Details and Routines; the
+      // other sections open the persona editor) writes that section
+      flushSync(() => dispatch({ type: "toggleSettings", open: true, section: "routines" }));
+      await settle();
+      expect(stored.get(LAST_BOT_SECTION_KEY)).toBe("routines");
+
+      // closing never writes; the last viewed section stays the next launch's
+      flushSync(() => dispatch({ type: "toggleSettings", open: false }));
+      await settle();
+      expect(stored.get(LAST_BOT_SECTION_KEY)).toBe("routines");
+    });
+
+    it("the provider remembers Details like any other panel section", async () => {
+      const { stored, stream } = await boot();
+      stream.send(hello());
+      await settle();
+
+      // a deep link to Details writes it like any other panel section
+      flushSync(() => dispatch({ type: "toggleSettings", open: true, section: "details" }));
+      await settle();
+      expect(stored.get(LAST_BOT_SECTION_KEY)).toBe("details");
+
+      // the next bare open expands the remembered Details row
+      flushSync(() => dispatch({ type: "toggleSettings", open: false }));
+      await settle();
+      flushSync(() => dispatch({ type: "toggleSettings", open: true }));
+      await settle();
+      expect(seen.botSettingsSection).toBe("details");
+      expect(seen.botSettingsExpandAccordion).toBe(true);
+      expect(seen.botSettingsExpandRemembered).toBe(true);
+    });
+
+    it("a throwing storage surface boots as if nothing were stored", async () => {
+      const { stream } = await boot({}, {
+        getItem: () => {
+          throw new Error("blocked");
+        },
+        setItem: () => {
+          throw new Error("blocked");
+        },
+      });
+      stream.send(hello());
+      await settle();
+      expect(seen.botSettingsSection).toBe("overview");
+      expect(seen.botSettingsSectionStored).toBe(false);
+      expect(seen.botSettingsExpandRemembered).toBe(false);
+
+      // a bare open behaves as nothing stored: the rail stays collapsed
+      flushSync(() => dispatch({ type: "toggleSettings", open: true }));
+      await settle();
+      expect(seen.settingsOpen).toBe(true);
+      expect(seen.botSettingsSection).toBe("overview");
+      expect(seen.botSettingsExpandAccordion).toBe(false);
+      expect(seen.botSettingsExpandRemembered).toBe(false);
     });
   });
 });

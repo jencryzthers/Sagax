@@ -25,7 +25,7 @@ import { writeFileAtomic, writeFileAtomicIfChanged } from "../atomic.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, spawnCli } from "../procs.ts";
 import { classifyResumeFailure, mayReplay, rebuiltSessionNotice, recoveryPromptFor } from "../resume-recovery.ts";
-import { hostTimeZone } from "../turn-clock.ts";
+import { hostTimeZone } from "../bot-settings.ts";
 import { ClaudeLoginController } from "./claude-login-auth.ts";
 
 import type {

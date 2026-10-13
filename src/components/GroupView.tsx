@@ -4,6 +4,7 @@
 // default responder; @mentions override that routing.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { activeLocale, t } from "@/lib/i18n";
+import { useShowThreads } from "@/lib/thread-preferences";
 import { ArrowDown, ChevronDown, ChevronRight, FolderOpen, PanelRight, Pin, X } from "lucide-react";
 import {
   api,
@@ -489,6 +490,7 @@ export const Transcript = memo(function Transcript({
   const reactionSelf = useMemo(() => reactionSelfKey.split("\n").filter(Boolean), [reactionSelfKey]);
   const showToolCalls = showToolCallRows(state.config);
   const owners = useMemo(() => ({ bots: state.bots, groups: state.groups }), [state.bots, state.groups]);
+  const showThreads = useShowThreads();
   const memberOf = (id?: string) => members.find((b) => b.id === id);
   const pairChannel = Boolean(group.dm) && !group.peopleDm;
   // Bot-to-bot lines become one chip per run first. A shared room's replies
@@ -778,7 +780,7 @@ export const Transcript = memo(function Transcript({
               <RoutineRunCard
                 message={m}
                 onOpen={routineTarget
-                  ? () => openNotificationTarget(dispatch, routineTarget, state)
+                  ? () => openNotificationTarget(dispatch, routineTarget, state, showThreads)
                   : undefined}
               />
             </div>
