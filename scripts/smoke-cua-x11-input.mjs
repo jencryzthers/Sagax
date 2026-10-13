@@ -63,6 +63,9 @@ windowManager.on("error", (error) => {
     rmSync(sandbox, { recursive: true, force: true });
     throw new Error(`openbox did not claim the display\n${windowManagerError}`);
   }
+  // The supporting-WM property is set before openbox is in its event loop.
+  // A map in that gap stays IsUnMapped for the whole smoke.
+  await delay(300);
 }
 // Line-buffered so a timeout still shows Map and Reparent events. xev's own
 // stdout is fully buffered on a pipe and would hide them.
@@ -245,7 +248,8 @@ try {
   const windowDeadline = Date.now() + 15_000;
   let windowId = "";
   let lastState = "";
-  let askedToMap = false;
+  let sawWindowAt = 0;
+  let forcedMap = false;
   while (Date.now() < windowDeadline) {
     if (xev.exitCode !== null || xev.signalCode !== null) {
       throw new Error(`xev exited before its test window appeared:\n${xevOutput}`);
@@ -255,6 +259,7 @@ try {
     }
     windowId = outerWindowId();
     if (windowId) {
+      sawWindowAt ||= Date.now();
       try {
         const { stdout } = await execFileAsync("xwininfo", ["-id", windowId], { timeout: 3_000 });
         lastState = /Map State:\s+(\S+)/.exec(stdout)?.[1] ?? "";
@@ -262,9 +267,15 @@ try {
       } catch (error) {
         lastState = error instanceof Error ? error.message : String(error);
       }
-      if (!askedToMap && (lastState === "IsUnMapped" || lastState === "IsUnviewable")) {
-        askedToMap = true;
-        await execFileAsync("xdotool", ["windowmap", windowId], { timeout: 3_000 }).catch(() => {});
+      // A MapRequest openbox never answers leaves the window IsUnMapped.
+      // Withdraw it and map as override-redirect so it becomes viewable
+      // without that request. windowactivate still publishes
+      // _NET_ACTIVE_WINDOW as a WINDOW.
+      if (!forcedMap && sawWindowAt && Date.now() - sawWindowAt > 1_000 && (lastState === "IsUnMapped" || lastState === "IsUnviewable")) {
+        forcedMap = true;
+        await execFileAsync("xdotool", ["windowunmap", windowId], { timeout: 2_000 }).catch(() => {});
+        await execFileAsync("xdotool", ["set_window", "--overrideredirect", "1", windowId], { timeout: 2_000 }).catch(() => {});
+        await execFileAsync("xdotool", ["windowmap", windowId], { timeout: 2_000 }).catch(() => {});
       }
     }
     await delay(50);
