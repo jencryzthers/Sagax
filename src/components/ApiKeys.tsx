@@ -1,6 +1,6 @@
 // Paste-a-key rows. Packaged Electron saves secrets in the OS-backed store;
 // browser development falls back to PUT /api/config. Secrets are write-only
-// either way — GET /api/config returns configured flags, never values.
+// either way: GET /api/config returns configured flags, never values.
 import { useEffect, useId, useRef, useState } from "react";
 import { Check, CircleHelp, ExternalLink, Loader2, TriangleAlert } from "lucide-react";
 import { api, useStore, type ConfigStatus } from "@/state/store";
@@ -60,7 +60,7 @@ const CREDENTIALS: Record<
   ConfigSection,
   {
     labelKey: LocaleKey;
-    /** a literal placeholder that is not copy — an example key shape */
+    /** a literal placeholder that is not copy: an example key shape */
     placeholder?: string;
     placeholderKey?: LocaleKey;
     descriptionKey: LocaleKey;
@@ -159,7 +159,7 @@ const CREDENTIALS: Record<
 };
 
 /** The catalog is read when a row renders, not when this module loads. */
-function credentialCopy(section: ConfigSection) {
+export function credentialCopy(section: ConfigSection) {
   const entry = CREDENTIALS[section];
   return {
     ...entry,
@@ -248,8 +248,12 @@ export function ApiKeyRow({
   section,
   onSaved,
   testProvider,
+  bare = false,
 }: {
   section: ConfigSection;
+  /** Inside the key dialog (settings/ProviderKeys.tsx): the dialog already
+   * names the provider and says where to get a key, so no header row. */
+  bare?: boolean;
   /** Called after a successful save with the section's new configured flag. */
   onSaved?: (configured: boolean) => void;
   /** Check the key against the provider as soon as it saves, and offer a
@@ -335,18 +339,13 @@ export function ApiKeyRow({
 
   return (
     <div data-api-key-row={section}>
-      <div className="mb-1.5 flex items-center gap-2 text-[13px] text-ink-secondary">
+      {!bare && <div className="mb-1.5 flex items-center gap-2 text-[13px] text-ink-secondary">
         <span className={cn("size-1.5 rounded-full", configured || included ? "bg-accent" : "bg-raised-hover")} />
         <span>{credential.label}</span>
-        {credential.optional && (
-          <span className="rounded bg-control px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-ink-secondary">
-            {t("keys.optional")}
-          </span>
-        )}
         {configured && <span className="text-[11px] text-ink-secondary">{t("keys.configured")}</span>}
         {included && <span className="text-[11px] text-ink-secondary">{t("keys.includedWithCloudPro")}</span>}
         <CredentialHelp section={section} />
-      </div>
+      </div>}
       <div className="flex gap-2">
         <div className="relative w-full">
           <input
@@ -576,9 +575,6 @@ export function VpsConnection() {
       <div className="mb-1.5 flex items-center gap-2 text-[13px] text-ink-secondary">
         <span className={cn("size-1.5 rounded-full", configured ? "bg-accent" : "bg-raised-hover")} />
         <span>{t("keys.vps.label")}</span>
-        <span className="rounded bg-control px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-ink-secondary">
-          {t("keys.optional")}
-        </span>
         {configured && <span className="text-[11px] text-success">{t("keys.connected")}</span>}
       </div>
       <div className="mb-1.5 text-[12px] leading-relaxed text-ink-secondary">

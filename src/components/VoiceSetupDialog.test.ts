@@ -225,7 +225,7 @@ describe("voice set-up pop-up", () => {
     expect(needsEngine).not.toContain("ElevenLabs key");
     expect(needsEngine).not.toContain('aria-label="Voice engine"');
     expect(needsEngine).toContain("Set up the voice engine");
-    expect(needsEngine).toContain(">API keys<");
+    expect(needsEngine).toContain(">Integrations<");
     expect(pickerTag(needsEngine)).toBeUndefined();
 
     fixture.config = { tts: { configured: true, provider: "elevenlabs" } };
@@ -243,7 +243,7 @@ describe("voice set-up pop-up", () => {
       workspaceConfigurationLocked: true,
     }));
     expect(locked).toContain("The host has not set up a voice engine.");
-    expect(locked).not.toContain(">API keys<");
+    expect(locked).not.toContain(">Integrations<");
     expect(locked).not.toContain("ElevenLabs key");
   });
 

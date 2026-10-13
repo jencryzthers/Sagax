@@ -32,6 +32,31 @@ or workspace/team ownership and computer-sharing grants. Full Access controls
 approval prompts; it does not sign in for you, enable a feature you disabled,
 or grant another bot access to a different workspace.
 
+### The level a new bot starts on
+
+On a solo server a new bot and its first thread start on **Approve for me**
+(a bot on This computer starts on Ask until its own warning).
+
+On an organization server the organization decides (2026-10-11). The
+console's New bot default (`defaults.approvalMode` of the admin API's
+`POST settings`, the same value as Settings > New bot defaults) sets it:
+**Approve for me** when it says `auto`, **Ask for approval** otherwise,
+including when no policy was ever saved. `full` and `custom` start on Ask
+too: they need the owner's own confirmation for that bot, which a bot that
+does not exist yet cannot have. New bot, the API and a Primary Bot creating
+a teammate follow it; a level the request names still wins, and imports and
+team backups still start on Ask. Existing bots and threads never move: the
+one-time switch of older bots from Ask to Approve for me does not run where
+new bots start on Ask.
+
+**Full access** on an organization server is off until an admin turns it on
+(Settings > Organization > Allow full access, or `allowFullAccess` in the
+admin API's `POST settings`). A saved choice, on or off, is kept. An
+organization that never saved it and whose bots already ran on Full keeps
+Full allowed: the first start of this version writes `allowFullAccess:
+true` once (an `org.settings` row in the admin activity log), so no bot
+changes level.
+
 The effective setting belongs to the source conversation. An existing Ask
 thread remains Ask even if the bot default is Full; a Full thread works without
 these extra prompts even if the bot default is Ask. Ask, Auto, and Custom retain

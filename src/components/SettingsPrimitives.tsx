@@ -38,6 +38,7 @@ export function Switch({
 export function SwitchRow({
   label,
   description,
+  help,
   checked,
   disabled,
   onChange,
@@ -45,6 +46,8 @@ export function SwitchRow({
 }: {
   label: React.ReactNode;
   description?: React.ReactNode;
+  /** The longer explanation, behind an info button after the label. */
+  help?: React.ReactNode;
   checked: boolean;
   disabled?: boolean;
   onChange: (next: boolean) => void;
@@ -53,7 +56,10 @@ export function SwitchRow({
   return (
     <label className={cn("flex min-w-0 items-center justify-between gap-4 text-[13px] text-ink", disabled ? "cursor-not-allowed" : "cursor-pointer", className)}>
       <span className="min-w-0">
-        <span className="block leading-[18px]">{label}</span>
+        <span className="flex items-center gap-1.5 leading-[18px]">
+          <span className="min-w-0">{label}</span>
+          {help && <HelpTip label={t("settings.moreAbout", { title: typeof label === "string" ? label : "" })}>{help}</HelpTip>}
+        </span>
         {description && <span className="mt-0.5 block text-[12px] leading-relaxed text-ink-secondary">{description}</span>}
       </span>
       <Switch checked={checked} disabled={disabled} onClick={() => onChange(!checked)} />

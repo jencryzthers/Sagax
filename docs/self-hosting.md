@@ -745,7 +745,9 @@ id).
   sign-ins and refreshes, and wait in a sealed queue (`idp-revocations.enc`)
   until they go through.
 - The directory is read at start, every `SAGAX_PERSPICAX_DIRECTORY_SECONDS`,
-  and after each sign-in. Everyone it lists becomes a person here (so a bot
+  after each sign-in, and when Perspicax asks for it after a rights change
+  (`POST /api/org/link/directory-refresh` with the link token,
+  `docs/org-admin-api.md` "Link routes"). Everyone it lists becomes a person here (so a bot
   can be shared with someone before their first sign-in), with their name,
   login, address and role. Someone disabled or deleted in Perspicax is
   logged out as a back-channel logout would, even if that push never

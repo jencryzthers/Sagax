@@ -121,6 +121,15 @@ export function BotsReadOnlyDialog({ onClose }: { onClose: () => void }) {
   </div>;
 }
 
+/** The level New bot starts on: the template's, else the server's own
+ * (`approvalMode` of GET /api/bot-defaults: Approve for me, or Ask on an
+ * organization whose policy says so), else Approve for me as before. This
+ * computer keeps no level here: its own warning decides. */
+export function newBotStartMode(profile: Pick<NewBotDefaults["profile"], "approvalMode" | "computer">, server: "ask" | "auto" | undefined): NewBotDefaults["profile"]["approvalMode"] {
+  if (profile.approvalMode !== undefined || profile.computer === "local") return profile.approvalMode;
+  return server === "ask" ? "ask" : "auto";
+}
+
 /** Someone signed in to another person's server (an organization member)
  * gets the same single-request creation: the host's defaults and settings
  * are not theirs to read or change. A read-only person gets the notice,
@@ -165,11 +174,15 @@ export function LocalNewBotDialog({ defaultsMode = false, onClose, section, onCr
   };
   useEffect(() => {
     let cancelled = false;
-    void api<{ defaults: NewBotDefaults; modelSelection: ModelSelection; suggestedName: string }>("/api/bot-defaults")
+    void api<{ defaults: NewBotDefaults; modelSelection: ModelSelection; suggestedName: string; approvalMode?: "ask" | "auto" }>("/api/bot-defaults")
       .then(result => {
         if (cancelled) return;
         const defaults = structuredClone(result.defaults);
         defaults.profile.modelSelection ??= result.modelSelection;
+        // The level this server starts a new bot on (an organization's
+        // policy, 2026-10-11) when the template names none; editing the
+        // template itself keeps "none" so the policy keeps deciding.
+        if (!defaultsMode) defaults.profile.approvalMode = newBotStartMode(defaults.profile, result.approvalMode);
         if (!defaultsMode) defaults.profile.name = defaults.profile.name?.trim() || result.suggestedName;
         if (section !== undefined) defaults.profile.section = section;
         setDraft(new BotCreationDraft(defaults, () => render(value => value + 1)));

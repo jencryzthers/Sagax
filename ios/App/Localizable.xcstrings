@@ -41863,24 +41863,24 @@
         }
       }
     },
-    "Routines use the tools of the person they run as, once that person allows routines to act in their name.": {
+    "Routines use the tools of the person they run as. That person needs a recent sign-in to Sagax; a run while they have none goes without these tools until they sign in again.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Routines use the tools of the person they run as, once that person allows routines to act in their name."
+            "value": "Routines use the tools of the person they run as. That person needs a recent sign-in to Sagax; a run while they have none goes without these tools until they sign in again."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les routines utilisent les outils de la personne au nom de qui elles s'exécutent, une fois qu'elle les a autorisées à agir en son nom."
+            "value": "Les routines utilisent les outils de la personne au nom de qui elles s'exécutent. Cette personne doit s'être connectée récemment à Sagax ; sinon, l'exécution se fait sans ces outils jusqu'à sa prochaine connexion."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "As rotinas usam as ferramentas da pessoa em nome de quem rodam, depois que ela permite que as rotinas ajam em seu nome."
+            "value": "As rotinas usam as ferramentas da pessoa em nome de quem rodam. Essa pessoa precisa ter entrado no Sagax recentemente; sem isso, a execução segue sem essas ferramentas até ela entrar de novo."
           }
         }
       }
@@ -59423,6 +59423,292 @@
           "stringUnit": {
             "state": "translated",
             "value": "Desconectar o GitHub?"
+          }
+        }
+      }
+    },
+    "Routines shown": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Routines shown"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Routines affichées"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rotinas exibidas"
+          }
+        }
+      }
+    },
+    "Mine": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mine"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les miennes"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minhas"
+          }
+        }
+      }
+    },
+    "My teams": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "My teams"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mes équipes"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minhas equipes"
+          }
+        }
+      }
+    },
+    "Failing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failing"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En échec"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Com falha"
+          }
+        }
+      }
+    },
+    "All teams": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All teams"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toutes les équipes"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todas as equipes"
+          }
+        }
+      }
+    },
+    "All owners": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All owners"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tous les propriétaires"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos os proprietários"
+          }
+        }
+      }
+    },
+    "Any status": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Any status"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tous les états"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qualquer status"
+          }
+        }
+      }
+    },
+    "Filter by team": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter by team"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filtrer par équipe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filtrar por equipe"
+          }
+        }
+      }
+    },
+    "Filter by owner": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter by owner"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filtrer par propriétaire"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filtrar por proprietário"
+          }
+        }
+      }
+    },
+    "Filter by status": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter by status"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filtrer par état"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filtrar por status"
+          }
+        }
+      }
+    },
+    "Reset filters": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset filters"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réinitialiser les filtres"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redefinir filtros"
+          }
+        }
+      }
+    },
+    "Owned by %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Owned by %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appartient à %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pertence a %@"
+          }
+        }
+      }
+    },
+    "%@ needs the %@ permission. Ask an admin to add it in Perspicax.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ needs the %2$@ permission. Ask an admin to add it in Perspicax."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ demande la permission %2$@. Demandez à un administrateur de l'ajouter dans Perspicax."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ precisa da permissão %2$@. Peça a um administrador para adicioná-la no Perspicax."
           }
         }
       }

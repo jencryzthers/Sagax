@@ -27,7 +27,6 @@ import { assistantWindowOptions, clampToDisplays, displaySignature } from "./ret
 
 export const FLOATING_QUERY = "omb-floating-bot=1";
 
-export const FLOAT_SIZE = Object.freeze({ width: 156, height: 172 });
 /**
  * The window the mascot stands in while it is home: the quick chat's room
  * (`chatHomeSize(mascotStage(120))` in window-frame.ts). The character stays

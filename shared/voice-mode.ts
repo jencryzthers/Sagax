@@ -7,7 +7,6 @@
 // the bot as an ordinary message, and the bot's answer is read back.
 // Sources: https://docs.x.ai/developers/model-capabilities/audio/speech-to-text
 // and https://docs.x.ai/developers/model-capabilities/audio/text-to-speech
-import { z } from "zod";
 
 /** localStorage key; travels with the person on an organization server
  * (shared/user-preferences.ts). */
@@ -107,12 +106,6 @@ export const DEFAULT_VOICE_MODE_SETTINGS: VoiceModeSettings = { voice: "", speed
 
 /** A voice id as xAI lists them (GET /v1/tts/voices): short and plain. */
 export const VOICE_ID = /^[\w.-]{1,64}$/;
-
-export const voiceModeSettingsSchema = z.object({
-  voice: z.string().regex(VOICE_ID).or(z.literal("")),
-  speed: z.number().min(VOICE_MODE_MIN_SPEED).max(VOICE_MODE_MAX_SPEED),
-  language: z.string().refine(isVoiceModeLanguage),
-});
 
 /** Keep what is valid, default the rest. Never throws. */
 export function cleanVoiceModeSettings(input: unknown): VoiceModeSettings {

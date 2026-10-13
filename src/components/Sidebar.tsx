@@ -20,7 +20,6 @@ import {
   PinOff,
   Plus,
   Search,
-  SquarePen,
   Puzzle,
   Share2,
   Trash2,
@@ -58,7 +57,8 @@ import { useOrgPeople, usePerspicaxOrg } from "@/lib/perspicax-org";
 import { peopleDmPeer } from "@/lib/people-dm";
 import { LabelTag, PersonLabelTag } from "./LabelTag";
 import { nudgeLineText } from "@/lib/nudge-line";
-import { Eye, UserRound } from "lucide-react";
+import { Cpu, Eye, UserRound } from "lucide-react";
+import { openModelWindow } from "@/lib/model-window";
 import { entriesToUnhide, hiddenKey, hiddenKeySet, hideFromSidebar, showInSidebar, useSidebarHidden } from "@/lib/sidebar-hidden";
 import { closedDmToReopen, groupHiddenKey, hiddenSidebarRows, withoutHiddenEntries } from "@/lib/sidebar-hidden-entries";
 import { PersonAvatar } from "./MessageAuthor";
@@ -183,6 +183,11 @@ export const SIDEBAR_HEAD_BUTTON = cn(
  * the search and New circles sit on the same line as share and the panel
  * toggle on every platform. */
 export const SIDEBAR_HEAD_ROW = "flex h-14 items-center justify-between gap-2 pl-4 pr-3";
+/** The head inside the title bar (macOS inset lights or the browser's dots,
+ * no logo): one 48px row, the 36px circles centred 24px down, 8px below the
+ * lights' centre, ending 16px from the edge, as the owner's reference window
+ * draws them. */
+export const SIDEBAR_TITLE_ROW = "flex h-12 items-center justify-between gap-2 pl-4 pr-4";
 
 /** The palette chord as this platform spells it: "⌘K" on macOS, "Ctrl+K"
  * on Windows and Linux, for the search button's tooltip. */
@@ -315,10 +320,10 @@ export function groupPreview(group: Group, bots: Bot[], config: ConfigStatus | n
 /** A small member stack identifies a group without turning it into a card. */
 export function StackedMauses({ members, density, viewerId }: { members: Bot[]; density: SidebarDensity; viewerId: string }) {
   const iconOnly = density === "icons";
-  // Same footprint as a bot row's avatar (BotListItem: 28 compact, 36
+  // Same footprint as a bot row's avatar (BotListItem: 28 compact, 44
   // comfortable) so group and bot names share one left edge.
-  const slotSize = iconOnly ? "size-12" : density === "compact" ? "size-7" : "size-9";
-  const singleSize = iconOnly ? 44 : density === "compact" ? 28 : 36;
+  const slotSize = iconOnly ? "size-12" : density === "compact" ? "size-7" : "size-11";
+  const singleSize = iconOnly ? 44 : density === "compact" ? 28 : 44;
   if (members.length <= 1) {
     const b = members[0];
     return (
@@ -328,12 +333,12 @@ export function StackedMauses({ members, density, viewerId }: { members: Bot[]; 
     );
   }
   const shown = members.slice(0, 3);
-  const face = iconOnly ? 22 : density === "compact" ? 16 : 20;
+  const face = iconOnly ? 22 : density === "compact" ? 16 : 24;
   const spots = shown.length === 2
     ? ["left-0 top-0.5", "right-0 bottom-0"]
     : ["left-0 top-0", "left-0 bottom-0", "right-0 bottom-0"];
   return (
-    <div className={cn("relative shrink-0", iconOnly ? "size-10" : density === "compact" ? "size-7" : "size-9")}>
+    <div className={cn("relative shrink-0", iconOnly ? "size-10" : density === "compact" ? "size-7" : "size-11")}>
       {/* No outline ring: a ring in a fixed color reads as a dark border on
           hover and selected rows. The faces simply overlap. */}
       {shown.map((b, index) => (
@@ -372,17 +377,16 @@ export function GroupListItem({
     if (showThreads && selected && !wasSelected.current) setThreadsOpen(true);
     wasSelected.current = selected;
   }, [selected, showThreads, setThreadsOpen]);
-  // A conversation with a person lists its threads like a bot does: under
-  // the row only in the sidebar location (the chat header's thread button
-  // otherwise, never both), and once there is a list (a second thread or a
-  // folder) to open.
+  // A room and a conversation with a person list their threads like a bot
+  // does: under the row only in the sidebar location (the chat header's
+  // thread button otherwise, never both), and once there is a list (a
+  // second thread, or a person's folder) to open. So every row kind sits at
+  // one inset in the header location, the avatar and the name aligned.
   const threadsLocation = useThreadsLocationChoice();
-  const personInSidebar = Boolean(group.peopleDm) && showThreads && threadsLocation === "sidebar";
-  // one thread is the room itself; the disclosure and the list only earn
-  // their place once there is a second thread to show
-  const hasThreadList = group.peopleDm
-    ? personInSidebar && ((group.tasks?.length ?? 1) > 1 || (group.projects?.length ?? 0) > 0 || Boolean(query))
-    : showThreads && ((group.tasks?.length ?? 1) > 1 || Boolean(query));
+  const inSidebar = showThreads && threadsLocation === "sidebar";
+  const hasThreadList = inSidebar && (group.peopleDm
+    ? (group.tasks?.length ?? 1) > 1 || (group.projects?.length ?? 0) > 0 || Boolean(query)
+    : (group.tasks?.length ?? 1) > 1 || Boolean(query));
   const expanded = !group.dm && threadsOpen && density !== "icons" && hasThreadList;
   // quiet rows keep the line only while the room reports work in progress
   const groupStatus = Boolean(group.busyBotId) || Boolean(group.working);
@@ -418,12 +422,11 @@ export function GroupListItem({
       }}
       className={cn(
         "relative flex w-full items-center rounded-lg text-left outline-none focus-visible:ring-1 focus-visible:ring-accent/60",
-        density === "icons" ? "justify-center px-1 py-1.5" : density === "compact" ? "gap-2 py-1.5 pr-9" : "min-h-[54px] gap-2 py-2 pr-2",
-        // Same inset as BotListItem so the group and its bots line up; a
-        // room's disclosure chevron sits inside its thread-mode inset. A
-        // person's row moves like a bot row (#152): only in the sidebar
-        // location, where its chevron sits.
-        density !== "icons" && ((group.peopleDm ? personInSidebar : showThreads) ? "pl-6" : "pl-2"),
+        density === "icons" ? "justify-center px-1 py-1.5" : density === "compact" ? cn(inSidebar ? "gap-1.5 py-1" : "gap-2 py-1.5", "pr-9") : "min-h-[56px] gap-1.5 py-1.5 pr-2",
+        // The same box and inset as BotListItem, so every row's avatar and
+        // name line up: a room or a person moves like a bot row (#152),
+        // only in the sidebar location, where its chevron sits.
+        density !== "icons" && (inSidebar ? "pl-6" : density === "compact" ? "pl-2" : "pl-1"),
         selected && !expanded ? "bg-sidebar-selected" : "hover:bg-sidebar-hover",
       )}
       title={density === "icons" ? rowName : undefined}
@@ -431,7 +434,7 @@ export function GroupListItem({
       data-people-dm={peer ? peer.id : undefined}
     >
       {peer
-        ? <span className={cn("flex shrink-0 items-center justify-center", density === "icons" ? "size-12" : density === "compact" ? "size-7" : "size-9")}><PersonAvatar avatarUrl={peer.avatarUrl} initials={peer.initials} size={density === "icons" ? 44 : density === "compact" ? 28 : 36} presenceId={peer.id} presenceRing="border-sidebar" /></span>
+        ? <span className={cn("flex shrink-0 items-center justify-center", density === "icons" ? "size-12" : density === "compact" ? "size-7" : "size-11")}><PersonAvatar avatarUrl={peer.avatarUrl} initials={peer.initials} size={density === "icons" ? 44 : density === "compact" ? 28 : 44} presenceId={peer.id} presenceRing="border-sidebar" /></span>
         : <StackedMauses members={members} density={density} viewerId={viewerActorId(state.config)} />}
       <div className={cn("min-w-0 flex-1", density === "icons" && "hidden")}>
         <div className="flex items-baseline justify-between gap-2">
@@ -1302,6 +1305,7 @@ export function BotContextMenu({
           dispatch({ type: "markUnread", botId: bot.id }),
         ),
         divider("d1"),
+        item(<Cpu size={16} className="text-ink" />, t("sidebar.bot.model"), () => openModelWindow(bot.id), { id: "model" }),
         ...(canRename ? [item(<Pencil size={16} className="text-ink" />, "Rename Bot", () => onRename(bot.id))] : []),
         item(<ClipboardCopy size={16} className="text-ink" />, t("sidebar.copyConversationId"), () => {
           void copyText(bot.threadId);
@@ -1826,13 +1830,14 @@ export function BotListItem({
   useEffect(() => {
     if (iconOnly) setRenaming(false);
   }, [iconOnly]);
-  const avatarSize = iconOnly ? 36 : density === "compact" ? 28 : 36;
+  // the reference window's 44px portrait in comfortable rows
+  const avatarSize = iconOnly ? 36 : density === "compact" ? 28 : 44;
   // the visible branch, so a version switch changes the row with the chat
   const visible = useVisibleMessages(bot);
   const last = visible.at(-1);
-  // the role from Bot Settings → Title. A badge or tooltip beside the name
-  // (#866, #871) always traded the name's width against the title's; its own
-  // line above the name lets both truncate independently instead.
+  // the role from Bot Settings → Title is not drawn in the row, as upstream:
+  // a row is the name and what was last said. The role stays in the
+  // avatar's tooltip and is read out with the name.
   const title = bot.title.trim();
   // Header mode: the same wrapper classes with threads on or off. Sidebar
   // mode keeps the old pl-6 inset for the chevron, like room rows.
@@ -1842,7 +1847,7 @@ export function BotListItem({
       ? "justify-center px-1 py-1.5"
       : density === "compact"
         ? cn(inSidebar ? "gap-1.5 py-1 pl-6" : "gap-2 py-1.5 pl-2", "pr-9")
-        : cn("min-h-[54px] gap-2 py-2 pr-9", inSidebar ? "pl-6" : "pl-2"),
+        : cn("min-h-[56px] gap-1.5 py-1.5 pr-9", inSidebar ? "pl-6" : "pl-1"),
     // The Primary Bot is called out by the star on its avatar, not by
     // tinting the whole row: an accent border and fill read as "selected"
     // even when another bot was active.
@@ -1870,7 +1875,7 @@ export function BotListItem({
     <>
       {/* flex, not inline: an inline wrapper adds a baseline gap under the
           avatar and makes the row taller than before the presence dot */}
-      <span className="relative flex shrink-0">
+      <span className="relative flex shrink-0" title={iconOnly ? undefined : [bot.name, title].filter(Boolean).join(" · ")}>
         <BotAvatar
           bot={bot}
           primary={primary}
@@ -1914,9 +1919,8 @@ export function BotListItem({
               className="min-w-0 truncate"
               inputClassName="w-full rounded bg-inset px-1 py-0.5 text-[14px] font-medium"
             />
-            {title && !renaming && !quiet && (
-              <LabelTag text={title} className="max-w-[46%] shrink" />
-            )}
+            {/* the role is read out with the name, not drawn (upstream) */}
+            {title && !renaming && <span className="sr-only">{`, ${title}`}</span>}
           </span>
           {selected && last && !renaming && !expanded && (
             <span className="shrink-0 text-[12px] leading-4 text-sidebar-ink-secondary transition-opacity group-hover:opacity-0 group-focus-within:opacity-0 touch:opacity-0">
@@ -2636,6 +2640,9 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
 
   const macInset = capabilities.windowChrome === "mac-inset";
   const browser = capabilities.host.label === "Browser";
+  // Search and New ride in the title bar's row when there is one and no
+  // brand row asks for its own (see the head below).
+  const titleBarHead = (macInset || browser) && !showLogo;
   // macOS owns inset traffic lights; Windows hides the native bar and draws
   // caption buttons over the header's right end. Either way this top row is
   // the window's drag handle (`.window-drag`, see styles.css).
@@ -2859,13 +2866,17 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
         open ? "max-md:translate-x-0" : "max-md:-translate-x-full",
       )}
     >
-      {/* The head, like Perspicax's: the brand row (the Pulsatrix mark and the name, then
-          the round search button that opens the command palette and the
-          round New button; the edge collapses it, see the separator). macOS owns inset traffic lights above the
-          brand row; the whole head is the window's drag handle there and on
-          Windows, with every control opted out. */}
+      {/* The head: the round search button that opens the command palette
+          and the round New button (the edge collapses the sidebar, see the
+          separator). With a title bar (macOS inset traffic lights, or the
+          browser's stand-in dots) and no logo, they sit in the title bar's
+          own 48px row, level with the lights, and the pinned tiles start
+          right under (the owner's reference window). With the logo on
+          (Settings > Appearance, off by default) or no title bar, the brand
+          row holds them under the inset strip. The whole head is the
+          window's drag handle on macOS and Windows, every control opted out. */}
       <div data-sidebar-head className="window-drag shrink-0">
-        {(macInset || browser) && (
+        {(macInset || browser) && (density === "icons" || showLogo) && (
           <div className={cn("flex h-9 items-center", density === "icons" ? "justify-center" : "px-4")} aria-hidden={browser ? true : undefined}>
             {browser && (
               <div className="flex items-center gap-2">
@@ -2898,12 +2909,19 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
               data-sidebar-new
               className={SIDEBAR_HEAD_BUTTON}
             >
-              <SquarePen size={16} strokeWidth={1.75} aria-hidden="true" />
+              <Plus size={18} strokeWidth={1.75} aria-hidden="true" />
             </button>
           </div>
         ) : (
           <>
-            <div className={SIDEBAR_HEAD_ROW}>
+            <div className={titleBarHead ? SIDEBAR_TITLE_ROW : SIDEBAR_HEAD_ROW} data-sidebar-title-row={titleBarHead ? "" : undefined}>
+              {titleBarHead && browser && (
+                <span className="flex items-center gap-2" aria-hidden="true">
+                  <span className="size-3 rounded-full bg-[#ff5f57]" />
+                  <span className="size-3 rounded-full bg-[#febc2e]" />
+                  <span className="size-3 rounded-full bg-[#28c840]" />
+                </span>
+              )}
               {showLogo && (
                 <span className="flex min-w-0 items-center gap-2 text-sidebar-ink" data-sidebar-brand>
                   <PulsatrixMark size={22} />
@@ -2931,7 +2949,7 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
                   data-sidebar-new
                   className={SIDEBAR_HEAD_BUTTON}
                 >
-                  <SquarePen size={16} strokeWidth={1.75} aria-hidden="true" />
+                  <Plus size={18} strokeWidth={1.75} aria-hidden="true" />
                 </button>
               </span>
             </div>
@@ -2946,7 +2964,9 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
           <SectionNameInput onSave={createOrgSection} onCancel={() => setSectionEdit(null)} />
         )}
         {pinnedBots.length > 0 && (
-          <div className={cn("mb-2 grid py-1.5", density === "icons" ? "grid-cols-1 gap-1" : "grid-cols-[repeat(auto-fit,minmax(122px,max-content))] justify-center gap-x-2 gap-y-3")}>
+          // The reference window's tiles: 95 x 115, 4px apart and centred as
+          // a group, the first 16px under the head's row.
+          <div className={cn("grid", density === "icons" ? "mb-2 grid-cols-1 gap-1 py-1.5" : "mb-4 grid-cols-[repeat(auto-fit,95px)] justify-center gap-x-1 gap-y-3 pb-1.5 pt-3")}>
             {pinnedBots.map((bot) => {
               const selected = state.activeView === "chat" && state.selectedId === bot.id;
               const title = bot.title.trim();
@@ -2964,12 +2984,16 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
                   className={cn(
                     density === "icons"
                       ? "flex w-20 min-w-0 flex-col items-center gap-1.5 rounded-xl px-1 pb-1 pt-1.5"
-                      : "flex h-[122px] w-[122px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-md px-1.5 py-1",
-                    selected ? "bg-sidebar-selected" : "hover:bg-sidebar-hover",
+                      // the selected tile is a neutral lighter card with a
+                      // 16px radius
+                      : "flex h-[115px] w-[95px] shrink-0 flex-col items-center gap-[3px] rounded-2xl px-1 pb-1 pt-1.5",
+                    density === "icons"
+                      ? selected ? "bg-sidebar-selected" : "hover:bg-sidebar-hover"
+                      : selected ? "bg-sidebar-card" : "hover:bg-sidebar-hover/60",
                   )}
                 >
-                  <BotAvatar bot={bot} primary={isViewersPrimaryBot(bot, viewerId)} primaryRingClassName="ring-sidebar" state="idle" size={density === "icons" ? 36 : 72} animated={false} />
-                  {density !== "icons" && <span className="w-full truncate text-center text-[11px] leading-4 tracking-[.005em] text-sidebar-ink">{bot.name}</span>}
+                  <BotAvatar bot={bot} primary={isViewersPrimaryBot(bot, viewerId)} primaryRingClassName={selected && density !== "icons" ? "ring-sidebar-card" : "ring-sidebar"} state="idle" size={density === "icons" ? 36 : 64} animated={false} />
+                  {density !== "icons" && <span className="w-full truncate text-center text-[12px] leading-4 text-sidebar-ink">{bot.name}</span>}
                   {density !== "icons" && title ? (
                     <LabelTag text={title} size="small" className="max-w-full" />
                   ) : null}
@@ -3031,6 +3055,7 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
                     } : undefined}
                     collapsed={collapsed}
                     attention={attention}
+                    count={sectionChiefItems.length + sectionBotItems.length + sectionGroupItems.length}
                     onToggle={layoutInteractive ? () => toggleSection(id) : undefined}
                     reorderable={layoutInteractive && sectionIds.length > 1}
                     dragging={draggingSectionId === id}
