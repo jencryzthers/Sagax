@@ -198,6 +198,11 @@ describe("CI concurrency", () => {
       // Windows, macOS and iOS jobs run on main pushes and merge groups only.
       expect(job.if).toBe(["windows-cua", "electron-smokes", "ios"].includes(name)
         ? `${selector} && needs.static.outputs.platforms == 'true'` : selector);
+      if (name === "ios") {
+        const ios = job as { "runs-on"?: string; steps?: { run?: string }[] };
+        expect(ios["runs-on"]).toBe("macos-latest");
+        expect(ios.steps?.some((step) => step.run === "swift test --package-path ios")).toBe(true);
+      }
     }
   });
 
