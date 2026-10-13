@@ -134,9 +134,11 @@ spec:
           attestors:
             - count: 1
               entries:
+{{- range .Values.admission.kyverno.subjects }}
                 - keyless:
-                    issuer: {{ .Values.admission.kyverno.issuer | quote }}
-                    subject: {{ .Values.admission.kyverno.subject | quote }}
+                    issuer: {{ $.Values.admission.kyverno.issuer | quote }}
+                    subject: {{ . | quote }}
+{{- end }}
           attestations:
             - predicateType: https://cosign.sigstore.dev/attestation/vuln/v1
               conditions:

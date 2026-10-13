@@ -208,15 +208,20 @@ jobs:
     name: publish to GHCR
     needs: build-and-smoke
     # Release dispatches on its published tag because GITHUB_TOKEN-created
-    # tags do not start another workflow. A manual branch run is smoke-only.
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v'))
+    # tags do not start another workflow. A manual run publishes only when
+    # the ref is a tag. A branch dispatch stays smoke-only: Fulcio's
+    # certificate names that branch, and admission accepts only main and tags.
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/'))
     runs-on: ubuntu-latest
     timeout-minutes: 360
-    # Keyless signing. Fulcio's certificate for this job has issuer
-    # https://token.actions.githubusercontent.com and subject
-    # https://github.com/pulsatrixtechnologies/sagax/.github/workflows/docker.yml@<ref>
-    # (the branch or tag that ran the job). That is the identity
-    # admission.kyverno.issuer and admission.kyverno.subject accept
+    # Keyless signing. Fulcio copies the OIDC job_workflow_ref into the
+    # certificate SAN and does not change case, so this repository stays
+    # pulsatrixtechnologies/Sagax. Issuer is
+    # https://token.actions.githubusercontent.com. The subject is
+    # https://github.com/pulsatrixtechnologies/Sagax/.github/workflows/docker.yml@refs/heads/main
+    # on a push to main, and
+    # https://github.com/pulsatrixtechnologies/Sagax/.github/workflows/docker.yml@refs/tags/*
+    # on a tag. Those are admission.kyverno.subjects
     # (deploy/k8s/helm/sagax-sandboxes/values.yaml). The vulnerability
     # attestation uses predicate type
     # https://cosign.sigstore.dev/attestation/vuln/v1
@@ -225,10 +230,12 @@ jobs:
       contents: read
       id-token: write
       packages: write
-    env:
-      IMAGE: ghcr.io/${{ github.repository }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Lowercase the image name
+        # GHCR refuses a mixed-case path. github.repository keeps Sagax;
+        # the image name does not.
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -246,6 +253,11 @@ jobs:
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.IMAGE }}
+          # A v* tag still receives latest from the action's auto flavor.
+          # Any other tag, including a dispatch that only proves signing,
+          # must not move latest.
+          flavor: |
+            latest=${{ (github.ref_type == 'tag' && !startsWith(github.ref_name, 'v')) && 'false' || 'auto' }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,format=long
