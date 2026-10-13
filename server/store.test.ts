@@ -36,6 +36,18 @@ describe("Store", () => {
     rmSync(DATA_DIR, { recursive: true, force: true });
   });
 
+  it("does not count a routine execution thread toward bot-wide busy", () => {
+    const store = new Store(selection);
+    const bot = store.createBot({ name: "Dispatch" }, { seedMessages: false });
+    const main = bot.tasks![0]!;
+    store.setTaskActivity(bot.id, main.threadId, "idle");
+    const routine = store.createTask(bot.id, "Routine run", false);
+    expect(routine).toBeTruthy();
+    store.patchTask(bot.id, routine!.threadId, { routineRunId: "run-1" });
+    store.setTaskActivity(bot.id, routine!.threadId, "working");
+    expect(store.activityOf(bot.id, () => true)).toEqual({ activity: "idle", busy: false });
+  });
+
   it("retains tool selection across restarts and distinguishes clearing from no tools", () => {
     const store = new Store(selection);
     const bot = store.createBot({ name: "Scoped drafter" });
