@@ -184,7 +184,7 @@ describe("the Appearance gallery", () => {
 
   it("offers the owl its colors, skins and wing moves when nothing is locked", () => {
     const html = render(undefined);
-    for (const id of ["owl", "shape", "trombi"]) expect(html).toContain(`data-character-option="${id}"`);
+    for (const id of ["owl", "crab", "shape", "trombi"]) expect(html).toContain(`data-character-option="${id}"`);
     expect(html).toContain('data-character-options="owl"');
     // the skins open on the current one's rarity (none: Common), one tab per rarity
     for (const skin of ["none", "snowy", "barn", "carbon"]) expect(html).toContain(`data-mascot-skin-option="${skin}"`);

@@ -1434,7 +1434,7 @@ Electron restart (no HMR); launch-test them before committing.
   call, Open in Sagax; Switch bot (`switch:<botId>`) and Moves
   (`move:<clip>`, the list of `moves.ts`, shared with the Appearance gallery);
   Hide for 1 hour (`snooze`, `hiddenUntil`, the window reopens by itself) and
-  Hide (`dock`); On the desktop (always on top, fly away, activity) and
+  Put back in the window (`dock`); On the desktop (always on top, fly away, activity) and
   Settings (Settings > Appearance). Items may be separators, greyed or one
   level of submenu (`menuTemplate`). A move goes from main straight to that
   window (`floating-bot:move`), never through the brain. A switch re-keys the
@@ -1497,6 +1497,13 @@ Electron restart (no HMR); launch-test them before committing.
   `:not(.frog-rig)` like the Shiba's. A Mastery character: its unlocks are in
   `shared/mascot-unlocks.ts` only. iOS draws it from the generated
   `FrogStillArt.swift`.
+- Crab (the pixel-rect crab, a free default with the owl) follows the same
+  contract (docs/mascots.md): art as data in `crab-art.ts` (only
+  axis-aligned rectangles, a coral fill and two black square eyes), skins in
+  `skin-fx/crab-skins.tsx` (all common), moves as keyframe tracks in
+  `crab-moves.ts` laid over the idle life by `CrabRig`. Its CSS origins are
+  scoped to `:not(.crab-rig)`. Do not brand it Claude or Clawd. iOS draws it
+  from `CrabArt.swift` (hand-written rects, palettes fixture-checked).
 - Shapes: clean-room, 2026-10-08. The Shapes character matches the look
   and behaviour JC measured on a public avatar studio, written entirely in
   our own code: no code, data table, path or asset of that site was copied

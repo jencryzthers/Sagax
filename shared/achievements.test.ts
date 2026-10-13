@@ -11,7 +11,6 @@ import {
   rewardKey,
   rewardLineVisible,
   ruleStatus,
-  type AchievementReward,
 } from "./achievements.ts";
 
 describe("reward keys for crab items", () => {

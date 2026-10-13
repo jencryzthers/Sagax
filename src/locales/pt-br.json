@@ -1564,8 +1564,6 @@
   "model.org.hostToolsWhy.serviceChosenTools": "O serviço dele escolhe as ferramentas que oferece, e nenhuma configuração remove o terminal e as ferramentas de arquivo.",
   "model.org.hostToolsWhy.unverified": "Nenhuma configuração que remova o terminal e as ferramentas de arquivo dele foi verificada.",
   "model.provider": "Provedor: {name}",
-  "model.rail.unready": "{count} pedem login ou ainda não têm acesso",
-  "model.rail.unreadyOne": "1 pede login ou ainda não tem acesso",
   "model.ready": "Pronto",
   "model.refresh": "Atualizar os modelos de {name}",
   "model.refreshTitle": "Atualizar os modelos",

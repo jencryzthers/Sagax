@@ -3411,8 +3411,6 @@
   "model.rail.apiKeys": "API keys",
   "model.rail.cloud": "Cloud",
   "model.rail.local": "Local",
-  "model.rail.unready": "{count} need sign-in or have no access",
-  "model.rail.unreadyOne": "1 needs sign-in or has no access",
   "model.ready": "Ready",
   "model.reasoning": "Reasoning",
   "model.refresh": "Refresh {name} models",

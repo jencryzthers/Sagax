@@ -738,7 +738,6 @@ import { isAccountEmail, isPrincipalId, PrincipalRegistry, type Principal } from
 import { OrgTeams } from "./org-teams.ts";
 import { keyVia, materializeEngineAccess, providersOfDriver, resolveEngineAccess, subscriptionDriver, turnPayer, type AccessPayer, type SubscriptionDriver, type EngineCredentialInput, type EngineCredentialPlan, type NoAccessCause, type TurnAccess } from "./engine-credentials.ts";
 import { configKeyPatch, engineKeyScope, engineKeyTarget, EngineKeyError, fileKeyConfigured, hermesProviderEnv, normalizeEngineKey, writeFileEngineKey } from "./engine-api-keys.ts";
-import { isLoginDriver, loginCliFor, PrincipalEngineLogins } from "./principal-engine-logins.ts";
 import { isLoginDriver, LOGIN_MARKER, loginCliFor, PrincipalEngineLogins } from "./principal-engine-logins.ts";
 import { createSectionChannelRoutes, migrationOwner, recordAccess, SectionChannels, sectionShareGrants } from "./section-channels.ts";
 import { createBotGrantRoutes, visibleGrants, wireGrants } from "./bot-grants.ts";
@@ -1545,11 +1544,11 @@ const registry = new ProviderRegistry(
         driver.driverKind === "claudeAgent"
           ? {
               ...ClaudeDriver,
-              create: (input) =>
-                ClaudeDriver.create({
-                  ...input,
-                  onClaudeLinked: () => recordAchievements(localPrincipalId(), [{ type: "claude.linked" }]),
-                }),
+              create: (input) => {
+                // the Claude driver takes this hook beside the generic input
+                const linked = { ...input, onClaudeLinked: () => recordAchievements(localPrincipalId(), [{ type: "claude.linked" }]) };
+                return ClaudeDriver.create(linked);
+              },
             }
           : driver,
       ),
