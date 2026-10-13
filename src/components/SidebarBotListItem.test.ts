@@ -170,23 +170,26 @@ describe("BotListItem", () => {
 
   const titlePill = /<span class="max-w-\[46%\] shrink truncate[^"]*">([^<]*)<\/span>/;
 
-  it("shows the bot's title as a pill beside the name", () => {
+  it("draws no title pill: the title is in the avatar's tooltip and read out with the name", () => {
     const markup = renderRow(bot({ title: "Developer" }));
 
-    expect(titlePill.exec(markup)?.[1]).toBe("Developer");
-    expect(markup.indexOf(">Developer<")).toBeGreaterThan(markup.indexOf(">Atlas<"));
+    expect(titlePill.test(markup)).toBe(false);
+    expect(markup).toContain('title="Atlas · Developer"');
+    expect(markup).toContain('<span class="sr-only">, Developer</span>');
+    expect(markup.indexOf(", Developer<")).toBeGreaterThan(markup.indexOf(">Atlas<"));
     expect(markup).toContain('title="Double-click to rename"');
 
-    expect(titlePill.test(renderRow(bot()))).toBe(false);
-    expect(titlePill.test(renderRow(bot({ title: "  " })))).toBe(false);
+    expect(renderRow(bot())).not.toContain("sr-only\">, ");
+    expect(renderRow(bot({ title: "  " }))).not.toContain("sr-only\">, ");
   });
 
-  it("lets a long title truncate beside the name", () => {
-    const longTitle = "Meta-Agent — opensource team maintainer";
+  it("keeps a long title out of the row, the name truncating alone", () => {
+    const longTitle = "Meta-Agent, opensource team maintainer";
     const markup = renderRow(bot({ name: "Team Maintainer", title: longTitle }));
 
-    expect(titlePill.exec(markup)?.[1]).toBe(longTitle);
+    expect(titlePill.test(markup)).toBe(false);
     expect(markup).toContain(">Team Maintainer<");
+    expect(markup).toContain(`title="Team Maintainer · ${longTitle}"`);
     expect(markup).toContain("truncate");
   });
 
@@ -345,9 +348,9 @@ describe("bot deletion feedback", () => {
       expect(markup).not.toContain(">hello<");
     });
 
-    it("shows the title pill and the star when quiet rows are off", () => {
+    it("reads the title out and shows the star when quiet rows are off", () => {
       const markup = renderRow(bot({ title: "Developer", chiefOfStaff: true }));
-      expect(markup).toContain(">Developer<");
+      expect(markup).toContain(", Developer<");
       expect(markup).toContain('data-testid="primary-bot-badge"');
     });
   });

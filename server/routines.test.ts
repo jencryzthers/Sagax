@@ -3303,3 +3303,65 @@ describe("slice 6: routines in their person's name", () => {
     expect(edited?.suspended).toBeUndefined();
   });
 });
+
+describe("the organization memory before a run (2026-10-11)", () => {
+  const start = Date.parse("2026-09-13T08:00:00Z");
+  const input = { name: "Morning triage", prompt: "Triage the new tickets", botId: "maus-1", schedule: { type: "cron" as const, expression: "* * * * *", timeZone: "UTC" } };
+  const hint = { turn: "turn-1", checkedAt: start, duplicates: [{ hintId: "h1", pointer: "work:01J", day: "2026-09-12", who: "team Dispatch", score: 0.8, readable: true, intent: "Triage" }] };
+
+  function withMemory(memoryHint: RoutineManagerOptions["memoryHint"]) {
+    const h = harness(start);
+    const asked: Array<{ runAs?: string; prompt: string }> = [];
+    const file = tempFile();
+    const manager = new RoutineManager({
+      ...h.options,
+      file,
+      memoryHint: memoryHint ? async (run, prompt) => { asked.push({ ...(run.runAs ? { runAs: run.runAs } : {}), prompt }); return memoryHint(run, prompt); } : undefined,
+    });
+    return { ...h, manager, asked, file };
+  }
+
+  it("keeps the hint on the run and gives the bot its note after the prompt", async () => {
+    const h = withMemory(async () => ({ hint, note: "Note from the organization memory" }));
+    const routine = h.manager.create(input, undefined, { actorPrincipalId: "pr_alice" });
+    h.manager.runNow(routine.id);
+    await h.manager.tick();
+    expect(h.asked).toEqual([{ runAs: "pr_alice", prompt: "Triage the new tickets" }]);
+    expect(h.started).toHaveLength(1);
+    expect(h.started[0]!.prompt).toBe("Triage the new tickets\n\nNote from the organization memory");
+    expect(h.manager.listRuns()[0]?.memoryHint).toEqual(hint);
+    // kept across a restart
+    expect(new RoutineManager({ ...h.options, file: h.file }).listRuns()[0]?.memoryHint).toEqual(hint);
+  });
+
+  it("starts the run as if not asked when the memory fails, finds nothing or is slow", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      for (const memoryHint of [
+        async () => { throw new Error("unreachable"); },
+        async () => null,
+        async () => ({ hint: { ...hint, duplicates: [] }, note: "nothing" }),
+        () => new Promise<never>(() => {}),
+      ] satisfies Array<NonNullable<RoutineManagerOptions["memoryHint"]>>) {
+        const h = withMemory(memoryHint);
+        const routine = h.manager.create(input);
+        h.manager.runNow(routine.id);
+        const ticking = h.manager.tick();
+        await vi.advanceTimersByTimeAsync(2_500);
+        await ticking;
+        expect(h.started.map((turn) => turn.prompt)).toEqual(["Triage the new tickets"]);
+        expect(h.manager.listRuns()[0]?.memoryHint).toBeUndefined();
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("is not asked without the hook (a solo server)", async () => {
+    const h = withMemory(undefined);
+    const routine = h.manager.create(input);
+    h.manager.runNow(routine.id);
+    await h.manager.tick();
+    expect(h.started.map((turn) => turn.prompt)).toEqual(["Triage the new tickets"]);
+  });
+});

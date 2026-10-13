@@ -15,8 +15,6 @@
  * - after: wait for the running turn, then run (the queue). */
 export type BusySendMode = "steer" | "parallel" | "after";
 
-export const BUSY_SEND_MODES: readonly BusySendMode[] = ["steer", "parallel", "after"];
-
 /** The person's default for a busy send (localStorage, synced per person on an
  * organization server): "ask" offers the three choices each time. */
 export type BusySendPreference = "ask" | BusySendMode;

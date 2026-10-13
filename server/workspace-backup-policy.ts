@@ -69,5 +69,7 @@ export function redownloadedOrgLibraryPath(path: string): boolean {
  * process that wrote it, so it is never exported or installed, and a restore
  * leaves the destination's own marker where it is (workspace-backup.ts). */
 export function ephemeralWorkspaceTokenPath(path: string): boolean {
-  return /^(?:hook-tokens(?:\/|$)|sessions\.json\.open$)/.test(path);
+  // The server log window (server/server-log-ring.ts) belongs to the machine
+  // and the process that wrote it, like the marker.
+  return /^(?:hook-tokens(?:\/|$)|server-log(?:\/|$)|sessions\.json\.open$)/.test(path);
 }

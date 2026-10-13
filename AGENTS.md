@@ -134,7 +134,44 @@ ended), and from the button. Tests: `electron/org-memory-cache.node-test.mjs`
 `src/components/OrgMemorySettings.test.ts`. Not done yet: the token minted
 automatically for the signed-in person (today pasted from the Perspicax
 console page `/console/memory/sync`), a file watcher (the sync runs from the
-button).
+button). Why the token cannot be minted by Sagax yet (checked 2026-10-11
+against Perspicax 1.8.22): `POST /api/v1/memory/sync/token` accepts only the
+person's console cookie or one of their `pxat1.` API tokens
+(`resolve_caller`), never a `pulsa-bot` sign-in or delegation token, an
+exchanged `/mcp` token or the link token (403 outside the link routes), and
+Sagax holds none of the first two. It needs a Perspicax route for it, for
+example the link token minting for a directory person as `/memory/work`
+does, or a token exchange whose resource is the memory sync.
+
+## Organization memory signals (2026-10-11)
+
+Perspicax keeps the organization's work log and a duplicate detector over
+it (its `docs/memory.md` "Work log" and "Duplicate detector"). Sagax feeds
+them with the link token (`server/perspicax-memory.ts`, `linkPostJson` in
+`server/perspicax-link.ts`). Keep these rules, covered by
+`server/perspicax-memory.test.ts` (a fake Perspicax over HTTP) and
+`server/routines.test.ts` ("the organization memory before a run"):
+
+- A turn that mounts Perspicax profiles (`perspicaxTurnIntegration`, not a
+  quiet call warm) queues one `POST /api/v1/memory/work` row: the person's
+  Perspicax user id, `actor_kind` `bot` for routine lineage and peers else
+  `person`, `action` `run` or `turn`, `result` `partial` (just started), an
+  intent built from the bot's and profiles' names only (never the message),
+  objects `sagax:bot:<id>` and `sagax:thread:<id>`, and the thread link.
+  Rows are batched (50 at most, Perspicax's cap), one batch in flight, at
+  most 500 waiting; a refused or failed batch is dropped and logged once.
+- Before a routine run's turn (`RoutineManagerOptions.memoryHint`, after
+  admission), `POST /api/v1/memory/duplicates` with the run-as person and
+  the routine's own instructions (4,000 characters at most; Perspicax never
+  stores them). Hints are kept on the run (`RoutineRun.memoryHint`, at most
+  three, the intent and link only for a tier the person reads; redacted in
+  a wider routine scope) and a short note naming the `work:<id>` pointers
+  follows the run's prompt. The run waits at most
+  `ROUTINE_MEMORY_HINT_MAX_MS` (2 s; the call itself 1.5 s).
+- Fail open everywhere: no turn or run ever waits on, or fails because of,
+  these calls; nothing is sent for a speaker with no Perspicax identity; no
+  token, prompt or answer body is logged. `feedback` (`POST
+  /api/v1/memory/feedback`) is in the client, not wired to a turn yet.
 
 ## Mail settings
 
@@ -318,6 +355,24 @@ named permission (`shared/permissions.ts`, spec
   (PM-1 to PM-5), `shared/permissions.test.ts`,
   `server/org-permissions.test.ts` and `server/request-auth.test.ts`.
 
+## Directory refresh on demand (organization mode, 2026-10-11)
+
+Rights changed in Perspicax reach Sagax through the directory, read every
+`SAGAX_PERSPICAX_DIRECTORY_SECONDS` (300). `POST
+/api/org/link/directory-refresh` (`server/org-link-routes.ts`) lets
+Perspicax have it read now. Keep these rules, covered by
+`server/org-link-routes.test.ts` and `server/perspicax-link.test.ts`:
+
+- The only credential is the link token of the link file, `Authorization:
+  Bearer`, compared in constant time (`PerspicaxDirectory.linkTokenMatches`,
+  a mismatch re-reads the file once). Never a cookie, loopback trust or a
+  console assertion.
+- Failures are counted per socket address (`AuthFailureLimiter`, 10 in
+  60 s), accepted calls capped at 60 a minute; the body is never read.
+- Coalesced (`DirectoryRefreshScheduler`): one fetch at a time, at least
+  2 s apart, and a call during a fetch schedules exactly one more. 202
+  `{ok, refresh: "started" | "queued"}`.
+
 ## Automations scope (organization mode, 2026-10-09)
 
 Anyone may be allowed to see the automation schedule beyond their own
@@ -351,7 +406,15 @@ routines (JC). `server/routine-scope.ts` (rules), `shared/routine-scope.ts`
   and stay read-only. The problems and paused pills count within the scope;
   the sidebar count stays the person's (the store keeps `mine`). The choice
   is `sagax.routineScope.v1`, a user preference keyed by principal.
-- iOS: not yet (parity row AU20).
+- iOS (parity row AU20, 2026-10-11): the Automations page and Threads &
+  Routines of an organization server draw the same segmented Mine / My
+  teams / Everyone (a scope not allowed cannot be picked and a line names
+  the missing permission), Team, Owner and Status in the menu, the bots of
+  the scope in its bot filter, "Owned by" on someone else's routine, and no
+  Run now, Edit, Pause, Delete or reschedule where `canRun`/`canEdit` say
+  no (`ios/Sources/CompanionCore/RoutineScope.swift`,
+  `ios/App/TasksRoutinesView.swift`, `RoutineScopeTests`). The choice is
+  not kept between launches yet. Not built in Xcode when it landed.
 
 ## Full access (organization mode, 2026-10-01)
 
@@ -368,7 +431,13 @@ the driver tests or `src/components/ApprovalModeSelector.fullAccess.test.ts`:
   new threads and routines). The first grant needs `confirmFullAccess: true`;
   the server keeps `fullAccessConsent` on the bot so later grants skip it.
 - Settings > Organization > Allow full access (`organization.allowFullAccess`,
-  admin only, on by default, `PATCH /api/org/settings`). Off: grants answer
+  admin only, `PATCH /api/org/settings`). Off until an admin turns it on
+  (2026-10-11, `orgFullAccessAllowed` reads `=== true`); a saved value
+  stays. Once per data directory (`org-full-access-default.v1`), an
+  organization that never saved it and already has a bot or thread on Full
+  with its owner's consent gets `allowFullAccess: true` written
+  (`orgFullAccessGrandfathered`, an `org.settings` row, actor worker), so no
+  bot changes level. Off: grants answer
   403 `org_full_access_disabled`, a send to a Full thread is refused with the
   same code, and stored Full runs as Ask (`approvalModeForTurn`).
 - A turn runs Full only while the policy is on and the consent is the bot's
@@ -381,21 +450,50 @@ the driver tests or `src/components/ApprovalModeSelector.fullAccess.test.ts`:
 - Mode changes (`approval.mode`), Full turns (`approval.full_access_turn`)
   and the policy (`org.settings`) go to the admin activity log.
 
-## Default approval mode (2026-10-05)
+## Default approval mode (2026-10-05, organizations 2026-10-11)
 
-Approve for me (`approvalMode: "auto"`) is the mode a bot starts on. Keep
-these rules, covered by `server/independent-task-store.test.ts` ("moves Ask
-bots and threads to Approve for me once"):
+Approve for me (`approvalMode: "auto"`) is the mode a bot starts on, on a
+solo server. On an organization server the organization's policy decides.
+Keep these rules, covered by `server/independent-task-store.test.ts` ("moves
+Ask bots and threads to Approve for me once"), `server/org-full-access.test.ts`
+and `server/store.org-approval-default.test.ts`:
 
-- `createBot` writes `auto` on the bot and its first thread. `POST /api/bots`
-  keeps a level the request names. This computer (`computer: "local"`) stays
-  Ask until its own warning. The New bot dialog shows Approve for me when the
-  saved template names no mode.
+- `createBot` writes the Store's `newBotApprovalMode()` on the bot and its
+  first thread (`auto` on a solo server; index.ts `newBotApprovalMode`).
+  `POST /api/bots` keeps a level the request names. This computer
+  (`computer: "local"`) stays Ask until its own warning. `GET
+  /api/bot-defaults` answers `approvalMode` (that level) and the New bot
+  dialog starts on it when the saved template names no mode
+  (`newBotStartMode`).
+- Organization server (`orgNewBotApprovalMode`): `defaults.approvalMode`
+  (`newBotDefaults.profile.approvalMode`, what the console's `POST settings`
+  writes) `auto` starts on Approve for me; anything else, no policy saved
+  included, starts on Ask (`full` and `custom` need the owner's consent,
+  which a new bot cannot have). Existing bots are never moved.
 - The first start of a data directory moves bots and threads still on Ask, or
   with no mode, onto Approve for me, then writes `approval-default-auto.v1`.
-  A later choice of Ask stays. Edits, Full and Custom stay. A grant revoked
-  at that start stays Ask, threads included. Import and team backup still
-  force Ask.
+  Where new bots start on Ask (an organization not set to `auto`) nothing
+  moves and the marker is written all the same, so a later policy change
+  never moves existing bots. A later choice of Ask stays. Edits, Full and
+  Custom stay. A grant revoked at that start stays Ask, threads included.
+  Import and team backup still force Ask.
+
+## Server log on disk and expired approvals (2026-10-11)
+
+- The server log tail behind `GET /api/org/admin/logs`
+  (`server/server-log-ring.ts`) is a sliding window on disk as well as in
+  memory: `serverLog.persistTo(<data>/server-log)` at start, two JSON-lines
+  files (`current.jsonl`, `previous.jsonl`) of at most `LOG_FILE_MAX_BYTES`
+  (2 MiB) each, 0600 in a 0700 folder, written in batches (1 s, flushed at
+  exit), lines redacted before they are kept. A restart reloads the last
+  2,000 lines and `seq` continues; the answer's shape is unchanged. The
+  folder is never in a workspace backup (`ephemeralWorkspaceTokenPath`).
+  Covered by `server/server-log-ring.test.ts`.
+- A permission card whose own timeout passed with no answer
+  (`request.resolved` with `source: "timeout"`) writes a decision row
+  `expired` (source `timeout`), and `GET approvals/history` answers it as
+  `decision: "expired"` with `by` null (`server/org-admin-routines.test.ts`).
+  The bot activity log reads it as denied (nothing ran).
 
 ## Settled approvals in the chat (2026-10-05)
 
@@ -403,9 +501,9 @@ A permission ask stays in the chat only while it is still waiting. Once it
 is allowed, denied, dismissed or expired, `ChatView` and `GroupView` leave
 it out (`approvalCardStaysInChat`). The message stays stored. A question
 and a quiz are unchanged. The phone and iPad drop the same rows
-(`settledPermissionLeavesChat` in `transcriptRows`). Covered by
-`src/components/ApprovalCard.chat.test.ts` and
-`ios/Tests/CompanionCoreTests/ChatPreferencesTests.swift`.
+(`settledPermissionLeavesChat` in `transcriptRows`). Covered on the phone
+and iPad by `ios/Tests/CompanionCoreTests/ChatPreferencesTests.swift`; no
+web test covers `approvalCardStaysInChat` yet.
 
 ## Profile on an organization server
 
@@ -659,22 +757,49 @@ the same composer row in Simple and Advanced mode"),
 
 ## Model picker
 
-The model chip (composer and chat header, `src/components/ModelPicker.tsx`)
-opens a modal like Settings, portalled to `<body>`: providers with their
-status on the left, account, scope, models, effort and payers on the right,
-a bottom sheet on a narrow window; focus stays inside and Escape closes it.
-`contained` (the bot settings dialog) keeps the label and the pill and opens
-the same modal. Thread scope and Effort stay out of that modal. Effort stays
-on its own card. On an organization server it shows the speaker's engine
-card, the same minimal one as Settings (`ModelPickerPayers.tsx` around
-`EngineConnect.tsx`, 2026-10-08): one "Pays with" line from the server's
-`myTurns` (the order of `server/engine-credentials.ts`, never recomputed
-and no longer drawn as a list; a routine thread shows the owner's
-credentials), one Connect button or Connected with Disconnect, signing in
-their own subscription through `/api/me/engines/<id>/login`, never the
-server's engine login; the server's local models are not offered. Tests: `ModelPicker.interaction.test.ts`,
-`src/lib/model-payers.test.ts`; real Electron: `scripts/verify-server-mode.ts`
-(org).
+Two surfaces, one list (JC, 2026-10-12, after Cursor's composer menu):
+
+- The composer's model chip (`src/components/ModelPicker.tsx`, `inComposer`)
+  opens a compact menu above it, never the window: a search field on top
+  (filters as one types, accents folded; arrow keys and Enter, Escape
+  closes and gives the focus back to the chip), Auto first with its check,
+  the bot's model when the thread can follow it ("<bot>'s model", one row),
+  then the models of every engine the bot can use grouped by engine (its own
+  first, then the others the server allows; an engine to install, blocked by
+  a policy, or on an organization server paid by nothing yet unless it is
+  the bot's, stays in the window). Each row is the model's name, then muted
+  what a pick runs it with (the effort kept on the same engine, the
+  variant, Local). A pick applies at once and closes. Below: the effort as
+  one compact line (Advanced), then "Edit…" ("Modifier…"), which opens the
+  window. The desktop mascot's model chip opens the same menu.
+- The model window (a modal like Settings, portalled to `<body>`, a bottom
+  sheet on a narrow window, focus kept inside, Escape closes) opens only from
+  the menu's Edit…, the sidebar's bot menu ("Model…", `openModelWindow` in
+  `src/lib/model-window.ts`, drawn by `ModelWindowHost.tsx` in App), and the
+  persona's Model tab (`contained`, `bot-settings/ModelSection.tsx`). Its
+  rail lists Auto first (every allowed engine's models together, one line of
+  help, the rest behind the info button, the reason of the last pick), then
+  each provider with its status. An engine's mode shows its header,
+  sign-in or setup card, the list always open (the same search, Cloud then
+  Local), the effort and, on an organization server, the payer card.
+- The list is `ModelMenu.tsx` (`ModelSearchList`, popover tokens in the
+  menu, page tokens in the window); its rules are `src/lib/model-menu.ts`.
+  Effort words are translated (`effortLabel`, `model.effortLevel.*`).
+
+Thread scope stays out of both. On an organization server the window shows
+the speaker's engine card, the same minimal one as Settings
+(`ModelPickerPayers.tsx` around `EngineConnect.tsx`, 2026-10-08): one "Pays
+with" line from the server's `myTurns` (the order of
+`server/engine-credentials.ts`, never recomputed and no longer drawn as a
+list; a routine thread shows the owner's credentials), one Connect button or
+Connected with Disconnect, signing in their own subscription through
+`/api/me/engines/<id>/login`, never the server's engine login; the server's
+local models are not offered. Tests: `ModelPicker.interaction.test.ts`,
+`ModelPicker.simple.test.ts`, `ModelMenu.test.ts`, `src/lib/model-menu.test.ts`,
+`BotContextMenu.model.test.ts`, `src/lib/model-payers.test.ts`; real
+Electron: `scripts/verify-server-mode.ts` (org). iPad: `DesktopModelPicker`
+lists every model, always open, under its search (no Suggested or Show all);
+the composer menu and the Auto mode are not ported there yet.
 
 ### Local models in the picker
 
@@ -794,8 +919,9 @@ model in the chip clears it (a pin). Rules:
 - A viewer's own model pin on a shared bot drops the owner's Auto for them.
   A Primary Bot on Auto creates specialists on Auto (`create_bot` without a
   model, team setup creates: the card reads "Auto, on engine/model").
-- Seen: the chip "Auto · model" (`src/lib/auto-model.ts`), the picker's Auto
-  row and sentence (`GET /api/bots/:id/auto-model`), the worker's status row
+- Seen: the chip "Auto · model" (`src/lib/auto-model.ts`), the Auto row of
+  the composer menu and the window's Auto mode with its sentence
+  (`GET /api/bots/:id/auto-model`), the worker's status row
   and the delegation card (`Message.autoModel`), `check_delegation` receipts
   (`workerModel`), Settings > Model providers (one paragraph).
 
@@ -1125,9 +1251,10 @@ Electron restart (no HMR); launch-test them before committing.
   moves; optional `premium: { price }` and `isNew` badge its tile, none is
   set yet); adding one is adding an entry. The desktop owl is the flat one (`Owl25D.tsx`, owl-art's own SVG
   parts). A stored look `style` of `3d` still validates and is drawn flat.
-  The modeled owl under `owl3d/` stays for its own checks; the editor and
-  the floating window do not load it. `src/lib/floating-bots.test.ts` guards
-  that.
+  The modeled 3D owl and three.js are gone (2026-10-11); a skin's material
+  finish (`skinFinish`) lives in `src/lib/owl/owl-skins.ts`.
+  `src/lib/floating-bots.test.ts` guards that nothing brings a 3D renderer
+  back.
 - `fit.ts` sizes the stage for the widest pose; `pilot.ts` moves the window
   (flights, walks) through `floating-bots:geometry`, `move-to` and
   `autopilot`; main clamps every move and never saves spots flown to.
@@ -1560,6 +1687,32 @@ each covered by `server/org-admin-files.test.ts` or
 - Each read and download is a `bot.files.read` or `bot.files.download` row
   of the admin activity log (category `bot`, actor the console person).
 
+## Computers, bot looks and the routines calendar for the Perspicax console (2026-10-11)
+
+The organization admin API (`docs/org-admin-api.md`) also serves the
+console's bots gallery, routines calendar and computers. Keep these rules:
+
+- `look` (`server/org-admin-look.ts`) resolves a bot's appearance as
+  `src/components/Avatar.tsx` does (a picture only when its crop is not
+  `mascot`); `shared/mascot-catalog.ts` names each character's family and
+  skins for `GET capabilities`, and
+  `src/components/floating-bots/mascot-catalog.test.ts` fails when it
+  disagrees with the registry: a new character is an entry in both.
+  `GET bots/{id}/avatar` never names a file and opens it with O_NOFOLLOW.
+- `GET routines/runs` (`server/org-admin-runs.ts`) joins the console reach
+  with the Automations scope (`routines.viewTeam`, `routines.viewAll`); a
+  run outside the caller's reach comes `redacted`, without its thread.
+- `computers` (`server/org-admin-computers.ts`): a server environment is
+  acted on only through `UserSandboxManager` (start, stop, pause, resume,
+  update, reset, delete; reset and delete need `confirm: true`, stop,
+  pause and update need it while a bot works there), each action one
+  `computer` row of the admin activity log. A person's desktop is listed
+  read only (name, platform, presence, last contact, `localVm`) through
+  `DesktopBridges.inventory()`; no route acts on it, reads its files, its
+  system facts or its Local VM. Tests: `server/org-admin-*.test.ts`,
+  `server/org-admin-computers.e2e.test.ts`, C6 and C7 of
+  `server/org-admin-console.e2e.test.ts`.
+
 ## A person's own connections, plugins and skills (organization mode, 2026-10-02)
 
 Owner report: on GOX nobody could add the GitHub MCP, log into GitHub or
@@ -1786,9 +1939,13 @@ the bot engine's (`shared/harness-commands.ts`, `server/harness-commands.ts`,
 ## Bot panel
 
 The bot's side panel (`src/components/BotSettingsDialog.tsx`, tabs in
-`bot-settings/panel-tabs.ts`) shows Details | Library | Computer, then an
-"Edit persona" button that opens every other section in the persona editor
-(`PersonaEditorModal.tsx`); there is no More tab. iPhone and iPad match it
+`bot-settings/panel-tabs.ts`) shows Details | Library | Computer under the
+mascot, which carries the one "Edit bot" pencil (a 28 px badge at the
+mascot's bottom right, `BotProfileAvatarCard` `onEdit`, `data-edit-persona`
+and `data-persona-edit-badge`, 2026-10-12) that opens every other section in
+the persona editor (`PersonaEditorModal.tsx`); there is no More tab and no
+"..." in the header: the bot menu (rename, put on desktop, make primary) is a
+right click on the mascot or the name. iPhone and iPad match it
 (2026-10-11): the same three tabs (`DesktopPanelTab`), then "Edit persona"
 under them (`DesktopPersonaEditor.offered`), a pushed page on the phone
 (`panel-edit-persona`, also first in the "..." menu) and a sheet on the
@@ -2009,8 +2166,10 @@ PL-4), `src/lib/person-labels.test.ts`, `src/components/PersonLabel.test.ts`,
   label }` (null cleared it); the renderer patches `src/lib/person-labels.ts`
   from it. A change made for someone else (admin or manager) is written to
   the admin activity log (`people.label`, `after.by`); a person's own is not.
-- One tag for both (`src/components/LabelTag.tsx`): the bot row's tag markup,
-  `tone` sidebar or surface. A person's label shows beside the name in the
+- One tag for both (`src/components/LabelTag.tsx`), `tone` sidebar or
+  surface. Bot rows no longer draw their title (see "Sidebar look"); the
+  pinned tiles draw it as a filled pill (`size="small"`).
+  A person's label shows beside the name in the
   sidebar people rows (not in quiet rows), the direct conversation's header
   chip, a room's member list and the people pickers (To:, add to a group). The
   Team map has no people. Empty renders nothing; "Add a label" appears only
@@ -2421,12 +2580,69 @@ rules, each covered by `shared/achievements-catalog.test.ts`,
   toasts are unchanged by these switches. Tests: `server/achievements.test.ts`,
   `src/lib/public-achievements.test.ts`, `PersonPanel.test.ts`,
   `achievements-ui.test.ts`, `SidebarProfileMenu.footer.test.ts`.
-- People rows in the sidebar sit at the bot rows' inset (`pl-2`) with thread
-  mode on or off and carry no thread chevron, like bot rows since #152; only
-  room rows keep the thread-mode `pl-6` for their chevron
-  (`Sidebar.simple-mode.test.ts`).
+- People rows in the sidebar sit at the bot rows' inset (`pl-1`, `pl-2` compact) with thread
+  mode on or off and carry no thread chevron, like bot rows since #152; room
+  rows too since 2026-10-12: every row takes `pl-6` and its chevron only in
+  the sidebar location (`Sidebar.simple-mode.test.ts`).
 - The toast never shows while the person types, one at a time, its chime
   follows Notification sounds, and reduced motion stills it.
+
+## Sidebar look (owner's reference window, 2026-10-11 and 2026-10-12)
+
+The owner compared Sagax with an OpenMausBot window side by side and asked
+for the sidebar to look like it, keeping every Sagax feature; a second pass
+measured that window (a 2x capture) and matched it. The plus glyph,
+sentence-case headers and title-free rows are upstream main's own; the
+rest comes from that window (upstream main at 83c10b3 draws pinned bots as
+rows or bare circles and marks its Chief of Staff with a crown). Keep
+these, covered by `Sidebar.header.test.ts`, `Sidebar.head.layout.test.ts`,
+`Sidebar.simple-mode.test.ts`, `SidebarSectionHeader.test.ts`,
+`SidebarBotListItem.test.ts`, `PersonLabel.test.ts`, `PrimaryBot.test.ts`
+and `sidebar-logo-preferences.test.ts`:
+
+- Head: the round search and New (`Plus`) buttons, 36px circles 8px apart.
+  New still opens the compose-to picker (which holds Create new Bot). With a
+  title bar (macOS inset lights, or the browser's stand-in dots) and no
+  logo, they sit in the title bar's own 48px row (`SIDEBAR_TITLE_ROW`,
+  `pr-4`), level with the lights, and the tiles start right under. The logo
+  (Settings > Appearance > Sidebar logo) is off unless turned on (`"1"`);
+  with it on, or without a title bar, the brand row under the inset strip
+  holds them as before (`SIDEBAR_HEAD_ROW`, the chat header's 56px).
+- Pinned tiles (the Primary Bot among them when pinned): 95 x 115, 4px
+  apart and centred as a group, 12px under the head; a 64px mascot, the
+  name 12px in the primary ink, the bot's title in a faint tag (LabelTag
+  `size="small"`: 11.5px, a 2% ink fill and a 5.5% ink outline). The
+  selected tile is a 16px card in `--color-sidebar-card` (7% of the rail's
+  ink over the rail: #222222 on Midnight). Sagax's wording stays: Primary
+  Bot, and the bot's own title.
+- The Primary Bot star (`PrimaryBotBadge`): a quarter of the avatar (16 on a
+  tile), tucked into the corner of the avatar's box, ringed in what it sits
+  on (the card colour on a selected tile), orange `#f48a29` in every skin
+  (`--color-primary-badge`, a deeper orange on the light rails, its disc
+  held to 3:1 on the rail in `scripts/check-skin-contrast.mjs`), never the
+  skin accent (#188 had made it grey or navy in some skins).
+- Section headers: the name in sentence case, 12px regular in the secondary
+  ink, 28px tall, then the attention marks; no chevron, a click folds and
+  `aria-expanded` says which way; folded, the section's item count at the
+  right (`count`, `data-section-count`). The small capitals rule
+  (`.sidebar-section-label` uppercase) is gone; the class stays as Hibou
+  98's hook.
+- Rows (comfortable): a 44px portrait at `pl-1`, 6px before the name, 56px
+  tall; the name 14px medium, then the last message 13px; the title is not
+  drawn (avatar tooltip and `sr-only` with the name). Group and people rows
+  share the inset and the 44px box (a room's stacked mascots fit inside
+  it), so every row's avatar and name start at one x in every density;
+  people rows keep their custom label (a Sagax feature upstream does not
+  have). A room follows Threads location like a bot and a person: its
+  threads are listed under its row (`pl-6`, the chevron) only in the
+  sidebar location, and its header picker (`GroupTaskPicker`) shows only
+  in the header location, never both. The row actions show on
+  hover or focus only, and on touch screens.
+- Midnight's rail secondary ink is `#fcfcfca1` (#a5a5a5 on the rail, the
+  window's preview and header grey); the default skin stays Pulsatrix.
+- iOS: the iPad desktop shell (`ios/App/Desktop/DesktopSidebar*.swift`,
+  `DesktopTheme.swift`) mirrors the head (no logo), tiles, headers with the
+  folded count and rows.
 
 ## Primary Bot (formerly Chief of Staff)
 
@@ -2467,9 +2683,9 @@ it after an upstream merge instead of renaming by hand.
 - Environment: an old `OMB_*`, `OPENMAUSBOT_*` or `OPENMAUS_*` variable is
   moved onto `SAGAX_*` at start for one release (`bridgeLegacyEnv`; names
   saved as data go through `currentEnvName`/`readEnvName`). The fleet unit
-  template and instance env files (`server/fleet.ts`), `cloud-home-start.ts`,
-  the `Dockerfile`, the compose files, `.env.example` and `deploy/` still
-  write `OMB_*`: installed units and operators' `.env` files use them.
+  template and instance env files (`server/fleet.ts`), the `Dockerfile`, the
+  compose files, `.env.example` and `deploy/` still write `OMB_*`: installed
+  units and operators' `.env` files use them.
 - Data: `~/.sagax` (an old `~/.openmausbot` moves there once), but the lease
   `openmausbot-server.lease`, `.openmausbot-server-child`, the container path
   `/data/.openmausbot` and `~/.openmausbot-companion` keep their names.
@@ -2531,6 +2747,13 @@ apps, so those paths stay ours on every later merge. To repeat:
   upstream.
 - `git fetch upstream`, branch from `origin/main`, then `git merge
   upstream/main` (a real merge, never a rebase) so history stays traceable.
+- Run `node scripts/upstream-drop.mjs`: it `git rm`s every path of
+  `scripts/upstream-dropped.txt` (the upstream files Sagax deleted on
+  purpose: Cloud, Pro, lending, `enterprise/` and the like) that the merge
+  brought back, which settles their modify/delete conflicts; `--check` only
+  lists them. To restore one of those files on purpose, remove its line
+  first (`scripts/upstream-drop.test.mjs` fails while a listed path is
+  tracked).
 - On conflict our behavior wins and upstream improvements are layered in.
   Merge `src/locales/*.json` and `source-hashes.json` as a union of keys and
   run `pnpm i18n:check`.

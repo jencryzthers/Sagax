@@ -241,8 +241,19 @@ export interface RoutineRun {
   error?: string;
   cost?: number | null;
   denials?: string[];
+  /** 2026-10-11: what the organization memory (Perspicax's duplicate
+   * detector) said before the run started, when it found similar work. */
+  memoryHint?: RoutineMemoryHint;
   createdAt: number;
   seenAt?: number;
+}
+
+/** Similar work the organization memory knew of before a run (organization
+ * server, server/perspicax-memory.ts). Pointers and readable facts only. */
+export interface RoutineMemoryHint {
+  turn: string;
+  checkedAt: number;
+  duplicates: Array<{ hintId: string; pointer: string; day: string; who: string; score: number; readable: boolean; intent?: string; link?: string }>;
 }
 
 /** The previous report handed to the next run of a continuity routine. */
@@ -392,7 +403,15 @@ export interface RoutineManagerOptions {
   onSuspended?: (routine: Routine, run: RoutineRun | null, reason: RoutineSuspendReason) => void;
   /** Slice 6: raised when a suspension is cleared. */
   onResumed?: (routine: Routine) => void;
+  /** 2026-10-11: asked right before a run's turn starts (organization mode):
+   * similar work the organization memory knows of, and the note the bot
+   * reads with the run's prompt. Fails open: a throw, a null or a slow
+   * answer (ROUTINE_MEMORY_HINT_MAX_MS) starts the run as if not asked. */
+  memoryHint?: (run: RoutineRun, prompt: string) => Promise<{ hint: RoutineMemoryHint; note: string } | null>;
 }
+
+/** The longest a run's start waits for the memory hint. */
+export const ROUTINE_MEMORY_HINT_MAX_MS = 2_000;
 
 /** Slice 6: who writes a routine. `actorPrincipalId`: the signed-in person
  * (D5: whoever rewrites the work runs it); `runAs`: the person chosen in the
@@ -544,6 +563,7 @@ function cloneRun(run: RoutineRun): RoutineRun {
     ...run,
     attachments: cloneAttachments(run.attachments),
     denials: run.denials ? [...run.denials] : undefined,
+    ...(run.memoryHint ? { memoryHint: structuredClone(run.memoryHint) } : {}),
   };
 }
 
@@ -566,6 +586,11 @@ const CONTINUITY_CHARS = 2_000;
  * is formatting, not a guarantee that a model cannot follow injected text. */
 function fenceCarriedReport(output: string): string {
   return output.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+/** The run's prompt, then the organization memory's note when it has one. */
+export function withMemoryNote(prompt: string, note: string): string {
+  return note.trim() ? `${prompt}\n\n${note.trim()}` : prompt;
 }
 
 function composeExecutionPrompt(
@@ -1823,6 +1848,11 @@ export class RoutineManager {
             continue;
           }
           const triggerSource = run.triggerSource ?? (run.manual ? "manual" : "schedule");
+          // Without the hook (a solo server) nothing is awaited here, so the
+          // turn starts in the same tick as before.
+          const memoryNote = this.options.memoryHint ? await this.memoryNote(run, prompt) : "";
+          // The run may have been cancelled while the memory answered.
+          if (this.options.memoryHint && run.status !== "running") continue;
           if (run.target === "room-goal") {
             if (!run.groupId || !this.options.startGoal) {
               this.failThread(task.threadId, "Room goal routines are unavailable");
@@ -1831,7 +1861,7 @@ export class RoutineManager {
             await this.options.startGoal(
               run.groupId,
               task.threadId,
-              prompt,
+              withMemoryNote(prompt, memoryNote),
               run.botId,
               run.id,
               (message) => this.failThread(task.threadId, message),
@@ -1841,7 +1871,7 @@ export class RoutineManager {
             await this.options.startTurn(
               run.botId,
               task.threadId,
-              composeExecutionPrompt(prompt, run.attachments, this.continuityCarry(run)),
+              withMemoryNote(composeExecutionPrompt(prompt, run.attachments, this.continuityCarry(run)), memoryNote),
               run.runOn ?? "maus",
               triggerSource,
               (message) => this.failThread(task.threadId, message),
@@ -1854,6 +1884,31 @@ export class RoutineManager {
       }
     } finally {
       this.ticking = false;
+    }
+  }
+
+  /** Ask the memory hook (bounded, fail open); keep its hint on the run and
+   * answer the note for the prompt, or "". */
+  private async memoryNote(run: RoutineRun, prompt: string): Promise<string> {
+    if (!this.options.memoryHint) return "";
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const answer = await Promise.race([
+        this.options.memoryHint(cloneRun(run), prompt),
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => resolve(null), ROUTINE_MEMORY_HINT_MAX_MS);
+          timer.unref?.();
+        }),
+      ]);
+      if (!answer || !answer.hint.duplicates.length || run.status !== "running") return "";
+      run.memoryHint = structuredClone(answer.hint);
+      this.save();
+      this.emitRun(run);
+      return answer.note;
+    } catch {
+      return "";
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 

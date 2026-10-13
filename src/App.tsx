@@ -46,6 +46,7 @@ import { primeNudgeSound } from "@/lib/nudge-sound";
 import { viewerBotsReadOnly, viewerCanCreateBots } from "@/lib/viewer";
 import { phonePairingSettingsAction, takePhonePairingRequest } from "@/lib/phone-pairing";
 import { botsReadOnlyText } from "@/lib/permissions";
+import { ModelWindowHost } from "./components/ModelWindowHost";
 
 function Shell() {
   const { state, dispatch } = useStore();
@@ -436,6 +437,7 @@ function Shell() {
       {state.appSettingsOpen && <SettingsModal />}
       {state.achievementsOpen && <AchievementsModal />}
       {!remoteClient && state.personaEditor && <PersonaEditorModal />}
+      {!remoteClient && <ModelWindowHost />}
       {state.botCatalogOpen && <BotCatalogModal />}
       {state.pluginsOpen && <PluginsPanel />}
       {state.triggersOpen && <TriggersPanel />}

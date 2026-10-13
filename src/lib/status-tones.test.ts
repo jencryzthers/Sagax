@@ -26,7 +26,7 @@ describe("semantic tones", () => {
     expect(routines).toContain("${PILL_INFO}");
     expect(routines).not.toMatch(/data-routine-suspended[^\n]*(warning|amber)/);
     expect(read("src/components/TeamMapPage.tsx")).not.toMatch(/queued"\s*\?\s*"[^"]*warning/);
-    expect(read("src/components/WebhooksPanel.tsx")).toContain('{ label: "Active", tone: "text-accent-text", dot: "bg-accent" }');
+    expect(read("src/components/WebhooksPanel.tsx")).toContain('{ label: t("webhooks.status.active"), tone: "text-accent-text", dot: "bg-accent" }');
   });
 
   it("keeps the verdict tones for work that earns them", () => {

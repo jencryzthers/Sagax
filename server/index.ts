@@ -522,7 +522,7 @@ import { redactSecretsInText } from "./redact.ts";
 import * as vps from "./vps-computer.ts";
 import { runAsOptions, runAsRefusal, type RunAsChooser, type RunAsPerson } from "./routine-run-as.ts";
 import { parseRoutineScopeQuery, routineRunClearable, routineScopeRefusal, scopedRoutineListing, type RoutineScopeCaller, type RoutineScopeDeps, type RoutineScopeFacts } from "./routine-scope.ts";
-import { RoutineManager, setRoutineTimeZone, type Routine, type RoutineAdmission, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger, type RoutineSuspendReason } from "./routines.ts";
+import { nextOccurrence, RoutineManager, setRoutineTimeZone, type Routine, type RoutineAdmission, type RoutineMemoryHint, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger, type RoutineSuspendReason } from "./routines.ts";
 import { RoutineConsents, routineRenewMs, type RoutineConsentEnd } from "./org-routine-consent.ts";
 import { CalendarCallManager, type CalendarCall } from "./calendar-calls.ts";
 import { BUILT_IN_BROWSER_SYSTEM_PROMPT } from "./browser-engine.ts";
@@ -821,28 +821,33 @@ import { OidcRelyingParty } from "./oidc-rp.ts";
 import type { BotAttachment, BotFileRoot } from "./org-admin-files.ts";
 import { ADMIN_ACTIVITY_CATEGORIES } from "./admin-activity.ts";
 import { createOrgMemberRoutes, type MemberPerson, type MemberRequest } from "./org-member-routes.ts";
+import { createOrgLinkRoutes, DirectoryRefreshScheduler } from "./org-link-routes.ts";
 import { internalAgentApiTool } from "./routes/agent-api-internal.ts";
 import { createAgentApi, refuse as agentRefuse, SEND_FILE_MAX_BYTES as AGENT_SEND_FILE_MAX_BYTES, type AgentCaller, type AgentScope, type AgentSummary, type AuditEntry, type FileInput, type Refusal, type TurnState } from "./agent-api.ts";
 import { parseHideList, planHiddenAgentThreads, planHiddenBotThreads } from "./agent-threads.ts";
 import { MemberLiveText } from "./member-live-text.ts";
-import { createOrgAdminRoutes, type AccessKind, type AdminApproval, type AdminEngine, type AdminBot, type AdminBotReach, type AdminPerson, type ApprovalAnswer, type ApprovalType, type OrgAdminViewer } from "./org-admin-routes.ts";
+import { computersRoutes, type ComputersDeps } from "./org-admin-computers.ts";
+import { createOrgAdminRoutes, wireAuditRow, type AccessKind, type AdminApproval, type AdminEngine, type AdminBot, type AdminBotReach, type AdminPerson, type ApprovalAnswer, type ApprovalType, type OrgAdminViewer } from "./org-admin-routes.ts";
 import { RevocationQueue } from "./idp-revocations.ts";
 import { IDP_REFRESH_WAIT_MS, IDP_SWEEP_INTERVAL_MS, IdpGrantVault, IdpSessionManager, refreshAfterMs, resolveIdpVaultKey, settledWithin } from "./idp-session.ts";
 import { acceptOpenInvitesForEmail, createPublicInviteRoutes, createSoloOrgRoutes, inviteMailMessage, PUBLIC_INVITE_PATH, type OrgState } from "./org-routes.ts";
 import { createDirectGrantRoutes } from "./direct-grants.ts";
 import { directoryIntervalMs, PerspicaxDirectory, type ModelProvider } from "./perspicax-link.ts";
+import { duplicateNote, PerspicaxMemory } from "./perspicax-memory.ts";
 import { PERSPICAX_UNAVAILABLE_WHY, PerspicaxMcp, perspicaxUnavailableRow, type PerspicaxUnavailableReason } from "./perspicax-mcp.ts";
 import { createPerspicaxOrgRoutes, orgDirectoryEntries, type OrgSettings, type PendingAdminApproval } from "./perspicax-org-routes.ts";
-import { orgFullAccessAllowed, orgFullAccessGrantRefusal, orgFullAccessHolds, ORG_FULL_ACCESS_DISABLED } from "./org-full-access.ts";
+import { ORG_FULL_ACCESS_DEFAULT_MARKER, orgFullAccessAllowed, orgFullAccessGrandfathered, orgFullAccessGrantRefusal, orgFullAccessHolds, orgNewBotApprovalMode, ORG_FULL_ACCESS_DISABLED } from "./org-full-access.ts";
 import { createInterimAttachRoutes, INTERIM_WINDOW_DAYS, interimWindowUntil, windowWithDays } from "./interim-attach-routes.ts";
 import { createLinkedSubjectsRoute, createOrgExportRoute } from "./org-export.ts";
 import { createOrgBotForceRoutes } from "./org-bot-force.ts";
 import { createOrgPersonConnectionRoutes, orgConnectionListing, revokeOrgConnections, type OrgPersonConnectionsDeps } from "./org-person-connections.ts";
 import { peopleRoutes, type EngineVia, type PeopleDeps } from "./org-admin-people.ts";
 import { botsRoutes, type BotsDeps } from "./org-admin-bots.ts";
+import { botLook, botPersona, readBotAvatar } from "./org-admin-look.ts";
 import { ConsoleRefusal } from "./org-admin-console.ts";
 import { routineScheduleLabel } from "./org-admin-schedule.ts";
 import { routinesRoutes, type RoutinesDeps } from "./org-admin-routines.ts";
+import { routineRunsRoutes, type RoutineRunsDeps } from "./org-admin-runs.ts";
 import { opsRoutes, type ConnectionsView, type OpsDeps, type TestResult } from "./org-admin-ops.ts";
 import { createOrgImportRoute } from "./org-import-routes.ts";
 import { readSandboxdKey } from "./sandboxd-auth.ts";
@@ -948,6 +953,10 @@ const workspaceMaintenance = new WorkspaceBackupMaintenance();
 // Remote clients (server/request-auth.ts, server/sessions.ts): a stable identity
 // for this server, the paired sessions, and the cookie the served UI uses.
 const ENVIRONMENT_ID = loadEnvironmentId(DATA_DIR);
+// 2026-10-11: the server log tail of the console's Logs page survives a
+// restart, after ensureDirs (server/server-log-ring.ts): a bounded window on disk.
+serverLog.persistTo(join(DATA_DIR, "server-log"));
+process.once("exit", () => serverLog.flush());
 // Who signs people in here (SAGAX_IDENTITY): a solo server keeps its email
 // sign-in list, invitations and mailer; an organization server signs people
 // in with Pulsatrix only (Perspicax owns accounts), so the list is empty
@@ -3036,6 +3045,9 @@ const internalCapabilities = new Map<string, InternalCapability>();
  * the server is linked to Perspicax; declared here because capability revokes
  * reach it. */
 let perspicaxMcp: PerspicaxMcp | null = null;
+/** 2026-10-11: the work rows and duplicate checks sent to Perspicax's
+ * organization memory (server/perspicax-memory.ts); null without a link. */
+let perspicaxMemory: PerspicaxMemory | null = null;
 /** The revocations started by the last revokeAllInternalCapabilities (shutdown waits for them). */
 let perspicaxEnding: Promise<void> = Promise.resolve();
 const activeInternalGenerationByThread = new Map<string, string>();
@@ -4358,6 +4370,42 @@ function perspicaxServerName(label: string, taken: ReadonlySet<string>): string 
     if (!taken.has(candidate)) return candidate;
   }
 }
+/** The Perspicax user id of a principal of this organization, or null (the
+ * operator, an interim or local principal, another issuer). */
+function perspicaxSubOf(principalId: string): string | null {
+  if (IDENTITY.kind !== "perspicax" || !principalId || !isPrincipalId(principalId)) return null;
+  const person = principals.byId(principalId);
+  return person?.subject?.iss === IDENTITY.issuer && person.disabledAt === undefined ? person.subject.sub : null;
+}
+/** 2026-10-11: a turn with Perspicax tools mounted starts vendor work: one
+ * row of the organization's work log, metadata only (never the message). */
+function recordPerspicaxWork(bot: BotRecord, threadId: string, speaker: TurnSpeaker, principalId: string, profiles: readonly string[]): void {
+  const person = perspicaxSubOf(principalId);
+  if (!person || !perspicaxMemory) return;
+  const routine = routineLineage(speaker);
+  const origin = IDENTITY.kind === "perspicax" ? IDENTITY.publicOrigin.replace(/\/+$/, "") : "";
+  perspicaxMemory.recordWork({
+    person,
+    actor_kind: routine || speaker.origin === "peer" ? "bot" : "person",
+    intent: `${routine ? "Routine run" : "Turn"} on ${bot.name} with ${profiles.join(", ")}`,
+    action: routine ? "run" : "turn",
+    objects: [`sagax:bot:${bot.id}`, `sagax:thread:${threadId}`],
+    // the turn just started: in progress
+    result: "partial",
+    ...(origin ? { link: `${origin}/#thread=${encodeURIComponent(threadId)}&bot=${encodeURIComponent(bot.id)}` } : {}),
+  });
+}
+/** 2026-10-11: before a routine run, whether the organization memory knows
+ * of similar work (bounded, fail open). */
+async function routineMemoryHint(run: RoutineRun, prompt: string): Promise<{ hint: RoutineMemoryHint; note: string } | null> {
+  const bot = store.bot(run.botId);
+  if (!perspicaxMemory || !bot) return null;
+  const runAs = run.runAs ?? effectiveRunAs({ botId: run.botId });
+  const person = runAs ? perspicaxSubOf(runAs) : null;
+  if (!person) return null;
+  const hint = await perspicaxMemory.checkDuplicates({ person, text: prompt, objects: [`sagax:routine:${run.routineId}`] });
+  return hint ? { hint, note: duplicateNote(hint) } : null;
+}
 /** The engine servers, the system note and the activity rows of a turn's
  * Perspicax profiles, for whoever speaks (never the owner for someone
  * else). Nothing in solo mode, without a link, or for a bot without
@@ -4393,6 +4441,7 @@ async function perspicaxTurnIntegration(input: {
     speakerOrigin: input.speaker.origin,
     ...(routine ? { routine: true } : {}),
   });
+  if (plan.mounted.length && !input.quiet) recordPerspicaxWork(live, input.threadId, input.speaker, speakerPrincipalId, plan.mounted.map((profile) => profile.name));
   const custom: Record<string, McpServerSpec> = {};
   const taken = new Set(input.taken);
   for (const profile of plan.mounted) {
@@ -5078,6 +5127,7 @@ const presetStore = createPresetStore();
 const store = new Store(
   () => bootSelection,
   (selection) => withNewBotEffort(selection, cfg.newBotDefaults?.profile.modelSelection?.effort, registry.get(selection.instanceId)?.adapter.capabilities.effortLevels),
+  newBotApprovalMode,
 );
 const teamComputers = new TeamComputers(join(DATA_DIR, "team-computers.json"), ENVIRONMENT_ID);
 let followupsReady = false;
@@ -5113,6 +5163,22 @@ if (startupCatalogs.length) {
 }
 store.seedIfEmpty();
 hostedModels?.reconcile(store);
+// 2026-10-11, once per data directory: Full access on an organization
+// server is off until an admin turns it on. An organization that never saved
+// the setting and already runs bots on Full keeps it, as an explicit true.
+if (IDENTITY.kind === "perspicax" && !existsSync(join(DATA_DIR, ORG_FULL_ACCESS_DEFAULT_MARKER))) {
+  if (orgFullAccessGrandfathered(cfg.organization, store.bots)) {
+    saveConfig({ organization: { ...cfg.organization, allowFullAccess: true } });
+    cfg.organization = { ...cfg.organization, allowFullAccess: true };
+    appendAdminAction(DATA_DIR, {
+      category: "org", action: "org.settings", target: { kind: "organization" }, changed: ["allowFullAccess"],
+      before: { allowFullAccess: null }, after: { allowFullAccess: true }, actor: { kind: "worker" },
+    });
+    console.log("organization: Full access stays allowed (bots already ran on it before it became off by default)");
+  }
+  try { writeFileAtomic(join(DATA_DIR, ORG_FULL_ACCESS_DEFAULT_MARKER), "off-by-default\n", { mode: 0o600 }); }
+  catch (error) { console.warn("organization: the Full access default marker was not saved", error); }
+}
 // Skills library boot sweep (features.skillsLibrary): migrate per-bot
 // copies into the shared library and apply assignments. Flag-off boots
 // never enter this block, keeping per-bot behavior byte-identical.
@@ -5214,16 +5280,18 @@ if (userSandbox) {
     else userSandbox.personBack(person.id);
   });
 }
+/** A bot turn works in this person's server environment right now. */
+function userSandboxTurnRunning(principalId: string): boolean {
+  const person = principalId.trim().toLowerCase();
+  for (const workplace of turnWorkplaces.values()) {
+    if (workplace.decision.target === "user-sandbox" && workplace.decision.principal === person) return true;
+  }
+  return false;
+}
 ROUTES.push(createUserSandboxRoutes({
   manager: () => userSandbox,
   organization: IDENTITY.kind === "perspicax",
-  turnRunning: (principalId) => {
-    const person = principalId.trim().toLowerCase();
-    for (const workplace of turnWorkplaces.values()) {
-      if (workplace.decision.target === "user-sandbox" && workplace.decision.principal === person) return true;
-    }
-    return false;
-  },
+  turnRunning: userSandboxTurnRunning,
 }));
 // ── a person's own connections (organization mode) ─────────────────────
 // Their own MCP servers and GitHub account (server/person-connections.ts),
@@ -10846,6 +10914,21 @@ bus.subscribe((event: RuntimeEvent) => {
       const messageId = event.requestId ? askMessageByRequest.get(`${event.threadId}:${event.requestId}`) : null;
       if (messageId) {
         const existing = store.messagesFor(event.threadId).find((m) => m.id === messageId);
+        // 2026-10-11: a permission card nobody answered before its own
+        // timeout is a decision too, so the approvals history can say
+        // "expired" (GET /api/org/admin/approvals/history).
+        if (event.source === "timeout" && existing?.card?.requestType === "permission" && !existing.card.answered) {
+          appendDecision(DATA_DIR, {
+            threadId: event.threadId,
+            requestId: event.requestId,
+            botId: waiting?.id,
+            botName: waiting?.name,
+            tool: existing.card.tool,
+            summary: existing.card.subtitle,
+            decision: "expired",
+            source: "timeout",
+          });
+        }
         if (existing?.card && !existing.card.answered) {
           if (shouldSettleRequestCard(existing.card, event.source)) {
             store.patchMessage(event.threadId, messageId, {
@@ -15482,6 +15565,7 @@ routines = new RoutineManager({
     : payload),
   ...(IDENTITY.kind === "perspicax" ? {
     admit: routineAdmission,
+    memoryHint: routineMemoryHint,
     onSuspended: routineSuspended,
     onResumed: (routine: Routine) => routineAudit("routine.resumed", effectiveRunAs(routine), { routine }),
   } : {}),
@@ -22244,6 +22328,12 @@ function memberOwnedInOrg(bot: { ownerUserId?: unknown }): boolean {
 function orgFullAccessPolicy(): boolean {
   return orgFullAccessAllowed(cfg.organization);
 }
+/** 2026-10-11: the level a new bot starts on. A solo server keeps Approve
+ * for me; an organization server follows its policy (`defaults.approvalMode`)
+ * and starts on Ask when it names none. */
+function newBotApprovalMode(): "ask" | "auto" {
+  return IDENTITY.kind === "perspicax" ? orgNewBotApprovalMode(cfg.newBotDefaults?.profile.approvalMode) : "auto";
+}
 /** Organization server: a stored Full that may not run as Full now (the
  * policy is off, or the bot's current owner never confirmed it). Never on
  * a solo server, where the desktop's private channel grants Full. */
@@ -24356,6 +24446,7 @@ if (IDENTITY.kind === "perspicax" && oidcRp && idpSessions && process.env.SAGAX_
   perspicaxDirectory.start(intervalMs);
   // Slice 5: per-turn MCP tokens for the person who speaks.
   const directory = perspicaxDirectory;
+  perspicaxMemory = new PerspicaxMemory({ link: () => directory });
   const issuer = IDENTITY.issuer;
   perspicaxMcp = new PerspicaxMcp({
     issuer,
@@ -24460,6 +24551,8 @@ function orgAdminBots(): Array<{ bot: AdminBot; reach: AdminBotReach }> {
         status: bot.hidden ? "archived" : "active",
         label: sectionName || null,
         threads: botThreadIds(bot).length,
+        look: botLook(bot, attachmentExists),
+        persona: botPersona(bot),
       },
       reach: orgBotReach(bot),
     };
@@ -24560,7 +24653,15 @@ const orgPeopleDeps: PeopleDeps = {
   },
   person: adminPerson,
   bots: () => orgAdminBots(),
-  routines: () => (routines?.listRoutines() ?? []).map((routine) => ({ id: routine.id, name: routine.name, botId: routine.botId, runAs: effectiveRunAs(routine) ?? null })),
+  routines: () => (routines?.listRoutines() ?? []).map((routine) => ({ id: routine.id, name: routine.name, botId: routine.botId, runAs: effectiveRunAs(routine) ?? null, enabled: routine.enabled })),
+  // 2026-10-11: pause or resume every routine that runs as a person
+  setRoutineEnabled: (routineId, enabled) => {
+    try {
+      return Boolean(routines?.update(routineId, { enabled }));
+    } catch {
+      return false;
+    }
+  },
   usageRows: (range) => readUsage(DATA_DIR, range),
   shared: (principalId) => {
     const teams = new Set((principals.byId(principalId)?.teams ?? []).map((team) => team.id));
@@ -24677,6 +24778,10 @@ async function importPackageFor(raw: unknown, ownerPrincipalId: string): Promise
 /** The console's Bots (server/org-admin-bots.ts). */
 const orgBotsDeps: BotsDeps = {
   bots: () => orgAdminBots(),
+  avatar: (botId) => {
+    const bot = store.bot(botId);
+    return bot ? readBotAvatar(bot, ATTACHMENTS_DIR) : null;
+  },
   detail: (botId) => {
     const bot = store.bot(botId);
     if (!bot) return null;
@@ -25042,6 +25147,53 @@ const orgRoutinesDeps: RoutinesDeps = {
     if (actor.kind === "worker") return { principalId: "", sub: null, name: "A local worker" };
     if (actor.userId && isPrincipalId(actor.userId) && principals.byId(actor.userId)) return adminPerson(actor.userId);
     return { principalId: "", sub: null, name: actor.label.includes("@") ? "Signed-in user" : actor.label };
+  },
+};
+
+/** The console's routines calendar (server/org-admin-runs.ts): every run
+ * in a window, past and planned, with the Automations scope rules. */
+const orgRoutineRunsDeps: RoutineRunsDeps = {
+  routines: () => routines?.listRoutines() ?? [],
+  runs: (from, to) => routines?.listRuns(from, to) ?? [],
+  bot: orgRoutinesDeps.bot,
+  runAs: (value) => effectiveRunAs(value) ?? null,
+  person: adminPerson,
+  teams: (value) => routineScopeFacts(value).teamIds.slice(),
+  permissions: (principalId) => {
+    const effective = principalPermissions(principalId);
+    return { viewTeam: can(effective, "routines.viewTeam"), viewAll: can(effective, "routines.viewAll") };
+  },
+  next: (schedule, after) => nextOccurrence(schedule, after),
+};
+
+/** The console's Computers (server/org-admin-computers.ts): every
+ * person's server environment, and every connected desktop, read only. */
+const orgComputersDeps: ComputersDeps = {
+  people: () => orgConsolePeople(),
+  person: adminPerson,
+  environments: userSandbox ? {
+    provisioner: () => userSandbox.provisioner(),
+    inventory: (principalIds, timeoutMs) => userSandbox.inventory(principalIds, timeoutMs),
+    power: (principalId, action) => userSandbox.power(principalId, action),
+    update: (principalId) => userSandbox.update(principalId),
+    reset: (principalId) => userSandbox.reset(principalId),
+    remove: (principalId) => userSandbox.removeNow(principalId),
+  } : null,
+  turnRunning: userSandboxTurnRunning,
+  desktops: () => IDENTITY.kind !== "perspicax" ? [] : desktopBridges.inventory().flatMap((desktop) => {
+    const person = principals.byId(desktop.person);
+    return person ? [{ principalId: person.id, desktopId: desktop.id, name: desktop.name, platform: desktop.platform, online: desktop.online, lastSeenAt: desktop.lastSeenAt, localVm: desktop.localVm, version: desktop.version }] : [];
+  }),
+  bots: () => store.bots.map((bot) => ({ id: bot.id, name: bot.name, ownerPrincipalId: effectiveBotOwner(bot), computer: bot.computer ?? null })),
+  activity: ({ computerId, principalId, kind, limit }) => {
+    // The console's own actions on it, and the bots' switches to and from
+    // it on behalf of its person (`computer.switch`, Auto's computer).
+    const surfaces = kind === "server-environment" ? ["cloud"] : ["this_computer", "local_vm"];
+    const own = readOrgAuditPage(DATA_DIR, { categories: ["computer"], target: computerId, limit }).rows;
+    const switches = readOrgAuditPage(DATA_DIR, { categories: ["computer"], limit: 500, from: Date.now() - 30 * 24 * 60 * 60_000 }).rows.filter((row) =>
+      row.action === "computer.switch" && row.actor.kind === "person" && row.actor.principalId === principalId
+      && (surfaces.includes(String(row.after?.computer)) || surfaces.includes(String(row.before?.computer))));
+    return [...own, ...switches].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, limit).map((row) => wireAuditRow(row, adminPerson));
   },
 };
 
@@ -25446,8 +25598,10 @@ const orgAdmin = createOrgAdminRoutes({
     ...overviewRoutes(orgOverviewDeps),
     ...peopleRoutes(orgPeopleDeps),
     ...botsRoutes(orgBotsDeps),
+    ...routineRunsRoutes(orgRoutineRunsDeps),
     ...routinesRoutes(orgRoutinesDeps),
     ...opsRoutes(orgOpsDeps),
+    ...computersRoutes(orgComputersDeps),
   ],
   // The console's file browser (Perspicax 2026-10-08, slice 1: read only).
   files: {
@@ -25473,6 +25627,14 @@ const orgAdmin = createOrgAdminRoutes({
       });
     },
   },
+});
+/** 2026-10-11: Perspicax asks for an immediate directory fetch after a
+ * rights change (server/org-link-routes.ts), with the link token only. */
+const directoryRefresh = new DirectoryRefreshScheduler(() => perspicaxDirectory?.refresh("perspicax") ?? Promise.resolve());
+const orgLink = createOrgLinkRoutes({
+  linked: () => IDENTITY.kind === "perspicax" && perspicaxDirectory !== null,
+  linkTokenMatches: (token) => perspicaxDirectory?.linkTokenMatches(token) ?? false,
+  scheduler: directoryRefresh,
 });
 /** Lot C.3: the words each bot is writing now, for the member API's
  * streamed turn (server/member-live-text.ts). */
@@ -26071,6 +26233,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (await orgAdmin(req, res, url)) return;
     // 2026-10-09: the member API, same credential rule: an assertion only.
     if (await orgMember(req, res, url)) return;
+    // 2026-10-11: Perspicax's link routes, the link token only.
+    if (await orgLink(req, res, url)) return;
     // An organization server signs people in with Pulsatrix only: the
     // interim email codes and invitation links are refused outright.
     if (IDENTITY.kind === "perspicax") {
@@ -31999,6 +32163,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (method === "GET" && path === "/api/bot-defaults") {
       return json(res, 200, {
         defaults: structuredClone(cfg.newBotDefaults ?? newBotDefaultsSchema.parse({})),
+        // 2026-10-11: what a new bot starts on when the template names no
+        // level (New bot shows it): Approve for me, or the organization's.
+        approvalMode: newBotApprovalMode(),
         modelSelection: await defaultSelection(),
         suggestedName: pickBotName(store.bots.map(bot => bot.name)),
       });
@@ -32147,9 +32314,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const createdRoutines: Array<{ id: string; enabled: boolean }> = [];
       try {
         const { chiefOfStaff: _chief, managedSections: _managed, toolScope: _toolScope, ...ordinary } = settings;
-        // Approve for me unless the request chose another level, or the bot
-        // works on this computer (that warning is its own confirmation).
-        const approvalMode = ordinary.approvalMode ?? (ordinary.computer === "local" ? "ask" : "auto");
+        // The server's new bot level (Approve for me, or the organization's
+        // policy) unless the request chose another level, or the bot works
+        // on this computer (that warning is its own confirmation).
+        const approvalMode = ordinary.approvalMode ?? (ordinary.computer === "local" ? "ask" : newBotApprovalMode());
         store.patchBot(bot.id, {
           // Store creation completes workspace defaults (including effort).
           // Applying the rest of the template must not undo that selection.
