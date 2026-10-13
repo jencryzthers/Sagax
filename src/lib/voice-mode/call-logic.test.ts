@@ -6,8 +6,9 @@ import { describe, expect, it } from "vitest";
 
 import { INITIAL_CALL, step, type CallEffect, type CallEvent, type CallState } from "./call-machine";
 import { EchoGuard } from "./echo";
+import { FADE_MS } from "./player";
 import { SentenceStream } from "./sentences";
-import { completeClause, FRAME_MS, incompleteClause, PAUSE_PRESETS, TurnDetector, type TurnEvent } from "./turns";
+import { BARGE_IN_START_MS, completeClause, FRAME_MS, incompleteClause, PAUSE_PRESETS, TurnDetector, type TurnEvent } from "./turns";
 
 function run(events: CallEvent[], from: CallState = INITIAL_CALL) {
   let state = from;
@@ -223,8 +224,15 @@ describe("turn detection (endpointing)", () => {
     const barge = feed(detector, [{ p: 0.95, n: 10, bot: true }]);
     expect(barge.map((e) => e.type)).toEqual(["candidate", "start"]);
     expect(barge[0]).toMatchObject({ bargeIn: true, at: FRAME_MS });
-    // confirmed within 160 ms of the first voiced frame
-    expect(barge[1]!.at).toBeLessThanOrEqual(FRAME_MS * 5);
+    // four frames: the cut is at 128 ms, and the 12 ms fade is silent by 140 ms
+    expect(barge[1]).toMatchObject({ bargeIn: true, at: BARGE_IN_START_MS });
+    expect(BARGE_IN_START_MS + FADE_MS).toBeLessThanOrEqual(150);
+  });
+
+  it("a three-frame cough over the bot ducks and does not cut", () => {
+    const detector = new TurnDetector();
+    const cough = feed(detector, [{ p: 0.95, n: 3, bot: true }, { p: 0.05, n: 4 }]);
+    expect(cough.map((e) => e.type)).toEqual(["candidate", "cancel"]);
   });
 
   it("an unfinished clause waits longer before the turn ends", () => {
@@ -296,6 +304,31 @@ describe("echo guard", () => {
     const guard = new EchoGuard({ coupling: 0.05 });
     for (let i = 0; i < 150; i++) guard.update(0.06, 0.1);
     expect(guard.update(0.06, 0.1)).toBe(true);
+  });
+
+  it("speakerphone delay is echo; the person still cuts at 128 ms and is silent by 140 ms", () => {
+    expect(BARGE_IN_START_MS + FADE_MS).toBe(140);
+    expect(BARGE_IN_START_MS + FADE_MS).toBeLessThanOrEqual(150);
+    const guard = new EchoGuard();
+    const played = 0.2;
+    const residue = played * 0.05;
+    // the burst, then the microphone eight frames (256 ms) later
+    for (let i = 0; i < 8; i++) guard.update(0, played);
+    for (let i = 0; i < 8; i++) guard.update(residue, 0);
+    expect(guard.lagFrames).toBe(8);
+    const detector = new TurnDetector();
+    const echoed: TurnEvent[] = [];
+    // the tail is still the burst, a few frames after playback has stopped
+    for (let i = 0; i < 3; i++) {
+      const echo = guard.update(residue, 0);
+      expect(echo, `residue frame ${i + 1}`).toBe(true);
+      const event = detector.feed({ probability: 0.95, level: residue, botAudible: true, echo });
+      if (event) echoed.push(event);
+    }
+    expect(echoed).toEqual([]);
+    const person = feed(detector, [{ p: 0.95, n: 4, level: 0.2, bot: true }]);
+    expect(person.map((e) => e.type)).toEqual(["candidate", "start"]);
+    expect(person[1]).toMatchObject({ bargeIn: true, at: BARGE_IN_START_MS });
   });
 });
 

@@ -726,9 +726,14 @@ export class VoiceCall {
     const level = rms(frame);
     const probability = await this.vad.probability(frame);
     const pitch = this.turns.prosody && probability >= 0.3 ? estimatePitch(frame) : null;
+    // a voice, speed or language change reopens the warm socket while idle,
+    // so the next clause does not pay the reconnect before its first audio
+    this.speechSocket?.retune(this.o.voice());
     const playback = this.player.level();
     const echo = this.guard.update(level, playback);
-    const botAudible = this.state.botAudible || playback > 0.004;
+    // lingering: the speakers can still be returning the bot after playback
+    // itself has stopped (speakerphone, Bluetooth). Echo frames stay echo.
+    const botAudible = this.state.botAudible || playback > 0.004 || this.guard.lingering;
 
     if (this.enrolling) {
       if (probability > 0.6 && !botAudible) {
