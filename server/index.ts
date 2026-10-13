@@ -5,6 +5,7 @@
 // the rename, electron/legacy-names.mjs).
 import "../electron/legacy-env-boot.mjs";
 import { ENVIRONMENT_PATHS, HEALTH_IDENTITY } from "../electron/legacy-names.mjs";
+import { healthzBody } from "./healthz.ts";
 // Then the upstream/analytics network block (network-guard.ts).
 import "./network-guard.ts";
 // The console's server log tail captures from here on (server-log-ring.ts).
@@ -26269,6 +26270,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // Two public routes come first: what this server is, and turning a pairing
     // code into a session. Everything else needs the loopback owner or a
     // paired session with the right scope.
+    // Deploy and docker-exec probes. A path with no file is the SPA page, so
+    // this has to run before serveStatic or the probe reads index.html.
+    if (method === "GET" && path === "/healthz") {
+      return json(res, 200, healthzBody());
+    }
     if (method === "GET" && !path.startsWith("/api/") && !path.startsWith("/.well-known/") && serveStatic(res, path)) return;
     // The new path and the old one (kept for one release, legacy-names.mjs).
     if (method === "GET" && ENVIRONMENT_PATHS.includes(path)) {
