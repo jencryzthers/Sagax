@@ -1869,7 +1869,10 @@ createInterface({ input: process.stdin }).on("line", (line) => {
           /^\[turn-latency\] \S+ thread=t-latenc path=spawn queue=\d+ms setup=\d+ms ttfa=\d+ms ttft=\d+ms tools=\d+ total=\d+ms prompt=\d+ch full=\S+ in=\S+ cached=\S+ stallGuard=150ms retried ok$/,
         );
         expect(Number(/queue=(\d+)ms/.exec(lines[0]!)![1])).toBeGreaterThanOrEqual(40);
-        expect(Number(/ttfa=(\d+)ms/.exec(lines[0]!)![1])).toBeGreaterThanOrEqual(150);
+        // The stall guard is 150ms. The latency clock and setTimeout are not
+        // the same instant: a busy runner reports 149. Still well above an
+        // answer that skipped the guard.
+        expect(Number(/ttfa=(\d+)ms/.exec(lines[0]!)![1])).toBeGreaterThanOrEqual(120);
       } finally {
         log.mockRestore();
       }
