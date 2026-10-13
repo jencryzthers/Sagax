@@ -13434,8 +13434,13 @@ function duplexEpochFor(threadId: string) {
   return epoch;
 }
 
+/** startDuplexCallTurn's answer when the words join the running turn. */
+const DUPLEX_JOIN_RUNNING_TURN = Symbol("duplex-join-running-turn");
+
 /** A duplex call send: interrupt the in-flight turn if any, drop the
- * steer queue, start only this utterance. Never steers, never queues. */
+ * steer queue, start only this utterance. While the call turn runs a tool,
+ * hands the words back to the caller's steer path instead. Never forks a
+ * parallel task. */
 async function startDuplexCallTurn(
   botId: string,
   threadId: string,
@@ -13483,14 +13488,11 @@ async function startDuplexCallTurn(
   if (admit.action === "defer") {
     return { ok: true as const, threadId, deferred: true as const };
   }
+  // The call turn runs a tool: the words join it on the ordinary steer
+  // path (the caller's), never a parallel task and never a kill.
+  if (admit.action === "steer") return DUPLEX_JOIN_RUNNING_TURN;
   const epoch = duplexEpochFor(threadId);
   const mine = epoch.claim();
-  if (admit.action === "background") {
-    discardSteeredQueue(current.id, threadId);
-    return startParallelTask({
-      botId, threadId, text, replyTo, sendId, sender, trigger, speaker, voiceCall,
-    });
-  }
   if (admit.action === "stop") {
     voiceFirstSentences.cancel(threadId);
     discardSteeredQueue(current.id, threadId);
@@ -35947,11 +35949,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             return { ok: true as const, threadId, message };
           }
 
-          // Full-duplex call: one live turn. Talking while the bot works
-          // cancels that turn, drops the steer queue, and starts only this
-          // utterance (issue #292). Flag off keeps the steer path below.
+          // Full-duplex call: one live turn. Talking while the bot only
+          // thinks cancels that turn, drops the steer queue, and starts only
+          // this utterance (issue #292). While its tool runs, the words fall
+          // through to the steer path below and join it. Flag off: steer.
           if (voiceCall?.duplex) {
-            return startDuplexCallTurn(bot.id, threadId, text, replyTo, sendId, messageSender(auth), trigger, speakerFor(auth), voiceCall);
+            const duplex = await startDuplexCallTurn(bot.id, threadId, text, replyTo, sendId, messageSender(auth), trigger, speakerFor(auth), voiceCall);
+            if (duplex !== DUPLEX_JOIN_RUNNING_TURN) return duplex;
           }
 
           // A new request while this conversation works: its own task, which
