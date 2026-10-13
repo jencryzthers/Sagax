@@ -6,7 +6,7 @@ import { preparerProfilDepuisFiche } from "./profil-fiche.ts";
 
 const dossier = import.meta.dirname ?? dirname(fileURLToPath(import.meta.url));
 const fausseCle = ["fausse", "cle", "exemple", "0001"].join("-");
-const exemple = readFileSync(`${dossier}/profil-fiche.exemple.yaml`, "utf8");
+const exemple = readFileSync(`${dossier}/profil-fiche.exemple.yaml`, "utf8").replace(/\r\n/g, "\n");
 
 const profilExemple = {
   version: 1 as const,

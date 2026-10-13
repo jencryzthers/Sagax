@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createServer } from "node:net";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { assertContentMatches, checkUploadedFile, clamdScanFile, sniff, sniffModeFromEnv } from "./upload-content-check.ts";
 
 const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -48,7 +48,9 @@ describe("upload content check", () => {
 
   it("scans through clamd INSTREAM", async () => {
     const dir = mkdtempSync(join(tmpdir(), "clamd-"));
-    const sock = join(dir, "clamd.sock");
+    // Windows listens on a named pipe, not a socket file
+    const pipe = (name: string) => process.platform === "win32" ? `\\\\.\\pipe\\${basename(dir)}-${name}` : join(dir, name);
+    const sock = pipe("clamd.sock");
     const server = createServer((conn) => {
       let data = Buffer.alloc(0);
       conn.on("data", (d: Buffer) => {
@@ -68,7 +70,7 @@ describe("upload content check", () => {
       const env = { SAGAX_CLAMD_SOCKET: sock, SAGAX_UPLOAD_SNIFF: "enforce" };
       await expect(checkUploadedFile(clean, "application/zip", env)).resolves.toBeUndefined();
       await expect(checkUploadedFile(bad, "application/zip", env)).rejects.toThrow(/antivirus/);
-      await expect(checkUploadedFile(clean, "application/zip", { SAGAX_CLAMD_SOCKET: join(dir, "none"), SAGAX_CLAMD_REQUIRED: "1" })).rejects.toThrow(/unavailable/);
+      await expect(checkUploadedFile(clean, "application/zip", { SAGAX_CLAMD_SOCKET: pipe("none"), SAGAX_CLAMD_REQUIRED: "1" })).rejects.toThrow(/unavailable/);
     } finally { server.close(); }
   });
 });

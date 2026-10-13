@@ -208,8 +208,8 @@ describe("image scripts and manifests", () => {
     expect(rbac).not.toContain("cluster-admin");
     expect(rbac).toContain("storageclasses");
     expect(rbac).toContain("sagax-sandbox-workload");
-    expect(rbac).toMatch(/resources: \["events"\]\n\s+verbs: \["create"\]/);
-    expect(rbac).toMatch(/resources: \["resourcequotas", "limitranges"\]\n\s+verbs: \["get", "list"\]/);
+    expect(rbac).toMatch(/resources: \["events"\]\r?\n\s+verbs: \["create"\]/);
+    expect(rbac).toMatch(/resources: \["resourcequotas", "limitranges"\]\r?\n\s+verbs: \["get", "list"\]/);
     const deployment = readFileSync(new URL("../deploy/k8s/provisioner/sandboxd-deployment.yaml", import.meta.url), "utf8");
     expect(deployment).not.toContain("docker.sock");
     expect(deployment).toContain("example.invalid/sagax:must-set");
