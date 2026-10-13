@@ -182,7 +182,7 @@ export function PairPage({ initialCode: handedCode, initialEmail = null, reason,
         markSignInCredentialSpent(initialCode);
         setSpentReturn(true);
         setCode("");
-        setError(t("pair.pulsatrix.errorSpent"));
+        setError(t(!result.ok && result.restarted ? "pair.pulsatrix.errorRestarted" : "pair.pulsatrix.errorSpent"));
         const loaded = environmentLoaded.current;
         setMode(loaded ? (pulsatrixLoginPath(loaded.value) ? "pulsatrix" : loaded.value?.capabilities.emailSignIn ? "email" : "code") : null);
         setFinishing(false);

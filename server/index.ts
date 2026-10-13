@@ -28032,7 +28032,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const result = sessions.exchange({ code, label, attemptId, browser, source: requestSource(req), fallbackLabel: labelFromUserAgent(req.headers["user-agent"]) });
       if (!result.ok) {
         console.warn(`pairing refused from ${requestSource(req)}: ${result.error}`);
-        return json(res, result.status, { error: result.error });
+        return json(res, result.status, { error: result.error, ...(result.code ? { code: result.code } : {}) });
       }
       const environment = environmentDescriptor({ environmentId: ENVIRONMENT_ID, desktopManaged: DESKTOP_MANAGED, emailSignIn: !CLOUD_HOME && emailSignIn.enabled(), sharedComputers: lendingEnabled(), cloudHome: Boolean(CLOUD_HOME) });
       if (wantsCookie) {
@@ -28065,7 +28065,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const paired = sessions.exchange({ code: credential, label, attemptId, source: requestSource(req), fallbackLabel: labelFromUserAgent(req.headers["user-agent"]) });
       if (!paired.ok) {
         console.warn(`pairing refused from ${requestSource(req)}: ${paired.error}`);
-        return json(res, paired.status, { error: paired.error });
+        return json(res, paired.status, { error: paired.error, ...(paired.code ? { code: paired.code } : {}) });
       }
       // The shape the companion apps decode (android/core Models.kt,
       // PairResponseSerializer): token, device and serverName are required;

@@ -164,7 +164,7 @@ export function newAttemptId(): string {
 export async function pairWithCode(
   input: { code: string; label: string; attemptId?: string; browser?: boolean },
   fetchImpl: typeof fetch = fetch,
-): Promise<{ ok: true } | { ok: false; error: string; status?: number }> {
+): Promise<{ ok: true } | { ok: false; error: string; status?: number; restarted?: true }> {
   let res: Response;
   try {
     res = await fetchImpl("/api/auth/pair", {
@@ -179,7 +179,10 @@ export async function pairWithCode(
   const body: unknown = await res.json().catch(() => ({}));
   if (res.ok) return { ok: true };
   const error = Reflect.get(Object(body), "error");
-  return { ok: false, error: typeof error === "string" ? error : `${res.status} ${res.statusText}`, status: res.status };
+  // The server restarted since the code was made: open codes live in memory
+  // only, so it is gone and a fresh sign-in is the only way forward.
+  const restarted = Reflect.get(Object(body), "code") === "server_restarted";
+  return { ok: false, error: typeof error === "string" ? error : `${res.status} ${res.statusText}`, status: res.status, ...(restarted ? { restarted: true as const } : {}) };
 }
 
 /** Whether this server's /api/auth/pair answers `preview: true` without

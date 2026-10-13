@@ -168,6 +168,8 @@ describe("previewing a Sagax Business return credential (2026-10-13, desktop 0.5
     const refused = (async () => new Response(JSON.stringify({ error: "pairing code is wrong or has expired; create a new one on the server" }), { status: 401 })) as unknown as typeof fetch;
     expect(await pairWithCode({ code: credential, label: "Mac" }, refused)).toEqual({ ok: false, error: "pairing code is wrong or has expired; create a new one on the server", status: 401 });
     expect(signInCredentialSpent(credential)).toBe(false);
+    const restartedServer = (async () => new Response(JSON.stringify({ error: "pairing code is wrong or has expired, or this server restarted", code: "server_restarted" }), { status: 401 })) as unknown as typeof fetch;
+    expect(await pairWithCode({ code: credential, label: "Mac" }, restartedServer)).toMatchObject({ ok: false, status: 401, restarted: true });
     markSignInCredentialSpent(credential);
     expect(signInCredentialSpent(credential)).toBe(true);
     expect(signInCredentialSpent(`omb_pair_${"R".repeat(43)}`)).toBe(false);

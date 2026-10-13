@@ -2909,6 +2909,7 @@
   "pair.pulsatrix.errorBrowser": "Votre navigateur n'a pas pu s'ouvrir. Vérifiez votre navigateur par défaut et réessayez.",
   "pair.pulsatrix.errorClient": "Ce lien de connexion ne vient pas de cette application. Recommencez depuis l'application.",
   "pair.pulsatrix.errorRateLimited": "Sagax Business est occupé en ce moment. Attendez une minute et réessayez.",
+  "pair.pulsatrix.errorRestarted": "Le serveur a redémarré depuis le début de cette connexion, qui n'existe donc plus. Reconnectez-vous avec Sagax Business.",
   "pair.pulsatrix.errorReturn": "Cette connexion ne peut pas revenir vers l'application qui l'a demandée. Recommencez depuis l'application.",
   "pair.pulsatrix.errorRole": "Ce compte ne peut pas se connecter à Sagax. Demandez à un administrateur dans Sagax Business.",
   "pair.pulsatrix.errorSpent": "Cette connexion a déjà servi ou a expiré. Reconnectez-vous avec Sagax Business.",
