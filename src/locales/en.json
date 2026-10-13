@@ -6701,5 +6701,7 @@
   "settings.toolAccess.tier.read": "Read",
   "settings.toolAccess.tier.write": "Write",
   "settings.toolAccess.tier.admin": "Admin",
-  "browser.idle.help": "{name}’s browser opens in full screen when you take control. Nothing is streamed until then."
+  "browser.idle.help": "{name}’s browser opens in full screen when you take control. Nothing is streamed until then.",
+  "model.effort.ultracode": "Ultracode",
+  "model.effort.ultracodeHint": "Deep coding workflow on Claude; maximum effort on other providers."
 }
