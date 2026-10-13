@@ -7,7 +7,6 @@ export type DuplexAdmit =
   | { action: "steer" }
   | { action: "queue" }
   | { action: "replace"; interrupt: boolean; discardQueue: boolean }
-  | { action: "background" }
   | { action: "defer" }
   | { action: "stop"; interrupt: boolean; discardQueue: true };
 
@@ -28,10 +27,11 @@ export function admitDuplexSend(input: {
     return input.botBusy || input.stopping || input.queued ? { action: "steer" } : { action: "start" };
   }
   // "stop" cancels the in-flight turn and does not start a new LLM turn.
-  // A correction replaces. A new topic forks only while the call turn runs a
-  // tool (`backgroundWork`: that work is parked, not killed). While it only
-  // thinks, the new words replace it: forking there made every follow-up,
-  // and the partial and final of one sentence, a parallel-task card.
+  // A correction replaces. The person's words never fork a parallel task:
+  // that made every follow-up, and the partial and final of one sentence, a
+  // parallel-task card. While the call turn runs a tool (`backgroundWork`),
+  // new words join that turn (steer), so the work is not killed. While it
+  // only thinks, they replace it.
   if (input.intent === "stop" && (input.botBusy || input.stopping)) {
     return { action: "stop", interrupt: true, discardQueue: true };
   }
@@ -41,12 +41,12 @@ export function admitDuplexSend(input: {
   // replace the live turn.
   if (input.continues && (input.botBusy || input.stopping || input.queued)) {
     if (input.sameUtterance === false && input.newTopic && input.backgroundWork && !input.stopping) {
-      return { action: "background" };
+      return { action: "steer" };
     }
     return { action: "replace", interrupt: input.botBusy || input.stopping, discardQueue: true };
   }
   if (input.newTopic && input.backgroundWork && input.botBusy && !input.stopping) {
-    return { action: "background" };
+    return { action: "steer" };
   }
   if (input.botBusy || input.stopping || input.queued) {
     return { action: "replace", interrupt: input.botBusy || input.stopping, discardQueue: true };

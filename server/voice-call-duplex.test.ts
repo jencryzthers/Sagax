@@ -43,10 +43,10 @@ describe("admitDuplexSend", () => {
       .toEqual({ action: "replace", interrupt: false, discardQueue: true });
   });
 
-  it("a new topic while background work runs is parked as background, not replaced", () => {
+  it("a new utterance while the call turn runs a tool joins that turn: the work survives, no parallel task", () => {
     expect(admitDuplexSend({
       duplex: true, botBusy: true, stopping: false, queued: false, backgroundWork: true, newTopic: true,
-    })).toEqual({ action: "background" });
+    })).toEqual({ action: "steer" });
   });
 
   it("a new utterance while the call thread is only thinking replaces it, it never forks a parallel task", () => {
@@ -94,19 +94,19 @@ describe("admitDuplexSend", () => {
     })).toEqual({ action: "replace", interrupt: true, discardQueue: true });
   });
 
-  it("a continues send of a different utterance forks only while A runs a tool", () => {
+  it("a continues send of a different utterance joins A while A runs a tool, else replaces", () => {
     expect(admitDuplexSend({
       duplex: true, botBusy: true, stopping: false, queued: false, backgroundWork: true, newTopic: true, continues: true, sameUtterance: false,
-    })).toEqual({ action: "background" });
+    })).toEqual({ action: "steer" });
     expect(admitDuplexSend({
       duplex: true, botBusy: true, stopping: false, queued: false, newTopic: true, continues: true, sameUtterance: false,
     })).toEqual({ action: "replace", interrupt: true, discardQueue: true });
   });
 
-  it("a speculative send while background work runs is admitted, not deferred", () => {
+  it("a speculative send while a tool runs is admitted, not deferred", () => {
     expect(admitDuplexSend({
       duplex: true, botBusy: true, stopping: false, queued: false, backgroundWork: true, newTopic: true, speculative: true,
-    })).toEqual({ action: "background" });
+    })).toEqual({ action: "steer" });
     expect(admitDuplexSend({
       duplex: true, botBusy: false, stopping: false, queued: false, backgroundWork: true, newTopic: true, speculative: true,
     })).toEqual({ action: "start" });
