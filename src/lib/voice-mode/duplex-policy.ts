@@ -2,8 +2,9 @@
 // runs the effects; this file decides which ones. Flag off keeps today's
 // steer-while-thinking path (talking while the bot works silently joins
 // that turn). Flag on: barge-in of audible speech cancels that reply.
-// Talking while it thinks does not interrupt: the send forks a new topic,
-// stops, or replaces a correction (Review 3).
+// Talking while it thinks does not interrupt at speech-start: the send
+// decides (server admitDuplexSend). It replaces the thinking turn, stops it,
+// or forks a new topic only while that turn's own tool runs.
 
 export type BargeInEffect = "none" | "cancel-and-interrupt" | "cancel-speech-only";
 

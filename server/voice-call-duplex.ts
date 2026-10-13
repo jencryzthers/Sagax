@@ -28,7 +28,10 @@ export function admitDuplexSend(input: {
     return input.botBusy || input.stopping || input.queued ? { action: "steer" } : { action: "start" };
   }
   // "stop" cancels the in-flight turn and does not start a new LLM turn.
-  // A correction still replaces. A new topic forks even while thinking.
+  // A correction replaces. A new topic forks only while the call turn runs a
+  // tool (`backgroundWork`: that work is parked, not killed). While it only
+  // thinks, the new words replace it: forking there made every follow-up,
+  // and the partial and final of one sentence, a parallel-task card.
   if (input.intent === "stop" && (input.botBusy || input.stopping)) {
     return { action: "stop", interrupt: true, discardQueue: true };
   }
@@ -37,12 +40,12 @@ export function admitDuplexSend(input: {
   // (skipped speculative, or a new topic's final after a fork) must not
   // replace the live turn.
   if (input.continues && (input.botBusy || input.stopping || input.queued)) {
-    if (input.sameUtterance === false && input.newTopic && !input.stopping) {
+    if (input.sameUtterance === false && input.newTopic && input.backgroundWork && !input.stopping) {
       return { action: "background" };
     }
     return { action: "replace", interrupt: input.botBusy || input.stopping, discardQueue: true };
   }
-  if (input.newTopic && input.botBusy && !input.stopping) {
+  if (input.newTopic && input.backgroundWork && input.botBusy && !input.stopping) {
     return { action: "background" };
   }
   if (input.botBusy || input.stopping || input.queued) {
@@ -60,13 +63,19 @@ function voiceWords(text: string | undefined): string[] {
   return (text ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[a-z0-9]+/g) ?? [];
 }
 
-/** True when `next` is the same spoken utterance as `previous` (STT grew). */
+/** Words a line must have before one of them may differ (STT revised it). */
+const REVISED_WORD_MIN = 4;
+
+/** True when `next` is the same spoken utterance as `previous`: STT grew it,
+ * or its final revised one word of the partial ("will be" then "would be
+ * able to"). */
 export function continuesSameUtterance(previous: string | undefined, next: string): boolean {
   const before = voiceWords(previous);
   const after = voiceWords(next);
   if (!before.length || !after.length) return false;
   const [shorter, longer] = before.length <= after.length ? [before, after] : [after, before];
-  return shorter.every((word, i) => word === longer[i]);
+  const differ = shorter.filter((word, i) => word !== longer[i]).length;
+  return differ === 0 || (differ === 1 && shorter.length >= REVISED_WORD_MIN);
 }
 
 /** Last person line that belongs to this thread, not a parallel request card. */
