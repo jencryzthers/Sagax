@@ -85,6 +85,9 @@ struct MarkdownText: View {
         mentionEveryone: Bool = false,
         attachmentScope: (threadId: String, messageId: String)? = nil,
         picturesAsText: Bool = false,
+        cwAsk: ((CwActionBody) -> Void)? = nil,
+        cwThreadId: String? = nil,
+        cwBotId: String? = nil,
         openLink: ((URL) -> OpenURLAction.Result)? = nil
     ) {
         self.source = source
@@ -94,6 +97,9 @@ struct MarkdownText: View {
         self.mentionEveryone = mentionEveryone
         self.attachmentScope = attachmentScope
         self.picturesAsText = picturesAsText
+        self.cwAsk = cwAsk
+        self.cwThreadId = cwThreadId
+        self.cwBotId = cwBotId
         self.openLink = openLink
     }
 
@@ -156,7 +162,8 @@ struct MarkdownText: View {
     private func nested(_ text: String) -> MarkdownText {
         MarkdownText(
             source: text, mentions: mentions, mentionEveryone: mentionEveryone,
-            attachmentScope: attachmentScope, picturesAsText: picturesAsText, openLink: openLink
+            attachmentScope: attachmentScope, picturesAsText: picturesAsText,
+            cwAsk: cwAsk, cwThreadId: cwThreadId, cwBotId: cwBotId, openLink: openLink
         )
     }
 
