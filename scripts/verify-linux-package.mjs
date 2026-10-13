@@ -472,13 +472,13 @@ try {
   requireFile(scalableIcon);
   const desktop = readFileSync(desktopFile, "utf8");
   for (const expected of [
-    "Name=Sagax",
+    "Name=Pulsatrix Sagax",
     "Exec=/opt/Sagax/openmausbot %U",
     "Icon=openmausbot",
     "StartupWMClass=com.openmausbot.app",
     "Categories=Utility;",
   ]) {
-    if (!desktop.includes(expected)) fail(`desktop entry is missing ${JSON.stringify(expected)}`);
+    if (!desktop.includes(expected)) fail(`desktop entry is missing ${JSON.stringify(expected)}\n${desktop}`);
   }
   execFileSync("desktop-file-validate", [desktopFile], { stdio: "inherit" });
 } finally {
