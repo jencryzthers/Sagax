@@ -360,9 +360,9 @@ it("tells the Chief what happened to each approval: allowed, denied, or never an
   expect(f.prompt(f.turn("B3"))).toContain(JSON.stringify(unanswered.replace(/^\[/, "(")).slice(1, -1));
   expect(f.prompt(f.turn("B3"))).toContain("[Sagax report from @Mira on assignment ");
   // Each card was the engine's own: two the person answered, and one the
-  // engine closed on its timer, by nobody.
+  // engine closed on its timer, by nobody (kept in view, marked expired).
   expect((await f.cards(work)).map((message: any) => [message.card.subtitle, message.card.answered, message.card.dismissed, message.card.answeredBy?.kind]))
-    .toEqual([["git log --oneline -5 -- src/export", "allow", false, "loopback"], ["git push origin export", "deny", false, "loopback"], ["pnpm test", "deny", true, undefined]]);
+    .toEqual([["git log --oneline -5 -- src/export", "allow", false, "loopback"], ["git push origin export", "deny", false, "loopback"], ["pnpm test", "deny", false, undefined]]);
   // One approval notification per card and one per resume: never more.
   expect(f.notifications.map((notification: any) => [notification.kind, notification.body])).toEqual([
     ["done", "B0: Mira is checking."],

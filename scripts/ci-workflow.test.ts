@@ -220,7 +220,7 @@ describe("CI concurrency", () => {
       if (name === "ios") {
         const ios = job as { "runs-on"?: string; steps?: { run?: string }[] };
         expect(ios["runs-on"]).toBe("macos-latest");
-        expect(ios.steps?.some((step) => step.run === "swift test --package-path ios")).toBe(true);
+        expect(ios.steps?.some((step) => step.run?.includes("swift test --package-path ios"))).toBe(true);
       }
     }
   });

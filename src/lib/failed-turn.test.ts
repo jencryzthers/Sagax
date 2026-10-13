@@ -44,8 +44,9 @@ describe("failed turn text", () => {
   it("keeps the engine's words when there is no sign-in to offer", () => {
     // signed in again: the card is gone, so is the promise of one
     expect(activityPreview(loginRow, engine({}, { authenticated: true }))).toBe("Not logged in · Please run /login");
-    // an API-key engine's card is a key row, and its own words say so
-    const keyed = engine({ driverKind: "opencode", access: "api" } as Partial<InstanceInfo>, { version: "1" });
+    // an API-key engine's card is a key row, and its own words say so (no
+    // interactive sign-in method: one would win over the key row, #386)
+    const keyed = engine({ driverKind: "opencode", access: "api", authentication: undefined } as Partial<InstanceInfo>, { version: "1" });
     expect(activityPreview({ ...loginRow, name: "error: Add your key in Settings → API keys" }, keyed)).toBe("Add your key in Settings → API keys");
     expect(signedOutEngine(loginRow, keyed)).toBeUndefined();
     // a failure that is not about setup is never blamed on sign-in

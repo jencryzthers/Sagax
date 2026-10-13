@@ -230,7 +230,8 @@ describe("independent bot tasks through the isolated control surface", () => {
       ["You declined @Release Peer's request", true],
       ["@Release Peer's approval request expired", true],
     ]);
-    expect((await card("unanswered-approval")).card).toMatchObject({ answered: "deny", dismissed: true });
+    // Sagax keeps an expired card in view: its pill reads Expired, not Declined.
+    expect((await card("unanswered-approval")).card).toMatchObject({ answered: "deny", dismissed: false, expired: true });
 
     // One more goes unanswered, but the model asks again once the person is
     // back and is allowed: that one ran, so the note must not claim it.

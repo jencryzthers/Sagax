@@ -1,15 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Copy, ExternalLink } from "lucide-react";
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import { SearchAddon } from "@xterm/addon-search";
-import { WebLinksAddon } from "@xterm/addon-web-links";
-import { WebglAddon } from "@xterm/addon-webgl";
+import type { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
 import type { TerminalEmbed } from "../../../shared/terminal-resources.ts";
 import { api } from "@/state/store";
 import { cn } from "@/lib/cn";
+import { copyText } from "@/lib/copy-text";
 import { t } from "@/lib/i18n";
 
 const THEME = {
@@ -26,7 +23,20 @@ export function TerminalChatEmbed({ embed }: { embed: TerminalEmbed }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (embed.status === "ended" || !hostRef.current) return;
+    const host = hostRef.current;
+    if (embed.status === "ended" || !host) return;
+    // xterm and its addons read `self` when they load, so they load with the
+    // first embed, never with the chat (nor in a test of it).
+    let live = true;
+    let cleanup: (() => void) | undefined;
+    void Promise.all([
+      import("@xterm/xterm"),
+      import("@xterm/addon-fit"),
+      import("@xterm/addon-search"),
+      import("@xterm/addon-web-links"),
+      import("@xterm/addon-webgl"),
+    ]).then(([{ Terminal }, { FitAddon }, { SearchAddon }, { WebLinksAddon }, { WebglAddon }]) => {
+    if (!live) return;
     const term = new Terminal({
       cursorBlink: true,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
@@ -44,7 +54,7 @@ export function TerminalChatEmbed({ embed }: { embed: TerminalEmbed }) {
     } catch {
       /* canvas fallback */
     }
-    term.open(hostRef.current);
+    term.open(host);
     fit.fit();
     termRef.current = term;
 
@@ -69,9 +79,9 @@ export function TerminalChatEmbed({ embed }: { embed: TerminalEmbed }) {
     const onResize = () => fit.fit();
     window.addEventListener("resize", onResize);
     const ro = new ResizeObserver(() => fit.fit());
-    ro.observe(hostRef.current);
+    ro.observe(host);
 
-    return () => {
+    cleanup = () => {
       window.removeEventListener("resize", onResize);
       ro.disconnect();
       ws.close();
@@ -79,11 +89,18 @@ export function TerminalChatEmbed({ embed }: { embed: TerminalEmbed }) {
       termRef.current = null;
       void api(`/api/terminal/sessions/${embed.sessionId}/close`, { method: "POST" }).catch(() => {});
     };
+    }).catch(() => {
+      if (live) setError(t("terminal.connectionError"));
+    });
+    return () => {
+      live = false;
+      cleanup?.();
+    };
   }, [embed.sessionId, embed.status]);
 
   const copySelection = () => {
     const selection = termRef.current?.getSelection();
-    if (selection) void navigator.clipboard.writeText(selection);
+    if (selection) void copyText(selection);
   };
 
   const popOut = () => {

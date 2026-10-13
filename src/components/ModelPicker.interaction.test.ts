@@ -194,7 +194,8 @@ describe("ModelPicker with a signed-out or missing Claude", () => {
     const html = menu(render(forBot).html);
     expect(html).toContain("Continue with ChatGPT");
     expect(html).toContain("Available models appear after");
-    expect(html).not.toContain("codex login");
+    // the terminal command stays behind its disclosure (#386)
+    expect(html).toMatch(/<details data-manual-command[^>]*>[\s\S]*codex login[\s\S]*<\/details>/);
     expect(html).not.toContain("Local models will appear");
   });
 

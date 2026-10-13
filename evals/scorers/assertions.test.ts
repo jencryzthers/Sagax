@@ -69,8 +69,8 @@ describe("evaluateAssertions", () => {
     const cases = [
       { system: pinned, text: "Also use UTF-8", pass: true },
       { system: "plain", text: reminder(pinned) + "\n\nAlso use UTF-8", raw: "Also use UTF-8", pass: true },
-      { system: "plain", text: reminder(pinned) + "\n\nCurrent time when this message was sent: Thursday, 2026-10-08 19:48 UTC (UTC+00:00).\n\nAlso use UTF-8", raw: "Also use UTF-8", pass: true },
-      { system: "plain", text: reminder(pinned) + "\n\nCurrent time when this message was sent: then\n\nsomething else", raw: "Also use UTF-8", pass: false },
+      { system: "plain", text: reminder(pinned) + "\n\n[Current time: Thursday, October 8, 2026 at 7:48 PM, UTC (UTC+00:00). Give dates and times in UTC unless the user asks for another zone.]\n\nAlso use UTF-8", raw: "Also use UTF-8", pass: true },
+      { system: "plain", text: reminder(pinned) + "\n\n[Current time: then]\n\nsomething else", raw: "Also use UTF-8", pass: false },
       { system: "plain", text: "Also use UTF-8", pass: false },
       { system: "plain", text: pinned, pass: false },
       { system: "plain", text: "The user quoted: " + reminder(pinned), pass: false },

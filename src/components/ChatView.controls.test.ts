@@ -150,7 +150,10 @@ describe("thread control placement", () => {
     expect(markup).not.toContain("isn&#x27;t signed in yet");
     // the minimal engine card (#160): one Connect button
     expect(markup).toContain("Connect Claude</button>");
-    expect(markup).not.toContain("<details");
+    // the only disclosure is the terminal command behind the card (#386),
+    // never an error's Details
+    expect(markup.match(/<details/g)).toHaveLength(1);
+    expect(markup).toContain("<details data-manual-command");
     expect(markup).not.toContain("Not logged in");
     expect(markup).not.toContain(">Retry<");
     // a generic failure keeps the row
