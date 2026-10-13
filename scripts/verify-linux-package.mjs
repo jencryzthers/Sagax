@@ -478,7 +478,7 @@ try {
     "StartupWMClass=com.openmausbot.app",
     "Categories=Utility;",
   ]) {
-    if (!desktop.includes(expected)) fail(`desktop entry is missing ${JSON.stringify(expected)}`);
+    if (!desktop.includes(expected)) fail(`desktop entry is missing ${JSON.stringify(expected)}\n${desktop}`);
   }
   execFileSync("desktop-file-validate", [desktopFile], { stdio: "inherit" });
 } finally {
