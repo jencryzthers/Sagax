@@ -98,5 +98,15 @@ it("persists one visible review timeout while reply completes", async () => {
   }
   expect(bot.messages.filter((message: any) => message.kind === "text" && message.text === "done from fake codex")).toHaveLength(2);
   expect(bot.messages.filter((message: any) => message.tool?.name?.startsWith("error: Codex automatic review"))).toHaveLength(1);
-  expect(nativeTurn().params.approvalsReviewer).toBe("user");
+  // The restarted server rewrites the dump before the Ask turn records
+  // turn/start. Wait until that call is on disk.
+  const askTurnDeadline = Date.now() + 15_000;
+  let askReviewer: string | undefined;
+  while (Date.now() <= askTurnDeadline) {
+    const calls = JSON.parse(readFileSync(join(home, "codex-dump.json"), "utf8")).calls as Array<{ method?: string; params?: { approvalsReviewer?: string } }>;
+    askReviewer = calls.find((call) => call.method === "turn/start" && call.params?.approvalsReviewer === "user")?.params?.approvalsReviewer;
+    if (askReviewer === "user") break;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  expect(askReviewer).toBe("user");
 }, 40_000);

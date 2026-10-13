@@ -33,10 +33,12 @@ const title = `Sagax CUA input safety ${process.pid}`;
 // manager publishes. xvfb-run does not start one, and xprop -set stores a
 // CARDINAL the driver ignores. Openbox has to be up before the test window.
 let windowManagerError = "";
-const windowManager = spawn("openbox", [], { env: process.env, stdio: ["ignore", "ignore", "pipe"] });
+// --sm-disable: a session bus is already up (dbus-run-session) and openbox
+// must manage this display instead of waiting on a session manager.
+const windowManager = spawn("openbox", ["--sm-disable"], { env: process.env, stdio: ["ignore", "ignore", "pipe"] });
 windowManager.stderr.setEncoding("utf8");
 windowManager.stderr.on("data", (chunk) => {
-  windowManagerError += chunk;
+  windowManagerError = (windowManagerError + chunk).slice(-4_000);
 });
 windowManager.on("error", (error) => {
   windowManagerError += String(error);
@@ -61,10 +63,15 @@ windowManager.on("error", (error) => {
     rmSync(sandbox, { recursive: true, force: true });
     throw new Error(`openbox did not claim the display\n${windowManagerError}`);
   }
+  // The supporting-WM property is set before openbox is in its event loop.
+  // A map in that gap stays IsUnMapped for the whole smoke.
+  await delay(300);
 }
+// Line-buffered so a timeout still shows Map and Reparent events. xev's own
+// stdout is fully buffered on a pipe and would hide them.
 const xev = spawn(
-  "xev",
-  ["-name", title, "-geometry", "320x180+40+40"],
+  "stdbuf",
+  ["-oL", "-eL", "xev", "-name", title, "-geometry", "320x180+40+40"],
   { env: process.env, stdio: ["ignore", "pipe", "pipe"] },
 );
 let xevOutput = "";
@@ -75,40 +82,46 @@ for (const stream of [xev.stdout, xev.stderr]) {
   });
 }
 
-const driverProcess = spawn(
-  driver,
-  [
-    "serve",
-    "--embedded",
-    "--no-overlay",
-    "--socket",
-    socketPath,
-    "--pid-file",
-    pidFile,
-    "--permission-mode",
-    "standard",
-  ],
-  {
-    env: {
-      ...process.env,
-      HOME: home,
-      XDG_RUNTIME_DIR: runtime,
-      XDG_SESSION_TYPE: "x11",
-      CUA_DRIVER_EMBEDDED: "1",
-      CUA_DRIVER_PARENT_LIVENESS_STDIN: "1",
-      CUA_DRIVER_RS_TELEMETRY_ENABLED: "false",
-      CUA_DRIVER_RS_UPDATE_CHECK: "false",
-    },
-    stdio: ["pipe", "ignore", "pipe"],
-  },
-);
+// The driver is started only after xdotool has seen the test window.
+// Starting it first holds the X server, and the search then waits out.
+let driverProcess;
 let driverError = "";
-driverProcess.stderr.setEncoding("utf8");
-driverProcess.stderr.on("data", (chunk) => {
-  driverError += chunk;
-});
 let proxy;
 let proxyError = "";
+function startDriver() {
+  driverProcess = spawn(
+    driver,
+    [
+      "serve",
+      "--embedded",
+      "--no-overlay",
+      "--socket",
+      socketPath,
+      "--pid-file",
+      pidFile,
+      "--permission-mode",
+      "standard",
+    ],
+    {
+      env: {
+        ...process.env,
+        HOME: home,
+        XDG_RUNTIME_DIR: runtime,
+        XDG_SESSION_TYPE: "x11",
+        CUA_DRIVER_EMBEDDED: "1",
+        CUA_DRIVER_PARENT_LIVENESS_STDIN: "1",
+        CUA_DRIVER_RS_TELEMETRY_ENABLED: "false",
+        CUA_DRIVER_RS_UPDATE_CHECK: "false",
+      },
+      stdio: ["pipe", "ignore", "pipe"],
+    },
+  );
+  driverError = "";
+  driverProcess.stderr.setEncoding("utf8");
+  driverProcess.stderr.on("data", (chunk) => {
+    driverError += chunk;
+  });
+}
 
 async function until(probe, description, timeout = 10_000) {
   const deadline = Date.now() + timeout;
@@ -223,20 +236,62 @@ async function stop(child) {
   if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
 }
 
+function outerWindowId() {
+  const match = /Outer window is (0x[0-9a-fA-F]+)/.exec(xevOutput);
+  return match?.[1] ?? "";
+}
+
 try {
-  const windowId = await until(async () => {
+  // xev prints its window id before the window is viewable. Name search is
+  // not the signal: on the runner it kept exiting while this id was already
+  // in xev's log, and a short timeout there kills the client mid-request.
+  const windowDeadline = Date.now() + 15_000;
+  let windowId = "";
+  let lastState = "";
+  let sawWindowAt = 0;
+  let forcedMap = false;
+  while (Date.now() < windowDeadline) {
     if (xev.exitCode !== null || xev.signalCode !== null) {
       throw new Error(`xev exited before its test window appeared:\n${xevOutput}`);
     }
-    const { stdout } = await execFileAsync("xdotool", [
-      "search",
-      "--onlyvisible",
-      "--name",
-      `^${title}$`,
-    ]);
-    return stdout.trim().split(/\s+/)[0] || null;
-  }, "the unrelated X11 test window");
-  if (!windowId) throw new Error("xev test window did not appear");
+    if (windowManager.exitCode !== null || windowManager.signalCode !== null) {
+      throw new Error(`openbox exited before the test window was viewable: ${windowManager.exitCode ?? windowManager.signalCode}\n${windowManagerError}`);
+    }
+    windowId = outerWindowId();
+    if (windowId) {
+      sawWindowAt ||= Date.now();
+      try {
+        const { stdout } = await execFileAsync("xwininfo", ["-id", windowId], { timeout: 3_000 });
+        lastState = /Map State:\s+(\S+)/.exec(stdout)?.[1] ?? "";
+        if (lastState === "IsViewable") break;
+      } catch (error) {
+        lastState = error instanceof Error ? error.message : String(error);
+      }
+      // A MapRequest openbox never answers leaves the window IsUnMapped.
+      // Withdraw it and map as override-redirect so it becomes viewable
+      // without that request. windowactivate still publishes
+      // _NET_ACTIVE_WINDOW as a WINDOW.
+      if (!forcedMap && sawWindowAt && Date.now() - sawWindowAt > 1_000 && (lastState === "IsUnMapped" || lastState === "IsUnviewable")) {
+        forcedMap = true;
+        await execFileAsync("xdotool", ["windowunmap", windowId], { timeout: 2_000 }).catch(() => {});
+        await execFileAsync("xdotool", ["set_window", "--overrideredirect", "1", windowId], { timeout: 2_000 }).catch(() => {});
+        await execFileAsync("xdotool", ["windowmap", windowId], { timeout: 2_000 }).catch(() => {});
+      }
+    }
+    await delay(50);
+  }
+  if (!windowId || lastState !== "IsViewable") {
+    let tree = "";
+    try {
+      tree = (await execFileAsync("xwininfo", ["-root", "-tree"], { timeout: 3_000 })).stdout.slice(-2_000);
+    } catch (error) {
+      tree = error instanceof Error ? error.message : String(error);
+    }
+    throw new Error(
+      `timed out waiting for the unrelated X11 test window ${windowId || "(no id)"} state=${lastState}\n${windowManagerError}\n${tree}\n${xevOutput.slice(-2_000)}`,
+    );
+  }
+  startDriver();
 
   const metadata = await until(
     async () => {
@@ -313,7 +368,7 @@ try {
   );
 } finally {
   if (proxy) await stop(proxy);
-  await stop(driverProcess);
+  if (driverProcess) await stop(driverProcess);
   if (xev.exitCode === null && xev.signalCode === null) xev.kill("SIGTERM");
   if (windowManager && windowManager.exitCode === null && windowManager.signalCode === null) {
     windowManager.kill("SIGTERM");
