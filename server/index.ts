@@ -21780,6 +21780,9 @@ function engineInstalled(instanceId: string): boolean {
   // probe on a page load or a turn.
   const pinned = selfCheckedEngine(instanceId);
   if (pinned) return pinned.ok;
+  // An engine the image says it does not carry, run by its default name,
+  // is not installed whatever a PATH lookup finds.
+  if (engineNotAvailableReason(instanceId)) return false;
   const probe = engineProbes.get(instanceId);
   if (!probe || Date.now() - probe.at > ENGINE_PROBE_TTL_MS) void probeEngines().catch(() => {});
   return probe?.installed ?? true;
@@ -36043,6 +36046,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
                 sender: messageSender(auth),
                 ...(voiceCall ? { voiceCall } : {}),
               });
+              // Written here, as the words that start a turn are (startTurn).
+              store.setTaskAskedAt(bot.id, threadId, message.at);
               // Offered to the next turn again unless the person stops this one.
               handoffs.steered(threadId, steerTarget, instance?.instanceId, message.id, steerId);
               return { ok: true as const, steered: true as const, threadId, message };

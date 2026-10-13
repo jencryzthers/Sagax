@@ -409,6 +409,8 @@ describe("surface pin provenance against the real server", () => {
     await start();
     const { bot } = await apiOk("POST", "/api/bots", { name: "Relayed place bot" });
     const { task } = await apiOk("POST", `/api/bots/${bot.id}/tasks`, {});
+    // Sagax starts a thread on Approve for me; a guarded send expects Ask.
+    await apiOk("PATCH", `/api/bots/${bot.id}/tasks/${task.threadId}`, { approvalMode: "ask" });
     await apiOk("PUT", "/api/config", { box: { token: "box_fixture" } });
     const lastRow = async () => {
       const { messages } = await apiOk("GET", `/api/threads/${task.threadId}/messages?limit=30`);

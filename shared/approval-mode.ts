@@ -24,18 +24,18 @@ export function supportsApprovalMode(driverKind: string | undefined, mode: Appro
     "clineAgent", "openai-compat", "grok", "minimax", "mistral", "cerebras", "groq"].includes(driverKind ?? "");
 }
 
-/** Whether switching engines must first drop this level to Ask. A Custom
- * grant's rules belong to one provider's tool semantics, so it never crosses
- * engines. Full carries silently to any engine that implements it: the
- * person gave this bot Full access, and changing its engine must not take it
- * back or ask again (owner decision, Oct 12). Every mode stops at an engine
- * that cannot run it. Adapted from tahodev's provider-switch guard (#1120). */
+/** Whether switching engines must first drop this level to Ask. A Full or
+ * Custom grant belongs to one provider's tool semantics, so Sagax asks again
+ * on another engine (upstream lets Full carry silently since 295f947d; Sagax
+ * keeps the confirmation). Every mode stops at an engine that cannot run it.
+ * Adapted from tahodev's provider-switch guard (#1120). */
 export function modelSwitchNeedsAsk(
   mode: ApprovalMode,
   fromDriver: string | undefined,
   toDriver: string | undefined,
 ): boolean {
-  return !supportsApprovalMode(toDriver, mode) || (mode === "custom" && fromDriver !== toDriver);
+  return !supportsApprovalMode(toDriver, mode) ||
+    ((mode === "full" || mode === "custom") && fromDriver !== toDriver);
 }
 
 export function hasNativeAutoReview(driverKind: string | undefined): boolean {

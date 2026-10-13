@@ -131,12 +131,10 @@ stop the prompts.
 
 ### Changing a bot's engine
 
-A bot at **Full access** keeps it when you switch it to another engine that
-can run Full access: no reset to Ask and no confirmation. The bot's threads
-that follow its model keep their level too. **Custom** rules belong to Codex,
-so a Custom bot goes back to Ask before it changes engine. Switching to an
-engine that cannot run the bot's level (for example Auto-accept edits on
-Codex) still asks to choose Ask first.
+A bot at **Full access** or **Custom** goes back to Ask before it changes
+engine, and the new engine's Full access is turned on again through its own
+confirmation. Switching to an engine that cannot run the bot's level (for
+example Auto-accept edits on Codex) also asks to choose Ask first.
 
 ### Antigravity: Ask, Edits, or Auto (full access)
 
