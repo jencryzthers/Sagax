@@ -179,13 +179,13 @@ export function PerspicaxSection({ bot }: { bot: Pick<Bot, "id"> }) {
 
   return (
     <div className="flex flex-col gap-3" data-bot-perspicax>
-      <p className="flex items-center gap-1.5 text-[12.5px] text-ink-secondary">
+      <div className="flex items-center gap-1.5 text-[12.5px] text-ink-secondary">
         <span>{t("botSettings.perspicax.short")}</span>
         <HelpTip label={t("settings.moreAbout", { title: t("botSettings.perspicax.title") })}>
           <span className="block">{t("botSettings.perspicax.help")}</span>
           <span className="mt-2 block">{t("botSettings.perspicax.routines")}</span>
         </HelpTip>
-      </p>
+      </div>
       {rows.length === 0 ? (
         <p className="text-[13px] text-ink-secondary">{t("botSettings.perspicax.none")}</p>
       ) : (

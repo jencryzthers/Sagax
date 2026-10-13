@@ -116,13 +116,13 @@ function KeyDialog({ id, onClose }: { id: KeyRowId; onClose: () => void }) {
   if (id === "opencodeGo") {
     extra = (
       <>
-        <p className="flex items-center gap-1.5 text-[12px] text-ink-secondary">
+        <div className="flex items-center gap-1.5 text-[12px] text-ink-secondary">
           <span>{t("providerKeys.opencodeMore")}</span>
           <HelpTip label={t("providerKeys.opencodeMore")}>
             {t("keys.opencode.providersHint").split("{command}").flatMap((part, index) =>
               index === 0 ? [part] : [<code key={index} className="font-mono">opencode auth login</code>, part])}
           </HelpTip>
-        </p>
+        </div>
         <OpenCodeProviderKeys />
       </>
     );

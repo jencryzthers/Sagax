@@ -128,7 +128,8 @@ describe("the organization library in the real renderer", () => {
     await click("Show Sales desk");
     await clickExact("Use this template");
     await expect.poll(async () => (await api("/api/bots")).bots.filter((bot: { section?: string }) => bot.section === "Sales desk").length, { timeout: 20_000 }).toBe(3);
-    await expect.poll(snapshot, { timeout: 20_000 }).toContain("SALES DESK");
+    // The sidebar lists the new team as its own section group.
+    await expect.poll(snapshot, { timeout: 20_000 }).toContain('group "Sales desk"');
     const bots = (await api("/api/bots")).bots.filter((bot: { section?: string }) => bot.section === "Sales desk");
     expect(bots).toHaveLength(3);
     for (const bot of bots) {
@@ -155,10 +156,11 @@ describe("the organization library in the real renderer", () => {
     await expect.poll(snapshot, { timeout: 10_000 }).toContain(openProfileAria(deskBot.name));
     await click(openProfileAria(deskBot.name));
     await expect.poll(snapshot, { timeout: 10_000 }).toContain("From Sales desk 1.3.0 · Acme Partners");
-    await click("Edit persona");
+    await click("Edit bot");
     await expect.poll(snapshot, { timeout: 10_000 }).toContain("Skills");
     await click("Skills");
-    await expect.poll(snapshot, { timeout: 10_000 }).toContain("Skills your organization shares");
+    // The shared skills card: its hint now sits behind the heading's help tip.
+    await expect.poll(snapshot, { timeout: 10_000 }).toContain('heading "From Customer Co"');
     await evidence("org-library-bot-skills.png");
     await click("Add follow-up to this bot");
     await expect.poll(async () => ((await api(`/api/bots/${deskBot.id}/skills`)).skills as Array<{ name: string; enabled: boolean }>)

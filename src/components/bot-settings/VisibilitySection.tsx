@@ -113,10 +113,10 @@ export function VisibilitySection({ bot }: { bot: Bot }) {
 
   return (
     <div className="flex flex-col gap-3" data-bot-visibility>
-      <p className="flex items-center gap-1.5 text-[12.5px] text-ink-secondary">
+      <div className="flex items-center gap-1.5 text-[12.5px] text-ink-secondary">
         <span>{t("botSettings.visibility.subtitle")}</span>
         <HelpTip label={t("settings.moreAbout", { title: t("botSettings.visibility.title") })}>{t("botSettings.visibility.rooms")}</HelpTip>
-      </p>
+      </div>
       <div role="radiogroup" aria-label={t("botSettings.visibility.title")} className="flex flex-col gap-1.5">
         {OPTIONS.map((option) => (
           <label key={option.mode} className="flex cursor-pointer items-center gap-2 text-[13px] text-ink">

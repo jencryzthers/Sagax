@@ -59,8 +59,9 @@ describe("bot setup and tools in the real renderer", () => {
     const openPersona = async (section: string) => {
       await press("Escape");
       await click("Open agent profile");
-      await expect.poll(snapshot, { timeout: 10_000 }).toContain("Edit persona");
-      await click("Edit persona");
+      // The pencil on the mascot (data-edit-persona) opens the persona editor.
+      await expect.poll(snapshot, { timeout: 10_000 }).toContain('button "Edit bot"');
+      await click("Edit bot");
       await expect.poll(snapshot, { timeout: 10_000 }).toContain(section);
       await click(section);
     };
@@ -166,7 +167,7 @@ describe("bot setup and tools in the real renderer", () => {
     await press("Escape");
     await openPersona("Usage");
     await expect.poll(snapshot, { timeout: 10_000 }).toContain("All bots");
-    await expect.poll(() => evaluate("(() => { const row = document.querySelector('[data-bot-settings-section=usage]'); const rect = row?.getBoundingClientRect(); return rect ? Math.max(-rect.top, rect.bottom - innerHeight) : 9999; })()"), { timeout: 10_000 }).toBeLessThanOrEqual(1);
+    await expect.poll(() => evaluate("(() => { const row = document.querySelector('[data-persona-pane=usage]'); const rect = row?.getBoundingClientRect(); return rect ? Math.max(-rect.top, rect.bottom - innerHeight) : 9999; })()"), { timeout: 10_000 }).toBeLessThanOrEqual(1);
     const search = await ui("snapshot", "--interactive");
     const searchRef = Object.entries(search.refs as Record<string, { role: string; name: string }>)
       .find(([, entry]) => entry.role === "textbox" && entry.name === "Search the categories");
