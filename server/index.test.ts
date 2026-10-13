@@ -23,6 +23,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
+import { hostTimeout } from "./testing/host-timeout.ts";
 import { startFakeHttpMcp } from "./testing/fake-http-mcp-server.ts";
 import { startFakeOAuthMcp } from "./testing/fake-oauth-mcp-server.ts";
 import { freePortBlock } from "./testing/ports.ts";
@@ -216,7 +217,9 @@ const waitForIsolatedServer = async (
   port: number,
   capturedStderr: () => string,
 ): Promise<void> => {
-  const deadline = Date.now() + 20_000;
+  // a cold start on a loaded Windows runner (an isolated server loads and
+  // strips every server module) has taken past 20 s; hostTimeout doubles it there
+  const deadline = Date.now() + hostTimeout(20_000);
   let lastObservedHealth = "none";
   for (;;) {
     if (serverChild.exitCode !== null || serverChild.signalCode !== null) {

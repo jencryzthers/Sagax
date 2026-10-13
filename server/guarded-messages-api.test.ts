@@ -214,7 +214,8 @@ describe("guarded external messages through an isolated runtime", () => {
     expect((await api("POST", `${route}/interrupt`, target, { origin: "https://untrusted.example.test" })).status).toBe(403);
     const stopped = await api("POST", `${route}/interrupt`, target);
     expect(stopped).toMatchObject({ status: 200, body: { ok: true, outcome: "stopped" } });
-    await expect.poll(async () => (await api("GET", "/api/bots?messages=0")).body.bots.find((entry: any) => entry.id === bot.id).busy).toBe(false);
+    // the stop reaps the engine's process tree first; taskkill on Windows takes longer than the default second
+    await expect.poll(async () => (await api("GET", "/api/bots?messages=0")).body.bots.find((entry: any) => entry.id === bot.id).busy, { timeout: 15_000 }).toBe(false);
     expect((await api("POST", `${route}/interrupt`, target)).status).toBe(409);
     expect(existsSync(file(bot.activeTaskId, "gate"))).toBe(false);
   }, 30_000);

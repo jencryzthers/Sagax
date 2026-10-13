@@ -2873,7 +2873,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         await stopping;
         await instance.adapter.interruptTurn("qwen-stop");
         release();
-        expect(await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId)).toMatchObject({ ok: false });
+        // Stop races two endings: the new child's close (exit_before_result, ok false) or the
+        // handshake's "session closed" (cancelled, ok true); Windows reaps fast enough to see the
+        // second. Either way the turn never ends as a normal answer.
+        const done = await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+        expect(done).toSatisfy((e: any) => e.ok === false || e.stopReason === "cancelled");
         const calls = readFileSync(appendFile, "utf8").trim().split("\n").map((line) => JSON.parse(line).method);
         expect(calls.filter((method) => method === "initialize")).toHaveLength(1);
         expect(calls.filter((method) => method === "session/load")).toHaveLength(0);
