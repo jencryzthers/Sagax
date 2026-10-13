@@ -3658,6 +3658,9 @@ const directRequestOwners = new Map<string, {
   /** Where this request's work started (turnOrigin), settled once when it
    * was admitted. */
   origin?: WorkOrigin;
+  /** Words said on a voice call. Only a call turn drops its late output
+   * after a stop; a typed turn still records its cancelled tool row. */
+  voiceCall?: true;
 }>();
 // Stop revokes credentials before completion, but the receipt must retain its
 // exact provider-turn owner until that completion or explicit failure cleanup.
@@ -3968,7 +3971,9 @@ async function interruptDirectThread(botId: string, threadId: string, options?: 
     if (requestOwner.messageId) store.patchMessage(threadId, requestOwner.messageId, { requestCancelled: true });
   }
   const liveTurnId = liveTurnByThread.get(threadId);
-  if (liveTurnId) {
+  // Only a voice call turn is fenced: its late tokens and tool results must
+  // not land. A typed turn keeps recording its cancelled tool row.
+  if (liveTurnId && requestOwner?.voiceCall) {
     let cancelled = cancelledVoiceTurns.get(threadId);
     if (!cancelled) {
       cancelled = new Set();
@@ -11190,11 +11195,12 @@ bus.subscribe((event: RuntimeEvent) => {
     };
     broadcast({ kind: "runtime", event: publicAssistantEvent });
   }
+  const staleOwner = directRequestOwners.get(event.threadId);
   const staleAssistant = isStaleAssistantOutput({
     eventTurnId: event.turnId,
     cancelledTurnIds: cancelledVoiceTurns.get(event.threadId),
-    ownerStopped: directRequestOwners.get(event.threadId)?.stopped,
-    ownerTurnId: directRequestOwners.get(event.threadId)?.turnId,
+    // the owner fence is for voice call turns only (see voiceCall above)
+    ...(staleOwner?.voiceCall ? { ownerStopped: staleOwner.stopped, ownerTurnId: staleOwner.turnId } : {}),
   });
   if (event.type === "content.delta" && event.streamKind === "assistant_text") {
     if (!staleAssistant) voiceLatency.mark(event.threadId, "firstToken");
@@ -15037,7 +15043,8 @@ async function startTurn(
   const requestOrigin = requestWorkOrigin({ trigger: opts?.automationSource, guest: guestConfined, handed: opts?.origin, continued,
     line: !continuation && requestMessageId === userMessage.id ? userMessage : undefined });
   directRequestOwners.set(threadId, { generation: dispatchClaimId, messageId: requestMessageId,
-    generations: requestGenerations, turnId: null, ...(opts?.automationSource ? { automation: opts.automationSource } : {}), origin: requestOrigin });
+    generations: requestGenerations, turnId: null, ...(opts?.automationSource ? { automation: opts.automationSource } : {}), origin: requestOrigin,
+    ...(userMessage.voiceCall || opts?.voiceCall ? { voiceCall: true as const } : {}) });
   // On a Cloud home, a turn that is not provably the owner's leaves this
   // bot's memory "pending" until it ends (server/lending-memory.ts).
   if (!warmOnly && CLOUD_HOME && cloudHomeLendingRefusal(cloudLendingTurn({ botId, threadId, generation: dispatchClaimId })) !== null) noteForeignTurn(botId, threadId, dispatchClaimId);
