@@ -129,7 +129,7 @@ describe("busy send choices", () => {
   it("suggests steering a short correction and a parallel task for anything else", () => {
     expect(suggestBusySendMode("arrête, utilise plutôt Postgres")).toBe("steer");
     expect(suggestBusySendMode("actually use the staging server")).toBe("steer");
-    expect(suggestBusySendMode("Peux-tu aussi me préparer le rapport mensuel des billets du client Alubar ?")).toBe("parallel");
+    expect(suggestBusySendMode("Peux-tu aussi me préparer le rapport mensuel des billets du client Exemple ?")).toBe("parallel");
     expect(suggestBusySendMode("Draft the onboarding email for the new client")).toBe("parallel");
     expect(parseBusySendPreference("parallel")).toBe("parallel");
     expect(parseBusySendPreference("nope")).toBe("ask");
