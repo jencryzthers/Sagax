@@ -65,6 +65,7 @@ import {
 import { EmailCard } from "./EmailCard";
 import { WidgetFrame } from "./WidgetFrame";
 import { ChartBlock } from "./ChartBlock";
+import { CwBlock } from "./CwBlock";
 import { RichTable, tableModelFromDelimited, tableModelFromMarkdown } from "./RichTable";
 import { TableFileButton } from "./TableFilePreview";
 
@@ -1139,6 +1140,7 @@ function ChatMarkdownComponent({ text, message, mentionPeers = NO_MENTION_PEERS,
         if (email) return <EmailCard draft={email} pending={pending} />;
         if (kind === "widget") return <WidgetFrame code={code} pending={pending} />;
         if (kind === "chart") return <ChartBlock code={code} pending={pending} />;
+        if (kind === "cw") return <CwBlock code={code} pending={pending} />;
         if (kind === "csv" && !pending) {
           const model = tableModelFromDelimited(code, lang);
           if (model && model.header.length > 0) return <RichTable model={model} />;

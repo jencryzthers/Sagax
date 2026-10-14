@@ -10,8 +10,9 @@
 //   ```widget  a self-contained HTML/CSS/JS snippet, run in a sandboxed iframe
 //   ```chart   a JSON spec or CSV rows, drawn as an SVG chart without scripts
 //   ```csv / ```tsv  a data table with sort, filter and copy
+//   ```cw      ConnectWise records as JSON {family, view, records}, drawn as a card
 
-export type RichFenceKind = "email" | "widget" | "chart" | "csv";
+export type RichFenceKind = "email" | "widget" | "chart" | "csv" | "cw";
 
 const FENCE_KINDS: Readonly<Record<string, RichFenceKind>> = {
   email: "email",
@@ -23,6 +24,8 @@ const FENCE_KINDS: Readonly<Record<string, RichFenceKind>> = {
   chart: "chart",
   csv: "csv",
   tsv: "csv",
+  cw: "cw",
+  connectwise: "cw",
 };
 
 /** The rich renderer a fence language asks for, if any. */
@@ -550,6 +553,219 @@ export function formatTick(value: number): string {
 }
 
 // ---------------------------------------------------------------------------
+// ConnectWise cards
+
+export type CwFamily = "tickets" | "timeEntries" | "schedule" | "agreements" | "companies";
+export type CwView = "list" | "detail" | "table";
+export type CwFieldKey =
+  | "company" | "board" | "priority" | "owner" | "type" | "entered"
+  | "member" | "chargeTo" | "start" | "end" | "hours" | "billable" | "workType"
+  | "identifier" | "phone" | "city" | "website";
+
+export interface CwField {
+  key: CwFieldKey;
+  value: string;
+  /** An ISO timestamp the renderer formats in the reader's locale. */
+  date?: boolean;
+}
+
+export interface CwRecord {
+  id?: string;
+  title: string;
+  status?: string;
+  fields: CwField[];
+}
+
+export interface CwCard {
+  family: CwFamily;
+  view: CwView;
+  title?: string;
+  records: CwRecord[];
+  /** Field keys present on at least one record, in family order: the table's columns. */
+  columns: CwFieldKey[];
+  /** Records left out past CW_MAX_RECORDS. */
+  truncated: number;
+}
+
+export const CW_MAX_RECORDS = 200;
+
+const CW_FAMILIES: Readonly<Record<string, CwFamily>> = {
+  ticket: "tickets",
+  tickets: "tickets",
+  service: "tickets",
+  time: "timeEntries",
+  timeentry: "timeEntries",
+  timeentries: "timeEntries",
+  timesheet: "timeEntries",
+  schedule: "schedule",
+  scheduleentries: "schedule",
+  dispatch: "schedule",
+  agreement: "agreements",
+  agreements: "agreements",
+  company: "companies",
+  companies: "companies",
+};
+
+const CW_VIEWS: Readonly<Record<string, CwView>> = {
+  list: "list",
+  summary: "list",
+  detail: "detail",
+  details: "detail",
+  card: "detail",
+  table: "table",
+  grid: "table",
+};
+
+const cwKey = (value: unknown) => (typeof value === "string" ? value.toLowerCase().replace(/[\s_-]+/g, "") : "");
+
+/** A ConnectWise value as one line of text. Reference objects ({id, name,
+ * identifier}) read as their name, then identifier, then id. */
+function cwText(value: unknown): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === "string") return value.trim() ? value.trim().slice(0, 300) : undefined;
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : undefined;
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value)) {
+    const parts = value.map(cwText).filter((part): part is string => Boolean(part));
+    return parts.length ? parts.join(", ").slice(0, 300) : undefined;
+  }
+  if (typeof value === "object") {
+    const ref = value as Record<string, unknown>;
+    const person = [ref.firstName, ref.lastName].filter((part) => typeof part === "string" && part.trim()).join(" ");
+    return cwText(ref.name) ?? cwText(ref.identifier) ?? (person || undefined) ?? cwText(ref.id);
+  }
+  return undefined;
+}
+
+/** First non-empty value among dotted paths ("_info.dateEntered"). */
+function cwPick(record: Record<string, unknown>, ...paths: string[]): string | undefined {
+  for (const path of paths) {
+    let value: unknown = record;
+    for (const part of path.split(".")) {
+      value = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>)[part] : undefined;
+    }
+    const text = cwText(value);
+    if (text) return text;
+  }
+  return undefined;
+}
+
+type CwFieldSpec = { key: CwFieldKey; paths: string[]; date?: boolean };
+
+const CW_SPECS: Readonly<Record<CwFamily, {
+  title: string[];
+  status: string[];
+  fields: CwFieldSpec[];
+}>> = {
+  tickets: {
+    title: ["summary", "title", "name"],
+    status: ["status"],
+    fields: [
+      { key: "company", paths: ["company", "companyName"] },
+      { key: "board", paths: ["board"] },
+      { key: "priority", paths: ["priority"] },
+      { key: "owner", paths: ["owner", "resources"] },
+      { key: "type", paths: ["type"] },
+      { key: "entered", paths: ["dateEntered", "_info.dateEntered"], date: true },
+    ],
+  },
+  timeEntries: {
+    title: ["notes", "summary", "ticket.summary"],
+    status: ["status"],
+    fields: [
+      { key: "member", paths: ["member"] },
+      { key: "company", paths: ["company"] },
+      { key: "chargeTo", paths: ["ticket", "chargeToId"] },
+      { key: "start", paths: ["timeStart"], date: true },
+      { key: "end", paths: ["timeEnd"], date: true },
+      { key: "hours", paths: ["actualHours", "hoursBilled", "hours"] },
+      { key: "billable", paths: ["billableOption"] },
+      { key: "workType", paths: ["workType"] },
+    ],
+  },
+  schedule: {
+    title: ["name", "summary"],
+    status: ["status"],
+    fields: [
+      { key: "member", paths: ["member"] },
+      { key: "start", paths: ["dateStart"], date: true },
+      { key: "end", paths: ["dateEnd"], date: true },
+      { key: "hours", paths: ["hours"] },
+      { key: "type", paths: ["type"] },
+      { key: "chargeTo", paths: ["objectId"] },
+    ],
+  },
+  agreements: {
+    title: ["name"],
+    status: ["agreementStatus", "status"],
+    fields: [
+      { key: "company", paths: ["company"] },
+      { key: "type", paths: ["type"] },
+      { key: "start", paths: ["startDate"], date: true },
+      { key: "end", paths: ["endDate"], date: true },
+    ],
+  },
+  companies: {
+    title: ["name", "identifier"],
+    status: ["status"],
+    fields: [
+      { key: "identifier", paths: ["identifier"] },
+      { key: "type", paths: ["types", "type"] },
+      { key: "phone", paths: ["phoneNumber", "phone"] },
+      { key: "city", paths: ["city"] },
+      { key: "website", paths: ["website"] },
+    ],
+  },
+};
+
+function cwRecord(family: CwFamily, raw: Record<string, unknown>): CwRecord {
+  const spec = CW_SPECS[family];
+  const id = cwText(raw.id);
+  const fields = spec.fields.flatMap((field): CwField[] => {
+    const value = cwPick(raw, ...field.paths);
+    return value ? [{ key: field.key, value, ...(field.date ? { date: true } : {}) }] : [];
+  });
+  const title = (cwPick(raw, ...spec.title) ?? "").split("\n", 1)[0]!.slice(0, 200)
+    || (id ? `#${id}` : "");
+  return { ...(id ? { id } : {}), title, status: cwPick(raw, ...spec.status), fields };
+}
+
+/** Read a ```cw fence: {"family","view"?,"title"?,"records":[..]}. The
+ * records are ConnectWise objects as its API returns them; only the fields
+ * the family names are read, every value becomes plain text. */
+export function parseCwCard(code: string): CwCard | { error: string } {
+  const text = code.trim();
+  if (!text) return { error: "empty card" };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "invalid JSON" };
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { error: "card JSON must be an object" };
+  const value = raw as Record<string, unknown>;
+  const family = CW_FAMILIES[cwKey(value.family)];
+  if (!family) return { error: `unknown family "${typeof value.family === "string" ? value.family.slice(0, 40) : ""}"` };
+  const list = Array.isArray(value.records)
+    ? value.records
+    : value.record && typeof value.record === "object" ? [value.record] : null;
+  if (!list) return { error: "card JSON needs records" };
+  const objects = list.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object" && !Array.isArray(entry));
+  const records = objects.slice(0, CW_MAX_RECORDS).map((entry) => cwRecord(family, entry));
+  const asked = CW_VIEWS[cwKey(value.view)];
+  const view: CwView = asked ?? (records.length === 1 ? "detail" : "list");
+  const present = new Set(records.flatMap((record) => record.fields.map((field) => field.key)));
+  return {
+    family,
+    view,
+    title: asText(value.title),
+    records,
+    columns: CW_SPECS[family].fields.map((field) => field.key).filter((key) => present.has(key)),
+    truncated: objects.length - records.length,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Markdown extras
 
 export type CalloutKind = "note" | "tip" | "important" | "warning" | "caution";
@@ -594,7 +810,7 @@ export function unclosedFenceOffset(text: string): number {
   return -1;
 }
 
-const WIDE_FENCE = /(^|\n) {0,3}(?:`{3,}|~{3,})[ \t]*(?:email|mail|eml|widget|html-widget|artifact|chart|csv|tsv|mermaid)\b/i;
+const WIDE_FENCE = /(^|\n) {0,3}(?:`{3,}|~{3,})[ \t]*(?:email|mail|eml|widget|html-widget|artifact|chart|csv|tsv|cw|connectwise|mermaid)\b/i;
 const TABLE_RULE = /(^|\n)\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*(\n|$)/;
 
 /** A bot message holding a table, a diagram or one of the rich fences gets

@@ -16,6 +16,7 @@ import {
   numericColumns,
   parseCalloutMarker,
   parseChartSpec,
+  parseCwCard,
   parseDelimited,
   parseEmailBlock,
   parseNumeric,
@@ -271,5 +272,60 @@ describe("markdown extras", () => {
     expect(isInlineRasterDataUrl("data:image/svg+xml;base64,PHN2Zz4=")).toBe(false);
     expect(isInlineRasterDataUrl("data:text/html;base64,PHNjcmlwdD4=")).toBe(false);
     expect(isInlineRasterDataUrl("data:image/png,<svg onload=alert(1)>")).toBe(false);
+  });
+});
+
+describe("ConnectWise cards", () => {
+  it("recognizes the cw fence and gives it the wide bubble", () => {
+    expect(richFenceKind("cw")).toBe("cw");
+    expect(richFenceKind("ConnectWise")).toBe("cw");
+    expect(prefersWideBubble('```cw\n{"family":"tickets","records":[]}\n```')).toBe(true);
+  });
+
+  it("reads tickets: references as names, the family's fields only, a list by default", () => {
+    const card = parseCwCard(JSON.stringify({
+      family: "tickets",
+      records: [
+        { id: 4211, summary: "Printer offline\nsecond line", status: { id: 1, name: "New" }, company: { id: 9, identifier: "ACME", name: "Acme Inc" }, priority: { name: "P2" }, secret: "x", _info: { dateEntered: "2026-10-13T14:02:00Z" } },
+        { id: 4212, summary: "VPN", board: { name: "Help Desk" } },
+      ],
+    }));
+    if ("error" in card) throw new Error(card.error);
+    expect(card.family).toBe("tickets");
+    expect(card.view).toBe("list");
+    expect(card.records[0]).toEqual({
+      id: "4211",
+      title: "Printer offline",
+      status: "New",
+      fields: [
+        { key: "company", value: "Acme Inc" },
+        { key: "priority", value: "P2" },
+        { key: "entered", value: "2026-10-13T14:02:00Z", date: true },
+      ],
+    });
+    expect(card.columns).toEqual(["company", "board", "priority", "entered"]);
+  });
+
+  it("maps family aliases, picks detail for one record and honors an explicit view", () => {
+    const one = parseCwCard('{"family":"time_entries","records":[{"id":7,"member":{"identifier":"jdoe"},"actualHours":1.5,"notes":"Fixed it"}]}');
+    if ("error" in one) throw new Error(one.error);
+    expect(one.family).toBe("timeEntries");
+    expect(one.view).toBe("detail");
+    expect(one.records[0]!.fields).toEqual([{ key: "member", value: "jdoe" }, { key: "hours", value: "1.5" }]);
+    const table = parseCwCard('{"family":"companies","view":"table","records":[{"id":1,"name":"Acme"}]}');
+    expect("error" in table ? table.error : table.view).toBe("table");
+    const schedule = parseCwCard('{"family":"schedule","record":{"id":3,"name":"Onsite","member":{"firstName":"Ana","lastName":"Roy"}}}');
+    expect("error" in schedule ? schedule.error : schedule.records[0]!.fields[0]).toEqual({ key: "member", value: "Ana Roy" });
+  });
+
+  it("refuses what it cannot read and caps long lists", () => {
+    expect(parseCwCard("")).toEqual({ error: "empty card" });
+    expect(parseCwCard("{oops")).toHaveProperty("error");
+    expect(parseCwCard('{"family":"invoices","records":[]}')).toHaveProperty("error");
+    expect(parseCwCard('{"family":"tickets"}')).toEqual({ error: "card JSON needs records" });
+    const many = parseCwCard(JSON.stringify({ family: "agreements", records: Array.from({ length: 205 }, (_v, id) => ({ id, name: `A${id}` })) }));
+    if ("error" in many) throw new Error(many.error);
+    expect(many.records).toHaveLength(200);
+    expect(many.truncated).toBe(5);
   });
 });

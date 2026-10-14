@@ -203,3 +203,31 @@ describe("markdown extras", () => {
     expect(html).not.toMatch(/<img[^>]*onerror/);
   });
 });
+
+describe("ConnectWise card", () => {
+  it("draws records as a card with escaped text and no action", () => {
+    const html = render('```cw\n{"family":"tickets","view":"list","records":[{"id":4211,"summary":"Printer <b>offline</b>","status":{"name":"New"},"company":{"name":"Acme"}},{"id":4212,"summary":"VPN"}]}\n```');
+    expect(html).toContain("ConnectWise tickets");
+    expect(html).toContain("#4211");
+    expect(html).toContain("Printer &lt;b&gt;offline&lt;/b&gt;");
+    expect(html).toContain(">New</span>");
+    expect(html).toContain("Acme");
+    expect(html).not.toContain("<b>offline");
+    expect(html).not.toMatch(/<a |<form|href=/);
+    expect(html).not.toContain("<pre");
+  });
+
+  it("shows a single record as details with labels", () => {
+    const html = render('```cw\n{"family":"agreements","records":[{"id":5,"name":"Managed","company":{"name":"Acme"},"type":{"name":"MSP"}}]}\n```');
+    expect(html).toContain("<dl");
+    expect(html).toContain(">Company</dt>");
+    expect(html).toContain(">MSP</dd>");
+  });
+
+  it("explains a card it cannot read and shows the source", () => {
+    const html = render('```cw\n{"family":"nope","records":[]}\n```');
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("unknown family");
+    expect(html).toContain("<pre");
+  });
+});
