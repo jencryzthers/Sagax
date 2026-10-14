@@ -1004,6 +1004,28 @@ export function ModelPicker({
   // Models that run on this computer get their own section, whatever engine
   // runs them (JC 2026-10-14): never mixed into "Claude" or another provider.
   const LOCAL_SECTION_KEY = "local:this-computer";
+  // Every engine offers the same local models (DwarfStar through Claude, Grok,
+  // Codex, pi...): list each model once. Rows come in engine order with the
+  // bot's own engine first, so the first one kept is the engine already in use.
+  // The provider prefix ("DwarfStar: ") moves to the detail and the "Local"
+  // tag goes: the section already says both (JC 2026-10-14).
+  const uniqueLocalRows = (rows: readonly ModelMenuRow[]): ModelMenuRow[] => {
+    const seen = new Map<string, ModelMenuRow>();
+    for (const row of rows) {
+      const id = row.modelId ?? row.key;
+      const kept = seen.get(id);
+      if (kept && !(row.current && !kept.current)) continue;
+      const split = /^([^:]{2,40}):\s+(.+)$/.exec(row.label);
+      const localTag = t("model.localGroup");
+      seen.set(id, {
+        ...row,
+        label: split ? split[2] : row.label,
+        detail: split ? split[1] : row.detail,
+        tags: row.tags?.filter((tag) => tag !== localTag && tag.toLowerCase() !== "local"),
+      });
+    }
+    return [...seen.values()];
+  };
   const sectionsOf = (fold: boolean): ModelMenuSection[] => {
     const localRows: ModelMenuRow[] = [];
     const engineSections = menuInstances.map((instance) => {
@@ -1014,7 +1036,7 @@ export function ModelPicker({
     return [
       { key: "top", rows: topRows },
       ...engineSections,
-      ...(localRows.length > 0 ? [{ key: LOCAL_SECTION_KEY, label: t("model.localGroup"), rows: localRows }] : []),
+      ...(localRows.length > 0 ? [{ key: LOCAL_SECTION_KEY, label: t("model.localGroup"), rows: uniqueLocalRows(localRows) }] : []),
     ];
   };
   const allSections = sectionsOf(false);
@@ -1045,7 +1067,7 @@ export function ModelPicker({
       };
     }).filter((section) => section.rows.length > 0),
   ];
-  if (menuLocalRows.length > 0) menuSections.push({ key: LOCAL_SECTION_KEY, label: t("model.localGroup"), rows: menuLocalRows });
+  if (menuLocalRows.length > 0) menuSections.push({ key: LOCAL_SECTION_KEY, label: t("model.localGroup"), rows: uniqueLocalRows(menuLocalRows) });
 
   const onRow = (row: ModelMenuRow) => {
     if (row.kind === "auto") return chooseAuto();
