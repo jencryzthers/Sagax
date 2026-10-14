@@ -2083,13 +2083,15 @@ There are no Name or Label fields in this panel. The persona editor's
 categories (`src/lib/persona-sections.ts`) start with Overview, then
 Appearance (2026-10-11, `appearance/AppearancePane.tsx`): a Mascot,
 Generate and Upload control with Reset, and under Mascot a compact gallery
-that fits the modal without scrolling (search, filter chips All, Owned, To
-unlock, Premium only while one is sold, one chip per family; shelves Yours,
-To unlock, Premium, all from `floating-bots/wardrobe.ts`) beside a detail
-column (a preview stage that plays the moves, then color, skin, moves and
-In use, Use or the unlock hint). It is a size container: the two columns
-stack when the pane is under 34rem. An unlocked character saves on pick, a
-locked one only previews. Clicking the bot's avatar (`BotProfileAvatarCard`,
+that fits the modal without scrolling (search, filter chips All, Owned,
+Premium only while one is sold, then one chip per family; the To unlock
+chip is omitted when no listed character is locked; shelves Yours and
+Premium, from `floating-bots/wardrobe.ts`) beside a detail column (a
+preview stage that plays the moves, then color, skin, moves and In use or
+Use). It is a size container: the two columns stack when the pane is under
+34rem. The gallery lists unlocked characters and the character the bot
+already wears. A locked character stays out. An unlocked character saves
+on pick. Clicking the bot's avatar (`BotProfileAvatarCard`,
 in the panel and in the editor's Overview) opens the editor on Appearance;
 there is no avatar popover, and a right click keeps the mascot menu. The
 New bot dialog's draft is not in the store yet, so its avatar shows the same
@@ -2669,15 +2671,19 @@ rules, each covered by `shared/achievements-catalog.test.ts`,
   live frames in `observeAchievementFrame`); `POST /api/me/achievements/events`
   takes client events only. Events are rate limited, an event id counts
   once, an achievement unlocks once.
-- By default only the owl and its Common skins are usable. Shapes unlocks
-  when a Grok account is linked (the person's own sign-in or their own xAI
-  key, reported as `grok.linked`). Trombi unlocks only from its hidden
-  command (an easter egg; do not write the command down), or on a device
-  that already found it. Every skin above Common, and Bunbu, is the reward
-  of exactly one achievement. On first use a person keeps every character
-  and skin their bots wear (`grandfatheredFromBots`); what a bot wears now
-  stays in the editor. Locked rewards are hidden in the editor and the app
-  icon picker until they unlock. The server never refuses a look.
+- By default only the owl and its Common skins are usable. The crab unlocks
+  when the person's own Claude account is linked (own `claude auth login` or
+  own Anthropic key, recorded as server event `claude.linked`; an organization
+  key does not link). Shapes unlocks when a Grok account is linked (the
+  person's own sign-in or their own xAI key, reported as `grok.linked`).
+  Trombi unlocks only from its hidden command (an easter egg; do not write
+  the command down), or on a device that already found it. Locked characters
+  are absent from every picker until unlocked. Every skin above Common, and
+  Bunbu, is the reward of exactly one achievement. On first use a person keeps
+  every character and skin their bots wear (`grandfatheredFromBots`); a later
+  one-time `migratedCrab` pass keeps a crab that was already worn. What a bot
+  wears now stays in the editor. Locked rewards are hidden in the editor and
+  the app icon picker until they unlock. The server never refuses a look.
 - A server without the routes (404) locks nothing.
 - The unlock frame (`kind: "achievements"`, `audience`) reaches that
   person's streams only (`achievementFrameAllowed`). Nobody reads another
