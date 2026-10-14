@@ -15,8 +15,6 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
-  Bug,
-  PanelRight,
   Copy,
   MessageSquareReply,
 
@@ -96,7 +94,7 @@ import { ToolActivity, botNames } from "./ToolActivity";
 import { StepRow } from "./StepRow";
 import { stepLabel } from "@/lib/step-label";
 import { DataResultChip } from "./DataResultChip";
-import { DataWindowButton } from "./DataWindowButton";
+import { useDataWindowItem } from "./DataWindowButton";
 import { ThreadRefText } from "./ThreadRefs";
 import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
 import { ApprovalCard, approvalCardStaysInChat } from "./ApprovalCard";
@@ -125,7 +123,6 @@ import { SpeakMenuItem } from "./SpeakButton";
 import { CallOverlay, VoiceCallDock } from "./CallView";
 import { effectivePlace, toolPlace, type EffectivePlace } from "@/lib/place";
 import { cn } from "@/lib/cn";
-import { CIRCLE_BUTTON } from "@/lib/circle-button";
 import { useShowInspectorButton } from "@/lib/inspector-preferences";
 import { activeLocale, t } from "@/lib/i18n";
 import { usePerspicaxOrg } from "@/lib/perspicax-org";
@@ -1370,6 +1367,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const showInspector = useShowInspectorButton();
   const advanced = useAdvancedMode();
   const bot = useMemo(() => currentTaskBot(profile), [profile]);
+  const dataItem = useDataWindowItem(bot);
   const { state, dispatch } = useStore();
   const showThreads = useShowThreads();
   const remoteClient = window.ogb?.remoteClient?.active === true;
@@ -1653,8 +1651,8 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           <button
             onClick={() => dispatch({ type: "toggleSettings", open: true })}
             className="flex min-w-0 items-center gap-2 rounded-full border-[0.5px] border-hairline-weak bg-elevated py-[7.5px] pl-[7.5px] pr-[13.5px] transition-colors duration-[120ms] hover:bg-elevated-hover"
-            title={t("chat.openProfile")}
-            aria-label={t("chat.openProfileAria", { name: bot.name })}
+            title={t("chat.openPanel")}
+            aria-label={t("chat.openPanelAria", { name: bot.name })}
           >
             <BotAvatar
               bot={bot}
@@ -1683,34 +1681,19 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           // buttons clear the 26px overlay while the rest of the layout stays.
           style={controlsShiftStyle}
         >
+          {/* One "..." for the conversation: share and export, then the
+              Inspector (Advanced) and Data (Experimental). The pill opens
+              the bot's panel; while the panel is open its top bar carries
+              this same menu. */}
           {!panelOpen && <ExportTranscriptMenu
             title={bot.name}
             messages={messages}
             botName={bot.name}
             onExportBot={showBotZipExport(state.config, bot) ? () => downloadBotZip(bot.id, { conversations: false, sharing: false }) : undefined}
+            {...(!remoteClient && showInspector && advanced ? { onToggleInspector: () => dispatch({ type: "toggleInspector" }), inspectorOpen: state.inspectorOpen } : {})}
+            {...(dataItem ? { data: dataItem } : {})}
           />}
           <TaskPicker bot={bot} />
-          <DataWindowButton bot={bot} />
-          {/* Share, Inspector and the panel toggle move into the bot panel's
-              top bar while it is open, the way Grok Bot's do. */}
-          {!remoteClient && !panelOpen && showInspector && advanced && <button
-            onClick={() => dispatch({ type: "toggleInspector" })}
-            aria-label={t("chat.inspector")}
-            aria-pressed={state.inspectorOpen}
-            className={cn(CIRCLE_BUTTON, state.inspectorOpen && "bg-elevated-hover")}
-            title={t("chat.inspectorHint")}
-          >
-            <Bug size={18} strokeWidth={1.75} />
-          </button>}
-          {!panelOpen && <button
-            type="button"
-            onClick={() => dispatch({ type: "toggleSettings", open: true })}
-            aria-label={t("chat.openProfile")}
-            title={t("chat.openProfile")}
-            className={CIRCLE_BUTTON}
-          >
-            <PanelRight size={18} strokeWidth={1.75} />
-          </button>}
         </div>
       </div>
 

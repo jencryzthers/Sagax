@@ -1,24 +1,24 @@
 // The persona editor's Overview header: the mascot (Appearance on click),
 // name, label and short description edited in place, a summary of the
-// engine, model, owner and sharing, and the quick actions (Rename, Put on
-// the desktop, Make primary bot, Export as zip, Archive). Every write goes
-// through the existing paths: the bot patch queue, the floating-bots store,
-// POST /api/bots/:id/primary and PATCH hidden; the zip is a download of
+// engine, model, owner and sharing, and the quick actions (Export as zip,
+// Archive). Rename is the name itself, edited in place; Put on the desktop
+// and Make primary bot live in the bot's sidebar menu (JC, 2026-10-14: one
+// or two places per action). Every write goes through the existing paths:
+// the bot patch queue and PATCH hidden; the zip is a download of
 // GET /api/bots/:id/export.zip (src/lib/bot-zip.ts).
-import { useState, useSyncExternalStore, type ReactNode } from "react";
-import { Archive, FileArchive, Pencil, PictureInPicture2, Star } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { Archive, FileArchive, Star } from "lucide-react";
 
 import { useStore, type Bot } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { canEditBotField, showBotArchive, showBotRename } from "@/lib/bot-capabilities";
-import { archiveBlockReason, primaryBotOffer, requestBotHidden, requestPrimaryBot } from "@/lib/bot-quick-actions";
+import { archiveBlockReason, requestBotHidden } from "@/lib/bot-quick-actions";
 import { isViewersPrimaryBot, viewerOwnsBot } from "@/lib/primary-bot";
 import { viewerActorId } from "@/lib/viewer";
 import { downloadBotZip, showBotZipExport } from "@/lib/bot-zip";
 import { Switch } from "../SettingsPrimitives";
 import { botEngine } from "@/lib/failed-turn";
-import { isBotFloating, subscribeFloatingBots, toggleFloatingBot } from "@/lib/floating-bots";
 import { useOrgPeople } from "@/lib/perspicax-org";
 import { BOT_PROFILE_LIMITS } from "../../../shared/bot-profile";
 import { BotProfileAvatarCard } from "../BotProfileAvatarCard";
@@ -89,20 +89,17 @@ export function PersonaOverview({ bot, derived, onClose }: {
   onClose: () => void;
 }) {
   const { state, dispatch } = useStore();
-  const [renameRequest, setRenameRequest] = useState(0);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [withConversations, setWithConversations] = useState(false);
   const [withSharing, setWithSharing] = useState(false);
   const [exported, setExported] = useState(false);
   const [busy, setBusy] = useState(false);
-  const floating = useSyncExternalStore(subscribeFloatingBots, () => isBotFloating(bot.id), () => false);
   const people = useOrgPeople();
   const viewerId = viewerActorId(state.config);
   const engine = botEngine(bot, state.instances);
   const canRename = showBotRename(state.config, bot);
   const canDescribe = canEditBotField(state.config, bot, "description");
-  const primary = primaryBotOffer(state.config, bot);
   const isPrimary = isViewersPrimaryBot(bot, viewerId);
   const archiveAllowed = showBotArchive(state.config);
   const archiveBlocked = archiveBlockReason(state.bots, bot);
@@ -116,14 +113,6 @@ export function PersonaOverview({ bot, derived, onClose }: {
     })();
   const fail = (cause: unknown) => dispatch({ type: "error", message: cause instanceof Error ? cause.message : String(cause) });
 
-  const makePrimary = () => {
-    if (!primary.allowed || busy) return;
-    setBusy(true);
-    void requestPrimaryBot(bot.id)
-      .then((next) => dispatch({ type: "botPatched", bot: next }))
-      .catch(fail)
-      .finally(() => setBusy(false));
-  };
   const archive = () => {
     if (busy || archiveBlocked) return;
     setBusy(true);
@@ -151,7 +140,6 @@ export function PersonaOverview({ bot, derived, onClose }: {
             maxLength={BOT_PROFILE_LIMITS.name}
             ariaLabel={t("botPanel.name.edit")}
             onSave={canRename ? (name) => derived.patch({ name }) : undefined}
-            editRequest={renameRequest}
             className="text-[19px] font-semibold leading-7 text-ink"
           />
           <InlineEditableText
@@ -199,28 +187,6 @@ export function PersonaOverview({ bot, derived, onClose }: {
       <div>
         <div className="sr-only">{t("persona.overview.actions")}</div>
         <div className="flex flex-wrap items-start gap-2">
-          <ActionButton
-            id="rename"
-            icon={<Pencil size={14} />}
-            label={t("persona.action.rename")}
-            onClick={() => setRenameRequest((count) => count + 1)}
-            disabled={!canRename}
-            reason={canRename ? undefined : t("persona.locked.owner")}
-          />
-          <ActionButton
-            id={floating ? "remove-from-desktop" : "put-on-desktop"}
-            icon={<PictureInPicture2 size={14} />}
-            label={floating ? t("floatingBots.menu.unfloat") : t("floatingBots.menu.float")}
-            onClick={() => toggleFloatingBot(bot.id)}
-          />
-          <ActionButton
-            id="make-primary"
-            icon={<Star size={14} />}
-            label={t("sidebar.bot.makePrimary")}
-            onClick={makePrimary}
-            disabled={!primary.allowed || busy}
-            reason={primary.allowed ? undefined : t(primary.reason)}
-          />
           {exportAllowed && !exporting && (
             <ActionButton
               id="export-zip"

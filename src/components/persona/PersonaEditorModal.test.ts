@@ -194,7 +194,9 @@ describe("persona editor categories", () => {
     expect(html).toContain(">opus</dd>");
     expect(html).toContain(">You</dd>");
     const actions = [...html.matchAll(/data-persona-action="([\w-]+)"/g)].map((match) => match[1]);
-    expect(actions).toEqual(["rename", "put-on-desktop", "make-primary", "export-zip", "archive"]);
+    // Rename is the name itself; Put on the desktop and Make primary bot are
+    // in the sidebar's bot menu (2026-10-14)
+    expect(actions).toEqual(["export-zip", "archive"]);
     expect(html).toContain('data-section-body="overview"');
     // on a Perspicax server the sharing list sits under the overview
     expect(html).toContain('data-section-body="sharing"');
@@ -246,8 +248,8 @@ describe("persona editor for an organization member", () => {
     expect(history).toContain("A bot&#x27;s change history is for admins.");
 
     const overview = render("overview", state);
-    expect(overview).toMatch(/data-persona-action="rename" disabled=""/);
-    expect(overview).toContain('data-persona-action-reason="make-primary"');
+    expect(overview).not.toContain('data-persona-action="rename"');
+    expect(overview).not.toContain('data-persona-action="make-primary"');
     expect(overview).not.toContain('data-persona-action="archive"');
   });
 });
