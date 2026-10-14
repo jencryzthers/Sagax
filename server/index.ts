@@ -203,10 +203,12 @@ import {
   poolLocalVmTarget,
   SHARED_LOCAL_VM_TARGET,
   setupCommands,
+  startContainerRuntime,
   VM_WORKSPACE_GUEST,
   type LocalVmTarget,
   type Runtime,
 } from "./container-computer.ts";
+import { LocalVmAutoStarter } from "./local-vm-auto.ts";
 import { attachForTurn, deliveredCopy, saveBotAttachment } from "./bot-attachment.ts";
 import {
   cacheUntilConfigChanges,
@@ -11196,6 +11198,61 @@ void (async () => {
   // The Settings inventory remains available for a later explicit retry.
 });
 
+/** The desktop app's own server keeps its Local VM up by itself
+ * (server/local-vm-auto.ts): at launch, when a bot needs it, and after a
+ * failure with a growing delay. Never on an organization server (the Local
+ * VM there lives on each person's computer, electron/local-vm.mjs), a
+ * Cloud home, or a self-hosted server without the desktop app. */
+const localVmAuto = DESKTOP_MANAGED && !CLOUD_HOME && IDENTITY.kind !== "perspicax" && !process.env.SAGAX_LOCAL_VM_TEST_NAMESPACE
+  ? new LocalVmAutoStarter({
+    mode: () => localVmMode(cfg),
+    allowed: () => managedPolicy.computerAllowed("localVm") && !hostComputerRefusal(),
+    status: () => containerComputerStatus(undefined, undefined, SHARED_LOCAL_VM_TARGET),
+    startRuntime: (status) => startContainerRuntime(status.runtime),
+    prepareImage: async () => {
+      if (localVmImageBusy || localVmModeChangeBusy) throw new Error("another Local VM setup action is still running");
+      localVmImageBusy = true;
+      try { return await containerComputerAction("pull", undefined, undefined, SHARED_LOCAL_VM_TARGET); } finally { localVmImageBusy = false; }
+    },
+    create: () => localVmAutoLifecycle("run"),
+    start: () => localVmAutoLifecycle("start"),
+    remove: () => localVmAutoLifecycle("remove"),
+    busy: () => localVmImageBusy || localVmModeChangeBusy || localVmLifecycleBusy.has(SHARED_LOCAL_VM_TARGET.key),
+    wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    now: () => Date.now(),
+    schedule: (run, ms) => { const timer = setTimeout(run, ms); timer.unref?.(); return timer; },
+    cancel: (handle) => clearTimeout(handle as NodeJS.Timeout),
+    desktopWaitMs: LOCAL_VM_DESKTOP_WAIT_MS,
+  })
+  : null;
+
+/** One lifecycle step of the automatic start, with the same guards as the
+ * Settings routes: never while a bot holds the desktop or a setup runs. */
+async function localVmAutoLifecycle(action: "run" | "start" | "remove") {
+  const target = SHARED_LOCAL_VM_TARGET;
+  if (localVmImageBusy || localVmModeChangeBusy || localVmLifecycleBusy.has(target.key)) {
+    throw new Error("another Local VM setup action is still running");
+  }
+  if (action === "remove" && (localVmLeaseFor(target).current(localVmOwnerBusy) || localVmActiveThreads.has(target.key))) {
+    throw new Error("the Local VM is being used by a bot");
+  }
+  localVmLifecycleBusy.add(target.key);
+  try {
+    const status = await containerComputerAction(action, undefined, undefined, target);
+    if (action === "remove") localVmIdleFor(target).cancel();
+    else {
+      localVmSeen.add(target.key);
+      localVmIdleFor(target).touch();
+    }
+    return status;
+  } finally {
+    localVmLifecycleBusy.delete(target.key);
+  }
+}
+
+// At launch: bring the Local VM up in the background.
+if (localVmAuto) setTimeout(() => { void localVmAuto.ensure("launch"); }, 3_000).unref?.();
+
 async function localVmInventoryPayload() {
   const runtime = await containerRuntimeStatus();
   if (!runtime.runtime || !runtime.daemonUp) {
@@ -21433,6 +21490,8 @@ async function localVmPayload(target: LocalVmTarget, auth: RequestAuth) {
     max_instances: localVmMaxInstances(cfg),
     // The UI hides the per-bot choice: one environment per person instead.
     organization: IDENTITY.kind === "perspicax",
+    // The automatic start on the desktop app (null elsewhere).
+    auto: localVmAuto?.snapshot() ?? null,
   };
 }
 
@@ -21456,6 +21515,9 @@ async function readyLocalVmForTurn(botId: string, target: LocalVmTarget, isCurre
     noteLocalVmSeen(target, status);
     if (!isCurrent()) return status;
     const action = localVmWakeAction(status);
+    // Not something a turn may fix itself (image missing, older image,
+    // runtime stopped): the automatic start takes it in the background.
+    if (!status.ready && !action && target.key === SHARED_LOCAL_VM_TARGET.key) void localVmAuto?.ensure("bot");
     if (status.ready || !action || !status.runtime) return status;
     // An organization server never creates a desktop on itself (the claim is
     // refused too; this keeps a turn from even starting one).
@@ -37355,6 +37417,60 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       res.setHeader("cache-control", "private, no-store");
       return json(res, 200, await localVmInventoryPayload());
     }
+    // The automatic start, asked by the app: "bot" when a bot's Computer tab
+    // needs the VM, "person" for the person's own Start or Retry. Answers at
+    // once; the work goes on in the background.
+    if (method === "POST" && path === "/api/local-computer/ensure") {
+      if (!String(req.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) {
+        return json(res, 415, { error: "content-type must be application/json" });
+      }
+      const body = await readBody(req, 1_000) as { reason?: unknown } | null;
+      const reason = body?.reason === "person" ? "person" : "bot";
+      if (localVmAuto) void localVmAuto.ensure(reason);
+      return json(res, 202, { auto: localVmAuto?.snapshot() ?? null });
+    }
+    // Reset: delete this computer's Local VMs (the shared one and each
+    // bot's) and let the automatic start create the shared one again. The
+    // workspace folders on this computer are kept.
+    if (method === "POST" && path === "/api/local-computer/reset") {
+      if (!String(req.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) {
+        return json(res, 415, { error: "content-type must be application/json" });
+      }
+      const body = await readBody(req, 1_000) as { confirm?: unknown } | null;
+      if (body?.confirm !== true) return json(res, 400, { error: "confirm must be true" });
+      const refusal = hostComputerRefusal();
+      if (refusal) return json(res, 403, { error: refusal, code: "host_computer" });
+      if (localVmImageBusy || localVmModeChangeBusy || localVmLifecycleBusy.size > 0) {
+        return json(res, 409, { error: "another Local VM setup action is still running" });
+      }
+      if (localVmActiveThreads.size > 0) return json(res, 409, { error: "a bot is using a Local VM — stop that turn first", code: "in_use" });
+      const runtime = await containerRuntimeStatus();
+      const targets: LocalVmTarget[] = [SHARED_LOCAL_VM_TARGET];
+      if (runtime.runtime && runtime.daemonUp) {
+        const perBot = await discoverExistingPerBotLocalVms(store.bots, runtime.runtime).catch(() => []);
+        targets.push(...perBot.map(({ target }) => target));
+      }
+      if (targets.some((target) => localVmLeaseFor(target).current(localVmOwnerBusy))) {
+        return json(res, 409, { error: "a bot is using a Local VM — stop that turn first", code: "in_use" });
+      }
+      for (const target of targets) localVmLifecycleBusy.add(target.key);
+      try {
+        for (const target of targets) {
+          const status = await containerComputerStatus(undefined, undefined, target);
+          // A container Sagax did not create is left alone.
+          if (status.container === "missing" || !status.managed) continue;
+          await containerComputerAction("remove", undefined, undefined, target);
+          localVmIdleFor(target).cancel();
+        }
+      } finally {
+        for (const target of targets) localVmLifecycleBusy.delete(target.key);
+      }
+      if (localVmAuto) {
+        localVmAuto.personStarted();
+        void localVmAuto.ensure("person");
+      }
+      return json(res, 200, await localVmPayload(SHARED_LOCAL_VM_TARGET, auth));
+    }
     m = path.match(/^\/api\/local-computer\/(pull|run|start|stop|remove)$/);
     if (m && method === "POST") {
       // Requiring JSON makes these localhost lifecycle mutations non-simple
@@ -37395,7 +37511,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (action === "run" || action === "start") {
           localVmSeen.add(SHARED_LOCAL_VM_TARGET.key);
           localVmIdleFor(SHARED_LOCAL_VM_TARGET).touch();
+          localVmAuto?.personStarted();
         }
+        // The person stopped it: nothing restarts it by itself this session.
+        if (action === "stop") localVmAuto?.personStopped();
         if (action === "stop" || action === "remove") localVmIdleFor(SHARED_LOCAL_VM_TARGET).cancel();
         return json(res, 200, {
           ...localVmViewerStatus(status, auth),
