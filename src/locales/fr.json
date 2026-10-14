@@ -2769,6 +2769,7 @@
   "model.favorite.add": "Ajouter {name} aux favoris",
   "model.favorite.remove": "Retirer {name} des favoris",
   "model.back": "Retour",
+  "model.allModels": "Tous les modèles",
   "model.setupRequired": "Configuration requise",
   "model.signInRequired": "Connexion requise",
   "model.simple.noModels": "Aucun modèle à afficher ici pour l'instant.",

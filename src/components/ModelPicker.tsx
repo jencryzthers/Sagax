@@ -1337,36 +1337,26 @@ export function ModelPicker({
   );
 
   // Effort applies to the model this bot runs on now (its active engine,
-  // not the provider being browsed), under the same one mode. `contained`
-  // callers (the settings dialog) render their own EffortRow card, and two
-  // copies of one control in one view read as a bug.
+  // not the provider being browsed). JC, 2026-10-14: one Effort per path.
+  // The composer's menu has Effort › (Advanced) and the bot settings have
+  // their EffortRow card, so the window keeps none.
   const effortTitle = active?.capabilities?.modelVariants ? t("model.reasoning") : t("model.effort");
-  const effort = advanced && !contained && (
-    <EffortRow
-      bot={bot}
-      threadId={threadId}
-      updateBotDefault={Boolean(threadId)}
-      className="shrink-0"
-      label={<span className="text-[12.5px] font-medium text-ink">{effortTitle}</span>}
-    />
-  );
 
   // The settings of the model in use, under the composer's list (JC,
-  // 2026-10-13, Cursor's second panel): Fast when it has a fast twin, its
-  // context, Effort › with only the levels it takes, Model ›. On Auto the
-  // model changes per turn: only the effort stays.
+  // 2026-10-13, Cursor's second panel): Fast when it has a fast twin and
+  // Effort › with only the levels it takes. JC, 2026-10-14: Model › (the
+  // provider submenus list the same models) and the Context line are gone.
+  // On Auto the model changes per turn: only the effort stays.
   const activeOptions = active?.models.options ?? [];
   const activeOption = activeOptions.find((option) => option.id === selection.model);
   const fastBase = active && !autoOn ? fastBaseOf(activeOptions, selection.model) : undefined;
   const fastTwin = active && !autoOn ? fastTwinOf(activeOptions, selection.model) : undefined;
   const engineEfforts = active?.capabilities?.effortLevels;
   const menuEfforts = active?.capabilities?.modelVariants ? [] : modelEffortLevels(activeOption, engineEfforts);
-  const activeRows = active && !autoOn && !active.policy ? rowsOf(active, true, true) : null;
   const settingsPanel = active ? (
     <ModelMenuSettings
       disabled={Boolean(bot.busy)}
       fast={active && (fastBase || fastTwin) ? { on: Boolean(fastBase), onToggle: () => pick(active, (fastBase ?? fastTwin)!, true) } : undefined}
-      contextWindow={autoOn ? undefined : activeOption?.contextWindow}
       variantRow={active.capabilities?.modelVariants ? (
         <div data-model-menu-effort className="px-2 py-1.5">
           <EffortRow bot={bot} threadId={threadId} updateBotDefault={Boolean(threadId)} compact
@@ -1379,11 +1369,6 @@ export function ModelPicker({
         value: selection.effort && menuEfforts.includes(selection.effort) ? selection.effort : undefined,
         modelDefault: modelDefaultEffort(activeOption, engineEfforts),
         onPick: setEffort,
-      } : undefined}
-      model={activeRows ? {
-        label: modelLabel(active, fastBase ?? selection.model),
-        sections: [{ key: active.instanceId, label: engineLabel(active), rows: [...activeRows.cloud, ...activeRows.local] }],
-        onPick: onRow,
       } : undefined}
     />
   ) : null;
@@ -1450,7 +1435,6 @@ export function ModelPicker({
               <>
                 {autoHeader}
                 <ModelSearchList key={AUTO_RAIL} variant="window" sections={allSections} onPick={onRow} disabled={Boolean(bot.busy)} />
-                {effort}
               </>
             ) : railInstance ? (
               <>
@@ -1459,7 +1443,6 @@ export function ModelPicker({
                     the choice does, and who pays follows. */}
                 {payersFirst && payers}
                 {listSection}
-                {effort}
                 {!payersFirst && payers}
               </>
             ) : (
@@ -1473,7 +1456,9 @@ export function ModelPicker({
   );
 
   // The composer's menu (2026-10-12, JC: like Cursor's): search, Auto, every
-  // engine's models, the effort, and Edit… for the whole window.
+  // engine's models, the effort, and Edit… for the whole window. In Simple
+  // (JC, 2026-10-14) the providers sit behind one "All models ›" row under
+  // Auto, the bot's model and the favorites; the effort stays Advanced.
   const menuPanel = (
     <div
       ref={menuRef}
@@ -1493,7 +1478,7 @@ export function ModelPicker({
         menuMotion.className,
       )}
     >
-      <ModelSearchList variant="popover" autoFocus submenus sections={menuSections} onPick={onRow} onEscape={() => closeMenu(true)} disabled={Boolean(bot.busy)}
+      <ModelSearchList variant="popover" autoFocus submenus groupProviders={!advanced} sections={menuSections} onPick={onRow} onEscape={() => closeMenu(true)} disabled={Boolean(bot.busy)}
         favorites={{ keys: favoriteKeys, onToggle: (row) => toggleModelFavorite(row.key) }} />
       {advanced && settingsPanel}
       <div className="border-t border-popover-hairline px-1.5 pt-1">

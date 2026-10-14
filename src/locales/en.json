@@ -3615,6 +3615,7 @@
   "model.favorite.add": "Add {name} to favorites",
   "model.favorite.remove": "Remove {name} from favorites",
   "model.back": "Back",
+  "model.allModels": "All models",
   "model.setupRequired": "Setup required",
   "model.signInRequired": "Sign-in required",
   "model.simple.apiKey": "API key",
