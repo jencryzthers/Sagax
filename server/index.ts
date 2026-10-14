@@ -267,6 +267,7 @@ import {
   CLAUDE_API_INSTANCE,
   liveCallsEnabled,
   liveSettingsFor,
+  liveCallKey,
   mergeOpenCodeProviderKeys,
   openCodeProviderKeys,
 } from "./config.ts";
@@ -27928,7 +27929,7 @@ const liveCalls = new LiveCallController({
     return task.activity === "waiting-on-you" ? "waiting" : "working";
   },
   broadcast: (frame) => broadcast(frame, { adminOnly: true }),
-  settings: () => ({ key: cfg.live?.key ?? "", ...liveSettingsFor(cfg) }),
+  settings: () => ({ key: liveCallKey(cfg), ...liveSettingsFor(cfg) }),
   createSession: ({ key, sdp, botId, threadId, voice }) => {
     // Defense in depth: no OpenAI session while Live calls are off (the routes already 404).
     if (!liveCallsEnabled()) throw new Error("Live calls are not available on this server.");

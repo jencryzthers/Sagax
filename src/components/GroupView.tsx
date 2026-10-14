@@ -49,6 +49,7 @@ import type { OrgDirectoryPerson } from "@/lib/perspicax-org";
 import { StatusActivityRow } from "@/components/StatusActivityRow";
 import { mausInk, normalizeState } from "@/lib/mascot";
 import { defaultResponderName, effectiveDefaultResponder, groupResponseHint, jevRoomRoutingOn } from "@/lib/group-routing";
+import { openSettings } from "@/lib/settings-link";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { VideoPlayerWidget } from "./video/VideoPlayerWidget";
 import { CopyButton, FailedTurnRow, MessageBoundary, ReplyAction } from "./ChatView";
@@ -1381,7 +1382,7 @@ export function GroupView({ group: stored }: { group: Group }) {
             {t("room.responder.jevOffHint", { name: defaultResponderName(group, members) ?? t("room.responder.leadFallback") })}{" "}
             <button
               type="button"
-              onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "decisionModel" })}
+              onClick={() => openSettings(dispatch, "decisionModel")}
               className="cursor-pointer text-accent hover:underline"
             >
               {t("room.responder.jevOffOpen")}
