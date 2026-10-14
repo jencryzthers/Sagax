@@ -3,21 +3,19 @@
 // bot-settings/; their bodies and reads (overview, system-prompt, history)
 // are useBotSectionContent, shared with the persona editor. This dialog owns
 // which tab is up; every section but Details opens in the persona editor.
-import { downloadBotZip, showBotZipExport } from "@/lib/bot-zip";
-import { useCallback, useEffect, useRef, useState } from "react";
+// The header holds the bot's one "..." menu (BotActionsMenu) and Close.
+import { useEffect, useRef, useState } from "react";
 import { DockedPanelResizeHandle, useDockedPanelWidth } from "./DockedPanelResize";
 import { PanelRight } from "lucide-react";
-import { useDataWindowItem } from "./DataWindowButton";
 
-import { useStore, visibleMessages, type Bot } from "@/state/store";
-import { BotContextMenu, type MenuState } from "./Sidebar";
+import { useStore, type Bot } from "@/state/store";
+import { useDataWindowItem } from "./DataWindowButton";
 import { CIRCLE_BUTTON } from "@/lib/circle-button";
 import { reportAchievement } from "@/lib/achievements";
-import { ExportTranscriptMenu } from "./ExportTranscriptMenu";
 import { cn } from "@/lib/cn";
 import { useAdvancedMode } from "@/lib/interface-mode";
 import { simpleHidesPanelTab } from "@/lib/interface-visibility";
-import { useShowInspectorButton } from "@/lib/inspector-preferences";
+import { BotActionsMenu, type BotActionsMenuAnchor } from "./bot-settings/BotActionsMenu";
 import { LibraryTab } from "./bot-settings/LibraryTab";
 import { RoutinesSection } from "./bot-settings/RoutinesSection";
 import { PANEL_TABS, type PanelTab } from "./bot-settings/panel-tabs";
@@ -40,10 +38,8 @@ export function BotSettingsDialog({ bot, onOpenVmWorkspace }: {
   /** Accepted for upstream callers; this panel is a resizable column. */
   overlay?: boolean;
 }) {
-  const showInspector = useShowInspectorButton();
   const advanced = useAdvancedMode();
   const { state, dispatch } = useStore();
-  const dataItem = useDataWindowItem(bot);
   const { padClass, dragProps } = useCaptionChrome();
   const { macInset, browser } = useMacInsetChrome();
   const section = state.botSettingsSection;
@@ -57,18 +53,19 @@ export function BotSettingsDialog({ bot, onOpenVmWorkspace }: {
     if (!collapsed) setPickedTab("details");
   }, [collapsed, section]);
   // The Computer tab is the store's computer view, so every existing
-  // "open the computer" link still lands on it.
-  const panelTabs = PANEL_TABS.filter((id) => advanced || !simpleHidesPanelTab(id));
+  // "open the computer" link still lands on it. A bot that works nowhere
+  // (Works on: Off) has no computer to show; Works on stays in the editor.
+  const panelTabs = PANEL_TABS.filter((id) => (advanced || !simpleHidesPanelTab(id)) && (id !== "computer" || bot.computer !== "off"));
   // Simple never shows the computer tab. An open computer panel is closed
   // by the shell; until that lands, the tab the person picked stays up.
-  const tab: PanelTab = advanced && state.computerOpen ? "computer" : pickedTab;
+  const tab: PanelTab = advanced && state.computerOpen && panelTabs.includes("computer") ? "computer" : pickedTab;
   // the Library holds the bot's files (an achievement teaches it)
   useEffect(() => {
     if (tab === "library") reportAchievement("files.opened");
   }, [tab]);
   const chooseTab = (next: PanelTab) => {
     if (next === "computer") {
-      if (!advanced) return;
+      if (!panelTabs.includes("computer")) return;
       dispatch({ type: "toggleComputer", open: true });
       return;
     }
@@ -80,12 +77,15 @@ export function BotSettingsDialog({ bot, onOpenVmWorkspace }: {
     dispatch({ type: "toggleComputer", open: false });
   };
   const dockedPanel = useDockedPanelWidth();
-  // The mascot's menu (a right click on the mascot, its pencil or the
-  // name): Edit bot and Put on the desktop. The pencil itself opens the
-  // bot editor; the name is renamed where it shows.
-  const [mascotMenu, setMascotMenu] = useState<MenuState | null>(null);
+  // The bot's "..." menu: under its button in the header, or where a right
+  // click on the mascot or the name happened.
+  const [actionsMenu, setActionsMenu] = useState<BotActionsMenuAnchor | null>(null);
   const [renameRequest, setRenameRequest] = useState(0);
-  const closeMascotMenu = useCallback(() => setMascotMenu(null), []);
+  const openActionsAt = (event: React.MouseEvent) => {
+    event.preventDefault();
+    setActionsMenu({ x: event.clientX, y: event.clientY });
+  };
+  const dataItem = useDataWindowItem(bot);
   const { slackUrl } = useBotSectionAvailability(bot.id);
   const { dialogs, derived } = useBotSectionContent(bot, {
     section,
@@ -152,10 +152,13 @@ export function BotSettingsDialog({ bot, onOpenVmWorkspace }: {
         <div {...dragProps} className={cn("content-topbar relative flex h-12 shrink-0 items-center justify-between px-3", padClass)}>
           <span />
           <div className="flex items-center gap-2">
-            <ExportTranscriptMenu title={bot.name} messages={visibleMessages(bot)} botName={bot.name}
-              onExportBot={showBotZipExport(state.config, bot) ? () => downloadBotZip(bot.id, { conversations: false, sharing: false }) : undefined}
-              {...(showInspector && advanced ? { onToggleInspector: () => dispatch({ type: "toggleInspector", open: !state.inspectorOpen }), inspectorOpen: state.inspectorOpen } : {})}
-              {...(dataItem ? { data: dataItem } : {})} />
+            <BotActionsMenu
+              bot={bot}
+              anchor={actionsMenu}
+              onAnchor={setActionsMenu}
+              onRename={() => setRenameRequest((count) => count + 1)}
+              data={dataItem}
+            />
             <button
               type="button"
               onClick={closePanel}
@@ -179,21 +182,14 @@ export function BotSettingsDialog({ bot, onOpenVmWorkspace }: {
               activeState={derived.activeState}
               mascotMotion={derived.mascotMotion}
               onPatch={derived.patch}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                setMascotMenu({ botId: bot.id, x: event.clientX, y: event.clientY });
-              }}
-              onEdit={() => dispatch({ type: "openPersonaEditor", botId: bot.id, section: "overview" })}
+              onContextMenu={openActionsAt}
             />
             {/* Name and label are edited where they show; the name stays
                 centered on its own line. The description is not shown here. */}
             <div
               className="mt-2 flex max-w-full items-center justify-center"
               // the bot's menu on the name too, as on the mascot
-              onContextMenu={(event) => {
-                event.preventDefault();
-                setMascotMenu({ botId: bot.id, x: event.clientX, y: event.clientY });
-              }}
+              onContextMenu={openActionsAt}
             >
               <InlineEditableText
                 id="bot-settings-title"
@@ -206,15 +202,19 @@ export function BotSettingsDialog({ bot, onOpenVmWorkspace }: {
                 className="text-[17px] font-medium leading-6 text-ink"
               />
             </div>
-            <InlineEditableText
-              value={bot.title}
-              maxLength={BOT_PROFILE_LIMITS.title}
-              placeholder={t("botPanel.label.add")}
-              ariaLabel={t("botPanel.label.edit")}
-              onSave={canEditBotField(state.config, bot, "title") ? (title) => derived.patch({ title }) : undefined}
-              muted
-              className="mt-0.5 text-[12.5px] leading-4"
-            />
+            {/* The label shows when there is one; adding one is in the
+                editor's Profile. */}
+            {bot.title?.trim() && (
+              <InlineEditableText
+                value={bot.title}
+                maxLength={BOT_PROFILE_LIMITS.title}
+                placeholder={t("botPanel.label.add")}
+                ariaLabel={t("botPanel.label.edit")}
+                onSave={canEditBotField(state.config, bot, "title") ? (title) => derived.patch({ title }) : undefined}
+                muted
+                className="mt-0.5 text-[12.5px] leading-4"
+              />
+            )}
             <div
               role="tablist"
               aria-label={t("botPanel.tabsAria")}
@@ -270,13 +270,6 @@ export function BotSettingsDialog({ bot, onOpenVmWorkspace }: {
         </div>
       </aside>
       {dialogs}
-      <BotContextMenu
-        variant="mascot"
-        menu={mascotMenu}
-        onClose={closeMascotMenu}
-        onEditPersona={(target) => dispatch({ type: "openPersonaEditor", botId: target.id })}
-        onRename={() => setRenameRequest((count) => count + 1)}
-      />
     </>
   );
 }
