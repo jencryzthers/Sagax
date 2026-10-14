@@ -284,7 +284,8 @@ describe("Settings → Appearance", () => {
     vi.stubGlobal("window", { ogb: { remoteClient: { active: true } } });
     const html = render();
     expect(html).toContain('<option value="appearance" selected="">Appearance</option>');
-    expect(html).toContain('<option value="companion">Pair devices</option>');
+    // Pair devices is hidden since 2026-10-14
+    expect(html).not.toContain('<option value="companion"');
     expect(html).not.toContain('<option value="general">');
     expect(html).not.toContain('<option value="connections">');
     expect(html).not.toContain('<option value="engines">');
@@ -301,9 +302,9 @@ describe("Settings → Appearance", () => {
     fixture.section = "backups";
     const html = render();
     expect(html).toContain('<option value="backups" selected="">Backups</option>');
-    expect(html).toContain("Export full backup");
-    expect(html).toContain('type="file" accept=".sagaxbackup"');
-    expect(html).toContain("Older team backups and shareable templates");
+    // one card, two actions; each form opens in place (2026-10-14)
+    expect(html).toContain('data-backup-action="export"');
+    expect(html).toContain('data-backup-action="import"');
   });
 
   it("renders Appearance and its controls in Japanese", () => {

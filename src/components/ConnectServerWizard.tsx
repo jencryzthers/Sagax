@@ -27,11 +27,15 @@ const LABEL: Record<ConnectTarget, { title: LocaleKey; hint: LocaleKey }> = {
  * the desktop keeps a server list, another computer where the desktop can be
  * its client. A desktop that is already a client of another computer is not
  * offered a second one: its card shows that connection and Disconnect. */
-export function connectTargets(input: { environments: boolean; remoteClient: boolean; remoteActive: boolean }): ConnectTarget[] {
+export function connectTargets(input: { environments: boolean; remoteClient: boolean; remoteActive: boolean; computerPairing?: boolean }): ConnectTarget[] {
   return [
     ...(!input.remoteActive ? ["perspicax" as const] : []),
     ...(input.environments ? ["server" as const] : []),
-    ...(input.remoteClient && !input.remoteActive ? ["computer" as const] : []),
+    // "Another computer" needs a code from that computer's Pair devices,
+    // hidden since 2026-10-14 (devices sign in with the organization):
+    // offered no more. RemoteComputerSection still shows and ends an
+    // existing connection.
+    ...(input.remoteClient && !input.remoteActive && input.computerPairing === true ? ["computer" as const] : []),
   ];
 }
 

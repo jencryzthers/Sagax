@@ -6,7 +6,7 @@ import { useRetroSkin } from "./RetroChromeHost";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { FLOATING_LIVELINESS, floatingBotPrefs, HOTKEY_CHOICES, hotkeyLabel, setFloatingBarkSound, setFloatingFlyAway, setFloatingHotkey, setFloatingLiveliness, subscribeFloatingBots, type FloatingLiveliness, type HotkeyChoice } from "@/lib/floating-bots";
 import { useCallSettings, writeCallSettings } from "@/lib/voice-mode/call-settings";
-import { Archive, Bell, Coins, FlaskConical, Monitor, Palette, ScrollText, Search, TabletSmartphone, Terminal, User, Users, X, Building2 } from "lucide-react";
+import { Archive, Bell, Coins, FlaskConical, Monitor, Palette, Search, Terminal, User, Users, X, Building2 } from "lucide-react";
 import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
 import { browserAvailable, builtInBrowserEnabled, connectedAppsEnabled, dataWindowEnabled, decisionModelEnabled, routinesInConversationEnabled, showToolCallsEnabled, skillAuthoringEnabled } from "@/lib/feature-flags";
 import { usePerspicaxOrg } from "@/lib/perspicax-org";
@@ -17,18 +17,14 @@ import { completionPatch } from "@/lib/onboarding";
 import { launchBridges } from "@/lib/launch";
 import { servedPage } from "@/lib/desktop";
 import { brand } from "@/lib/brand";
-import { ManagedByOrganization, ServerModeCard, useServerMode } from "./ServerModeSettings";
+import { ServerModeCard, useServerMode } from "./ServerModeSettings";
 import { ApiKeyRow } from "./ApiKeys";
 import { DecisionModelSettings } from "./DecisionModelSettings";
 import { useUpdaterState } from "@/lib/updater";
 import { EnginesSettings } from "./EnginesSettings";
 import { LocalComputerSection } from "./LocalComputerSection";
-import { CompanionSection } from "./CompanionSection";
-import { ServerPairingCard } from "./ServerPairingCard";
 import { PeopleSection } from "./PeopleSection";
 import { peopleListServed, readMembership } from "../lib/membership";
-import { ActivitySection } from "./ActivitySection";
-import { MailSettings } from "./MailSettings";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
 import { canEditConfig, canManageBackups, canManageComputers, canViewUsage, viewerCan } from "@/lib/viewer";
 import { BrowserProfilesManager } from "./BrowserProfilesManager";
@@ -72,7 +68,6 @@ import { simpleHidesSettingsSection } from "@/lib/interface-visibility";
 import { setShowThreads, setThreadsLocation, useShowThreadsChoice, useThreadsLocationChoice, type ThreadsLocation } from "@/lib/thread-preferences";
 import { setShowUnreadyProviders, useShowUnreadyProviders } from "@/lib/unready-providers-preference";
 import { parseSidebarDensity, setSidebarDensity, SIDEBAR_DENSITIES, useSidebarDensity, type SidebarDensity } from "@/lib/sidebar-preferences";
-import { currentPhonePairingTarget } from "@/lib/phone-pairing";
 import { setShowRunCard, useShowRunCard } from "@/lib/run-card-preferences";
 import { parseSendKey, SEND_KEYS, sendKeyLabel, setSendKey, useSendKey } from "@/lib/send-key";
 import { setShowSidebarLogo, useShowSidebarLogo } from "@/lib/sidebar-logo-preferences";
@@ -103,12 +98,9 @@ export const SECTIONS: Array<{
   // Models and voice (2026-10-14): Integrations and Models and accounts in
   // one page; Connected apps and Decision model are cards of it.
   { id: "engines", labelKey: "settings.section.modelsVoice", icon: Terminal, keywords: ["models", "model providers", "engines", "claude", "codex", "grok", "providers", "cli", "sign in", "subscription", "keys", "api", "api key", "api keys", "connections", "integrations", "intégrations", "clés", "xai", "mistral", "cerebras", "router", "openrouter", "base url", "openai", "anthropic", "groq", "opencode", "provider", "voice", "voix", "tts", "elevenlabs", "fish", "chatterbox", "live call", "image", "avatar", "box", "vps", "cursor", "cloud agents", "composio", "connected apps", "apps", "gmail", "slack", "notion", "apps connectées", "decision", "jev", "typesafe", "routing", "auto", "who answers"] },
-  { id: "companion", labelKey: "settings.section.companion", icon: TabletSmartphone, keywords: ["companion", "device", "phone", "desktop", "client", "host", "pair", "pairing", "mobile", "https", "secure", "tailscale", "wifi", "remote", "advanced", "add a device", "ajouter un appareil", "jumeler"] },
   { id: "computer", labelKey: "settings.section.computer", icon: Monitor, keywords: ["computer", "local vm", "vm", "virtual", "desktop", "ordinateur"] },
   { id: "usage", labelKey: "settings.section.usage", icon: Coins, keywords: ["tokens", "cost", "billing"] },
-  // 2026-10-14: Email (how the server sends invitations) is a card of People.
-  { id: "people", labelKey: "settings.section.people", icon: Users, keywords: ["people", "users", "invite", "sign in", "members", "admins", "access", "email", "mail", "courriel", "smtp", "sendgrid", "twilio", "sender", "invitations", "sign-in codes"] },
-  { id: "activity", labelKey: "settings.section.activity", icon: ScrollText, keywords: ["activity", "audit", "log", "history", "who changed", "approvals", "decisions", "admin"] },
+  { id: "people", labelKey: "settings.section.people", icon: Users, keywords: ["people", "users", "invite", "sign in", "members", "admins", "access"] },
   { id: "backups", labelKey: "settings.section.backups", icon: Archive, keywords: ["export", "import", "restore", "full backup", "password", "recovery"] },
   { id: "workspaces", labelKey: "settings.section.workspaces", icon: Building2, keywords: ["clients", "tenants", "fleet", "workspaces", "installation", "installations"] },
 ];
@@ -120,7 +112,6 @@ const HOSTED_CARDS: Partial<Record<AppSettingsSection, AppSettingsSection[]>> = 
   engines: ["connectedApps", "decisionModel"],
   notifications: ["privacy"],
   organization: ["memory"],
-  people: ["mail"],
 };
 
 /** Collapsible cards a search opens: a match on these words means the person
@@ -139,7 +130,6 @@ const CARD_KEYWORDS: Record<string, string[]> = {
   "connections.apps": ["composio", "connected apps"],
   "engines.decisionModel": ["decision", "jev", "typesafe"],
   "organization.memory": ["obsidian", "vault"],
-  "people.mail": ["smtp", "sendgrid", "courriel", "sender"],
   "backups.import": ["import", "restore"],
 };
 
@@ -1158,14 +1148,15 @@ export function SettingsModal() {
   const advanced = useAdvancedMode();
   const retroSkin = useRetroSkin();
   const remoteActive = window.ogb?.remoteClient?.active === true;
-  // "Connect your phone" focuses the pairing this window can do: this
-  // computer's phone flow, or the server's pairing code.
-  const computerPairs = currentPhonePairingTarget(false) === "computer";
-  // An old "connections" (Integrations) section opens Models and voice.
-  const section: AppSettingsSection =
-    remoteActive && state.appSettingsSection !== "appearance" && state.appSettingsSection !== "organization" && state.appSettingsSection !== "notifications" && state.appSettingsSection !== "memory"
-      ? "companion"
-      : currentSettingsSection(state.appSettingsSection);
+  // An old section id opens the page that holds it now. A remote client
+  // shows this desktop's own pages only (Appearance, Organization,
+  // Notifications); Pair devices, its old landing page, is hidden since
+  // 2026-10-14, so it lands on Appearance.
+  const current = currentSettingsSection(state.appSettingsSection);
+  const requested: AppSettingsSection =
+    remoteActive && current !== "appearance" && current !== "organization" && current !== "notifications"
+      ? "appearance"
+      : current;
   const dialogRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   useEffect(() => window.ogb?.environments?.onOpenSettings?.(() => setQuery("")), []);
@@ -1179,8 +1170,6 @@ export function SettingsModal() {
   // Server mode: this app shows its organization's server only (src/lib/launch.ts).
   const serverMode = useServerMode();
   const lockedServer = serverMode?.active ? serverMode : null;
-  // This computer's own phone flow: the desktop app on its own server.
-  const phoneFlow = !lockedServer && computerPairs;
   // An organization server (Perspicax): the desktop locked to one, or a
   // page whose server answers GET /api/org as Perspicax.
   const perspicaxOrg = usePerspicaxOrg();
@@ -1190,7 +1179,7 @@ export function SettingsModal() {
   // show for this viewer. A card keeps the rules its section had.
   const allowed = (id: AppSettingsSection): boolean => {
     // a remote client shows the pages that are about this desktop
-    if (remoteActive && !["companion", "appearance", "organization", "privacy", "notifications", "memory"].includes(id)) return false;
+    if (remoteActive && !["appearance", "organization", "privacy", "notifications", "memory"].includes(id)) return false;
     // the organization memory's local cache is the desktop app's (main
     // process), set up by itself on an organization server signed in with
     // Perspicax: nothing to show anywhere else
@@ -1233,6 +1222,9 @@ export function SettingsModal() {
   }, [soloDesktop, memoryShown, state.appSettingsSection, dispatch]);
   // A page shows when it is allowed, or when one of the cards it holds is.
   const availableSections = SECTIONS.filter((entry) => allowed(entry.id) || (HOSTED_CARDS[entry.id] ?? []).some(allowed));
+  // A page this viewer cannot see (an old link to Email where People is not
+  // shown, a hidden page) draws the first page they can, at once.
+  const section: AppSettingsSection = availableSections.some((entry) => entry.id === requested) ? requested : availableSections[0]?.id ?? requested;
   const visibleSections = availableSections.filter((entry) => sectionMatches(entry, q));
   const sectionLabelKey = SECTIONS.find((entry) => entry.id === section)?.labelKey;
   const subPageId = state.appSettingsSubPage;
@@ -1560,57 +1552,10 @@ export function SettingsModal() {
 
             {section === "backups" && <WorkspaceBackupSettings />}
 
-            {section === "companion" && (
-              <>
-                <p className="text-[13px] leading-relaxed text-ink-secondary">{t("settings.companion.ownDevices")}</p>
-                {/* One way to add a device (2026-10-14): this computer's phone
-                    flow and the server's pairing code are two methods of the
-                    same "Add a device" card when both exist.
-                    The pairing code mints an admin/client session token for
-                    anything that isn't the phone companion flow (MCP clients,
-                    `openmausbot pair`, a second desktop app), and pairs phones
-                    to a hosted server. Offered for the desktop app's own server
-                    (#950) AND when this desktop is a remote client of a hosted
-                    workspace: its requests carry that server's session, and
-                    Settings there is the only place that server's phones can be
-                    paired from (MOCA-84). The server decides who may act (an
-                    owner or an admin session), not this gate. */}
-                {(() => {
-                  const codePairing = (
-                    <ServerPairingCard
-                      embedded={phoneFlow}
-                      focusRequest={computerPairs ? 0 : state.appSettingsPhonePairing}
-                      initialPairingCodes={readMembership(state.config).pairingCodes}
-                      initialAuthority={readMembership(state.config).authority}
-                      perspicaxLinked={perspicaxOrg !== null && perspicaxOrg.link.state !== "missing"}
-                    />
-                  );
-                  if (lockedServer) return <>{codePairing}<ManagedByOrganization cardId="companion.managed" title={t("remote.desktopOnly.title", { app: brand().name })} /></>;
-                  if (remoteActive) return codePairing;
-                  if (!phoneFlow) return <>{codePairing}<CompanionSection profileEmail={state.config?.profile?.email} /></>;
-                  return (
-                    <CompanionSection
-                      profileEmail={state.config?.profile?.email}
-                      focusRequest={computerPairs ? state.appSettingsPhonePairing : 0}
-                      codePairing={codePairing}
-                      codeRequested={!computerPairs && state.appSettingsPhonePairing > 0}
-                    />
-                  );
-                })()}
-              </>
-            )}
-
             {section === "computer" && <LocalComputerSection />}
 
             {section === "usage" && <UsageSection />}
-            {section === "people" && (
-              <>
-                {allowed("people") && <PeopleSection />}
-                {/* Email (2026-10-14): how this server sends invitations, a card of People. */}
-                {allowed("mail") && <MailSettings />}
-              </>
-            )}
-            {section === "activity" && <ActivitySection />}
+            {section === "people" && <PeopleSection />}
             {section === "workspaces" && <WorkspacesSection />}
             {section === "notifications" && (
               <>

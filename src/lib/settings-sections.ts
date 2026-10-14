@@ -16,14 +16,24 @@ const MERGED: Partial<Record<AppSettingsSection, { section: AppSettingsSection; 
   decisionModel: { section: "engines", cardId: "engines.decisionModel" },
   privacy: { section: "notifications", cardId: "notifications.privacy" },
   memory: { section: "organization", cardId: "organization.memory" },
-  mail: { section: "people", cardId: "people.mail" },
+};
+
+/** Sections hidden from the app since 2026-10-14 (JC: managing several
+ * people is Sagax Business's job; the app shows what concerns the person
+ * signed in). Their server routes stay. An old link opens the nearest page:
+ * Pair devices and Activity open General; Email opens People, or General
+ * where People is not shown. */
+const HIDDEN: Partial<Record<AppSettingsSection, AppSettingsSection>> = {
+  companion: "general",
+  activity: "general",
+  mail: "people",
 };
 
 export function currentSettingsSection(section: AppSettingsSection, cardId?: string): AppSettingsSection {
   // An old "connections" link to the Composio card opens Connected apps,
   // which is itself a card of Models and voice now.
   if (section === "connections" && cardId === "connections.apps") return "engines";
-  return MERGED[section]?.section ?? section;
+  return MERGED[section]?.section ?? HIDDEN[section] ?? section;
 }
 
 /** The card an old section id stands for, opened when a link names only the

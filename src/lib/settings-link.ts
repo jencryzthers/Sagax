@@ -21,12 +21,14 @@ const SECTION_LABEL = {
   connectedApps: "settings.section.modelsVoice",
   decisionModel: "settings.section.modelsVoice",
   engines: "settings.section.modelsVoice",
-  companion: "settings.section.companion",
+  // Pair devices, Activity and Email are hidden (2026-10-14): a pointer
+  // names the page an old link opens.
+  companion: "settings.section.general",
   computer: "settings.section.computer",
   usage: "settings.section.usage",
   people: "settings.section.people",
   mail: "settings.section.people",
-  activity: "settings.section.activity",
+  activity: "settings.section.general",
   backups: "settings.section.backups",
   workspaces: "settings.section.workspaces",
   privacy: "settings.section.notifications",

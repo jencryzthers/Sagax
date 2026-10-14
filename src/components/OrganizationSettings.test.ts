@@ -80,10 +80,12 @@ describe("Organization settings without the hosted Admin portal", () => {
   });
 });
 
-describe("Connect to a server: one card for the three ways in", () => {
+describe("Connect to a server: one card for the ways in", () => {
   it("offers Perspicax, a Sagax server and another computer by what this window can do", async () => {
     const { connectTargets } = await import("./ConnectServerWizard");
-    expect(connectTargets({ environments: true, remoteClient: true, remoteActive: false })).toEqual(["perspicax", "server", "computer"]);
+    // another computer needs a code from its Pair devices, hidden since 2026-10-14
+    expect(connectTargets({ environments: true, remoteClient: true, remoteActive: false })).toEqual(["perspicax", "server"]);
+    expect(connectTargets({ environments: true, remoteClient: true, remoteActive: false, computerPairing: true })).toEqual(["perspicax", "server", "computer"]);
     // a browser: Perspicax only (the copy of the bots is downloaded)
     expect(connectTargets({ environments: false, remoteClient: false, remoteActive: false })).toEqual(["perspicax"]);
     // already another computer's client: that card shows Disconnect instead

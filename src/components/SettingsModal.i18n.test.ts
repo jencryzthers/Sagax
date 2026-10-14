@@ -71,7 +71,9 @@ describe("Settings → General", () => {
   it("offers a labeled compact section picker without removing desktop navigation", async () => {
     const html = await renderSettings();
     expect(html).toMatch(/<select[^>]*aria-label="Settings"[^>]*sm:hidden/);
-    expect(html).toContain('<option value="companion">Pair devices</option>');
+    expect(html).toContain('<option value="appearance">Appearance</option>');
+    // Pair devices is hidden since 2026-10-14
+    expect(html).not.toContain('<option value="companion"');
     expect(html).toMatch(/<nav[^>]*hidden[^>]*sm:flex/);
     expect(html).toContain('id="app-settings-title" class="sr-only"');
   });

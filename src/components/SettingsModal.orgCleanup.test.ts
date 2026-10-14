@@ -68,30 +68,29 @@ describe("Settings on an organization server", () => {
     expect(organizationHidesSection("privacy", true)).toBe(false);
     expect(organizationHidesSection("privacy", false)).toBe(true);
 
-    // 2026-10-14: Email is a card of People, Privacy a card of Notifications
+    // 2026-10-14: Email and Activity are hidden in the app (Sagax Business
+    // manages them); Privacy is a card of Notifications
     fixture.section = "people";
     const solo = await render();
-    expect(solo).toContain("MAIL_SETTINGS_MARKER");
-    expect(solo).toContain('<option value="people" selected="">People</option>');
+    expect(solo).not.toContain("MAIL_SETTINGS_MARKER");
     expect(solo).not.toContain('<option value="mail"');
+    expect(solo).not.toContain('<option value="activity"');
     fixture.section = "notifications";
     expect(await render()).not.toContain('data-settings-card="notifications.privacy"');
     fixture.org = ORG;
-    fixture.section = "people";
-    const org = await render();
-    expect(org).not.toContain("MAIL_SETTINGS_MARKER");
-    // an organization server has no sign-in list here, and no Email: no People page
-    expect(org).not.toContain('<option value="people"');
-    fixture.section = "notifications";
     const privacy = await render();
     expect(privacy).toContain('data-settings-card="notifications.privacy"');
     expect(privacy).toContain(">Privacy<");
     expect(privacy).not.toContain('<option value="privacy"');
   });
 
-  it("opens an old Email or Privacy link on the page that holds the card", async () => {
-    fixture.section = "mail";
-    expect(await render()).toContain("MAIL_SETTINGS_MARKER");
+  it("opens an old Email or Activity link on the nearest page, and Privacy on its card", async () => {
+    for (const section of ["mail", "activity"] as const) {
+      fixture.section = section;
+      const html = await render();
+      expect(html, section).not.toContain("MAIL_SETTINGS_MARKER");
+      expect(html, section).toContain('<option value="general" selected="">General</option>');
+    }
     fixture.org = ORG;
     fixture.section = "privacy";
     expect(await render()).toContain('data-settings-card="notifications.privacy"');
