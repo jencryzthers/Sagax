@@ -18,7 +18,6 @@ import {
   Bug,
   PanelRight,
   Copy,
-  MessageSquareReply,
 
   Code,
   Eye,
@@ -233,11 +232,14 @@ function useDrawnBots(bots: readonly Bot[]): readonly Bot[] {
   return cache.current.bots;
 }
 
-/** Reply to one message: the curved back arrow beside a room's bubble (a
- * 1:1 chat keeps reply in its message bar menu). */
-export function ReplyAction({ onReply }: { onReply: () => void }) {
+/** A button of the bar beside a 1:1 message, like its copy button. */
+const MESSAGE_BAR_BUTTON = "rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink";
+
+/** Reply to one message: the curved back arrow beside the bubble, in a
+ * room and in a 1:1 chat alike (JC, 2026-10-14). */
+export function ReplyAction({ onReply, className = messageActionClass }: { onReply: () => void; className?: string }) {
   return (
-    <button type="button" onClick={onReply} aria-label={t("chat.replyToMessage")} title={t("chat.reply")} className={messageActionClass}>
+    <button type="button" onClick={onReply} aria-label={t("chat.replyToMessage")} title={t("chat.reply")} className={className}>
       <Reply size={14} aria-hidden="true" />
     </button>
   );
@@ -621,6 +623,7 @@ const Bubble = memo(function Bubble({
             side="user"
             time={formatTime(message.at)}
             copy={visibleText.trim() ? <CopyButton text={visibleText} className="opacity-100" /> : undefined}
+            reply={<ReplyAction onReply={() => onReply(message)} className={MESSAGE_BAR_BUTTON} />}
             react={react}
           >
             {/* editing rewinds the thread, so it waits for the turn to end —
@@ -628,7 +631,6 @@ const Bubble = memo(function Bubble({
             {message.kind === "text" && !webhookView && !hasAttachments && !busy && !message.id.startsWith("optimistic-") && (
               <MessageMenuItem label={t("chat.editMessage")} icon={<Pencil size={14} />} onSelect={() => onStartEdit(message.id)} />
             )}
-            <MessageMenuItem label={t("chat.reply")} icon={<MessageSquareReply size={14} />} onSelect={() => onReply(message)} />
             <MessageMenuItem
               label={pinned ? t("chat.unpinMessage") : t("chat.pinMessage")}
               icon={pinned ? <PinOff size={14} /> : <Pin size={14} />}
@@ -759,6 +761,7 @@ const Bubble = memo(function Bubble({
             time={formatTime(message.at)}
             visible={viewRaw || speaking}
             copy={text ? <CopyButton text={text} className="opacity-100" /> : undefined}
+            reply={<ReplyAction onReply={() => onReply(message)} className={MESSAGE_BAR_BUTTON} />}
             react={react}
           >
             {text && (
@@ -775,7 +778,6 @@ const Bubble = memo(function Bubble({
             {!busy && onRegenerate && (
               <MessageMenuItem label={t("chat.regenerate")} icon={<RefreshCw size={14} />} onSelect={onRegenerate} />
             )}
-            <MessageMenuItem label={t("chat.reply")} icon={<MessageSquareReply size={14} />} onSelect={() => onReply(message)} />
             <MessageMenuItem
               label={pinned ? t("chat.unpinMessage") : t("chat.pinMessage")}
               icon={pinned ? <PinOff size={14} /> : <Pin size={14} />}
