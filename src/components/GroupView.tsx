@@ -683,13 +683,19 @@ export const Transcript = memo(function Transcript({
                 <ClusterLabel bot={memberOf(first.from.botId)} name={first.from.name} color={first.from.color} />
               )}
               <CwActivityWidgets messages={item.messages} threadId={group.threadId} botId={first.from?.botId} />
-              {showToolCalls && <ActivityRun messages={item.messages} forceOpen={item.messages.some((step) => step.id === focusedId)}>
-                {item.messages.map((step) => (
-                  <div key={step.id} className="contents" data-mid={step.id}>
-                    <RoomToolChip message={step} />
-                  </div>
-                ))}
-              </ActivityRun>}
+              {showToolCalls && (
+                <ActivityRun
+                  messages={item.messages}
+                  elapsedMs={item.elapsedMs}
+                  focusedId={focusedId}
+                  nameOf={botNames(state.bots)}
+                  renderStep={(step) => (
+                    <div className="contents" data-mid={step.id}>
+                      <RoomToolChip message={step} />
+                    </div>
+                  )}
+                />
+              )}
             </div>
           );
         }

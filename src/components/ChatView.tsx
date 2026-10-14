@@ -139,7 +139,6 @@ import { StatusActivityRow } from "@/components/StatusActivityRow";
 import { CancelledTurnRow } from "./CancelledTurnRow";
 import { ActivityRun } from "./ActivityRun";
 import { CwActivityWidgets, CwWidgetView } from "./cw/CwWidgetView";
-import { TurnNarrationRun } from "./TurnNarrationRun";
 import { webhookMessageView } from "@/lib/webhook-message";
 import { splitTranscriptAttachments } from "@/lib/composer-attachments";
 import { useComposerDockPad } from "@/lib/composer-dock";
@@ -1046,7 +1045,7 @@ const MessagesList = memo(function MessagesList({
             : entry.kind === "gotoGroup"
               ? { first: entry.messages[0]!, last: entry.messages.at(-1)! }
               : visibleEdge(entry);
-        const hiddenRun = (entry: ListedItem) => entry.kind === "run" && !showToolCalls;
+        const hiddenRun = (entry: ListedItem) => entry.kind === "run" && !showToolCalls && entry.messages.every((step) => step.kind === "activity");
         let prev: Message | undefined;
         for (let j = i - 1; j >= 0; j--) {
           const candidate = items[j]!;
@@ -1125,49 +1124,44 @@ const MessagesList = memo(function MessagesList({
             </div>
           );
         }
-        if (item.kind === "turn") {
-          return (
-            <div key={item.id} className="contents">
-              {newDay && <TranscriptDate at={first.at} />}
-              {divider}
-              <TurnNarrationRun
-                label={item.label}
-                forceOpen={item.messages.some((message) => message.id === focusedId)}
-              >
-                {item.messages.map((message) => (
-                  <div key={message.id} className="contents" data-mid={message.id}>
-                    <Bubble
-                      message={message}
-                      editing={false}
-                      pinned={message.id === pinnedMessageId}
-                      onStartEdit={onStartEdit}
-                      onCancelEdit={onCancelEdit}
-                      onSubmitEdit={onSubmitEdit}
-                      replyTarget={lookups.replyTarget(message)}
-                      onReply={onReply}
-                    />
-                  </div>
-                ))}
-              </TurnNarrationRun>
-            </div>
-          );
-        }
         if (item.kind === "run") {
           const hasWidget = item.messages.some((step) => step.tool?.widget);
+          // Tool calls off: the steps go, a turn's narration stays folded.
+          const shown = showToolCalls ? item.messages : item.messages.filter((step) => step.kind !== "activity");
           // Hidden steps still carry the divider: the reply under them is new.
-          if (!showToolCalls && !hasWidget) return divider && <div key={item.id} className="contents">{divider}</div>;
+          if (!shown.length && !hasWidget) return divider && <div key={item.id} className="contents">{divider}</div>;
           return (
             <div key={item.id} className="contents">
               {newDay && <TranscriptDate at={first.at} />}
               {divider}
               <CwActivityWidgets messages={item.messages} threadId={threadId} botId={botId} />
-              {showToolCalls && <ActivityRun messages={item.messages} forceOpen={item.messages.some((step) => step.id === focusedId)}>
-                {item.messages.map((step) => (
-                  <div key={step.id} className="contents" data-mid={step.id}>
-                    <ActivityChip message={step} place={place} />
-                  </div>
-                ))}
-              </ActivityRun>}
+              {shown.length > 0 && (
+                <ActivityRun
+                  messages={shown}
+                  elapsedMs={item.elapsedMs}
+                  focusedId={focusedId}
+                  nameOf={botNames(bots)}
+                  renderStep={(step) => (
+                    <div className="contents" data-mid={step.id}>
+                      <ActivityChip message={step} place={place} />
+                    </div>
+                  )}
+                  renderMessage={(message) => (
+                    <div className="contents" data-mid={message.id}>
+                      <Bubble
+                        message={message}
+                        editing={false}
+                        pinned={message.id === pinnedMessageId}
+                        onStartEdit={onStartEdit}
+                        onCancelEdit={onCancelEdit}
+                        onSubmitEdit={onSubmitEdit}
+                        replyTarget={lookups.replyTarget(message)}
+                        onReply={onReply}
+                      />
+                    </div>
+                  )}
+                />
+              )}
             </div>
           );
         }
