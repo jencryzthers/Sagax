@@ -1478,6 +1478,12 @@ Electron restart (no HMR); launch-test them before committing.
   `displayIdentity` (`<id>@<origin>`, not size or scale; 64 keys, with `t`).
   A mixed `display:` key left in the setups file is purged on load. Tests:
   `electron/floating-bot-cluster.test.mjs`.
+- A sleeping mascot is unmistakable (2026-10-13): the stage carries
+  `data-asleep` when it naps or the brain's pose is `sleep` while it rests
+  (`mascotAsleep` in `sleep.ts`; never while dragged, walking or flying).
+  The shared layer dims the character and floats outlined "z Z" beside the
+  head; reduced motion keeps the glyphs still and the closed eyes. The crab
+  draws a closed-eye `asleep` face. Tests: `floating-bots/sleep.test.ts`.
 - The balloon wears the app's theme: the brain sends `theme` (the skin and
   the brand accent, `theme.ts`, followed live) and the window stamps it;
   Trombi keeps its Hibou 98 balloon whatever the theme.
