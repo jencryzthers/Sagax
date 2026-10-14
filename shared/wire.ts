@@ -751,6 +751,12 @@ export interface OptionCardData {
   expiresAt?: number;
   /** the narrow grant "always allow" remembers for a harness-native card. */
   allowKey?: string;
+  /** 2026-10-14 (bot owner permissions): the rule "Always allow" or
+   * "Always deny" would save for the bot's owner: the tool, its target
+   * read from the arguments, the destructive kind and plain words. */
+  ownerRule?: { tool: string; scope: Record<string, string>; destructive?: "delete" | "bulk" | "external-message"; description: string };
+  /** The owner's rule saved when answering this card. */
+  ruleSaved?: { id: string; behavior: "allow" | "ask" | "deny"; description: string };
   /** the Allow rule (an allowKey) the person saved when answering this card:
    * the pill reads Always allowed and the card shows the rule + Edit rule. */
   alwaysAllowed?: string;

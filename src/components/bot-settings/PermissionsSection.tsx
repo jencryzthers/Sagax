@@ -13,7 +13,7 @@
 // one is up never applies the choice to the newly selected bot.
 import { useEffect, useState } from "react";
 
-import { canEditBotField, canStepPrimary } from "@/lib/bot-capabilities";
+import { canEditBotField, canStepPrimary, viewerOwnsBot } from "@/lib/bot-capabilities";
 import { useAdvancedMode } from "@/lib/interface-mode";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
@@ -29,6 +29,7 @@ import { FullAccessWarning } from "../FullAccessWarning";
 import { LocalComputerAutoWarning } from "../LocalComputerAutoWarning";
 import { SwitchRow } from "../SettingsPrimitives";
 import { ManagedTeamsSettings } from "./ManagedTeamsSettings";
+import { OwnerPermissionsCard } from "./OwnerPermissionsCard";
 import { ProposalStatus } from "./ProposalStatus";
 import { PaneSection } from "./PaneSection";
 import type { useBotSettingsDerived } from "./useBotSettingsDerived";
@@ -96,7 +97,9 @@ export function PermissionsSection({
   const showPrimaryUi = advanced && showPrimary;
   const showContactUi = advanced && showContact;
   const showOutboundUi = advanced && showOutbound;
-  if (!showPrimaryUi && !showApproval && !showContactUi && !showOutboundUi) return null;
+  // the owner always manages their own bot's permission mode and rules
+  const showOwnerPermissions = !draft && viewerOwnsBot(state.config, bot);
+  if (!showPrimaryUi && !showApproval && !showContactUi && !showOutboundUi && !showOwnerPermissions) return null;
 
   return (
     <div className="flex flex-col gap-5">
@@ -166,6 +169,10 @@ export function PermissionsSection({
           onClick={() => setCommandAllowlistTarget({ botId: bot.id, botName: bot.name })}
         >{t("commandAllowlist.manage")}</button>}
       </PaneSection>}
+
+      {/* 2026-10-14: the owner's permission mode and rules (the server
+          answers only the owner; anyone else sees nothing here) */}
+      {showOwnerPermissions && <OwnerPermissionsCard key={bot.id} bot={bot} />}
 
       {commandAllowlistTarget && <CommandAllowlistDialog
         key={`command-allowlist:${commandAllowlistTarget.botId}`}
