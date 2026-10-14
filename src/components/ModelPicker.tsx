@@ -1001,22 +1001,33 @@ export function ModelPicker({
   // composer's menu still shows the model in use, with its warning.
   const currentEngineHidden = autoOn || follows === true ? [] : selectable.filter((instance) =>
     instance.instanceId === selection.instanceId && !menuInstances.includes(instance) && !engineRuns(instance, health));
-  const sectionsOf = (fold: boolean): ModelMenuSection[] => [
-    { key: "top", rows: topRows },
-    ...menuInstances.map((instance) => {
+  // Models that run on this computer get their own section, whatever engine
+  // runs them (JC 2026-10-14): never mixed into "Claude" or another provider.
+  const LOCAL_SECTION_KEY = "local:this-computer";
+  const sectionsOf = (fold: boolean): ModelMenuSection[] => {
+    const localRows: ModelMenuRow[] = [];
+    const engineSections = menuInstances.map((instance) => {
       const { catalog, cloud, local } = rowsOf(instance, true, fold);
-      return { key: instance.instanceId, label: engineLabel(instance), note: catalog.signInFirst ? t("model.signInRequired") : undefined, rows: [...cloud, ...local] };
-    }),
-  ];
+      localRows.push(...local);
+      return { key: instance.instanceId, label: engineLabel(instance), note: catalog.signInFirst ? t("model.signInRequired") : undefined, rows: cloud };
+    }).filter((section) => section.rows.length > 0 || section.note);
+    return [
+      { key: "top", rows: topRows },
+      ...engineSections,
+      ...(localRows.length > 0 ? [{ key: LOCAL_SECTION_KEY, label: t("model.localGroup"), rows: localRows }] : []),
+    ];
+  };
   const allSections = sectionsOf(false);
   // The composer's menu lists only the models that can run a turn now
   // (src/lib/model-health.ts, JC 2026-10-14): a provider left with none
   // goes. The model in use stays, checked, saying it does not respond.
+  const menuLocalRows: ModelMenuRow[] = [];
   const menuSections: ModelMenuSection[] = [
     { key: "top", rows: topRows },
     ...[...currentEngineHidden, ...menuInstances].map((instance) => {
       const { cloud, local } = rowsOf(instance, true, true);
       const rows = [...cloud, ...local];
+      const localKeys = new Set(local.map((row) => row.key));
       const ownCurrent = !autoOn && follows !== true && instance.instanceId === selection.instanceId;
       const runsOf = (row: ModelMenuRow) => row.modelId !== undefined && modelUsable(instance, row.modelId, health);
       const shown = rows.filter((row) => (row.current && ownCurrent) || runsOf(row));
@@ -1025,13 +1036,16 @@ export function ModelPicker({
         const option = instance.models.options.find((candidate) => candidate.id === selection.model);
         if (option) shown.unshift(modelRow(instance, option, false, undefined, true));
       }
+      const marked = shown.map((row) => (row.current && !runsOf(row) ? { ...row, warning: t("model.notResponding") } : row));
+      menuLocalRows.push(...marked.filter((row) => localKeys.has(row.key)));
       return {
         key: instance.instanceId,
         label: engineLabel(instance),
-        rows: shown.map((row) => (row.current && !runsOf(row) ? { ...row, warning: t("model.notResponding") } : row)),
+        rows: marked.filter((row) => !localKeys.has(row.key)),
       };
     }).filter((section) => section.rows.length > 0),
   ];
+  if (menuLocalRows.length > 0) menuSections.push({ key: LOCAL_SECTION_KEY, label: t("model.localGroup"), rows: menuLocalRows });
 
   const onRow = (row: ModelMenuRow) => {
     if (row.kind === "auto") return chooseAuto();

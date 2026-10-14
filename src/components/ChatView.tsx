@@ -1,4 +1,5 @@
 import { Component, createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode } from "react";
+import { downloadBotZip, showBotZipExport } from "@/lib/bot-zip";
 import { TeammatesWorkingChip } from "./TeammatesWorkingChip";
 import { ThreadLinkContext } from "@/components/ThreadLinkMenu";
 import { useShowThreads } from "@/lib/thread-preferences";
@@ -1686,6 +1687,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
             title={bot.name}
             messages={messages}
             botName={bot.name}
+            onExportBot={showBotZipExport(state.config, bot) ? () => downloadBotZip(bot.id, { conversations: false, sharing: false }) : undefined}
           />}
           <TaskPicker bot={bot} />
           <DataWindowButton bot={bot} />

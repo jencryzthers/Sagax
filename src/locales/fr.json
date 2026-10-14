@@ -5570,5 +5570,16 @@
   "settings.experimental.dataWindowDetail": "Désactivé par défaut. Un bouton Data à côté du bouton des fils ouvre les tableaux, graphiques et requêtes SQL d'un bot dans une fenêtre à part.",
   "settings.experimental.routineGroupSettings": "Réglages avancés des routines et des groupes",
   "settings.experimental.routineGroupSettingsAria": "Afficher les réglages avancés des routines et des groupes",
-  "settings.experimental.routineGroupSettingsDetail": "Désactivé par défaut. Affiche Routines dans la conversation et Tours en groupe dans Général. Masqués, leurs valeurs actuelles restent appliquées."
+  "settings.experimental.routineGroupSettingsDetail": "Désactivé par défaut. Affiche Routines dans la conversation et Tours en groupe dans Général. Masqués, leurs valeurs actuelles restent appliquées.",
+  "chat.export.menuAria": "Partager et exporter",
+  "chat.export.heading": "Partager",
+  "chat.export.conversationHeading": "Exporter la conversation",
+  "chat.export.empty": "Aucun message à exporter pour l'instant.",
+  "chat.export.copy": "Copier en Markdown",
+  "chat.export.copied": "Copié",
+  "chat.export.copyFailed": "La copie a échoué, téléchargez plutôt le fichier.",
+  "chat.export.download": "Télécharger en .md",
+  "chat.export.botHeading": "Bot",
+  "chat.export.botZip": "Exporter le bot (.zip)",
+  "mascot.skinPreview": "Aperçu : verrouillé, rien n'est enregistré"
 }

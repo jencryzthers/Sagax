@@ -3,6 +3,7 @@
 // bot-settings/; their bodies and reads (overview, system-prompt, history)
 // are useBotSectionContent, shared with the persona editor. This dialog owns
 // which tab is up; every section but Details opens in the persona editor.
+import { downloadBotZip, showBotZipExport } from "@/lib/bot-zip";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DockedPanelResizeHandle, useDockedPanelWidth } from "./DockedPanelResize";
 import { Bug, PanelRight } from "lucide-react";
@@ -155,7 +156,8 @@ export function BotSettingsDialog({ bot, onOpenVmWorkspace }: {
         <div {...dragProps} className={cn("content-topbar relative flex h-12 shrink-0 items-center justify-between px-3", padClass)}>
           <span />
           <div className="flex items-center gap-2">
-            <ExportTranscriptMenu title={bot.name} messages={visibleMessages(bot)} botName={bot.name} />
+            <ExportTranscriptMenu title={bot.name} messages={visibleMessages(bot)} botName={bot.name}
+              onExportBot={showBotZipExport(state.config, bot) ? () => downloadBotZip(bot.id, { conversations: false, sharing: false }) : undefined} />
             {showInspector && advanced && <button
               type="button"
               onClick={() => dispatch({ type: "toggleInspector", open: true })}

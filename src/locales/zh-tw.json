@@ -2998,7 +2998,6 @@
   "chat.export.heading": "分享",
   "chat.export.copy": "複製為 Markdown",
   "chat.export.copied": "已複製",
-  "chat.export.copyFailed": "複製失敗，請改用下載",
   "chat.export.download": "下載為 .md",
   "chat.usage.menu": "用量",
   "chat.computerStarting": "正在啟動 {name} 的雲端電腦。第一次啟動約需一分鐘。",

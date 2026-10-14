@@ -2107,7 +2107,6 @@
   "chat.export.heading": "共有",
   "chat.export.copy": "Markdown としてコピー",
   "chat.export.copied": "コピーしました",
-  "chat.export.copyFailed": "コピーに失敗しました — ダウンロードをお試しください",
   "chat.export.download": ".md としてダウンロード",
   "chat.usage.menu": "使用量",
   "chat.loadEarlier": "以前のメッセージを読み込む",
