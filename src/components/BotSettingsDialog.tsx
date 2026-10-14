@@ -6,10 +6,10 @@
 import { downloadBotZip, showBotZipExport } from "@/lib/bot-zip";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DockedPanelResizeHandle, useDockedPanelWidth } from "./DockedPanelResize";
-import { Bug, PanelRight } from "lucide-react";
+import { PanelRight } from "lucide-react";
+import { useDataWindowItem } from "./DataWindowButton";
 
 import { useStore, visibleMessages, type Bot } from "@/state/store";
-import { requestPrimaryBot } from "@/lib/bot-quick-actions";
 import { BotContextMenu, type MenuState } from "./Sidebar";
 import { CIRCLE_BUTTON } from "@/lib/circle-button";
 import { reportAchievement } from "@/lib/achievements";
@@ -43,6 +43,7 @@ export function BotSettingsDialog({ bot, onOpenVmWorkspace }: {
   const showInspector = useShowInspectorButton();
   const advanced = useAdvancedMode();
   const { state, dispatch } = useStore();
+  const dataItem = useDataWindowItem(bot);
   const { padClass, dragProps } = useCaptionChrome();
   const { macInset, browser } = useMacInsetChrome();
   const section = state.botSettingsSection;
@@ -80,16 +81,11 @@ export function BotSettingsDialog({ bot, onOpenVmWorkspace }: {
   };
   const dockedPanel = useDockedPanelWidth();
   // The mascot's menu (a right click on the mascot, its pencil or the
-  // name): Edit persona, Rename the bot, Put on the desktop, Make primary
-  // bot. The pencil itself opens the persona editor.
+  // name): Edit bot and Put on the desktop. The pencil itself opens the
+  // bot editor; the name is renamed where it shows.
   const [mascotMenu, setMascotMenu] = useState<MenuState | null>(null);
   const [renameRequest, setRenameRequest] = useState(0);
   const closeMascotMenu = useCallback(() => setMascotMenu(null), []);
-  const makePrimary = (target: Bot) => {
-    void requestPrimaryBot(target.id)
-      .then((primary) => dispatch({ type: "botPatched", bot: primary }))
-      .catch((cause: unknown) => dispatch({ type: "error", message: cause instanceof Error ? cause.message : String(cause) }));
-  };
   const { slackUrl } = useBotSectionAvailability(bot.id);
   const { dialogs, derived } = useBotSectionContent(bot, {
     section,
@@ -157,21 +153,14 @@ export function BotSettingsDialog({ bot, onOpenVmWorkspace }: {
           <span />
           <div className="flex items-center gap-2">
             <ExportTranscriptMenu title={bot.name} messages={visibleMessages(bot)} botName={bot.name}
-              onExportBot={showBotZipExport(state.config, bot) ? () => downloadBotZip(bot.id, { conversations: false, sharing: false }) : undefined} />
-            {showInspector && advanced && <button
-              type="button"
-              onClick={() => dispatch({ type: "toggleInspector", open: true })}
-              aria-label={t("chat.inspector")}
-              title={t("chat.inspectorHint")}
-              className={CIRCLE_BUTTON}
-            >
-              <Bug size={18} strokeWidth={1.75} />
-            </button>}
+              onExportBot={showBotZipExport(state.config, bot) ? () => downloadBotZip(bot.id, { conversations: false, sharing: false }) : undefined}
+              {...(showInspector && advanced ? { onToggleInspector: () => dispatch({ type: "toggleInspector", open: !state.inspectorOpen }), inspectorOpen: state.inspectorOpen } : {})}
+              {...(dataItem ? { data: dataItem } : {})} />
             <button
               type="button"
               onClick={closePanel}
-              aria-label="Close"
-              title="Close"
+              aria-label={t("common.close")}
+              title={t("common.close")}
               className={CIRCLE_BUTTON}
             >
               <PanelRight size={18} strokeWidth={1.75} />
@@ -287,7 +276,6 @@ export function BotSettingsDialog({ bot, onOpenVmWorkspace }: {
         onClose={closeMascotMenu}
         onEditPersona={(target) => dispatch({ type: "openPersonaEditor", botId: target.id })}
         onRename={() => setRenameRequest((count) => count + 1)}
-        onMakePrimary={makePrimary}
       />
     </>
   );

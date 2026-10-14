@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, Copy, Download, Package, Share } from "lucide-react";
+import { Bug, Check, Copy, Database, Download, MoreHorizontal, Package } from "lucide-react";
 
 import { CIRCLE_BUTTON } from "@/lib/circle-button";
 import { cn } from "@/lib/cn";
@@ -27,11 +27,18 @@ export interface ExportTranscriptMenuProps {
   /** Download the bot as its `.sagaxbot.zip` (shown only when given: the
    * viewer may export this bot, src/lib/bot-zip.ts). */
   onExportBot?: () => void;
+  /** Open or close the Inspector (Advanced mode; shown only when given). */
+  onToggleInspector?: () => void;
+  inspectorOpen?: boolean;
+  /** The bot's Data window (Experimental; shown only when given). */
+  data?: { label: string; onOpen: () => void };
 }
 
 /**
- * A dropdown menu button in the chat header allowing users to export the current
- * conversation transcript either by copying to clipboard or downloading as Markdown.
+ * The conversation's one "..." button (JC, 2026-10-14): share and export
+ * (copy or download the transcript, export the bot as a .zip), then the
+ * Inspector and the Data window when they are on. It replaces the separate
+ * Share, Inspector and Data buttons of the chat header and the bot panel.
  */
 export function ExportTranscriptMenu({
   title,
@@ -40,6 +47,9 @@ export function ExportTranscriptMenu({
   isGroup = false,
   className,
   onExportBot,
+  onToggleInspector,
+  inspectorOpen = false,
+  data,
 }: ExportTranscriptMenuProps) {
   const [open, setOpen] = useState(false);
   const motion = useMenuMotion(open);
@@ -114,20 +124,21 @@ export function ExportTranscriptMenu({
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        aria-label="Export conversation"
+        aria-label={t("chat.moreMenu.aria")}
         aria-haspopup="menu"
         aria-expanded={open}
+        data-conversation-menu=""
         className={cn(CIRCLE_BUTTON, open && "bg-elevated-hover", className)}
-        title="Export conversation as Markdown"
+        title={t("chat.moreMenu.aria")}
       >
-        <Share size={18} strokeWidth={1.75} />
+        <MoreHorizontal size={18} strokeWidth={1.75} />
       </button>
 
       {motion.shown && (
         <div
           role="menu"
-          aria-label={t("chat.export.menuAria")}
-          className={cn("absolute right-0 top-full z-40 mt-1 flex w-[220px] min-w-[200px] flex-col gap-0.5 overflow-hidden rounded-xl border-[0.5px] border-border popover-surface bg-elevated p-1.5 text-[13px] leading-[18px]", motion.className)} {...motion.exitProps}
+          aria-label={t("chat.moreMenu.aria")}
+          className={cn("absolute right-0 top-full z-40 mt-1 flex w-[240px] min-w-[200px] flex-col gap-0.5 overflow-hidden rounded-xl border-[0.5px] border-border popover-surface bg-elevated p-1.5 text-[13px] leading-[18px]", motion.className)} {...motion.exitProps}
         >
           <div className="px-2 py-1 text-[12px] leading-4 text-ink-secondary">
             {t("chat.export.conversationHeading")}
@@ -190,6 +201,36 @@ export function ExportTranscriptMenu({
                 <span className="flex-1 truncate">{t("chat.export.botZip")}</span>
               </button>
             </>
+          )}
+
+          {(onToggleInspector || data) && <div className="mx-2 my-1 h-px bg-hairline" aria-hidden="true" />}
+          {onToggleInspector && (
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={inspectorOpen}
+              data-conversation-inspector=""
+              title={t("chat.inspectorHint")}
+              onClick={() => { setOpen(false); onToggleInspector(); }}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] leading-[18px] text-ink hover:bg-hover"
+            >
+              <Bug size={16} className="shrink-0 text-ink" />
+              <span className="flex-1 truncate">{t("chat.inspector")}</span>
+              {inspectorOpen && <Check size={14} className="shrink-0 text-accent" />}
+            </button>
+          )}
+          {data && (
+            <button
+              type="button"
+              role="menuitem"
+              data-data-window-button=""
+              title={data.label}
+              onClick={() => { setOpen(false); data.onOpen(); }}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] leading-[18px] text-ink hover:bg-hover"
+            >
+              <Database size={16} className="shrink-0 text-ink" />
+              <span className="flex-1 truncate">{t("dataWindow.open")}</span>
+            </button>
           )}
         </div>
       )}

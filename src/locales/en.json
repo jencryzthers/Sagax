@@ -7448,5 +7448,11 @@
   "chat.export.empty": "No messages to export yet.",
   "chat.export.botHeading": "Bot",
   "chat.export.botZip": "Export the bot (.zip)",
-  "mascot.skinPreview": "Preview: locked, nothing is saved"
+  "mascot.skinPreview": "Preview: locked, nothing is saved",
+  "menu.more": "More",
+  "chat.moreMenu.aria": "More options",
+  "chat.openPanel": "Open the bot panel",
+  "chat.openPanelAria": "Open {name}'s panel",
+  "chat.openGroupPanel": "Open the group panel",
+  "settings.sidebarHidden.whereHint": "Show them again from the Hidden row at the foot of the sidebar."
 }

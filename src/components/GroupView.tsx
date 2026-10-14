@@ -5,7 +5,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { activeLocale, t } from "@/lib/i18n";
 import { useShowThreads } from "@/lib/thread-preferences";
-import { ArrowDown, ChevronDown, FolderOpen, PanelRight, Pin, X } from "lucide-react";
+import { ArrowDown, ChevronDown, FolderOpen, Pin, X } from "lucide-react";
 import {
   api,
   useStore,
@@ -93,7 +93,6 @@ import { usePerspicaxOrg } from "@/lib/perspicax-org";
 import { groupHumanLabel } from "@/lib/private-threads";
 import { ManageMembersPanel } from "./ManageMembersPanel";
 import { GroupAvatarStack, GroupPanel } from "./GroupPanel";
-import { CIRCLE_BUTTON } from "@/lib/circle-button";
 import { NudgeLine } from "./NudgeLine";
 import { groupActivityRuns, isStatusActivity, type ActivityTranscriptItem } from "@/lib/activity-runs";
 import { collapseBotExchanges, commIsBotDm, startsNewStretch, visibleEdge, type ExchangeRun } from "@/lib/bot-exchange";
@@ -1335,8 +1334,8 @@ export function GroupView({ group: stored }: { group: Group }) {
               type="button"
               onClick={() => dispatch({ type: "toggleSettings", open: true })}
               className="flex min-w-0 items-center gap-2 rounded-full border-[0.5px] border-hairline-weak bg-elevated py-[7.5px] pl-[7.5px] pr-[13.5px] transition-colors duration-[120ms] hover:bg-elevated-hover"
-              title={t("chat.openProfile")}
-              aria-label={t("chat.openProfileAria", { name: group.name })}
+              title={t("chat.openGroupPanel")}
+              aria-label={t("chat.openPanelAria", { name: group.name })}
             >
               <GroupAvatarStack members={members} size={24} />
               <span className="truncate text-[14px] font-medium leading-5 text-ink">{group.name}</span>
@@ -1357,15 +1356,7 @@ export function GroupView({ group: stored }: { group: Group }) {
           {!group.dm && <GroupTaskPicker group={group} />}
           {stored.peopleDm && <PersonThreadPicker group={stored} />}
           {group.dm && memberMauses}
-          {!group.dm && !panelOpen && <button
-            type="button"
-            onClick={() => dispatch({ type: "toggleSettings", open: true })}
-            aria-label={t("chat.openProfile")}
-            title={t("chat.openProfile")}
-            className={CIRCLE_BUTTON}
-          >
-            <PanelRight size={18} strokeWidth={1.75} />
-          </button>}
+          {/* A group's pill opens its panel: no second button for it. */}
         </div>
       </div>
 
