@@ -22,8 +22,14 @@ vi.mock("@/state/store", async (importOriginal) => ({
 }));
 vi.mock("./RemoteComputerSection", () => ({ RemoteComputerSection: () => null }));
 vi.mock("./CustomDomainSettings", () => ({ CustomDomainSettings: () => null }));
-vi.mock("./CompanionSection", () => ({ CompanionSection: ({ focusRequest }: { focusRequest?: number }) => `COMPANION_SECTION focus=${focusRequest ?? 0}` }));
-vi.mock("./ServerPairingCard", () => ({ ServerPairingCard: ({ cloudHome, focusRequest }: { cloudHome?: boolean; focusRequest?: number }) => `SERVER_PAIRING_CARD_MARKER${cloudHome ? " cloud" : ""} focus=${focusRequest ?? 0}` }));
+// 2026-10-14: one "Add a device" card. Where this computer has its phone
+// flow, the server's pairing code is that card's second method (embedded).
+vi.mock("./CompanionSection", async () => {
+  const { createElement, Fragment } = await import("react");
+  return { CompanionSection: ({ focusRequest, codePairing, codeRequested }: { focusRequest?: number; codePairing?: unknown; codeRequested?: boolean }) =>
+    createElement(Fragment, null, `COMPANION_SECTION focus=${focusRequest ?? 0}${codeRequested ? " code" : ""} [`, codePairing as never, "]") };
+});
+vi.mock("./ServerPairingCard", () => ({ ServerPairingCard: ({ cloudHome, focusRequest, embedded }: { cloudHome?: boolean; focusRequest?: number; embedded?: boolean }) => `SERVER_PAIRING_CARD_MARKER${cloudHome ? " cloud" : ""} focus=${focusRequest ?? 0}${embedded ? " embedded" : ""}` }));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -79,8 +85,10 @@ describe("Settings → Remote access opened by Connect your phone", () => {
     fixture.phonePairing = 3;
     vi.stubGlobal("window", { ogb: { companion: {} } });
     const html = render();
-    expect(html).toContain("COMPANION_SECTION focus=3");
-    expect(html).toContain("SERVER_PAIRING_CARD_MARKER focus=0");
+    expect(html).toContain("COMPANION_SECTION focus=3 [");
+    // the pairing code is the same card's other method, not a card of its own
+    expect(html).toMatch(/COMPANION_SECTION focus=3 \[(<!-- -->)?SERVER_PAIRING_CARD_MARKER focus=0 embedded(<!-- -->)?\]/);
+    expect(html.match(/SERVER_PAIRING_CARD_MARKER/g)).toHaveLength(1);
   });
 
   it("does not treat a leftover Cloud home flag as this window's own Cloud", () => {

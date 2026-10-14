@@ -288,7 +288,7 @@ export function PlanUsage() {
       onRefresh={() => void load(true)}
       myEngines={org ? myEngines : null}
       issuer={org?.org.identity.issuer ?? ""}
-      onOpenEngines={() => openSettings(dispatch, "engines")}
+      onOpenEngines={() => openSettings(dispatch, "engines", "engines.list")}
     />
   );
 }

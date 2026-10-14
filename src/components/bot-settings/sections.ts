@@ -62,6 +62,8 @@ export const BOT_SECTIONS: Array<{
   { id: "visibility", label: "Who can see it", labelKey: "botSettings.visibility.title", icon: Eye, keywords: ["visibility", "who can see", "private", "people", "admins", "members", "access", "hide"] },
   { id: "sharing", label: "Shared with", labelKey: "botSettings.sharing.title", icon: Users, keywords: ["share", "sharing", "people", "grant", "who can use", "members", "directory"] },
   { id: "perspicax", label: "Perspicax Profiles", labelKey: "botSettings.perspicax.title", icon: Plug, keywords: ["perspicax", "mcp", "profile", "profiles", "tools", "connectwise"] },
-  { id: "history", label: "History", labelKey: "botSettings.nav.history", icon: History, keywords: ["history", "changes", "undo", "rollback", "log"] },
+  // "Changes" (2026-10-14): "History" also names the bot's activity history
+  // in its panel, a different list. This one is the edits to the bot.
+  { id: "history", label: "Changes", labelKey: "botSettings.nav.changes", icon: History, keywords: ["history", "changes", "undo", "rollback", "log"] },
   { id: "usage", label: "Usage", labelKey: "botSettings.nav.usage", icon: Coins, keywords: ["tokens", "cost", "billing"] },
 ];
