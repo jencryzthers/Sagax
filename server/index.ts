@@ -858,6 +858,7 @@ import { diskSpace, folderBytes } from "./disk-usage.ts";
 import { autoReviewThreadMode, createBotSettingsStore, hostTimeZone } from "./bot-settings.ts";
 import { turnClockEnabled, turnTimeZone, withTurnClock } from "./turn-clock.ts";
 import { createComputerInputRoutes, createVmScreenshotRoute } from "./routes/computer-input.ts";
+import { createLocalComputerAutoRoutes } from "./routes/local-computer-auto.ts";
 import { createUserPreferenceRoutes } from "./routes/user-preferences.ts";
 import { createUserPreferenceStore, preferencesFrameAllowed, type PersonPreferences } from "./user-preferences.ts";
 import { createViewerBotOverrideRoutes } from "./routes/viewer-bot-overrides.ts";
@@ -22913,6 +22914,38 @@ ROUTES.push(createVmScreenshotRoute<BotRecord>({
     return containerComputerFrame(undefined, undefined, target);
   },
 }));
+ROUTES.push(createLocalComputerAutoRoutes({
+  localVmAuto,
+  hostRefusal: () => hostComputerRefusal(),
+  setupBusy: () => localVmImageBusy || localVmModeChangeBusy || localVmLifecycleBusy.size > 0,
+  botUsesLocalVm: () => localVmActiveThreads.size > 0,
+  botHoldsLease: (targets) => targets.some((target) => localVmLeaseFor(target).current(localVmOwnerBusy)),
+  listTargets: async () => {
+    const targets: LocalVmTarget[] = [SHARED_LOCAL_VM_TARGET];
+    const runtime = await containerRuntimeStatus();
+    if (runtime.runtime && runtime.daemonUp) {
+      const perBot = await discoverExistingPerBotLocalVms(store.bots, runtime.runtime).catch(() => []);
+      targets.push(...perBot.map(({ target }) => target));
+    }
+    return targets;
+  },
+  withLifecycleBusy: async (targets, run) => {
+    for (const target of targets) localVmLifecycleBusy.add(target.key);
+    try {
+      await run();
+    } finally {
+      for (const target of targets) localVmLifecycleBusy.delete(target.key);
+    }
+  },
+  removeVm: async (target) => {
+    const status = await containerComputerStatus(undefined, undefined, target);
+    // A container Sagax did not create is left alone.
+    if (status.container === "missing" || !status.managed) return;
+    await containerComputerAction("remove", undefined, undefined, target);
+    localVmIdleFor(target).cancel();
+  },
+  sharedPayload: (auth) => localVmPayload(SHARED_LOCAL_VM_TARGET, auth),
+}));
 ROUTES.push(createComputerInputRoutes<BotRecord>({
   bot: (id) => store.bot(id) ?? undefined,
   mayDrive: ownerOrAdminOf,
@@ -37417,60 +37450,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (method === "GET" && path === "/api/local-computer/instances") {
       res.setHeader("cache-control", "private, no-store");
       return json(res, 200, await localVmInventoryPayload());
-    }
-    // The automatic start, asked by the app: "bot" when a bot's Computer tab
-    // needs the VM, "person" for the person's own Start or Retry. Answers at
-    // once; the work goes on in the background.
-    if (method === "POST" && path === "/api/local-computer/ensure") {
-      if (!String(req.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) {
-        return json(res, 415, { error: "content-type must be application/json" });
-      }
-      const body = await readBody(req, 1_000) as { reason?: unknown } | null;
-      const reason = body?.reason === "person" ? "person" : "bot";
-      if (localVmAuto) void localVmAuto.ensure(reason);
-      return json(res, 202, { auto: localVmAuto?.snapshot() ?? null });
-    }
-    // Reset: delete this computer's Local VMs (the shared one and each
-    // bot's) and let the automatic start create the shared one again. The
-    // workspace folders on this computer are kept.
-    if (method === "POST" && path === "/api/local-computer/reset") {
-      if (!String(req.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) {
-        return json(res, 415, { error: "content-type must be application/json" });
-      }
-      const body = await readBody(req, 1_000) as { confirm?: unknown } | null;
-      if (body?.confirm !== true) return json(res, 400, { error: "confirm must be true" });
-      const refusal = hostComputerRefusal();
-      if (refusal) return json(res, 403, { error: refusal, code: "host_computer" });
-      if (localVmImageBusy || localVmModeChangeBusy || localVmLifecycleBusy.size > 0) {
-        return json(res, 409, { error: "another Local VM setup action is still running" });
-      }
-      if (localVmActiveThreads.size > 0) return json(res, 409, { error: "a bot is using a Local VM — stop that turn first", code: "in_use" });
-      const runtime = await containerRuntimeStatus();
-      const targets: LocalVmTarget[] = [SHARED_LOCAL_VM_TARGET];
-      if (runtime.runtime && runtime.daemonUp) {
-        const perBot = await discoverExistingPerBotLocalVms(store.bots, runtime.runtime).catch(() => []);
-        targets.push(...perBot.map(({ target }) => target));
-      }
-      if (targets.some((target) => localVmLeaseFor(target).current(localVmOwnerBusy))) {
-        return json(res, 409, { error: "a bot is using a Local VM — stop that turn first", code: "in_use" });
-      }
-      for (const target of targets) localVmLifecycleBusy.add(target.key);
-      try {
-        for (const target of targets) {
-          const status = await containerComputerStatus(undefined, undefined, target);
-          // A container Sagax did not create is left alone.
-          if (status.container === "missing" || !status.managed) continue;
-          await containerComputerAction("remove", undefined, undefined, target);
-          localVmIdleFor(target).cancel();
-        }
-      } finally {
-        for (const target of targets) localVmLifecycleBusy.delete(target.key);
-      }
-      if (localVmAuto) {
-        localVmAuto.personStarted();
-        void localVmAuto.ensure("person");
-      }
-      return json(res, 200, await localVmPayload(SHARED_LOCAL_VM_TARGET, auth));
     }
     m = path.match(/^\/api\/local-computer\/(pull|run|start|stop|remove)$/);
     if (m && method === "POST") {

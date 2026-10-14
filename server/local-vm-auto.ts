@@ -73,8 +73,12 @@ export const LOCAL_VM_AUTO_BACKOFF_MS = [30_000, 120_000, 600_000] as const;
 const POLL_MS = 2_000;
 
 class AutoFailure extends Error {
-  constructor(readonly problem: LocalVmAutoProblem, detail: string | null, readonly retry: boolean) {
+  readonly problem: LocalVmAutoProblem;
+  readonly retry: boolean;
+  constructor(problem: LocalVmAutoProblem, detail: string | null, retry: boolean) {
     super(detail ?? problem);
+    this.problem = problem;
+    this.retry = retry;
   }
 }
 
@@ -93,7 +97,11 @@ export class LocalVmAutoStarter {
   private runtimeStartTried = false;
   private imageTried = false;
 
-  constructor(private readonly deps: LocalVmAutoDeps) {}
+  private readonly deps: LocalVmAutoDeps;
+
+  constructor(deps: LocalVmAutoDeps) {
+    this.deps = deps;
+  }
 
   snapshot(): LocalVmAutoSnapshot {
     return { ...this.snap };
