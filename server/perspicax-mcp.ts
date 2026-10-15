@@ -24,6 +24,7 @@
 //     a fresh subject; when that fails the call answers "Perspicax access
 //     for this turn ended" (a disabled person mid-turn, S5-10);
 //   - no token is ever logged or put in an error.
+import { guardToolCall, type GuardOptions } from "./mcp-permissions.ts";
 import type { SubjectTokenOutcome } from "./idp-session.ts";
 import type { DirectoryProfile, ExchangeResult } from "./perspicax-link.ts";
 import { PERSPICAX_READ_ONLY_TOOLS } from "./drivers/acp/grok-read-only-tools.ts";
@@ -91,6 +92,9 @@ export interface PerspicaxMcpOptions {
   keepWarm?(threadId: string): boolean;
   /** Pulsa Bot's version, sent in `clientInfo`. */
   version: string;
+  /** Permission check for tools/call frames (server/mcp-permissions.ts). Null
+   * or absent: no check. The audit hook never carries arguments or results. */
+  permissionGuard?(input: { botId: string; principalId: string }): GuardOptions | null;
   fetch?: typeof fetch;
   now?: () => number;
   log?: (line: string) => void;
@@ -366,8 +370,10 @@ export class PerspicaxMcp {
     return plan;
   }
 
-  /** Relay one JSON-RPC frame from a bridge to Perspicax /mcp. */
-  async relay(input: { threadId: string; generation: string; botId: string; profileId: string; frame: unknown }): Promise<PerspicaxRelayAnswer> {
+  /** Relay one JSON-RPC frame from a bridge to Perspicax /mcp. `judged`:
+   * the call comes from callTool, whose native tool the agents proxy already
+   * put through the permission check, so it is not judged (nor audited) twice. */
+  async relay(input: { threadId: string; generation: string; botId: string; profileId: string; frame: unknown; judged?: boolean }): Promise<PerspicaxRelayAnswer> {
     const entry = this.entries.get(key(input.threadId, input.generation, input.profileId));
     if (!entry || entry.botId !== input.botId) return { status: 403, body: { error: "this Perspicax profile is not mounted in this turn", code: "profile_not_mounted" } };
     if (!isObject(input.frame)) return { status: 400, body: rpcError(null, -32600, "Invalid Request") };
@@ -378,6 +384,8 @@ export class PerspicaxMcp {
     if (!(this.options.botProfiles(input.botId) ?? []).includes(input.profileId)) {
       return { status: 403, body: { error: "this bot no longer lists that Perspicax profile", code: "profile_not_mounted" } };
     }
+    const blocked = input.judged ? null : await this.permissionBlock(entry, frame);
+    if (blocked) return { status: 200, body: { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: blocked }], isError: true } } };
     const speaker = this.options.subjectOf(entry.principalId);
     if (!speaker || speaker.disabled) this.end(entry);
     if (entry.ended) return ended();
@@ -435,6 +443,18 @@ export class PerspicaxMcp {
     }
   }
 
+  /** The refusal sentence when permissions are enforced and deny this
+   * tools/call; null otherwise (shadow audits and lets it through). */
+  private async permissionBlock(entry: Entry, frame: Json): Promise<string | null> {
+    if (frame.method !== "tools/call" || frame.id === undefined) return null;
+    const options = this.options.permissionGuard?.({ botId: entry.botId, principalId: entry.principalId });
+    if (!options) return null;
+    const params = isObject(frame.params) ? frame.params : {};
+    const pass = { text: "" };
+    const result = await guardToolCall(options, String(params.name ?? ""), isObject(params.arguments) ? params.arguments : {}, async () => pass);
+    return result === pass ? null : result.text;
+  }
+
   /** The live entry of a turn the bot can still use: the first mounted
    * profile its bot still lists. */
   private turnEntry(threadId: string, generation: string, botId: string): Entry | undefined {
@@ -475,6 +495,7 @@ export class PerspicaxMcp {
       botId: input.botId,
       profileId: entry.profileId,
       frame: { jsonrpc: "2.0", id, method: "tools/call", params: { name: input.name, arguments: input.args } },
+      judged: true,
     });
     const body = answer.body;
     if (answer.status !== 200 || !isObject(body)) {
