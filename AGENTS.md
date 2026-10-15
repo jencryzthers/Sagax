@@ -540,6 +540,38 @@ and `server/store.org-approval-default.test.ts`:
   Custom stay. A grant revoked at that start stays Ask, threads included.
   Import and team backup still force Ask.
 
+## Bot owner permissions: owner route, modes, rules per person (2026-10-14)
+
+A bot acts with its owner's rights (spec
+`docs/superpowers/specs/2026-10-14-bot-owner-permissions.md`). Keep these
+rules, covered by `server/owner-approval.test.ts`,
+`server/engine-access.test.ts` and `server/org-sharing.e2e.test.ts` (S3-7d):
+
+- Only what goes beyond the owner's rights is an admin card
+  (`memberBotAdminApproval`): a server command, a file outside the bot's
+  workspace, a host-level `agents` tool or built-in MCP server (`computer`,
+  `browser`, `shell`...), an unknown server or tool. A remote or personal MCP
+  server, Sagax's own `perspicax_*` mounts, Composio and a web search are
+  the owner's (`ownerScopedTool`, `ownerScopedMcpServerFor`).
+- On the owner route, the owner's rules then the bot's mode answer before a
+  card (`ownerDecision`): deny wins, then ask, then allow. A rule is one
+  tool plus a target read from the arguments, kept per person
+  (`owner-approvals.json`, never shared between people). A destructive call
+  (delete, bulk change, external email or SMS) is allowed only by an allow
+  rule made for that kind, in every mode.
+- Modes: Approval (default), Automatic approval, Bypass (explicit
+  confirmation, `bots.fullAccess`, org Full access policy, journaled as
+  `owner-bypass`). A mode belongs to the owner who chose it; a new owner
+  starts on Approval. No mode or rule answers an admin card, a safety hold,
+  a sandbox widening, a question, a guest's turn or a teammate tool.
+- Routes live in `server/routes/owner-approvals.ts`, the owner's only;
+  `act` cannot reach their writes (`tool-policy.generated.ts`), and a bot-act
+  session copy (`isBotActSession`) is never the rule manager, so a bot
+  cannot save a rule while answering a card through `act`.
+- Rule scopes read `api`, `resource` and `verb` / `action` like the MCP
+  permission registry's per-resource key (PR #508, `resourceKeyForCall`):
+  #508 is the role guard before the call, this is the approval after it.
+
 ## Server log on disk and expired approvals (2026-10-11)
 
 - The server log tail behind `GET /api/org/admin/logs`

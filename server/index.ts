@@ -297,7 +297,10 @@ import { entitled } from "./enterprise.ts";
 import { HOSTED_CONTRACT_HEADER, HOSTED_CONTRACT_METADATA, HOSTED_CONTRACT_VERSION } from "./hosted-contract.ts";
 import { cliCommandRefusal, describeSpawnFailure, execCli } from "./procs.ts";
 import { blockedTarget, buildSpendNotification, deliverableNotification, quietForCall, summarize, type Notification } from "./notify.ts";
-import { approvalPlain, mcpAllowKey } from "../shared/approval-describe.ts";
+import { approvalPlain, describeAllowRule, mcpAllowKey } from "../shared/approval-describe.ts";
+import { ownerDecision, ruleCandidateFor, type BotPermissionMode, type OwnerRule } from "./owner-approval.ts";
+import { OwnerApprovalStore } from "./owner-approval-store.ts";
+import { memberOwnScopeTool } from "./member-tool-scope.ts";
 import { serverApprovalWords } from "./approval-words.ts";
 import {
   isModelVariant,
@@ -749,7 +752,7 @@ import {
   serializeSessionCookie,
   sessionCookieName,
 } from "./request-auth.ts";
-import { cookieMaxAgeSeconds, formatPairingCode, SessionRegistry, type Scope, type SessionRecord } from "./sessions.ts";
+import { cookieMaxAgeSeconds, formatPairingCode, isBotActSession, SessionRegistry, type Scope, type SessionRecord } from "./sessions.ts";
 import { isAccountEmail, isPrincipalId, PrincipalRegistry, type Principal } from "./principals.ts";
 import { OrgTeams } from "./org-teams.ts";
 import { keyVia, materializeEngineAccess, providersOfDriver, resolveEngineAccess, subscriptionDriver, turnPayer, type AccessPayer, type SubscriptionDriver, type EngineCredentialInput, type EngineCredentialPlan, type NoAccessCause, type TurnAccess } from "./engine-credentials.ts";
@@ -837,6 +840,7 @@ import { isExpired as memoryEntryExpired, parseMemoryEntries } from "./memory-en
 import { createBotLibraryRoutes } from "./routes/bot-library.ts";
 import { createBotSettingsRoutes } from "./routes/bot-settings.ts";
 import { createAutoReviewRuleRoutes } from "./routes/auto-review-rules.ts";
+import { createOwnerApprovalRoutes } from "./routes/owner-approvals.ts";
 import { createComputerStatusRoutes, diskStateForFree } from "./routes/computer-status.ts";
 import { createPluginRoutes, pluginServerName, type InstalledPlugin } from "./routes/plugins.ts";
 import { createMarketplaceRoutes } from "./routes/marketplaces.ts";
@@ -1444,6 +1448,9 @@ holdIncludedServices(process.env);
 // Who each thread is for, when a signed-in person can be named (server-private).
 const threadStarters = new ThreadStarters(join(DATA_DIR, "thread-starters.json"));
 const commandAllowlist = new CommandAllowlistStore(join(DATA_DIR, "command-allowlist.json"));
+// 2026-10-14: owners' approval rules and their bots' permission modes
+// (docs/superpowers/specs/2026-10-14-bot-owner-permissions.md).
+const ownerApprovals = new OwnerApprovalStore(join(DATA_DIR, "owner-approvals.json"));
 const botSettings = createBotSettingsStore(DATA_DIR);
 const SESSION_COOKIE = sessionCookieName(PORT, ENVIRONMENT_ID);
 const HOSTED_WORKSPACE = hostedWorkspaceConfigured();
@@ -8217,6 +8224,8 @@ store.onChange((change) => {
       // Its plugins and the tokens saved for its marketplaces go with it.
       try { botPlugins.forgetBot(change.botId); }
       catch { console.error("[bot-plugins] Could not remove deleted bot's plugins."); }
+      // its own approval rules and its permission mode (all-bots rules stay)
+      ownerApprovals.forgetBot(change.botId);
       broadcast({ kind: "bot.deleted", botId: change.botId });
       break;
     case "group": {
@@ -11624,16 +11633,19 @@ bus.subscribe((event: RuntimeEvent) => {
       // `mcpTool`: the engine's own `<server>__<tool>` name when `tool` is a
       // kind (ACP "other") or a bare name (Codex), so a built-in Sagax tool
       // in the member's own scope (member-tool-scope.ts) is recognized.
+      // 2026-10-14: a tool within the owner's own rights (a remote or
+      // personal MCP server, a web search) is the owner's card, not an admin's.
       const adminApproval = Boolean(memberAsker && asker && memberBotAdminApproval({
         tool: event.mcpTool ?? event.tool, command: event.command, paths: event.paths,
         workspaceRoot: join(realpathSync(DATA_DIR), "task-workspaces", asker.id),
+        ownerScopedMcpServer: ownerScopedMcpServerFor(asker, event.threadId),
       }));
       const command = permission && asker && event.requestId && !event.requiresExplicitApproval && event.command && !adminApproval && !guestDriven
         ? commandAllowlistCandidate({ ...event.command, providerInstanceId: event.providerInstanceId ?? asker.modelSelection.instanceId })
         : null;
       // a Sagax gate card can be remembered as an Allow rule for this exact tool
       const gateAllowKey = permission && event.sagaxGate && event.mcpTool ? mcpAllowKey(event.mcpTool) : undefined;
-      const verdict = permission && asker && event.requestId
+      const baseVerdict = permission && asker && event.requestId
         ? autoVerdict(adminApproval ? "ask" : effectiveApprovalMode, event.tool, {
           requiresExplicitApproval: event.requiresExplicitApproval,
           sagaxGate: event.sagaxGate === true,
@@ -11647,6 +11659,47 @@ bus.subscribe((event: RuntimeEvent) => {
             cwActionPasses.take(event.threadId, event.mcpTool ?? event.tool, event.input) !== null,
         })
         : null;
+      // 2026-10-14 (bot owner permissions): what the owner decided ahead of
+      // time, for a card of the owner route only. Never an admin card, a
+      // safety hold, a sandbox widening, a question, a guest's turn or a
+      // teammate tool (peer review has its own card).
+      const ownerTool = event.mcpTool ?? event.tool;
+      const ownerLayer = Boolean(permission && asker && event.requestId && !baseVerdict?.approve && !adminApproval && !guestDriven
+        && !/^(?:mcp__[^_]+__)?(?:askuserquestion|ask_user)$/i.test(ownerTool) && memberOwnScopeTool(ownerTool) !== "conversation");
+      const ownerCall = ownerLayer && asker
+        ? { ownerId: approvalOwnerId(asker), botId: asker.id, tool: ownerTool, ...(typeof event.input === "string" ? { input: event.input } : {}) }
+        : null;
+      const owner = ownerCall && asker
+        ? ownerDecision({
+          mode: effectivePermissionMode(asker, ownerCall.ownerId),
+          rules: ownerApprovals.rulesOf(ownerCall.ownerId, asker.id),
+          call: ownerCall,
+          personMustAnswer: safetyEffect?.kind === "hold" || event.requiresExplicitApproval === true,
+        })
+        : null;
+      if (owner?.kind === "deny" && asker && event.requestId) {
+        const instance = event.providerInstanceId ? registry.get(event.providerInstanceId) : registry.get(asker.modelSelection.instanceId);
+        void instance?.adapter.respondToRequest(event.threadId, event.requestId, { behavior: "deny", message: "Refused by the owner's rule." }).catch(() => {});
+        pushMessage({ role: "bot", kind: "activity", tool: { name: `Refused ${event.summary.slice(0, 120)}: your rule "${owner.rule.description.slice(0, 120)}".`, ok: false } });
+        appendDecision(DATA_DIR, {
+          threadId: event.threadId, requestId: event.requestId, botId: asker.id, botName: asker.name,
+          tool: event.tool, summary: event.summary, decision: "auto-denied", source: "owner-rule-deny", rule: owner.rule.id,
+        });
+        break;
+      }
+      const verdict = owner?.kind === "allow"
+        ? {
+          approve: owner.source === "owner-rule"
+            ? `approved ${event.tool} (your rule)`
+            : owner.source === "owner-auto" ? `approved ${event.tool} (automatic approval)` : `approved ${event.tool} (bypass)`,
+          source: owner.source,
+          ...(owner.rule ? { rule: owner.rule.id } : {}),
+        }
+        : baseVerdict;
+      // What "Always allow" or "Always deny" would remember on this card.
+      const ownerRuleCandidate = owner?.kind === "card" && owner.reason !== "hold" && owner.reason !== "admin"
+        ? ruleCandidateFor({ tool: ownerTool, ...(typeof event.input === "string" ? { input: event.input } : {}) }, serverApprovalWords(cfg.language))
+        : undefined;
       // Auto's reviewer is the engine's own. Claude accepts `--permission-mode
       // auto` for any model and starts in Manual without a word when auto is
       // unavailable (Haiku 4.5, Sonnet 4.5, an org that disabled it), so the
@@ -11694,7 +11747,7 @@ bus.subscribe((event: RuntimeEvent) => {
             if (outcome !== "unavailable") pushMessage({
               role: "bot", kind: "activity",
               tool: outcome === "rejected"
-                ? { name: `The provider rejected this action despite ${verdict.source === "command-allowlist" ? "the saved command permission" : verdict.source === "widget-approval" ? "your approval in the ConnectWise widget" : "Full access"}.`, ok: false }
+                ? { name: `The provider rejected this action despite ${verdict.source === "command-allowlist" ? "the saved command permission" : verdict.source === "widget-approval" ? "your approval in the ConnectWise widget" : verdict.source === "owner-rule" ? "your rule" : verdict.source === "owner-auto" ? "automatic approval" : verdict.source === "owner-bypass" ? "bypass" : "Full access"}.`, ok: false }
                 : failedTurnTool("could not deliver approval to the provider; retry the task after reconnecting."),
             });
             return;
@@ -11714,6 +11767,7 @@ bus.subscribe((event: RuntimeEvent) => {
             summary,
             decision: "auto-approved",
             source: verdict.source,
+            ...("rule" in verdict && typeof verdict.rule === "string" ? { rule: verdict.rule } : {}),
           });
         })().catch(() => {
           // A receipt failure must neither crash the server nor manufacture
@@ -11778,6 +11832,7 @@ bus.subscribe((event: RuntimeEvent) => {
           approvalScope: event.approvalScope,
           ...(plain ? { plain: { title: plain.title, line: plain.line, ...(plain.risk ? { risk: plain.risk } : {}) } } : {}),
           ...(permission && event.mcpTool ? { mcpTool: event.mcpTool } : {}),
+          ...(ownerRuleCandidate ? { ownerRule: ownerRuleCandidate } : {}),
           ...(hiddenApproval ? { expiresAt: Date.now() + HIDDEN_APPROVAL_TTL_MS } : {}),
         },
       });
@@ -23115,6 +23170,34 @@ ROUTES.push(createBotSettingsRoutes({
   },
 }));
 // Settings > Bot > Auto-review Rules (server/routes/auto-review-rules.ts).
+// 2026-10-14: a person's own approval rules and their bots' permission
+// modes (server/routes/owner-approvals.ts).
+ROUTES.push(createOwnerApprovalRoutes({
+  store: ownerApprovals,
+  manager: ruleManager,
+  ownedBots: botsOwnedBy,
+  ownerOf: (botId) => {
+    const bot = store.bot(botId);
+    return bot ? effectiveBotOwner(bot) : null;
+  },
+  describeLegacy: (key) => describeAllowRule(key, serverApprovalWords(cfg.language), (id) => store.bot(id)?.name ?? store.groups.find((group) => group.id === id)?.name),
+  revokeLegacy: (botId, key) => {
+    const bot = store.bot(botId);
+    if (bot) revokeLegacyKey(bot, key);
+  },
+  bypassRefusal,
+  audit: (row, auth) => orgAudit({
+    category: "approval", action: row.action,
+    target: row.botId ? auditBotTarget(row.botId) : { kind: "person", id: row.personId },
+    ...(row.before ? { before: row.before } : {}),
+    ...(row.after ? { after: row.after } : {}),
+    actor: orgAuditActor(auth),
+  }),
+  journalMode: (bot, before, after) => appendDecision(DATA_DIR, {
+    threadId: bot.threadId, botId: bot.id, botName: bot.name, tool: "permission-mode",
+    summary: `Permission mode: ${before} to ${after}`, decision: "user-approved", source: "user",
+  }),
+}));
 ROUTES.push(createAutoReviewRuleRoutes({
   bots: () => store.bots,
   rules: (botId) => commandAllowlist.list(botId),
@@ -24258,6 +24341,121 @@ function memberOwnedInOrg(bot: { ownerUserId?: unknown }): boolean {
 function orgFullAccessPolicy(): boolean {
   return orgFullAccessAllowed(cfg.organization);
 }
+/** 2026-10-14 (bot owner permissions): an MCP server whose tools act
+ * through a person's identity elsewhere for this bot's turn: Sagax's own
+ * Perspicax mounts (`perspicax_*`, the person's tokens; Perspicax applies
+ * DAP and profile holds), Composio (the owner's connected accounts), a
+ * remote server mounted for the bot, or a personal connection of the owner
+ * or of the person the turn speaks for (it runs in their own environment).
+ * A host-level built-in is never one (engine-access.ts). */
+function ownerScopedMcpServerFor(bot: BotRecord, threadId: string): (server: string) => boolean {
+  return (server) => {
+    const name = server.toLowerCase();
+    if (name.startsWith("perspicax_") || name === "composio") return true;
+    const has = (names: Iterable<string>) => [...names].some((candidate) => candidate.toLowerCase() === name);
+    try {
+      if (has(Object.entries(engineMcpServers(bot)).filter(([, spec]) => "url" in spec).map(([key]) => key))) return true;
+    } catch {
+      // an unreadable configuration names no server
+    }
+    for (const person of [effectiveBotOwner(bot), turnSpeakerPrincipals.get(threadId)]) {
+      if (!person || !isPrincipalId(person)) continue;
+      try {
+        if (has(Object.keys(personConnections.servers(person)))) return true;
+      } catch {
+        // a vault that does not open names no server
+      }
+    }
+    return false;
+  };
+}
+
+/** The bot's permission mode as it may run now: Bypass falls back to
+ * Approval once its owner may no longer turn it on (the organization's
+ * Full access policy went off, or their profile lost bots.fullAccess). */
+function effectivePermissionMode(bot: BotRecord, ownerId: string): BotPermissionMode {
+  const mode = ownerApprovals.modeOf(bot.id, ownerId);
+  if (mode !== "bypass" || IDENTITY.kind !== "perspicax") return mode;
+  if (!orgFullAccessPolicy()) return "approval";
+  if (botOwnerOrgRole(bot) === "admin") return mode;
+  return isPrincipalId(ownerId) && can(principalPermissions(ownerId, { sessionAdmin: false }), "bots.fullAccess") ? mode : "approval";
+}
+
+/** The person who may manage approval rules and modes on this request:
+ * a signed-in person or this computer's own operator, never a local
+ * service or a turn's token. */
+function ruleManager(auth: RequestAuth): string | null {
+  // a bot's act copy of its person's session is the bot, not the person:
+  // it never saves, edits or removes a rule, nor changes a mode
+  if (auth.kind === "session" && isBotActSession(auth.session)) return null;
+  const id = approvalCallerUserId(auth);
+  return id ? id : null;
+}
+
+/** "Always allow" or "Always deny" on a card: save the owner's rule before
+ * the answer goes out, so the bot's next ask already meets it. Null when
+ * the body asks for no rule; otherwise the refusal. */
+function saveOwnerRuleFromCard(auth: RequestAuth, threadId: string, requestId: string, rule: unknown, behavior: string): { status: 400 | 403 | 404 | 409 | 500 | 503; error: string } | null {
+  if (rule === undefined || rule === null) return null;
+  if (rule !== "allow" && rule !== "deny") return { status: 400, error: "rule must be allow or deny" };
+  if (rule !== behavior) return { status: 400, error: "Always allow allows and Always deny denies." };
+  const message = store.messagesFor(threadId).find((row) => row.card?.requestId === requestId);
+  const card = message?.card;
+  if (!message || !card) return { status: 404, error: "No such approval." };
+  if (!card.ownerRule || card.adminApproval || card.answered || card.dismissed || card.expired) {
+    return { status: 409, error: "This approval cannot be remembered as a rule." };
+  }
+  const bot = botForApproval(threadId, message);
+  if (!bot) return { status: 404, error: "No such approval." };
+  const ownerId = approvalOwnerId(bot);
+  const caller = ruleManager(auth);
+  if (!caller || caller.toLowerCase() !== ownerId.toLowerCase()) return { status: 403, error: "Only the bot owner can save a rule." };
+  const candidate = card.ownerRule;
+  let saved: OwnerRule;
+  try {
+    saved = ownerApprovals.add({
+      ownerId, botId: bot.id, tool: candidate.tool, scope: candidate.scope,
+      ...(candidate.destructive ? { destructive: candidate.destructive } : {}),
+      behavior: rule, description: candidate.description,
+    });
+  } catch (error) {
+    const status = (error as { status?: number }).status;
+    return { status: status === 409 || status === 503 ? status : 500, error: error instanceof Error ? error.message : String(error) };
+  }
+  store.patchMessage(threadId, message.id, { card: { ...card, ruleSaved: { id: saved.id, behavior: saved.behavior, description: saved.description } } });
+  orgAudit({
+    category: "approval", action: "approval.rule.save", target: auditBotTarget(bot.id),
+    after: { rule: saved.id, behavior: saved.behavior, tool: saved.tool },
+    actor: orgAuditActor(auth),
+  });
+  return null;
+}
+
+function botsOwnedBy(personId: string): BotRecord[] {
+  const me = personId.toLowerCase();
+  return store.bots.filter((bot) => effectiveBotOwner(bot).toLowerCase() === me);
+}
+
+/** Remove a legacy Allow key from the bot and every conversation of it. */
+function revokeLegacyKey(bot: BotRecord, key: string): void {
+  store.patchBot(bot.id, { alwaysAllow: (bot.alwaysAllow ?? []).filter((entry) => entry !== key) });
+  for (const task of bot.tasks ?? []) {
+    if (task.alwaysAllow?.includes(key)) store.patchTask(bot.id, task.threadId, { alwaysAllow: task.alwaysAllow.filter((entry) => entry !== key) });
+  }
+  const live = store.bot(bot.id);
+  if (live) broadcast({ kind: "bot", bot: wireBot(live) });
+}
+
+/** Whether this person may turn Bypass on for this bot: the owner, with
+ * bots.fullAccess (an admin holds it) and, on an organization server, the
+ * organization's Full access policy on. */
+function bypassRefusal(auth: RequestAuth): string | null {
+  if (IDENTITY.kind !== "perspicax") return null;
+  if (!orgFullAccessPolicy()) return "The organization does not allow Full access, so Bypass is off.";
+  if (auth.kind === "session" && !orgAdminCaller(auth) && !callerCan(auth, "bots.fullAccess")) return permissionRefusal("bots.fullAccess").message;
+  return null;
+}
+
 /** 2026-10-11: the level a new bot starts on. A solo server keeps Approve
  * for me; an organization server follows its policy (`defaults.approvalMode`)
  * and starts on Ask when it names none. */
@@ -36766,6 +36964,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const refusal = commandRememberRefusal(auth, bot.threadId, String(body.requestId), behavior);
         if (refusal) return json(res, 403, { error: refusal });
       }
+      if (body.rule !== undefined && adminCheck) return json(res, 400, { error: "an admin approval is approved once, never remembered" });
+      const ruleRefusal = saveOwnerRuleFromCard(auth, bot.threadId, String(body.requestId), body.rule, behavior);
+      if (ruleRefusal) return json(res, ruleRefusal.status, { error: ruleRefusal.error });
       return await answeringCardAs(auth, bot.threadId, String(body.requestId), async () => {
         if (resolveAndSendTrust(res, bot.threadId, String(body.requestId), behavior)) return;
         if (await resolveAndSendCwAction(res, auth, bot.threadId, String(body.requestId), behavior)) return;
@@ -36873,6 +37074,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const refusal = commandRememberRefusal(auth, threadId, requestId, behavior);
         if (refusal) return json(res, 403, { error: refusal });
       }
+      if (body.rule !== undefined && adminCheck) return json(res, 400, { error: "an admin approval is approved once, never remembered" });
+      const ruleRefusal = saveOwnerRuleFromCard(auth, threadId, requestId, body.rule, behavior);
+      if (ruleRefusal) return json(res, ruleRefusal.status, { error: ruleRefusal.error });
       return await answeringCardAs(auth, threadId, requestId, async () => {
         if (resolveAndSendTrust(res, threadId, requestId, behavior)) return;
         if (await resolveAndSendCwAction(res, auth, threadId, requestId, behavior)) return;
