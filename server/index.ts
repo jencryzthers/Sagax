@@ -928,6 +928,8 @@ import { createDirectGrantRoutes } from "./direct-grants.ts";
 import { directoryIntervalMs, PerspicaxDirectory, type ModelProvider } from "./perspicax-link.ts";
 import { duplicateNote, PerspicaxMemory } from "./perspicax-memory.ts";
 import { PERSPICAX_UNAVAILABLE_WHY, PerspicaxMcp, perspicaxUnavailableRow, type PerspicaxUnavailableReason } from "./perspicax-mcp.ts";
+import { withClaimsFlag } from "./perspicax-claims.ts";
+import { createPerspicaxClaimsInternalRoutes } from "./routes/perspicax-claims-internal.ts";
 import { createPerspicaxOrgRoutes, orgDirectoryEntries, type OrgSettings, type PendingAdminApproval } from "./perspicax-org-routes.ts";
 import { createMemorySyncTokenRoute } from "./perspicax-memory-sync-token.ts";
 import { ORG_FULL_ACCESS_DEFAULT_MARKER, orgFullAccessAllowed, orgFullAccessGrandfathered, orgFullAccessGrantRefusal, orgFullAccessHolds, orgNewBotApprovalMode, ORG_FULL_ACCESS_DISABLED } from "./org-full-access.ts";
@@ -3554,6 +3556,9 @@ function agentsIntegration(
       // And for a role: team setup, bot creation and deletion, rooms and
       // retries are shown only to a Chief of Staff, whom their routes require.
       SAGAX_CHIEF_OF_STAFF: store.bot(botId)?.chiefOfStaff === true ? "1" : "0",
+      // The claim tools (server/perspicax-claims.ts) while this turn has a
+      // Perspicax profile mounted for the person speaking; the route re-checks.
+      SAGAX_CLAIMS: perspicaxMcp?.hasMounted(threadId, generation, botId) ? "1" : "0",
     },
   };
 }
@@ -18646,6 +18651,8 @@ async function runGroupMemberTurn(
     });
     if (Object.keys(perspicax.custom).length) integrations.custom = { ...integrations.custom, ...perspicax.custom };
     roomPerspicaxPrompt = perspicax.prompt;
+    // The agents tools were built before this mount: list the claim tools now.
+    if (integrations.agents) integrations.agents = withClaimsFlag(integrations.agents, perspicaxMcp?.hasMounted(threadId, internalGeneration, bot.id) === true);
   }
   // Connected-app discovery is intentionally awaited before a provider owns
   // the bot. An interrupt during that setup window must still stop the queued
@@ -22634,6 +22641,28 @@ const cloudMoveRoutes = async (..._args: unknown[]): Promise<boolean> => false;
 // Route modules (server/routes/README.md). `workspaceAccess` is assigned at
 // boot, after this line, so the dependency reads it per request.
 ROUTES.push(createMcpToolNameRoutes());
+// The claim tools' internal route: called from the internal block, after its
+// capability gate, so it is not in ROUTES.
+const perspicaxClaimsInternal = createPerspicaxClaimsInternalRoutes({
+  perspicaxMcp: () => perspicaxMcp,
+  review: async (text, capability) => {
+    const speakerId = capability.sandboxPrincipalId ?? capability.desktopPrincipalId;
+    const misuse = misuseTextRefusal(text, speakerId, "mcp", { botId: capability.botId, threadId: capability.threadId, tool: "perspicax" });
+    if (misuse) return misuse;
+    const who = safetyPrincipal(capability.threadId);
+    return (await safetyToolHold({
+      text,
+      surface: "mcp",
+      tool: "perspicax",
+      known: true,
+      triage: who.triage || misuseActor(speakerId).triage,
+      ...(who.principalId || speakerId ? { principalId: who.principalId ?? speakerId } : {}),
+      threadId: capability.threadId,
+      botId: capability.botId,
+      review: safetyReviewer(capability.botId),
+    })) ?? null;
+  },
+});
 ROUTES.push(createHostedSlackRoutes({ bot: (id) => store.bot(id), hostedReady: () => Boolean(workspaceAccess) && entitled("admin") }));
 // Install statuses come from the organization library's own state, never
 // its file, so New bot cannot disagree with it. No organization: none.
@@ -31628,6 +31657,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         res.writeHead(answer.status, { "content-type": "application/json", "cache-control": "no-store" });
         return res.end(JSON.stringify(answer.body));
       }
+      // Claims (server/routes/perspicax-claims-internal.ts), behind the
+      // capability checked above.
+      if ((await perspicaxClaimsInternal({ res, path, method, json, capability: internalCapability, readBody: readInternalBody })) !== PASS) return;
       if (method === "POST" && path === "/api/internal/connectors/mcp") {
         const body = await readInternalBody();
         // Reading a streamed MCP body yields to ordinary settings requests.
