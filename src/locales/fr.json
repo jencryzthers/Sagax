@@ -7688,5 +7688,10 @@
   "botPanel.skills.upload.err.notText": "{subject} : pas du texte UTF-8.",
   "botPanel.skills.upload.err.frontmatter": "{subject} : l'en-tête (front matter) doit avoir un name (minuscules, chiffres et traits d'union) et une description. {detail}",
   "botPanel.skills.upload.err.exists": "{subject} : ce bot a déjà une compétence de ce nom. Retirez-la d'abord ou renommez la compétence.",
-  "botPanel.skills.upload.err.duplicate": "{subject} : ce nom figure deux fois dans le téléversement."
+  "botPanel.skills.upload.err.duplicate": "{subject} : ce nom figure deux fois dans le téléversement.",
+  "chat.copy": "Copier",
+  "chat.copyRequestId": "Copier l'ID de requête",
+  "chat.copyRequestIdDone": "ID de requête copié",
+  "reactions.quick": "Réactions rapides",
+  "reactions.more": "Plus de réactions"
 }

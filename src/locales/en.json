@@ -7688,5 +7688,10 @@
   "botPanel.skills.upload.err.notText": "{subject}: not UTF-8 text.",
   "botPanel.skills.upload.err.frontmatter": "{subject}: the front matter needs a name (lowercase letters, digits and hyphens) and a description. {detail}",
   "botPanel.skills.upload.err.exists": "{subject}: this bot already has a skill with this name. Remove it first, or rename the skill.",
-  "botPanel.skills.upload.err.duplicate": "{subject}: this name is in the upload twice."
+  "botPanel.skills.upload.err.duplicate": "{subject}: this name is in the upload twice.",
+  "chat.copy": "Copy",
+  "chat.copyRequestId": "Copy request ID",
+  "chat.copyRequestIdDone": "Request ID copied",
+  "reactions.quick": "Quick reactions",
+  "reactions.more": "More reactions"
 }
