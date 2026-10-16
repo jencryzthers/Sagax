@@ -22,6 +22,7 @@
 //                      | usage-limit (the account's usage limit refused the
 //                        call: the api-error frame and result 2.1.295 sends,
 //                        code usage_limit_reached, carrying the refused window)
+//   A prompt carrying [fake:api-error] plays that one turn as api-error.
 //   FAKE_CLAUDE_API_ERROR text for the api-error frame (default: overloaded;
 //                      for usage-limit, the weekly limit's words).
 //   FAKE_CLAUDE_RATE_LIMIT JSON rate_limit_info: each turn reports it in a
@@ -163,7 +164,8 @@
 //   FAKE_CLAUDE_MCP_PAUSE_MS a pause between two calls (a test can change
 //                      the world in between).
 //   FAKE_CLAUDE_MCP_DUMP path to write {servers, calls:[{server, tool, listed,
-//                      ok, text}]} as JSON after the calls.
+//                      ok, text}]} as JSON after the calls (text cut at
+//                      FAKE_CLAUDE_MCP_TEXT_LIMIT characters, default 500).
 //   FAKE_CLAUDE_EXIT_DELAY_MS ms this process keeps running after SIGTERM
 //                      before it exits: a CLI that is slow to stop, as one
 //                      can be on Windows, where taskkill is asynchronous.
@@ -752,7 +754,8 @@ const playTurn = (prompt: JsonValue, late = false) => {
     finishIfDone();
     return;
   }
-  if (mode === "api-error" || resumedError) {
+  // a prompt carrying [fake:api-error] fails like api-error, whatever the mode
+  if (mode === "api-error" || resumedError || promptText(prompt).includes("[fake:api-error]")) {
     const text = process.env.FAKE_CLAUDE_API_ERROR ?? "API Error: 529 Overloaded. This is a server-side issue, usually temporary.";
     out({ type: "assistant", message: { model: "<synthetic>", content: [{ type: "text", text }] }, error: "unknown", is_api_error_message: true });
     out({ type: "result", is_error: true, stop_reason: "stop_sequence", terminal_reason: "api_error", result: text });
@@ -1001,7 +1004,7 @@ async function runFakeMcpCalls(calls: FakeMcpCall[], configPath: string | null):
         const answer = await session.request("tools/call", { name: call.tool, arguments: call.arguments });
         const result = answer.result as { isError?: boolean; content?: Array<{ text?: string }> } | undefined;
         const ok = Boolean(result) && result?.isError !== true && !answer.error;
-        const text = answer.error ? String((answer.error as { message?: unknown }).message ?? "error") : (result?.content ?? []).map((part) => part.text ?? "").join(" ").slice(0, 500);
+        const text = answer.error ? String((answer.error as { message?: unknown }).message ?? "error") : (result?.content ?? []).map((part) => part.text ?? "").join(" ").slice(0, Number(process.env.FAKE_CLAUDE_MCP_TEXT_LIMIT) || 500);
         results.push({ server: name, tool: call.tool, listed: tools.includes(call.tool), ok, text });
         notes.push(`mcp:${call.tool}:${ok ? "ok" : "error"}`);
       } finally {

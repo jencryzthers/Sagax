@@ -115,7 +115,7 @@ import * as checkpoints from "./checkpoints.ts";
 import { commandReceipt } from "./commands.ts";
 import { buildTurnDigest, coverageForDriver, digestPromptLine, renderDigest, toolEvidence } from "./digest.ts";
 import { expireApprovalsAfterRestart } from "./approval-restart.ts";
-import { appendDecision, bindDecisionRetention, boundRetentionDays, decisionRetentionDays, decisionsCsv, flushDecisionLog, pruneDecisions, readDecisionRange, readDecisions, withDecisionActor, type DecisionActor } from "./decision-log.ts";
+import { appendDecision, bindConfidentialDecisions, bindDecisionRetention, boundRetentionDays, decisionRetentionDays, decisionsCsv, flushDecisionLog, pruneDecisions, readDecisionRange, readDecisions, scrubThreadDecisions, withDecisionActor, type DecisionActor } from "./decision-log.ts";
 import { validateBotCwd } from "./bot-cwd.ts";
 import {
   ATTACHMENTS_DIR,
@@ -484,6 +484,10 @@ import { LiveCallController, LiveCallSignedOutError, type LiveSocket } from "./l
 import { recordLiveCall, spokenLineFields, titleLiveCall } from "./live-call-record.ts";
 import { narrateTool, toUtterances } from "./tts/speech-text.ts";
 import { turnStartLogLine } from "./turn-log.ts";
+import {
+  CONFIDENTIAL_CARD_REFUSED, CONFIDENTIAL_INCIDENT_TEXT, CONFIDENTIAL_NOTICE_BODY, CONFIDENTIAL_PEER_REFUSED, ConfidentialMemoryPasses, PERSPICAX_MEMORY_REFUSED, confidentialBrowserSession,
+  confidentialCardAnswerable, confidentialInternalRefusal, confidentialPatch, memoryWriteDigest, CONFIDENTIAL_CARD_MAX_CHARS, MEMORY_BOUND_FIELDS, mcpConfidentialVerdict, newThreadConfidential, outboundCallDigest, perspicaxConfidentialVerdict, perspicaxMemoryVerdict, pinPersonalScope,
+} from "./confidential-threads.ts";
 import { makeCapContinuationSubscriber } from "./turn-continuation.ts";
 import { TurnStops, stoppedTurnOutcome } from "./turn-outcome.ts";
 import { buildRecoveryText, buildTurnContext, engineIsFresh, NATIVELY_REPLAYING_DRIVER_KINDS } from "./turn-context.ts";
@@ -782,6 +786,7 @@ import {
   isSameOrigin,
   serializeSessionCookie,
   sessionCookieName,
+  secureTokenMatch,
 } from "./request-auth.ts";
 import { cookieMaxAgeSeconds, formatPairingCode, isBotActSession, SessionRegistry, type Scope, type SessionRecord } from "./sessions.ts";
 import { isAccountEmail, isPrincipalId, PrincipalRegistry, type Principal } from "./principals.ts";
@@ -1355,7 +1360,7 @@ function observePushFrame(payload: Record<string, unknown>): void {
         if (IDENTITY.kind !== "perspicax") return [localPrincipalId()];
         const bot = note.botId ? store.bot(note.botId) : note.threadId ? store.botByThread(note.threadId) : undefined;
         if (!bot) return [];
-        if (note.kind === "approval") return [approvalOwnerId(bot)];
+        if (note.kind === "approval") return [approvalOwnerId(bot, typeof note.threadId === "string" ? note.threadId : undefined)];
         const person = note.threadId ? privateThreadOwner(store.taskByThread(bot.id, note.threadId), effectiveBotOwner(bot)) : effectiveBotOwner(bot);
         return person ? [person] : [];
       },
@@ -1604,6 +1609,11 @@ bindThreadLogCapProvider(() => threadEventLogMaxBytes(cfg));
 // The decision log keeps month files for at least this many days. Read per
 // prune, so a Settings change applies at the next one without a restart.
 bindDecisionRetention(() => decisionRetentionDays(cfg.decisions?.retentionDays));
+// A confidential thread's decision rows are written metadata only.
+// A deleted confidential thread stays a tombstone, so a late row (a card
+// settling after the delete) is written metadata only too.
+const deletedConfidentialThreads = new Set<string>();
+bindConfidentialDecisions((threadId) => deletedConfidentialThreads.has(threadId) || store.isConfidentialThread(threadId));
 // The decision model (server/decider): reads cfg per call, so a Settings
 // save applies to the next decision. It never throws into a turn.
 const decider = createDecider({ config: () => cfg, dataDir: DATA_DIR });
@@ -4331,7 +4341,19 @@ async function closeServerBrowsers(): Promise<void> {
 // Temporary profiles last for this server run, but are never saved to disk.
 // The viewer and the agent must address the SAME temporary browser.
 const temporaryBrowserSessions = new Map<string, string>();
-function currentBrowserSession(botId: string, profile: string | undefined): string {
+// A confidential thread's browser (server/confidential-threads.ts): a
+// throwaway guest session of that thread alone, never the bot's profile nor
+// a shared one, never saved to disk, discarded at the end of each turn.
+const confidentialBrowserSessions = new Map<string, string>();
+function currentBrowserSession(botId: string, profile: string | undefined, threadId?: string): string {
+  if (threadId && store.isConfidentialThread(threadId)) {
+    let session = confidentialBrowserSessions.get(threadId);
+    if (!session) {
+      session = confidentialBrowserSession(threadId, randomUUID().slice(0, 8));
+      confidentialBrowserSessions.set(threadId, session);
+    }
+    return session;
+  }
   if (profile === "guest") {
     let session = temporaryBrowserSessions.get(botId);
     if (!session) {
@@ -4356,7 +4378,22 @@ async function forgetTemporaryBrowser(botId: string): Promise<void> {
   if (closed) await browserRuntime.close(session);
   else console.warn(`temporary browser ${session}: could not close its session; run agent-browser --session ${session} close on this server`);
 }
-async function browserIntegration(botId: string, profile: string | undefined, turn?: { threadId: string; generation: string }) {
+/** Close a confidential thread's browser and drop everything it kept
+ * (cookies, storage): at the end of each of its turns, and when it is deleted. */
+async function forgetConfidentialBrowser(threadId: string): Promise<void> {
+  const session = confidentialBrowserSessions.get(threadId);
+  if (!session) return;
+  confidentialBrowserSessions.delete(threadId);
+  usedBrowserSessions.delete(session);
+  const engine = browserEngineStatus();
+  if (engine.kind !== "ready") return;
+  const closed = await clearBrowserSessionState(engine.binaryPath, session, {
+    env: { PATH: augmentedPath() }, encryptionKey: browserEngineEncryptionKey(),
+  });
+  if (closed) await browserRuntime.close(session);
+  else console.warn(`confidential browser ${session}: could not close its session; run agent-browser --session ${session} close on this server`);
+}
+async function browserIntegration(botId: string, profile: string | undefined, turn?: { threadId: string; generation: string }, sessionThreadId?: string) {
   const status = browserEngineStatus();
   if (status.kind !== "ready") {
     if (!engineUnavailableLogged) {
@@ -4366,22 +4403,25 @@ async function browserIntegration(botId: string, profile: string | undefined, tu
     return null;
   }
   // A profile that no longer exists falls back to the bot's own session.
-  const profileTarget = profile && profile !== "guest" ? browserProfilePartitionTarget(cfg, profile) : null;
-  const partitionId = profile === "guest" ? "guest" : (profileTarget?.partitionId ?? "");
-  const session = currentBrowserSession(botId, profile);
+  const threadForSession = turn?.threadId ?? sessionThreadId;
+  const confidential = Boolean(threadForSession && store.isConfidentialThread(threadForSession));
+  const profileTarget = !confidential && profile && profile !== "guest" ? browserProfilePartitionTarget(cfg, profile) : null;
+  const partitionId = confidential || profile === "guest" ? "guest" : (profileTarget?.partitionId ?? "");
+  const session = currentBrowserSession(botId, profile, threadForSession);
+  const persistent = !confidential && profile !== "guest";
   const spec = agentBrowserIntegration({
       binaryPath: status.binaryPath,
       session,
       encryptionKey: browserEngineEncryptionKey(),
-      persistent: profile !== "guest",
+      persistent,
       env: { ...process.env, PATH: augmentedPath() },
       attachCdpUrl: browserEngineAttachCdpUrl(cfg) ?? undefined,
     });
   usedBrowserSessions.set(session, spec);
-  await prepareBrowserSessionState(status.binaryPath, session, { env: spec.env, persistent: profile !== "guest", isCurrent: () => {
+  await prepareBrowserSessionState(status.binaryPath, session, { env: spec.env, persistent, isCurrent: () => {
     const current = store.bot(botId);
     return !!current && current.browser !== false && builtInBrowserEnabled(cfg)
-      && currentBrowserSession(current.id, current.browserProfile) === session
+      && currentBrowserSession(current.id, current.browserProfile, threadForSession) === session
       && (!turn || activeInternalGenerationByThread.get(turn.threadId) === turn.generation);
   } });
   if (!turn) return { profile: partitionId, session, spec, integration: spec };
@@ -4855,6 +4895,8 @@ function perspicaxSubOf(principalId: string): string | null {
 function recordPerspicaxWork(bot: BotRecord, threadId: string, speaker: TurnSpeaker, principalId: string, profiles: readonly string[]): void {
   const person = perspicaxSubOf(principalId);
   if (!person || !perspicaxMemory) return;
+  // The organization's work log is shared: a confidential thread leaves no row.
+  if (store.isConfidentialThread(threadId)) return;
   const routine = routineLineage(speaker);
   const origin = IDENTITY.kind === "perspicax" ? IDENTITY.publicOrigin.replace(/\/+$/, "") : "";
   perspicaxMemory.recordWork({
@@ -5087,7 +5129,7 @@ const awaitedAsks = new Set<{ threadId: string }>();
 function askBotAndWait(targetBotId: string, message: string, depth: number, fromBotId?: string, fromThreadId?: string, targetThreadId?: string): Promise<AskBotOutcome> {
   const target = store.bot(targetBotId);
   if (!target) return Promise.resolve({ status: "error", text: "(no such bot)" });
-  const threadId = targetThreadId ?? target.threadId;
+  const threadId = targetThreadId ?? peerThreadFor(target);
   return new Promise((resolve) => {
     let text = "";
     let done = false;
@@ -9184,8 +9226,120 @@ function approvalHostOf(bot: BotRecord): BotHost {
   return { kind: "fleet" };
 }
 
-function approvalOwnerId(bot: BotRecord): string {
+/** Who answers a bot's approval cards: its owner, except in a confidential
+ * thread (server/confidential-threads.ts), whose cards are its owner's only. */
+function approvalOwnerId(bot: BotRecord, threadId?: string): string {
+  if (threadId && store.isConfidentialThread(threadId)) {
+    const task = store.taskByThread(bot.id, threadId);
+    if (task) return privateThreadOwner(task, effectiveBotOwner(bot));
+  }
   return effectiveBotOwner(bot);
+}
+/** A Cloud home is its owner's server: they hold its disk, its logs and
+ * every conversation on it, so a guest's thread could never be kept from
+ * them. Rather than promise it, a guest is told so. */
+const CLOUD_GUEST_CONFIDENTIAL = "This Cloud belongs to its owner, who can read everything on it: a confidential thread here could not be kept from them. Use your own Sagax for confidential work.";
+/** Organization setting: new threads start confidential unless the person
+ * says otherwise (Settings > Organisation). Never on a solo server. */
+function confidentialThreadsByDefault(): boolean {
+  return IDENTITY.kind === "perspicax" && cfg.organization?.confidentialThreadsByDefault === true;
+}
+/** The MCP servers whose calls from a confidential thread take the owner's card. */
+const CONFIDENTIAL_GATED_MCP_PATHS = new Map<string, "frame" | "message" | "result">([
+  // each server's own envelope: personal wraps the frame, data and the workplace the result
+  ["/api/internal/connectors/mcp", "frame"], ["/api/internal/personal-mcp", "message"], ["/api/internal/workplace/mcp", "result"], [DATA_INTERNAL_MCP_PATH, "result"],
+]);
+/** One-shot passes for a confidential thread's personal memory write. */
+const confidentialMemoryPasses = new ConfidentialMemoryPasses();
+/** Whether a thread works (or will work) in its own folder only: never
+ * pinned yet, or pinned to task-workspaces/<bot>/<thread>. */
+function privateFolderThread(botId: string, threadId: string): boolean {
+  const task = store.taskByThread(botId, threadId);
+  if (!task) return false;
+  if (task.cwd === undefined) return true;
+  if (task.cwd === null) return false;
+  const own = join(TASK_WORKSPACES_DIR, botId, threadId);
+  const real = (path: string) => { try { return realpathSync(path); } catch { return path; } };
+  return task.cwd === own || real(task.cwd) === real(own);
+}
+/** Make a thread confidential (one way): nothing of it waiting for capture
+ * is captured, and its decision rows so far lose their summaries. */
+function makeThreadConfidential(botId: string, threadId: string): void {
+  store.makeTaskConfidential(botId, threadId);
+  memoryUpkeep.dropThread(threadId);
+  void scrubThreadDecisions(DATA_DIR, threadId);
+}
+/** The stored uploads and attach_file outputs a confidential thread's
+ * messages point at, every branch included: names inside the attachment store. */
+function confidentialThreadAttachments(botId: string, threadId: string): string[] {
+  const names = new Set<string>();
+  const consider = (path: string | undefined) => {
+    if (!path) return;
+    // The store's own names only (an opaque id and an extension), as the bot
+    // zip reads them: never a path outside it.
+    const name = path.replaceAll("\\", "/").split("/").pop() ?? "";
+    if (!/^[A-Za-z0-9-]+\.[a-z0-9]{1,8}$/.test(name) || !existsSync(join(ATTACHMENTS_DIR, name))) return;
+    names.add(name);
+  };
+  const messages = store.messagesFor(threadId);
+  for (const message of messages) {
+    for (const attachment of message.attachments ?? []) consider(attachment.path);
+    // a link to a stored file written in the text (an image in Markdown)
+    for (const match of (message.text ?? "").matchAll(/\/api\/attachments\/([A-Za-z0-9-]+\.[a-z0-9]{1,8})/g)) consider(match[1]);
+  }
+  for (const ref of threadFileRefs(messages, botId)) if (ref.source === "upload" || ref.source === "attachment") consider(ref.path);
+  return [...names];
+}
+/** After a confidential thread's record is gone (messages, event and native
+ * logs: store.deleteTask): its folder, the attachments no other thread
+ * points at, its pending capture, its browser and its decision summaries. */
+function wipeConfidentialThread(botId: string, threadId: string, attachmentNames: readonly string[]): void {
+  if (deletedConfidentialThreads.size >= 10_000) deletedConfidentialThreads.clear();
+  deletedConfidentialThreads.add(threadId);
+  if (/^[A-Za-z0-9_-]{1,128}$/.test(botId) && /^[A-Za-z0-9_-]{1,128}$/.test(threadId)) {
+    try {
+      rmSync(join(TASK_WORKSPACES_DIR, botId, threadId), { recursive: true, force: true });
+    } catch (error) {
+      console.warn(`confidential thread: could not remove its folder (${error instanceof Error ? error.message : "unknown"})`);
+    }
+  }
+  // the oversized tool results kept for it (both spellings of its folder)
+  for (const dir of new Set([join(TOOL_RESULTS_DIR, threadId.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 80)), join(TOOL_RESULTS_DIR, threadId.replace(/[^\w.-]/g, "_"))])) {
+    try { rmSync(dir, { recursive: true, force: true }); } catch { /* already gone */ }
+  }
+  for (const name of attachmentNames) {
+    attachmentThreads.delete(name);
+    if (threadsReferencing(name).length) continue;
+    try {
+      rmSync(join(ATTACHMENTS_DIR, name), { force: true });
+    } catch { /* already gone */ }
+  }
+  memoryUpkeep.dropThread(threadId);
+  confidentialMemoryPasses.forget(threadId);
+  void forgetConfidentialBrowser(threadId).catch(() => undefined);
+  void scrubThreadDecisions(DATA_DIR, threadId);
+}
+/** The thread a bot's peers, delegations, asides and any turn started
+ * without a named thread land in: its selected thread, unless that one is
+ * confidential (server/confidential-threads.ts), which never receives a
+ * turn its owner did not start. Then its newest ordinary open conversation
+ * of the bot owner's, else a new one, never selected. */
+function peerThreadFor(bot: BotRecord): string {
+  if (!store.isConfidentialThread(bot.threadId)) return bot.threadId;
+  const owner = effectiveBotOwner(bot);
+  const at = (task: TaskRecord) => task.updatedAt ?? task.createdAt;
+  const open = store.tasks(bot.id)
+    .filter((task) => task.confidential !== true && !task.routineRunId && task.hidden !== true && task.archivedAt === undefined
+      && !task.openedBy && ownsThread(owner, task, owner))
+    .sort((a, b) => at(b) - at(a))[0];
+  if (open) return open.threadId;
+  return store.createTask(bot.id, undefined, false)?.threadId ?? bot.threadId;
+}
+/** The person a confidential thread belongs to, else null. */
+function confidentialThreadOwner(threadId: string): string | null {
+  if (!store.isConfidentialThread(threadId)) return null;
+  const bot = store.botByThread(threadId);
+  return bot ? privateThreadOwner(store.taskByThread(bot.id, threadId), effectiveBotOwner(bot)) : null;
 }
 
 function approvalOwnerName(ownerUserId: string): string {
@@ -9254,7 +9408,7 @@ function approvalAnswerRefusal(auth: RequestAuth, threadId: string, requestId: s
     // A request that is no longer open (or never was): the thread's bot owner
     // still gets the plain "unavailable" or 404 answer, anyone else the 403.
     const bot = botForApproval(threadId, {});
-    const audience = bot ? approvalAudience({ ownerUserId: approvalOwnerId(bot), host: approvalHostOf(bot) }) : null;
+    const audience = bot ? approvalAudience({ ownerUserId: approvalOwnerId(bot, threadId), host: approvalHostOf(bot) }) : null;
     return approvalAnswerStatus({ question: false, audience, callerUserId: approvalCallerUserId(auth) }) === 403 ? refusal : null;
   }
   // a question (the questionRequest form, or a persistent ask card) stays on the ordinary answer path
@@ -9263,7 +9417,7 @@ function approvalAnswerRefusal(auth: RequestAuth, threadId: string, requestId: s
   if (message.card && typeof message.card === "object" && message.card.terminalRequest) return null;
   if (!isApprovalCardMessage(message)) return refusal;
   const bot = botForApproval(threadId, message);
-  const audience = bot ? approvalAudience({ ownerUserId: approvalOwnerId(bot), host: approvalHostOf(bot) }) : null;
+  const audience = bot ? approvalAudience({ ownerUserId: approvalOwnerId(bot, threadId), host: approvalHostOf(bot) }) : null;
   if (approvalAnswerStatus({ question: false, audience, callerUserId: approvalCallerUserId(auth) }) === 403) return refusal;
   return null;
 }
@@ -9399,7 +9553,10 @@ function pendingApprovalsFor(viewer: { principalId: string; orgAdmin: boolean },
   const out: AdminApproval[] = [];
   for (const { bot, threadId, message, card } of pendingApprovalCards()) {
     const kind = card.adminApproval ? "admin" as const : "owner" as const;
-    const ownerId = approvalOwnerId(bot);
+    const ownerId = approvalOwnerId(bot, threadId);
+    // A confidential thread's cards are its owner's alone: never in the
+    // organization queue, never someone else's to decide.
+    if (store.isConfidentialThread(threadId) && (kind === "admin" || ownerId !== viewer.principalId)) continue;
     // "org" (the console's organization queue, admins only): every pending
     // card, decidable only by whoever Sagax lets decide it.
     const mayDecide = kind === "admin" ? viewer.orgAdmin : ownerId === viewer.principalId;
@@ -9438,7 +9595,8 @@ async function answerCardFromConsole(viewer: OrgAdminViewer, threadId: string, r
   if (!bot) return { ok: false, status: 404, code: "not_found", message: "No such approval." };
   if (card.answered || card.dismissed || card.expired) return { ok: false, status: 409, code: "card_not_pending", message: "This approval was already answered or has expired." };
   const kind = card.adminApproval ? "admin" : "owner";
-  if (kind === "admin" ? !viewer.orgAdmin : approvalOwnerId(bot) !== viewer.principalId) {
+  if (store.isConfidentialThread(threadId) && kind === "admin") return { ok: false, status: 404, code: "not_found", message: "No such approval." };
+  if (kind === "admin" ? !viewer.orgAdmin : approvalOwnerId(bot, threadId) !== viewer.principalId) {
     return { ok: false, status: 403, code: "forbidden", message: kind === "admin" ? "Only an organization admin can answer this approval." : "Only the bot owner can answer this approval." };
   }
   if (approvalTypeOf(card) !== "tool" || approvalHostOf(bot).kind !== "fleet") {
@@ -9501,7 +9659,7 @@ function scopeApprovalMessage<T>(threadId: string, message: T, viewer: ApprovalV
   if (!isApprovalCardMessage(row)) return message;
   const bot = botForApproval(threadId, row);
   const audience = bot
-    ? approvalAudience({ ownerUserId: approvalOwnerId(bot), host: approvalHostOf(bot) })
+    ? approvalAudience({ ownerUserId: approvalOwnerId(bot, threadId), host: approvalHostOf(bot) })
     : { userId: "\0", deviceId: null as string | null };
   const ownerName = bot ? approvalOwnerName(audience.userId) : "the owner";
   return approvalDelivery({
@@ -9529,12 +9687,14 @@ function notifyAccess(notification: Notification | null, access: WireAccessCard,
   if (!notification) return;
   // A refused turn, for the console's Overview (server/org-problem-log.ts).
   const refusedBot = store.bot(access.botId);
+  // a confidential thread's row names nothing of it (server/confidential-threads.ts)
+  const refusedConfidential = store.isConfidentialThread(notification.threadId);
   void appendProblem(DATA_DIR, {
     kind: "refused", botId: access.botId, botName: refusedBot?.name ?? access.botId, ownerPrincipalId: access.ownerPrincipalId || null,
-    threadId: notification.threadId, title: refusedBot ? store.taskByThread(refusedBot.id, notification.threadId)?.title ?? null : null,
+    threadId: notification.threadId, title: refusedBot && !refusedConfidential ? store.taskByThread(refusedBot.id, notification.threadId)?.title ?? null : null,
     engine: refusedBot?.modelSelection?.instanceId ?? null,
     reason: access.cause === "payer_disabled" || access.cause === "server_engine_not_allowed" ? access.cause : access.reason,
-    detail: redactSecretsInText(notification.body ?? ""),
+    detail: refusedConfidential ? CONFIDENTIAL_INCIDENT_TEXT : redactSecretsInText(notification.body ?? ""),
   });
   if (IDENTITY.kind !== "perspicax") return notify(notification);
   const bot = store.bot(access.botId);
@@ -9654,7 +9814,7 @@ function scopeChannelApproval(
     if (note.kind !== "approval") return { action: "same" };
     const bot = approvalBot(note);
     if (!bot) return { action: "drop" };
-    const audience = approvalAudience({ ownerUserId: approvalOwnerId(bot), host: approvalHostOf(bot) });
+    const audience = approvalAudience({ ownerUserId: approvalOwnerId(bot, typeof note.threadId === "string" ? note.threadId : undefined), host: approvalHostOf(bot) });
     return receivesApprovalCard(viewer, audience) ? { action: "same" } : { action: "drop" };
   }
   if (kind === "runtime") {
@@ -9664,7 +9824,7 @@ function scopeChannelApproval(
     if (row.type !== "request.opened" || row.requestType !== "permission") return { action: "same" };
     const bot = approvalBot(row);
     if (!bot) return { action: "drop" };
-    const audience = approvalAudience({ ownerUserId: approvalOwnerId(bot), host: approvalHostOf(bot) });
+    const audience = approvalAudience({ ownerUserId: approvalOwnerId(bot, typeof row.threadId === "string" ? row.threadId : undefined), host: approvalHostOf(bot) });
     return receivesApprovalCard(viewer, audience) ? { action: "same" } : { action: "drop" };
   }
   return { action: "same" };
@@ -10167,6 +10327,9 @@ const QUIET_TURN_NEWS: ReadonlySet<Notification["kind"]> = new Set(["done", "tur
 /** Put a notification on the wire. Clients decide what to do with it — a
  * desktop notification now, a push to a paired phone later. */
 function notify(notification: Notification | null) {
+  // A confidential thread's notice says only that much: its words never
+  // reach a lock screen, a push relay or a notification centre.
+  if (notification && store.isConfidentialThread(notification.threadId)) notification = { ...notification, body: CONFIDENTIAL_NOTICE_BODY };
   // An AI client's hidden conversation (#291) never buzzes the person: the
   // client that started it reads the answer. An approval is the exception:
   // only the person can give it, and the conversation is in no sidebar.
@@ -10555,11 +10718,14 @@ const memoryUpkeep = createMemoryUpkeep({
     return facts.length;
   },
   sourceLabel: (botId, threadId) => memorySourceLabel({ task: store.taskByThread(botId, threadId), threadId }),
+  // A confidential thread is never captured, even a turn queued before it became one.
+  capturable: (threadId) => !store.isConfidentialThread(threadId),
   // Turns still waiting at the last shutdown, read back from the transcript.
   // The checks that need only stored state run again; the in-memory ones
   // (internal, unattended) already passed before the turn was queued.
   restoreTurn: (botId, threadId, turnId) => {
     if (store.botByThread(threadId)?.id !== botId || store.groupByThread(threadId) || routines?.runForThread(threadId)) return null;
+    if (store.isConfidentialThread(threadId)) return null;
     if (CLOUD_HOME && !cloudOwnerOnlyThread(threadId)) return null;
     return captureTurnFor(threadId, turnId);
   },
@@ -10617,6 +10783,8 @@ bus.subscribe((event: RuntimeEvent) => {
     const bot = store.botByThread(event.threadId);
     if (!bot || !upkeepEnabled(bot) || store.groupByThread(event.threadId) || isInternalTurn(event.threadId)
       || isUnattended(bot.id, event.threadId) || routines?.runForThread(event.threadId)) return;
+    // A confidential thread is never remembered (server/confidential-threads.ts).
+    if (store.isConfidentialThread(event.threadId)) return;
     // On a Cloud home the bot's memory reaches its owner's turns (and a lent
     // Mac): nothing is captured from a conversation anyone else wrote in.
     if (CLOUD_HOME && !cloudOwnerOnlyThread(event.threadId)) return;
@@ -10625,6 +10793,16 @@ bus.subscribe((event: RuntimeEvent) => {
   } catch (error) {
     console.warn(`memory upkeep: could not queue a turn for capture: ${(error as Error).message}`);
   }
+});
+
+// A confidential thread's browser lasts one turn: its cookies and storage
+// are dropped when the turn ends (server/confidential-threads.ts).
+bus.subscribe((event: RuntimeEvent) => {
+  if (shouldIgnoreProviderEvent(event)) return;
+  if (event.type !== "turn.completed" || !confidentialBrowserSessions.has(event.threadId)) return;
+  void forgetConfidentialBrowser(event.threadId).catch((error: unknown) => {
+    console.warn(`confidential browser: could not discard a thread's session (${error instanceof Error ? error.message : "unknown"})`);
+  });
 });
 
 // One line per finished turn in the bot's daily log (server/recent-work.ts):
@@ -10641,6 +10819,8 @@ bus.subscribe((event: RuntimeEvent) => {
     const reply = messages.findLast((message) => message.role === "bot" && message.kind === "text" && message.turnId === event.turnId);
     const bot = store.botByThread(event.threadId) ?? (reply?.from ? store.bot(reply.from.botId) : undefined);
     if (!bot || bot.memoryEnabled === false) return;
+    // A confidential thread leaves no line in the daily log.
+    if (store.isConfidentialThread(event.threadId)) return;
     const tools = messages
       .filter((message) => message.kind === "activity" && message.turnId === event.turnId && message.tool?.name)
       .map((message) => message.tool!.name);
@@ -12258,6 +12438,21 @@ bus.subscribe((event: RuntimeEvent) => {
         ownerScopedMcpServer: ownerScopedMcpServerFor(asker, event.threadId),
         ownEnvironment,
       }));
+      // A confidential thread's card goes to its owner only: one they could
+      // not answer (an organization admin's card, another person's machine)
+      // is refused rather than shown to anyone else.
+      if (permission && asker && event.requestId && store.isConfidentialThread(event.threadId) && !confidentialCardAnswerable({
+        adminApproval, host: approvalHostOf(asker), threadOwner: approvalOwnerId(asker, event.threadId),
+      })) {
+        const instance = event.providerInstanceId ? registry.get(event.providerInstanceId) : registry.get(asker.modelSelection.instanceId);
+        void instance?.adapter.respondToRequest(event.threadId, event.requestId, { behavior: "deny", message: CONFIDENTIAL_CARD_REFUSED }).catch(() => {});
+        pushMessage({ role: "bot", kind: "activity", tool: { name: CONFIDENTIAL_CARD_REFUSED, ok: false } });
+        appendDecision(DATA_DIR, {
+          threadId: event.threadId, requestId: event.requestId, botId: asker.id, botName: asker.name,
+          tool: event.tool, decision: "auto-denied", source: "confidential",
+        });
+        break;
+      }
       const command = permission && asker && event.requestId && !event.requiresExplicitApproval && event.command && !adminApproval && !guestDriven
         ? commandAllowlistCandidate({ ...event.command, providerInstanceId: event.providerInstanceId ?? asker.modelSelection.instanceId })
         : null;
@@ -12282,7 +12477,7 @@ bus.subscribe((event: RuntimeEvent) => {
         }
         : null;
       const customReview = customCall && asker
-        ? reviewCustomRules(customRules.rulesOf(approvalOwnerId(asker), asker.id), customCall, asker.id)
+        ? reviewCustomRules(customRules.rulesOf(approvalOwnerId(asker, event.threadId), asker.id), customCall, asker.id)
         : null;
       const customDecision = customReview?.decision.kind === "allow"
         && (adminApproval || guestDriven || safetyEffect?.kind === "hold" || event.requiresExplicitApproval === true)
@@ -12331,7 +12526,7 @@ bus.subscribe((event: RuntimeEvent) => {
       const ownerLayer = Boolean(permission && asker && event.requestId && !baseVerdict?.approve && !adminApproval && !guestDriven
         && !/^(?:mcp__[^_]+__)?(?:askuserquestion|ask_user)$/i.test(ownerTool) && memberOwnScopeTool(ownerTool) !== "conversation");
       const ownerCall = ownerLayer && asker
-        ? { ownerId: approvalOwnerId(asker), botId: asker.id, tool: ownerTool, ...(typeof event.input === "string" ? { input: event.input } : {}) }
+        ? { ownerId: approvalOwnerId(asker, event.threadId), botId: asker.id, tool: ownerTool, ...(typeof event.input === "string" ? { input: event.input } : {}) }
         : null;
       const owner = ownerCall && asker
         ? ownerDecision({
@@ -13573,6 +13768,20 @@ function incidentRefused(chief: BotRecord, incidentsThreadId: string, asks: Read
 function reportIncident(input: { kind: IncidentKind; bot: BotRecord; threadId: string; detail: string; routine?: { routineId: string; runAs?: string } }): void {
   const { bot, threadId } = input;
   const task = store.taskByThread(bot.id, threadId);
+  // A confidential thread's incident carries no text: no title, request,
+  // reply, cause or reason, in the console's problem log or anywhere else,
+  // and it reaches the thread's owner only, never a Primary Bot's thread.
+  if (task?.confidential === true) {
+    void appendProblem(DATA_DIR, {
+      kind: input.kind, botId: bot.id, botName: bot.name, ownerPrincipalId: effectiveBotOwner(bot) || null, threadId,
+      title: null, engine: (task.modelSelection ?? bot.modelSelection)?.instanceId ?? null,
+      detail: CONFIDENTIAL_INCIDENT_TEXT,
+    });
+    if (incidentLedger.note(threadId).muted) return;
+    if (input.kind === "could-not-start" || input.kind === "routine-failed") return;
+    notify(deliverableNotification("incident", bot, threadId, CONFIDENTIAL_INCIDENT_TEXT, { avatarUrl: bot.avatarUrl }));
+    return;
+  }
   // The console's Overview and Incidents (server/org-problem-log.ts): every
   // incident, before the delegation and storm rules below decide who hears.
   const failedCause = input.kind === "failed" ? latestFailedTurnCause(threadId) : null;
@@ -14137,7 +14346,8 @@ const runDelegatedTurn: DelegationRunner = (toBotId, rawText, commsDepth, source
     // A fresh-thread handoff runs in the thread the opener created — the
     // drain already dropped it if that thread is gone — never in whatever
     // the person is looking at.
-    const targetThreadId = openedThreadId ?? store.bot(toBotId)?.threadId;
+    const peerTarget = store.bot(toBotId);
+    const targetThreadId = openedThreadId ?? (peerTarget ? peerThreadFor(peerTarget) : undefined);
     const target = store.bot(toBotId);
     const opener = store.bot(sourceBotId);
     const unattended = isUnattended(sourceBotId, sourceThreadId);
@@ -14649,7 +14859,9 @@ async function startParallelTask(input: {
   const inherited = parentThreadModel(bot.id, input.threadId);
   const child = store.createTask(bot.id, title, false, parentTask.projectId, undefined,
     inherited.approvalMode ?? (approvalModeFor(parentTask) === "full" ? "full" : undefined),
-    parentTask.ownerPrincipalId, inherited.modelSelection ?? parentTask.modelSelection);
+    parentTask.ownerPrincipalId, inherited.modelSelection ?? parentTask.modelSelection,
+    // a parallel task of a confidential conversation is confidential too, its owner's
+    false, undefined, parentTask.confidential === true);
   if (!child) throw Object.assign(new Error("couldn't create the parallel task"), { status: 500 });
   // Where it works: a worktree of the conversation's repository, else the
   // same folder (the brief says it is shared), else its own task folder.
@@ -15313,7 +15525,7 @@ function startScreenPoller(
   if (screenPollers.has(threadId)) return;
   const owner = turnResourceOwners.get(threadId);
   const computer = turnComputerResources.get(threadId);
-  const browserSession = currentBrowserSession(botId, botForThread(botId, threadId)?.browserProfile);
+  const browserSession = currentBrowserSession(botId, botForThread(botId, threadId)?.browserProfile, threadId);
   const guarded = (capture: ScreenCapture | undefined, resource: string | undefined): ScreenCapture | undefined =>
     capture && owner && resource ? async () => {
       const isCurrent = () => turnResourceOwners.get(threadId)?.generation === owner.generation &&
@@ -15570,7 +15782,8 @@ async function startTurn(
   workspaceMaintenance.assertAvailable();
   const profile = store.bot(botId);
   if (!profile) throw Object.assign(new Error("no such bot"), { status: 404 });
-  const threadId = opts?.threadId ?? profile.threadId;
+  // No named thread: never a confidential one (peerThreadFor).
+  const threadId = opts?.threadId ?? peerThreadFor(profile);
   const continuingRoutine = opts?.cardContinuation ? activeRoutineRunForThread(threadId) : null;
   if (continuingRoutine) {
     const onDispatchError = opts?.onDispatchError;
@@ -15803,6 +16016,7 @@ async function startTurn(
   if (warmOnly) console.error(`[voice-call] warming thread ${threadId}`);
   else console.error(turnStartLogLine({
     botId, text: resolvedImages.text, images: turnImages.length, depth: commsDepth, card: Boolean(opts?.cardContinuation), spoken,
+    confidential: store.isConfidentialThread(threadId),
   }));
   const instanceId = instance.instanceId;
   // A turn always runs on the bot's own engine, model, effort and variant,
@@ -15915,6 +16129,7 @@ async function startTurn(
   const turnWorks = turnWorksOn(plan, turnRemote.forceCloud);
   const turnPrincipal = sandboxPrincipalForTurn({
     botOwnerPrincipalId: effectiveBotOwner(bot),
+    confidentialOwnerPrincipalId: confidentialThreadOwner(threadId),
     routine: routineLineage(speaker),
     speakerPrincipalId: orgSpeakerPrincipal(bot, speaker),
   });
@@ -16397,7 +16612,9 @@ async function startTurn(
       // revoked: then it was unpinned at boot (server/cloud-owner.ts).
       const pinnedCwd =
         privateWorkspace
-          ? store.pinTaskCwd(bot.id, threadId, privateWorkspace, { privateOnly: cloudGuestOpened(threadId) })
+          // A confidential thread works in its own folder, never the bot's
+          // project folder other threads share (server/confidential-threads.ts).
+          ? store.pinTaskCwd(bot.id, threadId, privateWorkspace, { privateOnly: cloudGuestOpened(threadId) || store.isConfidentialThread(threadId) })
           : null;
       // A bot's threads run side by side in one project folder, like several
       // Claude Code or Codex sessions open in one repo: the folder is never a
@@ -17056,7 +17273,7 @@ async function startTurn(
         // to a turn whose engine actually mounted them (setupMode is already
         // false when they are not — see agentsMounted above)
         { id: "setup", label: "Setup", text: setupSystemPrompt(setupMode, { skills: skillAuthoring, cwd: liveBot?.cwd ?? bot.cwd }) },
-        { id: "files", label: "File locations", text: worksInWorkspace ? workspaceLocationsPrompt(bot.id, cwd, liveBot?.cwd ?? bot.cwd, { attachFile: Boolean(integrations.agents) && !CLOUD_HOME && !HOSTED_WORKSPACE }) : "" },
+        { id: "files", label: "File locations", text: worksInWorkspace ? workspaceLocationsPrompt(bot.id, cwd, liveBot?.cwd ?? bot.cwd, { attachFile: Boolean(integrations.agents) && !CLOUD_HOME && !HOSTED_WORKSPACE, confidential: store.isConfidentialThread(threadId) }) : "" },
         { id: "computer", label: "Computer", text: computerPrompt(computerPromptKind) },
         { id: "team-computer", label: "Team computer", text: teamComputerPrompt(teamComputer) },
         { id: "plan", label: "Surface", text: surfacePrompt({ computer: mountedComputer, browser: Boolean(integrations.browser) }, { pinned: plan.pinned, note: plan.note + vpsUnavailableNote + (computerSkipped && plan.computer !== "off" ? computerSkippedNote(redactSecretsInText(computerSkipped)) : ""), canSelect: computerSelectionTurns.has(threadId) || (warmOnly && maySelectComputer), cloudHome: Boolean(CLOUD_HOME) }) },
@@ -17896,6 +18113,8 @@ routines = new RoutineManager({
     // Only this bot's own visible chat. A room, or a teammate's thread, keeps
     // the detached run so one bot cannot write its work into the wrong place.
     if (!source || source.group || source.bot.id !== run.botId) return null;
+    // never into a confidential thread (server/confidential-threads.ts)
+    if (store.isConfidentialThread(source.threadId)) return null;
     return source.threadId;
   },
   createGoalTask: (groupId, title) => store.createGroupTask(groupId, title, false),
@@ -17921,7 +18140,7 @@ routines = new RoutineManager({
     const task = store.taskByThread(botId, threadId);
     // Private threads: a routine reports only into a thread of the person
     // setting it up, never into someone else's conversation.
-    return Boolean(bot && !bot.hidden && task && !task.routineRunId && botThreadReadable(bot, threadId, scopedThreadViewer(), "thread.post"));
+    return Boolean(bot && !bot.hidden && task && !task.routineRunId && task.confidential !== true && botThreadReadable(bot, threadId, scopedThreadViewer(), "thread.post"));
   },
   resolveResultsThread: (routine, forceNew) => {
     // Every run reports into the routine's bot's main thread, wherever the
@@ -17939,8 +18158,8 @@ routines = new RoutineManager({
     // guest's (or nobody's) keeps a results conversation opened as theirs.
     const opener = CLOUD_HOME ? routineOpener(routine.id) : undefined;
     const main = bot && !bot.hidden && !runAs ? botMainThread(bot.id) : undefined;
-    const mainAllowed = main && (!CLOUD_HOME || (opener === CLOUD_OWNER_KEY && !cloudGuestOpened(main)));
-    const keepChosen = chosen && !chosen.routineRunId && !(mainAllowed && legacyResultsThread(routine.name, chosen));
+    const mainAllowed = main && !store.isConfidentialThread(main) && (!CLOUD_HOME || (opener === CLOUD_OWNER_KEY && !cloudGuestOpened(main)));
+    const keepChosen = chosen && !chosen.routineRunId && chosen.confidential !== true && !(mainAllowed && legacyResultsThread(routine.name, chosen));
     if (keepChosen) return { threadId: chosen.threadId };
     if (mainAllowed) return { threadId: main, main: true };
     if (!CLOUD_HOME && !runAs) return undefined;
@@ -22650,6 +22869,8 @@ function configStatus() {
     membership: workspaceMembership(),
     // organization server: the model providers its admin allows (null: all)
     ...(IDENTITY.kind === "perspicax" ? { allowedEngines: orgAllowedEngines() } : {}),
+    // organization server: new threads start confidential (server/confidential-threads.ts)
+    ...(IDENTITY.kind === "perspicax" ? { confidentialThreadsByDefault: confidentialThreadsByDefault() } : {}),
   };
 }
 
@@ -23866,8 +24087,8 @@ const INTERNAL_ROUTES: InternalRouteHandler[] = [
     },
   }),
   createPerspicaxClaimsInternalRoutes({ perspicaxMcp: () => perspicaxMcp, review: perspicaxNativeReview }),
-  createPerspicaxToolInternalRoutes({ tools: PERSPICAX_TOOL_NAMES, perspicaxMcp: () => perspicaxMcp, review: perspicaxNativeReview }),
-  createMcpAuditInternalRoutes({ append: (row) => appendAdminAction(DATA_DIR, { ...row, actor: { kind: "loopback" } }) }),
+  createPerspicaxToolInternalRoutes({ tools: PERSPICAX_TOOL_NAMES, perspicaxMcp: () => perspicaxMcp, review: perspicaxNativeReview, confidential: confidentialPerspicaxRefusal }),
+  createMcpAuditInternalRoutes({ append: (row) => appendAdminAction(DATA_DIR, { ...row, actor: { kind: "loopback" } }), confidential: (threadId) => store.isConfidentialThread(threadId) }),
   createRoutineRunInternalRoutes<Routine, RoutineRun>({
     ownsThread: (botId, threadId) => Boolean(connectorThread(botId, threadId)),
     routines: () => routines?.listRoutines() ?? [],
@@ -24423,7 +24644,7 @@ ROUTES.push(createCustomRuleRoutes({
     if (!message || !card || card.requestType !== "permission" || card.answered || card.dismissed || card.expired || card.adminApproval) return null;
     const botId = message.from?.botId ?? store.botByThread(where.threadId)?.id;
     const bot = botId ? store.bot(botId) : undefined;
-    if (!bot || approvalOwnerId(bot).toLowerCase() !== personId.toLowerCase()) return null;
+    if (!bot || approvalOwnerId(bot, where.threadId).toLowerCase() !== personId.toLowerCase()) return null;
     const binding = card.customRuleCandidate?.binding;
     return binding ? { ...binding, botId: bot.id } : undefined;
   },
@@ -24433,7 +24654,7 @@ ROUTES.push(createCustomRuleRoutes({
     if (!message || !card || card.requestType !== "permission" || !card.tool || card.answered || card.dismissed || card.expired || card.adminApproval) return null;
     const botId = message.from?.botId ?? store.botByThread(where.threadId)?.id;
     const bot = botId ? store.bot(botId) : undefined;
-    if (!bot || approvalOwnerId(bot).toLowerCase() !== personId.toLowerCase()) return null;
+    if (!bot || approvalOwnerId(bot, where.threadId).toLowerCase() !== personId.toLowerCase()) return null;
     if (rule.botId !== null && rule.botId !== bot.id) return "not-covered";
     const binding = card.customRuleCandidate?.binding;
     const call: CustomRuleCall = {
@@ -25367,8 +25588,10 @@ function botActs(): BotActService {
       const picked = admin ?? live[0];
       return picked ? { id: picked.id, scopes: [...picked.scopes] } : null;
     },
-    performRoute: performBotActRoute,
+    performRoute: performBotActRouteOutsideConfidential,
     broadcastUi: (audience, command, input) => {
+      // a screen command never opens or names a confidential thread
+      if (namesConfidentialThread(JSON.stringify(input))) return;
       broadcast({ kind: "bot-act", audience, action: command, ...(Object.keys(input).length ? { input } : {}) });
     },
     postCard: ({ threadId, botId, botName, botColor, requestId, summary }) => {
@@ -25481,7 +25704,7 @@ async function requestCwAction(auth: RequestAuth, threadId: string, body: Record
     bot = botForThread(owner.id, threadId) ?? owner;
   }
   if (!bot) return { status: 404, body: { error: "no such bot" } };
-  const audience = approvalAudience({ ownerUserId: approvalOwnerId(bot), host: approvalHostOf(bot) });
+  const audience = approvalAudience({ ownerUserId: approvalOwnerId(bot, threadId), host: approvalHostOf(bot) });
   if (!cwActionActor(auth) || approvalAnswerStatus({ question: false, audience, callerUserId: approvalCallerUserId(auth) }) === 403) {
     return { status: 403, body: { error: "Only the bot owner can approve a ConnectWise change.", code: "cw_action_owner_only" } };
   }
@@ -25543,7 +25766,7 @@ async function resolveAndSendCwAction(
   const group = store.groupByThread(threadId);
   const sent = await performBotActRoute(actor, group
     ? { kind: "route", method: "POST", path: `/api/groups/${group.id}/messages`, body: { text: `@${bot.name} ${text}`, threadId } }
-    : { kind: "route", method: "POST", path: `/api/bots/${bot.id}/messages`, body: { text, threadId } });
+    : { kind: "route", method: "POST", path: `/api/bots/${bot.id}/messages`, body: { text, threadId } }, 8000, group ? {} : { continuation: threadId });
   if (sent.status >= 300) {
     cwActionPasses.revoke(threadId, action);
     store.patchMessage(threadId, message.id, { card });
@@ -25552,6 +25775,105 @@ async function resolveAndSendCwAction(
   }
   json(res, 200, { ok: true, outcome: "allowed-once" });
   return true;
+}
+
+// ── a confidential thread's personal memory write (server/confidential-threads.ts) ──
+// Perspicax memory_write to the person's own tier ("me") from a confidential
+// thread waits for their Allow on a card: the call is answered "waiting",
+// and on Allow the bot is asked to make that same write again, which a
+// one-shot pass then lets through. To a team or the organization it is
+// refused outright, and so are memory_propose and memory_promote.
+const pendingConfidentialMemory = new Map<string, { threadId: string; botId: string; digest: string }>();
+
+/** The answer to a Perspicax tool call from a confidential thread, or null
+ * to let it through. */
+function confidentialPerspicaxRefusal(capability: { threadId: string; botId: string }, tool: string, args: Record<string, unknown> | undefined,
+  judge: (tool: string, args: Record<string, unknown> | undefined) => ReturnType<typeof perspicaxConfidentialVerdict> = perspicaxConfidentialVerdict,
+  gate = "perspicax"): string | null {
+  if (!store.isConfidentialThread(capability.threadId)) return null;
+  const verdict = judge(tool, args);
+  if (verdict === "pass") return null;
+  if (verdict === "refuse") return PERSPICAX_MEMORY_REFUSED;
+  const bare = tool.includes("__") ? tool.slice(tool.lastIndexOf("__") + 2) : tool;
+  // memory_write to "me" (scope written in); the file-style memory tool is
+  // already confined to /memories/me/ by its verdict, its call shown as is
+  const memory = judge === perspicaxConfidentialVerdict && (bare === "memory_write" || bare === "memory_save") && perspicaxMemoryVerdict(tool, args) === "confirm";
+  if (memory) {
+    if (!args) return PERSPICAX_MEMORY_REFUSED;
+    // the write goes to "me", said explicitly, whatever Perspicax's default is
+    pinPersonalScope(args);
+    if (args.scope !== "me") return PERSPICAX_MEMORY_REFUSED;
+  }
+  // the pass is for this server, this tool and these arguments only
+  const digest = memory ? memoryWriteDigest(args, gate) : outboundCallDigest(tool, args, gate);
+  if (confidentialMemoryPasses.take(capability.threadId, digest)) return null;
+  const bot = store.bot(capability.botId);
+  if (!bot) return PERSPICAX_MEMORY_REFUSED;
+  const requestId = randomUUID();
+  if (pendingConfidentialMemory.size >= 256) pendingConfidentialMemory.delete(pendingConfidentialMemory.keys().next().value!);
+  pendingConfidentialMemory.set(requestId, { threadId: capability.threadId, botId: bot.id, digest });
+  const french = cwActionLanguage(cfg.language) === "fr";
+  // The card shows exactly what would leave, whole: every bound field of a
+  // memory write, every argument of a call. Too long to show whole: refused.
+  const shown = memory
+    ? `${french ? "Mémoire personnelle" : "Personal memory"}\n${JSON.stringify(Object.fromEntries(MEMORY_BOUND_FIELDS.filter((key) => args?.[key] !== undefined).map((key) => [key, args![key]])), null, 2)}`
+    : `${gate === "perspicax" ? "" : `${gate} · `}${tool}\n${JSON.stringify(args ?? {}, null, 2)}`;
+  if (shown.length > CONFIDENTIAL_CARD_MAX_CHARS) {
+    pendingConfidentialMemory.delete(requestId);
+    return "This is a confidential thread: this call is too long to show the person whole on a card, so it was not sent. Make it smaller, or keep the content in this conversation.";
+  }
+  store.appendMessage(capability.threadId, {
+    role: "bot",
+    kind: "options",
+    from: { botId: bot.id, name: bot.name, color: bot.color },
+    card: {
+      title: memory
+        ? (french ? "Enregistrer dans ta mémoire personnelle?" : "Save to your personal memory?")
+        : (french ? "Laisser sortir ceci d'un fil confidentiel?" : "Let this leave a confidential thread?"),
+      subtitle: shown,
+      options: ["Allow", "Deny"],
+      requestId,
+      tool,
+      confidentialMemoryRequest: { id: requestId },
+    },
+  });
+  return memory
+    ? "This is a confidential thread: a note to the person's own memory waits for their Allow on the card now shown in this conversation. Nothing was saved. Do not retry now; if they allow it you will be asked to save it again with exactly the same arguments."
+    : "This is a confidential thread: this call would send its content outside it, so it waits for the person's Allow on the card now shown in this conversation. Nothing was sent. Do not retry now; if they allow it you will be asked to make exactly the same call again.";
+}
+
+function isConfidentialMemoryCard(threadId: string, requestId: string): boolean {
+  return store.messagesFor(threadId).some((row) => row.card?.requestId === requestId && Boolean(row.card.confidentialMemoryRequest));
+}
+
+/** Allow or Deny on that card: its thread's owner only. */
+async function settleConfidentialMemoryCard(auth: RequestAuth, threadId: string, requestId: string, behavior: string): Promise<{ status: number; body: Record<string, unknown> }> {
+  const message = store.messagesFor(threadId).find((row) => row.card?.requestId === requestId && row.card.confidentialMemoryRequest);
+  const card = message?.card;
+  if (!message || !card) return { status: 404, body: { error: "No such request." } };
+  if (card.answered || card.dismissed || card.expired) return { status: 409, body: { error: "The request is no longer open." } };
+  if (auth.kind === "session" && auth.session.ephemeral === true) return { status: 403, body: { error: CONFIDENTIAL_CARD_DELEGATED } };
+  const owner = confidentialThreadOwner(threadId);
+  const caller = approvalCallerUserId(auth).trim().toLowerCase();
+  if (!owner || !caller || caller !== owner) return { status: 403, body: { error: "Only this thread's owner can answer this request." } };
+  const pending = pendingConfidentialMemory.get(requestId);
+  pendingConfidentialMemory.delete(requestId);
+  const actor = cwActionActor(auth);
+  if (behavior !== "allow" || !pending || !actor) {
+    store.patchMessage(threadId, message.id, { card: { ...card, answered: "deny" } });
+    return { status: 200, body: { ok: true, outcome: "rejected" } };
+  }
+  store.patchMessage(threadId, message.id, { card: { ...card, answered: "allow" } });
+  confidentialMemoryPasses.grant(threadId, pending.digest);
+  const french = cwActionLanguage(cfg.language) === "fr";
+  // the owner allowed it in person: the follow-up posts into exactly this
+  // thread, never as an on-behalf request (which a confidential thread refuses)
+  const sent = await performBotActRoute(actor, {
+    kind: "route", method: "POST", path: `/api/bots/${pending.botId}/messages`,
+    body: { text: french ? "Oui : fais exactement l'appel proposé sur la carte, avec les mêmes arguments." : "Yes: make exactly the call shown on the card, with the same arguments.", threadId },
+  }, 8000, { continuation: threadId });
+  if (sent.status >= 300) return { status: 502, body: { error: "The bot could not be asked to make the call. Try again." } };
+  return { status: 200, body: { ok: true, outcome: "allowed-once" } };
 }
 
 // ── email drafts sent from their card (server/email-draft-send.ts) ──────
@@ -25582,7 +25904,7 @@ function emailDraftBot(auth: RequestAuth, threadId: string, botIdHint: unknown):
     bot = botForThread(owner.id, threadId) ?? owner;
   }
   if (!bot) return { status: 404, body: { error: "no such bot" } };
-  const audience = approvalAudience({ ownerUserId: approvalOwnerId(bot), host: approvalHostOf(bot) });
+  const audience = approvalAudience({ ownerUserId: approvalOwnerId(bot, threadId), host: approvalHostOf(bot) });
   if (!cwActionActor(auth) || approvalAnswerStatus({ question: false, audience, callerUserId: approvalCallerUserId(auth) }) === 403) {
     return { status: 403, body: { error: "Only the bot owner can send this draft.", code: "email_draft_owner_only" } };
   }
@@ -25748,7 +26070,7 @@ async function resolveAndSendEmailDraft(res: ServerResponse, auth: RequestAuth, 
   const group = store.groupByThread(threadId);
   const asked = await performBotActRoute(actor, group
     ? { kind: "route", method: "POST", path: `/api/groups/${group.id}/messages`, body: { text: `@${bot.name} ${text}`, threadId } }
-    : { kind: "route", method: "POST", path: `/api/bots/${bot.id}/messages`, body: { text, threadId } });
+    : { kind: "route", method: "POST", path: `/api/bots/${bot.id}/messages`, body: { text, threadId } }, 8000, group ? {} : { continuation: threadId });
   if (asked.status >= 300) {
     emailSendPasses.revoke(threadId, requestId);
     patchEmailSend(threadId, requestId, {
@@ -25762,12 +26084,43 @@ async function resolveAndSendEmailDraft(res: ServerResponse, auth: RequestAuth, 
   return true;
 }
 
-async function performBotActRoute(actor: PerformActor, target: RouteTarget): Promise<{ status: number; text: string }> {
+/** How a request this server makes to itself is marked (server/confidential-threads.ts):
+ * `onBehalf` for a bot acting as its person (operator acts included), so it
+ * never reaches a confidential thread; `continuation` for the follow-up of
+ * a card its owner allowed in person: when that thread is confidential, a
+ * one-shot token lets it post into exactly that thread once even through a
+ * delegated session (an ordinary thread needs none). */
+type InternalRequestMark = { onBehalf?: true; continuation?: string };
+/** A process secret: only this server's own requests carry it. */
+const ON_BEHALF_SECRET = randomBytes(32).toString("base64url");
+const ON_BEHALF_HEADER = "x-sagax-on-behalf";
+const CONTINUATION_HEADER = "x-sagax-owner-continuation";
+/** One-shot continuation tokens: token -> the thread it may post into. */
+const ownerContinuations = new Map<string, { threadId: string; expiresAt: number }>();
+function mintOwnerContinuation(threadId: string): string {
+  const token = randomBytes(24).toString("base64url");
+  for (const [key, entry] of ownerContinuations) if (entry.expiresAt < Date.now()) ownerContinuations.delete(key);
+  ownerContinuations.set(token, { threadId, expiresAt: Date.now() + 60_000 });
+  return token;
+}
+/** Use a continuation token for a POST of a message into its thread, once. */
+function takeOwnerContinuation(token: string | undefined, method: string, path: string): string | null {
+  // a bot's messages route (/api/bots/<id>/messages), nothing else
+  const parts = path.split("/");
+  if (!token || method !== "POST" || parts.length !== 5 || parts[1] !== "api" || parts[2] !== "bots" || parts[4] !== "messages") return null;
+  const entry = ownerContinuations.get(token);
+  ownerContinuations.delete(token);
+  return entry && entry.expiresAt >= Date.now() ? entry.threadId : null;
+}
+async function performBotActRoute(actor: PerformActor, target: RouteTarget, maxChars = 8000, mark: InternalRequestMark = {}): Promise<{ status: number; text: string }> {
   if (target.path === "/api/internal" || target.path.startsWith("/api/internal/") || target.path === "/api/testing" || target.path.startsWith("/api/testing/")) {
     return { status: 400, text: "That path is not available." };
   }
   const headers = new Headers();
   headers.set("accept", "application/json");
+  if (mark.onBehalf) headers.set(ON_BEHALF_HEADER, ON_BEHALF_SECRET);
+  // only a confidential thread needs the token: an ordinary one takes the follow-up as before
+  if (mark.continuation && store.isConfidentialThread(mark.continuation)) headers.set(CONTINUATION_HEADER, mintOwnerContinuation(mark.continuation));
   let body: string | undefined;
   if (target.body !== undefined) {
     headers.set("content-type", "application/json");
@@ -25786,12 +26139,83 @@ async function performBotActRoute(actor: PerformActor, target: RouteTarget): Pro
   if (target.query) for (const [key, value] of Object.entries(target.query)) url.searchParams.append(key, value);
   try {
     const response = await fetch(url, { method: target.method, headers, body, redirect: "error" });
-    return { status: response.status, text: (await response.text()).slice(0, 8000) };
+    return { status: response.status, text: (await response.text()).slice(0, maxChars) };
   } catch {
     return { status: 502, text: "The action could not be completed." };
   } finally {
     if (revokeId) sessions.revoke(revokeId);
   }
+}
+/** The ids of every confidential thread (server/confidential-threads.ts). */
+function confidentialThreadIds(): Set<string> {
+  const ids = new Set<string>();
+  for (const bot of store.bots) for (const task of bot.tasks ?? []) if (task.confidential === true) ids.add(task.threadId);
+  return ids;
+}
+function namesConfidentialThread(text: string, ids = confidentialThreadIds()): boolean {
+  for (const id of ids) if (text.includes(id)) return true;
+  return false;
+}
+/** A response with every confidential thread cut out: a thread, a hit or a
+ * task of one goes; a bot whose selected thread is confidential stays,
+ * without that thread's id or transcript. */
+function scrubConfidentialThreads(value: unknown, ids: ReadonlySet<string>): unknown {
+  const transcript = ["messages", "activeLeafId", "hasMore"];
+  const scrub = (item: unknown): unknown => {
+    if (Array.isArray(item)) {
+      return item.filter((entry) => !(entry && typeof entry === "object" && !Array.isArray((entry as { tasks?: unknown }).tasks)
+        && ids.has(String((entry as { threadId?: unknown }).threadId ?? "")))).map(scrub);
+    }
+    if (!item || typeof item !== "object") return item;
+    const out: Record<string, unknown> = {};
+    const record = item as Record<string, unknown>;
+    const selectedConfidential = typeof record.threadId === "string" && ids.has(record.threadId) && Array.isArray(record.tasks);
+    for (const [key, child] of Object.entries(record)) {
+      if (selectedConfidential && (transcript.includes(key) || key === "threadId" || key === "mainThreadId")) continue;
+      out[key] = scrub(child);
+    }
+    return out;
+  };
+  return scrub(value);
+}
+const CONFIDENTIAL_CARD_DELEGATED = "A card in a confidential thread is answered by its owner in Sagax only, never on their behalf.";
+/** A request on someone's behalf: a bot acting as its person (act) or an
+ * AI client through the member API (both ephemeral sessions). */
+const delegatedRequestScope = new AsyncLocalStorage<boolean>();
+function delegatedRequest(): boolean {
+  return delegatedRequestScope.getStore() === true;
+}
+/** The stored file a download names (/api/attachments/<name>[/manifest]), or undefined. */
+function confidentialFileOf(requestPath: string): string | undefined {
+  const parts = requestPath.split("/");
+  if (parts[1] !== "api" || parts[2] !== "attachments" || !parts[3] || !/^[\w.-]+$/.test(parts[3])) return undefined;
+  return parts.length === 4 || (parts.length === 5 && parts[4] === "manifest") ? parts[3] : undefined;
+}
+/** The one thread an owner's card follow-up may post into, for its request. */
+const continuationThreadScope = new AsyncLocalStorage<string | null>();
+/** A bot acting as its person (act) never reaches a confidential thread:
+ * a request naming one (path, query or body, any method, Full included)
+ * is refused, and a confidential thread is cut out of what comes back
+ * (thread lists, search hits, a bot's selected transcript); an answer that
+ * still names one is refused whole. */
+async function performBotActRouteOutsideConfidential(actor: PerformActor, target: RouteTarget): Promise<{ status: number; text: string }> {
+  const ids = confidentialThreadIds();
+  if (!ids.size) return performBotActRoute(actor, target, 8000, { onBehalf: true });
+  if (namesConfidentialThread(JSON.stringify([target.path, target.query ?? {}, target.body ?? null]), ids)) {
+    return { status: 404, text: JSON.stringify({ error: "no such conversation" }) };
+  }
+  // read whole: a cut answer could not be cleaned
+  const answer = await performBotActRoute(actor, target, 4_000_000, { onBehalf: true });
+  if (!namesConfidentialThread(answer.text, ids)) return { status: answer.status, text: answer.text.slice(0, 8000) };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(answer.text);
+  } catch {
+    return { status: 403, text: JSON.stringify({ error: "That answer names a confidential thread." }) };
+  }
+  const text = JSON.stringify(scrubConfidentialThreads(parsed, ids));
+  if (namesConfidentialThread(text, ids)) return { status: 403, text: JSON.stringify({ error: "That answer names a confidential thread." }) };
+  return { status: answer.status, text: text.slice(0, 8000) };
 }
 /** Who acts, by principal: a session's principal (or its anonymous id),
  * the operator on loopback, nobody for a local service. */
@@ -25968,7 +26392,7 @@ function stepUpGate(person: string | null, threadId: string, requestId: string, 
  * owner. */
 function stepUpPolicyPerson(threadId: string, message: { from?: { botId?: string } } | undefined): string | null {
   const bot = botForApproval(threadId, message ?? {});
-  return bot ? approvalOwnerId(bot) || null : null;
+  return bot ? approvalOwnerId(bot, threadId) || null : null;
 }
 
 /** A bot act card holds no route of its own: its classes and content come
@@ -26064,7 +26488,7 @@ function saveOwnerRuleFromCard(auth: RequestAuth, threadId: string, requestId: s
   }
   const bot = botForApproval(threadId, message);
   if (!bot) return { status: 404, error: "No such approval." };
-  const ownerId = approvalOwnerId(bot);
+  const ownerId = approvalOwnerId(bot, threadId);
   const caller = ruleManager(auth);
   if (!caller || caller.toLowerCase() !== ownerId.toLowerCase()) return { status: 403, error: "Only the bot owner can save a rule." };
   const candidate = card.ownerRule;
@@ -26192,6 +26616,7 @@ function orgSettings(): OrgSettings {
     orgKeyConfigured: orgKeyConfigured(),
     allowFullAccess: orgFullAccessPolicy(),
     memberEnvironmentAutonomy: memberEnvironmentAutonomyAllowed(cfg.organization),
+    confidentialThreadsByDefault: confidentialThreadsByDefault(),
     pluginMarketplaces: pluginMarketplacePolicy() ?? { mode: "any" },
     github: { clientId: githubClientId() ?? null, fromEnvironment: !cfg.organization?.githubClientId && Boolean(process.env.SAGAX_GITHUB_CLIENT_ID?.trim()) },
     ...(IDENTITY.kind === "perspicax"
@@ -26382,7 +26807,8 @@ function ensureViewerThread(bot: BotRecord, viewerId: string): string | undefine
   if (mine || !isPrincipalId(viewerId)) return mine;
   const viewer = authzViewerFromId(viewerId);
   if (!viewer || !canOnBot(viewer, "bot.use", botFacts(bot))) return undefined;
-  const task = store.createTask(bot.id, undefined, false, undefined, undefined, undefined, viewerId);
+  // the organization's default holds for a person's first thread too
+  const task = store.createTask(bot.id, undefined, false, undefined, undefined, undefined, viewerId, undefined, false, undefined, confidentialThreadsByDefault());
   if (task) console.log(`[private-threads] bot ${bot.id}: a person's first private thread started`);
   return task?.threadId;
 }
@@ -26395,6 +26821,16 @@ function selectViewerThread(botId: string, viewerId: string, threadId: string): 
  * it names, else the viewer's own (started if needed), else the bot's
  * selected one. A thread the viewer may not open reads as missing. */
 function routeThreadId(bot: BotRecord, rawThreadId: unknown, action: ThreadAction = "thread.post"): string {
+  // a request on someone's behalf never lands in a confidential thread,
+  // named or implicit (the selected one)
+  const threadId = routeThreadIdUnguarded(bot, rawThreadId, action);
+  if (delegatedRequest() && store.isConfidentialThread(threadId)) throw Object.assign(new Error("no such task"), { status: 404 });
+  // a card follow-up posts into its own thread and no other
+  const continuation = continuationThreadScope.getStore();
+  if (continuation && threadId !== continuation) throw Object.assign(new Error("no such task"), { status: 404 });
+  return threadId;
+}
+function routeThreadIdUnguarded(bot: BotRecord, rawThreadId: unknown, action: ThreadAction): string {
   if (rawThreadId !== undefined && rawThreadId !== null && (typeof rawThreadId !== "string" || !/^[\w-]+$/.test(rawThreadId))) {
     throw Object.assign(new Error("threadId must be a task id"), { status: 400 });
   }
@@ -26550,13 +26986,17 @@ function openedThreadOwner(from: BotRecord, fromThreadId: string, target: BotRec
  * whatever comes back). A 1:1 turn: the same person's threads with this bot
  * and the rooms that person reads. Null: no narrowing (solo server). */
 function privateRecallFilter(bot: BotRecord, threadId: string): ((candidate: string) => boolean) | null {
-  if (!privateThreads()) return null;
+  // A confidential thread (server/confidential-threads.ts) feeds no other
+  // thread, on any server and for anyone, its owner included: only itself.
+  const notConfidential = (candidate: string) => candidate === threadId || !store.isConfidentialThread(candidate);
+  if (!privateThreads()) return (bot.tasks ?? []).some((task) => task.confidential === true) ? notConfidential : null;
   const room = store.groupByThread(threadId);
   if (room) return (candidate) => store.groupByThread(candidate)?.id === room.id;
   const botOwner = effectiveBotOwner(bot);
   const person = privateThreadOwner(store.taskByThread(bot.id, threadId), botOwner);
   const operator = person === localPrincipalId().trim().toLowerCase();
   return (candidate) => {
+    if (!notConfidential(candidate)) return false;
     const group = store.groupByThread(candidate);
     if (group) return operator || groupVisible(group, person);
     if (store.botByThread(candidate)?.id !== bot.id) return false;
@@ -27707,6 +28147,7 @@ if (IDENTITY.kind === "perspicax") {
     // 2026-10-16: bots run their owner's commands in the owner's own
     // isolated environment without a card (member-environment.ts).
     saveMemberEnvironmentAutonomy: (allowed, auth) => saveOrgMemberEnvironmentAutonomy(allowed, orgAuditActor(auth)),
+    saveConfidentialThreadsByDefault: (on, auth) => saveOrgConfidentialThreadsByDefault(on, orgAuditActor(auth)),
     // Where bots' plugins may come from (server/bot-plugins.ts): any
     // marketplace, or the admin's list of owner/repo, owner/* or URLs.
     savePluginMarketplaces: (raw, auth) => saveOrgPluginMarketplaces(raw, orgAuditActor(auth)),
@@ -27975,7 +28416,7 @@ const voiceModeDeps: VoiceModeDeps = {
       // loses it between two questions. Starts nothing.
       if (userSandbox) {
         const person = sandboxPrincipalForTurn({
-          botOwnerPrincipalId: effectiveBotOwner(bot), routine: false, speakerPrincipalId: orgSpeakerPrincipal(bot, speakerFor(auth)),
+          botOwnerPrincipalId: effectiveBotOwner(bot), confidentialOwnerPrincipalId: confidentialThreadOwner(target.threadId), routine: false, speakerPrincipalId: orgSpeakerPrincipal(bot, speakerFor(auth)),
         })?.trim().toLowerCase();
         if (person) void userSandbox.markUsed(person, bot.id);
       }
@@ -29394,6 +29835,17 @@ function saveOrgMemberEnvironmentAutonomy(allowed: boolean, actor: AdminActor): 
     before: { memberEnvironmentAutonomy: before }, after: { memberEnvironmentAutonomy: allowed }, actor,
   });
 }
+function saveOrgConfidentialThreadsByDefault(on: boolean, actor: AdminActor): void {
+  const before = confidentialThreadsByDefault();
+  saveConfig({ organization: { ...cfg.organization, confidentialThreadsByDefault: on } });
+  cfg.organization = { ...cfg.organization, confidentialThreadsByDefault: on };
+  orgAudit({
+    category: "org", action: "org.settings", target: { kind: "organization" }, changed: ["confidentialThreadsByDefault"],
+    before: { confidentialThreadsByDefault: before }, after: { confidentialThreadsByDefault: on }, actor,
+  });
+  // Every open New thread menu follows at once (config frame).
+  broadcast({ kind: "config", ...configStatus() });
+}
 function saveOrgPluginMarketplaces(raw: unknown, actor: AdminActor): void {
   const parsed = marketplacePolicySchema.safeParse(raw);
   if (!parsed.success) throw new Error("Send { mode: \"any\" } or { mode: \"list\", allow: [\"owner/repo\", \"owner/*\", \"https://...\"] }.");
@@ -29508,7 +29960,11 @@ function insideDataDir(path: string): boolean {
 /** The roots of a bot's files for the console's file browser
  * (server/org-admin-files.ts); never a path on the wire. */
 function orgBotFileRoots(bot: BotRecord): BotFileRoot[] {
-  const folder = (id: "workspace" | "tasks", dir: string): BotFileRoot => existsSync(dir) ? { id, kind: "folder", dir } : { id, kind: "unavailable", reason: "not_created" };
+  // A confidential thread's folder is never in the console (server/confidential-threads.ts).
+  const confidential = new Set(store.tasks(bot.id).filter((task) => task.confidential === true).map((task) => task.threadId));
+  const folder = (id: "workspace" | "tasks", dir: string): BotFileRoot => existsSync(dir)
+    ? { id, kind: "folder", dir, ...(id === "tasks" && confidential.size ? { hidden: confidential } : {}) }
+    : { id, kind: "unavailable", reason: "not_created" };
   const project: BotFileRoot = !bot.cwd
     ? { id: "project", kind: "unavailable", reason: "not_set" }
     : !existsSync(bot.cwd)
@@ -29526,10 +29982,17 @@ function orgBotFileRoots(bot: BotRecord): BotFileRoot[] {
 
 /** The uploads and attach_file outputs of every conversation of a bot. */
 async function orgBotAttachments(bot: BotRecord): Promise<BotAttachment[]> {
-  const threads = [...new Set([bot.threadId, ...store.tasks(bot.id).map((task) => task.threadId)])];
+  // A confidential thread's uploads and outputs are never listed, and a file
+  // it shares with an ordinary thread is left out too.
+  const confidential = new Set(store.tasks(bot.id).filter((task) => task.confidential === true).map((task) => task.threadId));
+  const threads = [...new Set([bot.threadId, ...store.tasks(bot.id).map((task) => task.threadId)])].filter((threadId) => !confidential.has(threadId));
+  const confidentialFiles = new Set<string>();
+  for (const threadId of confidential) {
+    for (const ref of threadFileRefs(store.messagesFor(threadId), bot.id)) if (ref.source === "upload" || ref.source === "attachment") confidentialFiles.add(ref.path);
+  }
   const out: BotAttachment[] = [];
   for (const threadId of threads) {
-    const refs = threadFileRefsFor(threadId).filter((ref) => ref.source === "upload" || ref.source === "attachment");
+    const refs = threadFileRefsFor(threadId).filter((ref) => (ref.source === "upload" || ref.source === "attachment") && !confidentialFiles.has(ref.path));
     if (!refs.length) continue;
     const files = await listThreadFiles(refs, (ref) => statMessageFile(ref.path, threadFileRoots(threadId, ref))).catch(() => []);
     for (const file of files) {
@@ -29867,7 +30330,8 @@ async function startAgentPrompt(from: BotRecord, target: BotRecord, threadId: st
  * included), and every one when the bot is theirs. */
 function personAgentThreads(principalId: string, agent: BotRecord): TaskRecord[] {
   const ownsBot = approvalOwnerId(agent) === principalId;
-  return store.tasks(agent.id).filter((task) => task.ownerPrincipalId === principalId || (ownsBot && !task.ownerPrincipalId));
+  // An AI client never reads a confidential thread (server/confidential-threads.ts).
+  return store.tasks(agent.id).filter((task) => task.confidential !== true && (task.ownerPrincipalId === principalId || (ownsBot && !task.ownerPrincipalId)));
 }
 function agentApiAudit(caller: AgentCaller, entry: AuditEntry): void {
   const target = entry.agentId ? store.bot(entry.agentId) : undefined;
@@ -30080,7 +30544,7 @@ const agentApi = createAgentApi({
     const agent = store.bot(agentId);
     if (!agent) return [];
     const tasks = caller.kind === "bot"
-      ? store.tasks(agentId).filter((task) => task.openedBy?.botId === caller.id)
+      ? store.tasks(agentId).filter((task) => task.openedBy?.botId === caller.id && task.confidential !== true)
       : personAgentThreads(caller.id, agent);
     return tasks.map((task) => ({ threadId: task.threadId, title: task.title, hidden: task.hidden === true }));
   },
@@ -30103,15 +30567,17 @@ const agentApi = createAgentApi({
     const newest = (tasks: TaskRecord[]) => tasks.filter((task) => task.hidden === true && task.archivedAt === undefined && !task.closedBy)
       .sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt))[0];
     if (caller.kind === "person") {
-      const existing = newest(store.tasks(agentId).filter((task) => task.ownerPrincipalId === caller.id));
+      // an AI client's conversation is never a confidential one (it reads it back)
+      const existing = newest(store.tasks(agentId).filter((task) => task.ownerPrincipalId === caller.id && task.confidential !== true));
       if (existing) return { threadId: existing.threadId };
-      const created = await performAsMember(memberForAgentCaller(caller), { method: "POST", path: `/api/bots/${encodeURIComponent(agentId)}/tasks`, body: { hidden: true, title: "AI client" } });
+      const created = await performAsMember(memberForAgentCaller(caller), { method: "POST", path: `/api/bots/${encodeURIComponent(agentId)}/tasks`, body: { hidden: true, title: "AI client", confidential: false } });
       const threadId = (created.body as { task?: { threadId?: unknown } })?.task?.threadId;
       if (created.status >= 300 || typeof threadId !== "string") return agentRefuse(created.status >= 400 ? created.status : 502, "not_started", "A conversation with this agent could not be opened.");
       return { threadId };
     }
     const from = agentApiCallerBot(caller);
     if (!from || !caller.sourceThreadId) return agentRefuse(403, "forbidden", "This bot cannot open a conversation.");
+    if (store.isConfidentialThread(caller.sourceThreadId)) return agentRefuse(403, "confidential_thread", CONFIDENTIAL_PEER_REFUSED);
     const existing = newest(store.tasks(agentId).filter((task) => task.openedBy?.botId === from.id));
     if (existing) return { threadId: existing.threadId };
     const task = store.createTask(target.id, `@${from.name} · agent`, false, undefined, { botId: from.id, name: from.name, at: Date.now() }, undefined,
@@ -30127,6 +30593,8 @@ const agentApi = createAgentApi({
     if (target.temporary?.archived) return agentRefuse(404, "unknown_agent", "No such agent.");
     // A prompt keeps a temporary agent alive.
     if (target.temporary) store.setBotTemporary(target.id, { ...target.temporary, lastActiveAt: Date.now() });
+    // an AI client never writes into a confidential thread
+    if (store.isConfidentialThread(threadId)) return agentRefuse(403, "confidential_thread", CONFIDENTIAL_PEER_REFUSED);
     if (caller.kind === "person") {
       const staged = agentApiStageFiles(caller, target, files);
       if ("code" in staged) return staged;
@@ -30137,6 +30605,11 @@ const agentApi = createAgentApi({
     }
     const from = agentApiCallerBot(caller);
     const capability = caller.depth;
+    // a confidential conversation sends nothing to another agent, and an AI
+    // client never reaches into one (server/confidential-threads.ts)
+    if (store.isConfidentialThread(threadId) || (caller.sourceThreadId && store.isConfidentialThread(caller.sourceThreadId))) {
+      return agentRefuse(403, "confidential_thread", CONFIDENTIAL_PEER_REFUSED);
+    }
     if (!from || !caller.sourceThreadId || capability === undefined) return agentRefuse(403, "forbidden", "This bot cannot send from here.");
     if (capability >= MAX_COMMS_DEPTH) return agentRefuse(409, "too_deep", "Agent chains are limited to one hop: a prompt you received from another agent cannot be passed on. Do the work here.");
     // The Sagax approval gate: a bot whose peer contact needs review asks first.
@@ -30238,11 +30711,12 @@ const orgMember = createOrgMemberRoutes({
     return `${origin}/#thread=${encodeURIComponent(threadId)}${bot ? `&bot=${encodeURIComponent(bot)}` : ""}`;
   },
   botOfThread: (threadId) => store.botByThread(threadId)?.id ?? null,
+  confidential: (threadId) => store.isConfidentialThread(threadId),
   hiddenThreadOf: (botId, principalId) => {
     const person = principalId.trim().toLowerCase();
     const at = (task: TaskRecord) => task.updatedAt ?? task.createdAt;
     const open = store.tasks(botId)
-      .filter((task) => task.hidden === true && task.archivedAt === undefined && !task.closedBy && task.ownerPrincipalId === person)
+      .filter((task) => task.hidden === true && task.confidential !== true && task.archivedAt === undefined && !task.closedBy && task.ownerPrincipalId === person)
       .sort((a, b) => at(b) - at(a));
     return open[0]?.threadId ?? null;
   },
@@ -30251,7 +30725,7 @@ const orgMember = createOrgMemberRoutes({
     if (!message?.card) return null;
     const card = message.card;
     const bot = botForApproval(threadId, message);
-    const ownerId = bot ? approvalOwnerId(bot) : null;
+    const ownerId = bot ? approvalOwnerId(bot, threadId) : null;
     return {
       found: true,
       open: !card.answered && !card.dismissed && !card.expired,
@@ -30847,6 +31321,37 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // request, so a kept-alive connection never inherits one.
     const scopedViewerId = serviceThreadViewer(serviceViewerClosed(auth, path, privateThreads()), viewerId);
     threadViewerScope.enterWith(scopedViewerId ?? null);
+    // On someone's behalf (act, an AI client): a confidential thread is not
+    // there. Named in the path or query: 404; in an answer: cut out, and an
+    // answer that still names one is withheld.
+    // An on-behalf request: a delegated session (a bot act copy, an AI
+    // client), or this server's own act request for the operator (its
+    // header carries a process secret). The follow-up of a card its owner
+    // allowed in person carries a one-shot token for exactly that thread.
+    const onBehalfHeader = req.headers[ON_BEHALF_HEADER];
+    const continuationHeader = req.headers[CONTINUATION_HEADER];
+    const continuation = takeOwnerContinuation(typeof continuationHeader === "string" ? continuationHeader : undefined, method, path);
+    const delegated = !continuation && ((auth.kind === "session" && auth.session.ephemeral === true)
+      || secureTokenMatch(typeof onBehalfHeader === "string" ? onBehalfHeader : undefined, ON_BEHALF_SECRET));
+    delegatedRequestScope.enterWith(delegated);
+    continuationThreadScope.enterWith(continuation);
+    if (delegated) {
+      const confidentialIds = confidentialThreadIds();
+      if (confidentialIds.size) {
+        if (namesConfidentialThread(`${path}?${url.search}`, confidentialIds)) return json(res, 404, { error: "no such conversation" });
+        // a stored file only confidential threads point at is not there either
+        const file = confidentialFileOf(path);
+        if (file) {
+          // read now, not from the minute-long cache: a message may have just named it
+          const using = threadsReferencing(file);
+          if (using.length && using.every((threadId) => confidentialIds.has(threadId))) return json(res, 404, { error: "no such file" });
+        }
+        onJsonBody(res, (body) => {
+          const cleaned = scrubConfidentialThreads(body, confidentialIds);
+          return namesConfidentialThread(JSON.stringify(cleaned), confidentialIds) ? { error: "This answer names a confidential thread." } : cleaned;
+        });
+      }
+    }
     if (scopedViewerId && privateThreads()) {
       // A bot thread named in the path or the query is its owner's only;
       // every bot a response carries shows this viewer their threads only.
@@ -31217,6 +31722,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!internalSender) {
         return json(res, 401, { error: "unauthorized" });
       }
+      // A confidential thread's turn writes nothing other people or threads
+      // read: memory, logs, rules, docs, skills, routines
+      // (server/confidential-threads.ts).
+      if (store.isConfidentialThread(internalCapability.threadId)) {
+        const confidentialRefusal = confidentialInternalRefusal(path, method);
+        if (confidentialRefusal) return json(res, 403, confidentialRefusal);
+      }
       if (internalCapability.generation === EXTERNAL_RUNTIME_GENERATION && !externalRuntimeMayCall(method, path)) {
         return json(res, 403, { error: "an external runtime can only list, ask and delegate to its peers and read its delegations" });
       }
@@ -31262,7 +31774,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (claimedThread !== null && claimedThread !== internalCapability.threadId) {
         return json(res, 403, { error: "the internal capability belongs to a different conversation" });
       }
-      const readInternalBody = async () => {
+      // read once: the confidential MCP gate below may read it before its route
+      let internalBody: Promise<Record<string, unknown>> | undefined;
+      const readInternalBody = () => (internalBody ??= readInternalBodyOnce());
+      const readInternalBodyOnce = async () => {
         const body = await readBody(req);
         // The body may arrive slowly. Authorization at header time is not a
         // lease: if the owning turn settled while bytes were in flight, this
@@ -31289,6 +31804,29 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           throw Object.assign(new Error("the internal turn capability has expired"), { status: 401 });
         }
       };
+      // A confidential thread's calls to other MCP servers: reads pass,
+      // anything else waits for the owner's card with its exact arguments,
+      // whatever the approval mode (server/confidential-threads.ts).
+      if (method === "POST" && CONFIDENTIAL_GATED_MCP_PATHS.has(path) && store.isConfidentialThread(internalCapability.threadId)) {
+        const envelope = CONFIDENTIAL_GATED_MCP_PATHS.get(path);
+        const raw: unknown = await readInternalBody();
+        // a personal server's call arrives wrapped: { message: <JSON-RPC> }
+        const frame: unknown = envelope === "message" && raw && typeof raw === "object" ? (raw as { message?: unknown }).message : raw;
+        if (Array.isArray(frame)) {
+          const answer = { jsonrpc: "2.0", id: null, error: { code: -32600, message: CONFIDENTIAL_PEER_REFUSED } };
+          return json(res, 200, envelope === "message" ? { message: answer } : answer);
+        }
+        const call = frame && typeof frame === "object" && (frame as { method?: unknown }).method === "tools/call"
+          ? (frame as { params?: { name?: unknown; arguments?: unknown } }).params : undefined;
+        if (call && typeof call.name === "string") {
+          const callArgs = call.arguments && typeof call.arguments === "object" && !Array.isArray(call.arguments) ? call.arguments as Record<string, unknown> : undefined;
+          const refused = confidentialPerspicaxRefusal(internalCapability, call.name, callArgs, (tool) => mcpConfidentialVerdict(tool), path);
+          if (refused) {
+            const answer = { jsonrpc: "2.0", id: (frame as { id?: unknown }).id, result: { content: [{ type: "text", text: refused }], isError: true } };
+            return json(res, 200, envelope === "message" ? { message: answer } : envelope === "result" ? { result: answer.result } : answer);
+          }
+        }
+      }
       const delegatedThisTurn = (taskId: string) => {
         (internalCapability.delegatedThisTurn ??= new Set()).add(taskId);
       };
@@ -31432,6 +31970,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           threadId: internalCapability.threadId,
           input: body, authored: (id) => handoffs.authored(internalCapability.threadId, internalCapability.generation, id),
           proposePage: (proposal) => {
+            // a page outlives the thread and can be published: never from a
+            // confidential thread (server/confidential-threads.ts)
+            if (store.isConfidentialThread(internalCapability.threadId)) {
+              return { ok: false as const, status: 409 as const, error: "This is a confidential thread: no page is proposed from it. Give the result here in the conversation instead." };
+            }
             const owning = store.botByThread(internalCapability.threadId) ?? internalSender;
             const proposed = publishedPages.propose({
               ...proposal,
@@ -31561,7 +32104,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!bot || bot.browser === false || bot.computer === "off" || !builtInBrowserEnabled(cfg)) {
           return json(res, 403, { error: "browser tools are not enabled for this bot" });
         }
-        const browser = await browserIntegration(bot.id, bot.browserProfile);
+        const browser = await browserIntegration(bot.id, bot.browserProfile, undefined, internalCapability.threadId);
         if (!browser || browser.session !== internalCapability.browserSession) {
           return json(res, 409, { error: "this browser profile changed; start a new turn" });
         }
@@ -31582,7 +32125,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           requireActiveInternalCapability();
           const current = store.bot(bot.id);
           if (!current || current.browser === false || current.computer === "off" || !builtInBrowserEnabled(cfg) ||
-              currentBrowserSession(current.id, current.browserProfile) !== browser.session) {
+              currentBrowserSession(current.id, current.browserProfile, internalCapability.threadId) !== browser.session) {
             throw Object.assign(new Error("Browser access changed while connecting."), { status: 409 });
           }
           if (body.method === "tools/call" && !claimTurnResource(internalCapability, `browser:${browser.session}`)) {
@@ -31999,8 +32542,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         // conversations the owner alone opened and wrote in: a title is words
         // too (cloudLendingView).
         const shown = cloudLendingView(internalCapability) ? cloudOwnerOnlyThread : () => true;
+        // A confidential thread is listed in itself only: its title is words too.
+        const listable = (threadId: string) => threadId === fromThreadId || !store.isConfidentialThread(threadId);
         for (const task of store.tasks(from.id)) {
-          if (!shown(task.threadId)) continue;
+          if (!shown(task.threadId) || !listable(task.threadId)) continue;
           rows.push({
             threadId: task.threadId, botId: from.id, botName: from.name, title: task.title,
             state: stateOf(from, task), unread: task.unread === true, openedAt: task.openedBy?.at ?? task.createdAt,
@@ -32009,7 +32554,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         for (const peer of reachablePeers(store.bots, from)) {
           for (const task of store.tasks(peer.id)) {
-            if (task.openedBy?.botId !== from.id || !shown(task.threadId)) continue;
+            if (task.openedBy?.botId !== from.id || !shown(task.threadId) || !listable(task.threadId)) continue;
             rows.push({
               threadId: task.threadId, botId: peer.id, botName: peer.name, title: task.title,
               state: stateOf(peer, task), unread: task.unread === true, openedAt: task.openedBy.at,
@@ -32779,6 +33324,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           // Busy elsewhere (room turn, sibling thread): the thread this ask
           // targets is not the running one, so there is nothing to fold
           // into here — the queue lane keeps it.
+          // never folded into a confidential thread (peerThreadFor)
+          const asideThread = peerThreadFor(target);
+          if (asideThread !== target.threadId) return null;
           if (!threadBusy(toBotId, target.threadId)) return null;
           const instance = runningTurnInstance(target, target.threadId);
           if (!instance?.adapter.capabilities.queueing || !instance.adapter.steer) return null;
@@ -32897,7 +33445,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         });
         const guestThread = guestWorkThread(currentFrom, currentTarget, fromThreadId, message);
         if (guestThread === null) return json(res, 500, { error: "couldn't open a conversation for that work" });
-        const targetThreadId = guestThread ?? currentTarget.threadId;
+        const targetThreadId = guestThread ?? peerThreadFor(currentTarget);
         const outcome = await askBotAndWait(toBotId, prefixed, depth, fromBotId, fromThreadId, targetThreadId);
         requireActiveInternalCapability();
         const replySender = store.bot(fromBotId);
@@ -33070,7 +33618,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         if (store.groupByThread(threadId)) return json(res, 400, { error: "that is a room thread — use coordinate_bots in the room instead" });
         const task = store.taskByThread(target.id, threadId);
-        if (!task) return json(res, 404, { error: "no such thread on that bot" });
+        // a confidential thread is its owner's alone: no Primary Bot resumes it
+        if (!task || task.confidential === true) return json(res, 404, { error: "no such thread on that bot" });
         if (threadBusy(target.id, threadId) || queuedThreadPosition(target.id, threadId) !== null) {
           return json(res, 409, { error: "that thread is still running — wait for it to settle before retrying" });
         }
@@ -33621,8 +34170,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         if (target.id === from.id) {
           const inherited = parentThreadModel(from.id, fromThreadId);
+          // a thread a confidential conversation opens is confidential, its owner's
           const task = store.createTask(from.id, title, false, projectId, { botId: from.id, name: from.name, at: Date.now() },
-            inherited.approvalMode, openedThreadOwner(from, fromThreadId, from), inherited.modelSelection);
+            inherited.approvalMode, openedThreadOwner(from, fromThreadId, from), inherited.modelSelection, false, undefined, store.isConfidentialThread(fromThreadId));
           if (!task) return json(res, 500, { error: "couldn't create that thread" });
           if (autoWorkspace) store.patchTask(from.id, task.threadId, { autoWorkspace });
           threadStarters.set(task.threadId, openerFrom(fromThreadId));
@@ -33664,6 +34214,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!peerAllowed(from, target)) {
           return json(res, 403, { error: `that bot is not on this bot's allowed peers. ${PEER_ACCESS_HELP}` });
         }
+        // nothing of a confidential conversation is handed to another bot
+        if (store.isConfidentialThread(fromThreadId)) return json(res, 403, { error: CONFIDENTIAL_PEER_REFUSED, code: "confidential_thread" });
         const task = store.createTask(target.id, title, false, projectId, { botId: from.id, name: from.name, at: Date.now() }, undefined, openedThreadOwner(from, fromThreadId, target));
         if (!task) return json(res, 500, { error: "couldn't create that thread" });
         // The work is still for the person whose request the opener is on.
@@ -34079,6 +34631,22 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return json(res, 403, { error: "this Perspicax profile is not mounted in this turn", code: "profile_not_mounted" });
         }
         const frame = await readInternalBody();
+        // A confidential thread's memory never reaches a team or the
+        // organization, and its own tier only with the person's Allow.
+        // a batch is judged call by call nowhere: from a confidential thread it is refused
+        if (Array.isArray(frame) && store.isConfidentialThread(internalCapability.threadId)) {
+          return json(res, 200, { jsonrpc: "2.0", id: null, error: { code: -32600, message: CONFIDENTIAL_PEER_REFUSED } });
+        }
+        const confidentialCall = frame && typeof frame === "object" && (frame as { method?: unknown }).method === "tools/call"
+          ? (frame as { params?: { name?: unknown; arguments?: unknown } }).params : undefined;
+        if (confidentialCall && typeof confidentialCall.name === "string") {
+          const callArgs = confidentialCall.arguments && typeof confidentialCall.arguments === "object" && !Array.isArray(confidentialCall.arguments) ? confidentialCall.arguments as Record<string, unknown> : undefined;
+          const refused = confidentialPerspicaxRefusal(internalCapability, confidentialCall.name, callArgs);
+          if (refused) {
+            const id = (frame as { id?: unknown }).id;
+            return json(res, 200, { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: refused }], isError: true } });
+          }
+        }
         const perspicaxText = misuseToolFrameText(frame);
         if (perspicaxText) {
           const speakerId = internalCapability.sandboxPrincipalId ?? internalCapability.desktopPrincipalId;
@@ -34616,9 +35184,16 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     // On a Cloud home a routine reports only where its writer may write: a
     // guest's into a conversation the guest started, never the owner's.
-    const routineResultsRefusal = (body: unknown): string | null =>
-      body && typeof body === "object" && typeof (body as { resultsThreadId?: unknown }).resultsThreadId === "string"
-        ? cloudThreadRefusal(auth, (body as { resultsThreadId: string }).resultsThreadId) : null;
+    const routineResultsRefusal = (body: unknown): string | null => {
+      const resultsThreadId = body && typeof body === "object" && typeof (body as { resultsThreadId?: unknown }).resultsThreadId === "string"
+        ? (body as { resultsThreadId: string }).resultsThreadId : null;
+      if (!resultsThreadId) return null;
+      // No routine comes from, or reports into, a confidential thread
+      // (server/confidential-threads.ts): its runs would work as the bot
+      // owner, in their environment.
+      if (store.isConfidentialThread(resultsThreadId)) return "No routine can be created from a confidential thread. Set it up from an ordinary thread.";
+      return cloudThreadRefusal(auth, resultsThreadId);
+    };
     if (path === "/api/routines" && method === "POST") {
       const body = await readBody(req);
       const hidden = hiddenRoutineTarget(body, visible);
@@ -38560,6 +39135,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
       requirePinnedClientThread(bot.id, body.threadId);
+      // on someone's behalf: the thread it would stop is resolved first, and
+      // a confidential one is not there (routeThreadId)
+      if (delegatedRequest()) routeThreadId(bot, body.threadId);
       if (body.threadId !== undefined && (typeof body.threadId !== "string" || !/^[\w-]+$/.test(body.threadId))) {
         return json(res, 400, { error: "threadId must be a task id" });
       }
@@ -39099,6 +39677,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // (a bot act included): server/step-up-gate.ts.
       const stepUpRefusal = stepUpGate(ruleManager(auth), bot.threadId, String(body.requestId), behavior, stepUpAnswerOf(body), body.stepUp);
       if (stepUpRefusal) return json(res, stepUpRefusal.status, stepUpRefusal.body);
+      if (delegatedRequest() && store.isConfidentialThread(bot.threadId)) return json(res, 403, { error: CONFIDENTIAL_CARD_DELEGATED, code: "confidential_thread" });
+      if (isConfidentialMemoryCard(bot.threadId, String(body.requestId))) {
+        const settled = await settleConfidentialMemoryCard(auth, bot.threadId, String(body.requestId), behavior);
+        return json(res, settled.status, settled.body);
+      }
       if (isBotActCard(bot.threadId, String(body.requestId))) {
         const act = await settleBotActCard(auth, bot.threadId, String(body.requestId), behavior);
         return json(res, act.status, act.body);
@@ -39214,6 +39797,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const requestId = String(body.requestId);
       const stepUpRefusal = stepUpGate(ruleManager(auth), threadId, requestId, behavior, stepUpAnswerOf(body), body.stepUp);
       if (stepUpRefusal) return json(res, stepUpRefusal.status, stepUpRefusal.body);
+      // only the person, in Sagax, answers a card in a confidential thread:
+      // never a bot acting for them, never an AI client
+      if (delegatedRequest() && store.isConfidentialThread(threadId)) return json(res, 403, { error: CONFIDENTIAL_CARD_DELEGATED, code: "confidential_thread" });
+      if (isConfidentialMemoryCard(threadId, requestId)) {
+        const settled = await settleConfidentialMemoryCard(auth, threadId, requestId, behavior);
+        return json(res, settled.status, settled.body);
+      }
       if (isBotActCard(threadId, requestId)) {
         const act = await settleBotActCard(auth, threadId, requestId, behavior);
         return json(res, act.status, act.body);
@@ -39541,11 +40131,22 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // sagax_send): started beside the person's chat, never selected, so
       // nothing on their screens moves to it.
       const hidden = body.hidden === true;
+      // A confidential thread (server/confidential-threads.ts): the person's
+      // choice, else the organization's default. Its files stay in its own
+      // folder, so no other working folder is taken with it.
+      const confidentialChoice = newThreadConfidential(body.confidential, confidentialThreadsByDefault());
+      if (!confidentialChoice.ok) return json(res, 400, { error: confidentialChoice.error });
+      if (confidentialChoice.confidential && CLOUD_HOME && !cloudOwnerSession(auth)) {
+        return json(res, 403, { error: CLOUD_GUEST_CONFIDENTIAL, code: "confidential_thread" });
+      }
+      if (confidentialChoice.confidential && cwd !== undefined) {
+        return json(res, 400, { error: "A confidential thread works in its own folder: omit cwd", code: "confidential_thread" });
+      }
       // Organization server: the new thread is its creator's, and only their
       // selection moves (the bot's own selection is its owner's).
       const creator = scopedThreadViewer();
       const ownerCreates = !creator || viewerBotLevel(auth, bot) === "owner";
-      const task = store.createTask(bot.id, typeof body.title === "string" ? body.title : undefined, ownerCreates && !hidden, body.projectId, undefined, body.approvalMode, creator && isPrincipalId(creator) ? creator : undefined, undefined, hidden, cwd);
+      const task = store.createTask(bot.id, typeof body.title === "string" ? body.title : undefined, ownerCreates && !hidden, body.projectId, undefined, body.approvalMode, creator && isPrincipalId(creator) ? creator : undefined, undefined, hidden, cwd, confidentialChoice.confidential);
       if (!task) return json(res, 500, { error: "couldn't create that task" });
       // Settings > Bot > Auto-review: a new conversation starts reviewed.
       if (body.approvalMode === undefined) applyAutoReviewDefault(auth, bot.id, task.threadId);
@@ -39594,10 +40195,32 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!current) return json(res, 404, { error: "no such task" });
       const taskStepUp = body.stepUp;
       delete body.stepUp;
-      const allowed = new Set(["title", "projectId", "modelSelection", "updateBotDefault", "approvalMode", "autoApprove", "requireAvailableModel", "pinnedMessageId", "acknowledgeLocalAuto", "confirmFullAccess", "archivedAt", "pinned", "snoozedUntil", "surface", "refreshPermissions", "link"]);
+      const allowed = new Set(["title", "projectId", "modelSelection", "updateBotDefault", "approvalMode", "autoApprove", "requireAvailableModel", "pinnedMessageId", "acknowledgeLocalAuto", "confirmFullAccess", "archivedAt", "pinned", "snoozedUntil", "surface", "refreshPermissions", "link", "confidential", "confirmConfidential"]);
       if (Object.keys(body).some((key) => !allowed.has(key))) return json(res, 400, { error: "unsupported thread setting" });
       const notYours = cloudThreadRefusal(auth, m[2]);
       if (notYours) return json(res, 403, { error: notYours });
+      // Confidential is one way (server/confidential-threads.ts): on with the
+      // person's confirmation that it is permanent, never off again.
+      const confidentialChange = confidentialPatch(store.taskByThread(m[1], m[2]) ?? {}, body);
+      if (confidentialChange.kind === "refused") {
+        return json(res, confidentialChange.status, { error: confidentialChange.error, ...(confidentialChange.code ? { code: confidentialChange.code } : {}) });
+      }
+      delete body.confidential;
+      delete body.confirmConfidential;
+      if (confidentialChange.kind === "make") {
+        if (CLOUD_HOME && !cloudOwnerSession(auth)) return json(res, 403, { error: CLOUD_GUEST_CONFIDENTIAL, code: "confidential_thread" });
+        if (threadBusy(current.id, current.threadId)) return json(res, 409, { error: "Stop this thread before making it confidential." });
+        // A thread that already works in a shared folder (the bot's project
+        // folder, a chosen one) cannot take its files back from there, and
+        // its checkpoints live with that folder: it stays ordinary.
+        if (!privateFolderThread(current.id, current.threadId)) {
+          return json(res, 409, { error: "This thread already works in a shared folder, so its files cannot be kept to you. Open a new confidential thread instead.", code: "confidential_shared_folder" });
+        }
+        makeThreadConfidential(current.id, current.threadId);
+        if (!Object.keys(body).length) {
+          return json(res, 200, { task: wireTask(store.taskByThread(m[1], m[2])!, store.bot(m[1])!.modelSelection), bot: projectBotTranscript(publicBot(store.bot(m[1])!), viewerForApproval(auth)) });
+        }
+      }
       // On a Cloud home only the owner decides whether a bot may act without
       // asking them, even in a conversation someone else started, and what
       // the bot itself defaults to.
@@ -39766,8 +40389,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const stagedSkillCleanups = stagedSkillCleanupsForThread(m[2]);
       coordinator.cancelDirect(m[2], "The source conversation was deleted");
       cancelTeamSetupResumesForThread(m[2]);
+      // A confidential thread leaves nothing behind (server/confidential-threads.ts):
+      // its files are listed before its messages go.
+      const confidentialFiles = store.isConfidentialThread(m[2]) ? confidentialThreadAttachments(m[1], m[2]) : null;
       const updated = store.deleteTask(m[1], m[2]);
       if (!updated) return json(res, 404, { error: "no such task" });
+      if (confidentialFiles) wipeConfidentialThread(m[1], m[2], confidentialFiles);
       clearTurnDigestState(m[2]);
       revokeInternalCapabilitiesForThread(m[2]);
       handoffs.forget(m[2]);

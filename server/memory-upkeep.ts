@@ -73,6 +73,10 @@ export interface UpkeepDeps {
    * it is gone (thread deleted, rewound) or no longer capturable. Without it
    * turns still waiting at shutdown are dropped, as before. */
   restoreTurn?: (botId: string, threadId: string, turnId: string) => CaptureTurn | null;
+  /** Whether a thread may still be captured when its batch goes out: false
+   * for a thread that became confidential while its turns waited
+   * (server/confidential-threads.ts). Absent: every thread. */
+  capturable?: (threadId: string) => boolean;
   quietMs: () => number;
   tidyHour: () => number;
   /** Wraps each synchronous burst of writes this makes to one bot's memory
@@ -223,6 +227,8 @@ export interface MemoryUpkeep {
   flushThread(threadId: string): void;
   /** Forget a bot's waiting turns (switch turned off, bot deleted). */
   dropBot(botId: string): void;
+  /** Forget one thread's waiting turns (it became confidential, or was deleted). */
+  dropThread(threadId: string): void;
   /** Run one capture batch; resolves when written. Exposed for tests. */
   capture(batch: CaptureBatch): Promise<CaptureReport>;
   tidy(botId: string): Promise<TidyReport>;
@@ -271,6 +277,7 @@ export function createMemoryUpkeep(deps: UpkeepDeps): MemoryUpkeep {
     const at = now().getTime();
     const off: CaptureReport = { at, added: 0, topics: 0, aboutMe: 0, note: "upkeep is off" };
     if (!upkeepEnabled(bot)) return off;
+    if (deps.capturable && !deps.capturable(batch.threadId)) return { ...off, note: "the conversation is confidential" };
     const engine = deps.engine(bot.id);
     if (!engine?.generateText) {
       const report = { at, added: 0, topics: 0, aboutMe: 0, note: NO_TEXT_ENGINE };
@@ -291,6 +298,8 @@ export function createMemoryUpkeep(deps: UpkeepDeps): MemoryUpkeep {
       record(bot.id, { lastCapture: report });
       return report;
     }
+    // The thread may have turned confidential while the model answered.
+    if (deps.capturable && !deps.capturable(batch.threadId)) return { ...off, note: "the conversation is confidential" };
     if (paused) {
       // a backup began while the model answered: run it again after
       deferred.push(batch);
@@ -364,6 +373,7 @@ export function createMemoryUpkeep(deps: UpkeepDeps): MemoryUpkeep {
     quietMs: deps.quietMs,
     maxTurns: CAPTURE_MAX_TURNS,
     onFlush: (batch) => {
+      if (deps.capturable && !deps.capturable(batch.threadId)) return;
       if (paused) {
         deferred.push(batch);
         return;
@@ -555,6 +565,11 @@ export function createMemoryUpkeep(deps: UpkeepDeps): MemoryUpkeep {
     },
     flushThread: (threadId) => buffer.flush(threadId),
     dropBot: (botId) => buffer.dropBot(botId),
+    dropThread: (threadId) => {
+      buffer.dropThread(threadId);
+      // a batch waiting for a backup to finish goes too
+      for (let index = deferred.length - 1; index >= 0; index -= 1) if (deferred[index]!.threadId === threadId) deferred.splice(index, 1);
+    },
     capture: (batch) => track(capture(batch)),
     tidy,
     status(botId) {
