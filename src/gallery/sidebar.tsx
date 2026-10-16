@@ -1,7 +1,7 @@
 /** Isolated gallery for Playwright screenshots of the whole desktop sidebar
  * (bot rows, Primary Bot, sections, foot) beside Grok Bot's. Not shipped in
  * the app. It answers /api itself with a made-up team, so nothing reaches a
- * server. ?skin=<id>&lang=<code>&threads=header|sidebar */
+ * server. ?skin=<id>&lang=<code>&threads=header|sidebar&width=<px, 368> */
 import { StrictMode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { setLocale } from "../lib/i18n";
@@ -17,7 +17,7 @@ setLocale(params.get("lang") ?? "fr");
 try {
   localStorage.setItem("sagax.interfaceMode.v1", "advanced");
   localStorage.setItem("sagax-sidebar-shortcuts", "1");
-  localStorage.setItem("omb-sidebar-width-v2", "368");
+  localStorage.setItem("omb-sidebar-width-v2", params.get("width") ?? "368");
   localStorage.setItem("omb-threads-location", params.get("threads") === "sidebar" ? "sidebar" : "header");
 } catch {
   // the gallery still renders with the defaults
@@ -71,6 +71,13 @@ window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
   if (path === "/api/bots") return json({ bots: team, groups: [], sections: ["My team"], computerControl: {} });
   if (path === "/api/config") return json({ profile: { name: "Alex Gagnon" } });
+  // the avatar menu's Usage › (a made-up plan, this month's cost)
+  if (path === "/api/plan-usage") return json({ providers: [{
+    id: "claude", name: "Claude", driver: "claude", plan: "Max", ok: true, error: null, state: "windows", access: "subscription",
+    weekly: { available: true, usedPercent: 64, remainingPercent: 36, resetsAt: new Date(Date.now() + 2.2 * 86_400_000).toISOString() },
+    fiveHour: { available: true, usedPercent: 18, remainingPercent: 82, resetsAt: new Date(Date.now() + 3 * 3_600_000).toISOString() },
+  }] });
+  if (path === "/api/me/usage") return json({ groups: [], total: { key: "total", label: "Total", turns: 212, costUsd: 48.27 } });
   return json({ error: "gallery" }, 404);
 }) as typeof window.fetch;
 class SilentEventSource {
