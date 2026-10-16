@@ -1,7 +1,7 @@
 # Téléphonie des bots (Twilio) : appels et SMS
 
 Statut : BROUILLON, phase 1 (enquête et spécification). Décisions de JC du
-2026-10-15 intégrées (section 0, deux séries). Aucune implémentation.
+2026-10-15 intégrées (section 0, trois séries). Aucune implémentation.
 Demande de JC (2026-10-15) : l'équivalent de clawcall.dev pour chaque bot Sagax.
 « Les bots doivent pouvoir utiliser Twilio avec l'API voix de leur choix pour :
 recevoir des appels de leur bot (le bot appelle la personne), appeler le bot,
@@ -41,8 +41,8 @@ Deuxième série (réponses aux questions R1 à R14) :
 
 - **R1** : Perspicax reçoit les webhooks Twilio, valide la signature et
   relaie à Sagax ; l'audio va directement à Sagax (6.1).
-- **R2** : non tranché. Par défaut, à confirmer : nouveau type de délégation
-  `telephony` dans Perspicax (3.1).
+- **R2** : réutiliser la **délégation des routines** ; pas de nouveau type
+  de délégation (3.1). (Tranché dans la troisième série.)
 - **R3** : Twilio Media Streams avec la voix du bot ; repli xAI affiché (6.2).
 - **R4** : NIP clavier de 6 chiffres, phrase parlée facultative, code SMS
   distinct (5.1).
@@ -67,6 +67,18 @@ Deuxième série (réponses aux questions R1 à R14) :
   (5.3).
 - **R13** : inspection en lecture seule de `voicebridge`, en cours ailleurs.
 - **R14** : pilote en attente.
+
+Troisième série :
+
+- **R15** : quand un bot élargit son exposition par ses outils de
+  configuration, le **même modèle d'approbation que Sagax a déjà**
+  s'applique (cartes « une fois » et « toujours », règles du propriétaire,
+  accès aux outils par bot) ; aucun système nouveau (5.12).
+- **R16** : la garde remplace **toujours** l'`Url` ou le `Twiml` fourni par
+  le bot par le crochet de la ligne (6.5).
+- **R14** (pilote) : reste ouvert.
+- **Existant à remplacer** : le service maison `voicebridge` sur la VM GOX
+  (2.7). La téléphonie Sagax le remplacera.
 
 ## 1. Référence : ce que fait ClawCall
 
@@ -220,15 +232,9 @@ Recherche faite sans toucher à la prod :
   publics sans lien.
 - Mémoire d'organisation Perspicax : aucune entrée.
 
-**Conclusion** : `voicebridge` ne vient d'aucun dépôt connu ni d'aucun
-déploiement scripté. Hypothèses, de la plus probable à la moins probable : un
-conteneur lancé à la main ou par un bot ayant accès à Docker sur la VM (essai
-de pont Twilio Media Streams ?), ou une image tierce. À traiter comme
-**inconnu et non fiable** tant que JC n'a pas lu, en lecture seule sur la VM :
-`docker inspect voicebridge` (image, date de création, étiquettes
-`com.docker.compose.project`, ports publiés, variables d'environnement sans
-les afficher), et l'historique du shell. Cette spécification ne s'appuie pas
-dessus. Décision R13.
+**Conclusion de la recherche dans les dépôts** : `voicebridge` ne vient
+d'aucun dépôt connu ni d'aucun déploiement scripté. Son rôle a été précisé
+ensuite par JC : voir 2.7.
 
 ### 2.6 Voix temps réel possibles au téléphone
 
@@ -243,6 +249,28 @@ dessus. Décision R13.
 Avec la décision 4 (la voix est celle du bot), le pipeline retenu est Media
 Streams avec les moteurs de voix de Sagax : ConversationRelay n'offre que les
 voix du catalogue de Twilio. Détail en 6.2.
+
+### 2.7 Existant à remplacer : `voicebridge`
+
+Un service maison, `voicebridge`, tourne sur la VM GOX, lancé à la main (hors
+de tout dépôt et de tout déploiement scripté). Il fait déjà une version
+réduite de cette spécification : un pont Twilio et xAI vers un seul bot
+(cryptic), avec un NIP haché, et des SMS vers le cellulaire de JC.
+
+La téléphonie Sagax le **remplace**. Migration à prévoir (phase P2, section 7) :
+
+- le numéro Twilio qu'il utilise devient la ligne partagée (3.2) : ses URL de
+  webhook passent au relais Perspicax au moment de la bascule ;
+- le NIP : la personne en choisit un nouveau dans Sagax (un haché d'un autre
+  système n'est repris que si l'algorithme et les paramètres sont
+  compatibles, sans jamais faire transiter le NIP en clair) ;
+- le cellulaire de JC devient un numéro vérifié de sa liste (5.1) ;
+- cryptic devient un bot joignable par téléphone, dans sa voix ;
+- `voicebridge` est arrêté après une période de validation, puis retiré de la
+  VM.
+
+Aucun détail sensible (numéros, NIP, secrets, configuration du conteneur)
+n'est consigné ici.
 
 ## 3. Modèle
 
@@ -263,20 +291,23 @@ Comment Sagax obtient les droits, en réutilisant le mécanisme existant
 | --- | --- | --- |
 | La personne parle au bot dans l'app (et lui demande, par exemple, de la rappeler) | La personne connectée | Échange RFC 8693 de son jeton de connexion contre un jeton MCP court par profil, par tour (déjà en place) |
 | Une routine appelle ou texte | La personne pour qui la routine roule (`runAs`) | Délégation de routine de cette personne (déjà en place, `routine-run-as.ts`) |
-| Un appel ou un SMS **entrant** | L'appelant, une fois authentifié (5.1) | **Nouvelle délégation téléphone** de la personne (voir plus bas) |
-| Les opérations du service téléphonique lui-même (répondre au webhook, purger après 30 jours) | Le titulaire de la ligne (la personne qui a branché le numéro) | Délégation téléphone du titulaire |
+| Un appel ou un SMS **entrant** | L'appelant, une fois authentifié (5.1) | **Délégation de routine** de la personne (R2, voir plus bas) |
+| Les opérations du service téléphonique lui-même (répondre au webhook, purger après 30 jours) | Le titulaire de la ligne (la personne qui a branché le numéro) | Délégation de routine du titulaire |
 
-**Délégation téléphone.** Un appel entrant n'a pas de session de connexion :
-le serveur ne tient pas le jeton de l'appelant. Il faut donc une délégation
-durable, sur le modèle de la délégation de routine : émise quand la personne
-active « Me joindre par téléphone » dans l'app (consentement explicite, daté),
-révocable à tout moment, visible dans Perspicax, journalisée sous la personne.
-Pendant l'appel, elle sert aux outils Twilio de la ligne et aux tours du bot
-(les autres profils Perspicax du bot, comme pour une routine). Elle n'est
-utilisable qu'après l'authentification de l'appelant (5.1). Changement requis
-côté Perspicax : accepter un type de délégation `telephony`. **Par défaut, à
-confirmer (R2)** ; l'autre voie serait de réutiliser la délégation de routine
-avec une audience distincte.
+**Délégation : celle des routines (R2).** Un appel entrant n'a pas de
+session de connexion : le serveur ne tient pas le jeton de l'appelant. La
+téléphonie réutilise donc la **délégation de routine** que la personne détient
+déjà (émise automatiquement à sa connexion depuis #149,
+`server/routine-run-as.ts`). Aucun nouveau type de délégation, aucun
+changement de délégation côté Perspicax. Pendant l'appel, elle sert aux
+outils Twilio de la ligne et aux tours du bot (les autres profils Perspicax du
+bot, exactement comme une routine). Elle n'est utilisable qu'après
+l'authentification de l'appelant (5.1). L'activation « Me joindre par
+téléphone » dans l'app reste un consentement explicite et daté, propre à la
+téléphonie, mais il ne crée pas de délégation : il autorise Sagax à se servir
+de la délégation de routine pour les appels et SMS. Sans délégation de routine
+active (personne jamais connectée, délégation révoquée), la ligne répond
+« service indisponible » et la personne est notifiée.
 
 **Ce que le profil doit permettre.** Lire et écrire `Calls` et `Messages`,
 lire `IncomingPhoneNumbers`, modifier les URL de webhook du numéro partagé
@@ -565,7 +596,8 @@ garde téléphonique ouvre la carte avant que la requête parte.
   restent faits dans la console Twilio (règle Perspicax : jamais créés ni
   modifiés par un bot).
 - **Preuve du consentement** : la vérification du numéro et l'activation de la
-  délégation téléphone enregistrent la date, le texte accepté et sa version.
+  téléphonie (« Me joindre par téléphone ») enregistrent la date, le texte
+  accepté et sa version.
 
 ### 5.10 Journal d'audit
 
@@ -584,8 +616,9 @@ changements de configuration vont au journal d'activité admin.
 - Ligne : le titulaire la débranche (Sagax remet les URL de webhook du numéro
   à vide).
 - Bot : interrupteurs de sa page Téléphone.
-- Personne : révoquer sa délégation téléphone coupe tout ce qui la concerne,
-  aussi depuis Perspicax.
+- Personne : désactiver « Me joindre par téléphone » coupe tout ce qui la
+  concerne ; révoquer sa délégation de routine dans Perspicax coupe aussi ses
+  routines.
 - Par SMS : la personne authentifiée texte `PAUSE` (reprise dans l'app).
 - Automatiques : plafond atteint (quand il y en a un), échecs de code répétés,
   taux d'erreurs Twilio anormal (Monitor).
@@ -611,6 +644,32 @@ couvrent :
 - les modèles d'`authority` réutilisables pour les tiers ;
 - le canal d'escalade de `notify.ts` (SMS, appel, délai).
 
+**Élargir l'exposition passe par les approbations existantes (R15).** Les
+outils de configuration sont des outils comme les autres pour
+`owner-approval.ts` ; rien de nouveau n'est inventé :
+
+- Un changement qui **resserre** (retirer un numéro, réduire des heures,
+  baisser un plafond, couper une capacité, se suspendre) s'applique tout de
+  suite.
+- Un changement qui **élargit** (ajouter un numéro de tiers au carnet,
+  étendre les heures, retirer ou hausser un plafond, activer une capacité)
+  est un appel `telephony_settings_set` classé comme une écriture : il suit le
+  mode d'approbation du bot (`approval`, `auto`, `bypass`) et les règles du
+  propriétaire (`allow`, `ask`, `deny`) avec leur portée (`scope` : par
+  exemple `resource: telephony.hours`, ou `to` pour un numéro).
+- La carte offre les mêmes réponses qu'aujourd'hui : Autoriser une fois,
+  Toujours autoriser (règle `allow` avec la portée proposée par
+  `ruleCandidateFor`, modifiable par le propriétaire), Refuser, Toujours
+  refuser.
+- L'accès aux outils par bot de #546 (`BotToolAccess` : Domaine, Accès,
+  Jours) peut accorder au bot la configuration téléphonique pour une durée,
+  comme tout autre accès.
+- La politique `outbound` déjà présente sur le bot (`ask` ou `allow`,
+  allocation quotidienne) reste celle des envois sortants ; la téléphonie ne
+  crée pas de second réglage.
+- Quoi qu'en disent les règles, les lignes du tableau « hors de portée du
+  bot » ci-dessous ne bougent pas.
+
 **La personne voit et corrige.** La page Téléphone (bot) et Réglages >
 Téléphone (personne) affichent l'état courant, qui l'a changé (bot ou
 personne), quand et pourquoi (le bot doit donner une raison courte). Chaque
@@ -633,7 +692,7 @@ avant, après, raison, horodatage, dans le journal d'activité (5.10).
 | Activation de l'enregistrement audio | Consentement de la personne (R6) |
 | Carte d'approbation par appel ou SMS à un tiers | Aucune règle « toujours permettre » ne peut être créée, même par le bot |
 | Achat, libération ou rebranchement d'un numéro, URL de webhook de la ligne | R9 et sécurité de la ligne |
-| Délégation téléphone (émission, portée, révocation) | Consentement de la personne |
+| Activation « Me joindre par téléphone » et délégation de routine | Consentement de la personne |
 | Coupe-circuit : le bot peut se **suspendre** lui-même, jamais se réactiver après une suspension par la personne, l'admin ou un déclencheur automatique | Une sûreté ne se lève pas par celui qu'elle vise |
 | Verrous après échecs de code | Sécurité |
 | Pays permis (Canada, R10) et règles d'organisation | Réglage admin |
@@ -746,7 +805,7 @@ réservé à un choix explicite (R3).
   changements (bot ou personne) avec Annuler. Tout y est aussi réglable par le
   bot (5.12).
 - Réglages > Téléphone (personne) : mes numéros vérifiés, mes codes, mon
-  enregistrement audio, ma délégation téléphone. Réglages > Organisation : la
+  enregistrement audio, « Me joindre par téléphone ». Réglages > Organisation : la
   ligne (numéro, titulaire), suspension.
 - Champs `bot.telephony` dans le wire et l'export de bot (sans numéro ni
   secret), défauts de nouveaux bots : tout désactivé.
@@ -768,8 +827,8 @@ fonction `relay`), avant l'envoi à Perspicax :
 | Appel d'outil du bot | Décision de la garde |
 | --- | --- |
 | `CreateIncomingPhoneNumber*` (achat), et tout changement des URL de webhook de la ligne (`UpdateIncomingPhoneNumber`) | **Refusé pour tous les bots**, avec ou sans téléphonie, quel que soit le niveau d'approbation. Même règle à poser côté Perspicax (politique du profil) pour une défense en double |
-| `CreateCall` vers une personne vérifiée | Permis dans les heures et plafonds. `Url` ou `Twiml` fournis par le bot sont remplacés par le crochet sortant de la ligne : l'appel passe par le pipeline du bot (divulgation, authentification, voix du bot, transcription) |
-| `CreateCall` vers un tiers | Carte d'approbation par appel avec `authority` (4.4), puis même remplacement de `Url` |
+| `CreateCall` vers une personne vérifiée | Permis dans les heures et plafonds. `Url` ou `Twiml` fournis par le bot sont **toujours** remplacés par le crochet sortant de la ligne (R16) : l'appel passe par le pipeline du bot (divulgation, authentification, voix du bot, transcription) |
+| `CreateCall` vers un tiers | Carte d'approbation par appel avec `authority` (4.4), puis même remplacement de l'`Url` et du `Twiml` (R16) |
 | `CreateMessage` vers une personne vérifiée | Permis dans les heures et plafonds ; `From` forcé au numéro de la ligne |
 | `CreateMessage` vers un tiers | Carte par message ; préfixe de divulgation imposé (« [Rocket, assistant IA de GOX] ») |
 | Pays hors Canada (R10) | Refusé |
@@ -788,15 +847,15 @@ hors ÉFVP. Les tiers font partie de la première version (R11).
 
 | Phase | Contenu | Estimation |
 | --- | --- | --- |
-| **P0 Fondations** | Perspicax : délégation `telephony` (R2 à confirmer), route webhook avec validation de signature et relais (R1), politique « pas d'achat de numéro » ; Sagax : branchement de la ligne, numéros vérifiés par SMS, codes (NIP, phrase, code SMS, hachés), **garde téléphonique** dans le relais MCP (6.5), outils de configuration du bot et historique avec Annuler (5.12), journal d'audit, coupe-circuit, pages Téléphone | 9 à 12 j (dont 2 à 3 côté Perspicax) |
+| **P0 Fondations** | Perspicax : route webhook avec validation de signature et relais (R1), politique « pas d'achat de numéro » ; Sagax : branchement de la ligne, numéros vérifiés par SMS, codes (NIP, phrase, code SMS, hachés), **garde téléphonique** dans le relais MCP (6.5), outils de configuration du bot et historique avec Annuler (5.12), journal d'audit, coupe-circuit, pages Téléphone | 8 à 11 j (dont 1 à 2 côté Perspicax) |
 | **P1 SMS** | Session SMS par code ou appareil connu, SMS entrant vers le bot et réponse, routage `@bot`, `sms_send`, STOP / HELP / PAUSE, fil « Téléphone » | 3 à 5 j |
-| **P2 Appeler le bot** | Media Streams, authentification DTMF et parlée, SVI (menu, touches, nom du bot, routage direct), voix du bot en temps réel (xAI, ElevenLabs, Fish) et repli xAI affiché, VAD serveur, barge-in, transcription et résumé, approbations parlées avec code | 10 à 14 j |
+| **P2 Appeler le bot** | Bascule depuis `voicebridge` (2.7 : numéro vers le relais, nouveau NIP, validation, arrêt) ; Media Streams, authentification DTMF et parlée, SVI (menu, touches, nom du bot, routage direct), voix du bot en temps réel (xAI, ElevenLabs, Fish) et repli xAI affiché, VAD serveur, barge-in, transcription et résumé, approbations parlées avec code | 11 à 15 j |
 | **P3 Le bot appelle la personne** | `phone_call_person`, escalade de `notify.ts`, handoff avec carte lue, étape de routine (`runAs`), heures permises, détection de messagerie | 4 à 6 j |
 | **P4 Tiers** | `phone_call_third_party`, carte par appel et par SMS, `authority` et ses modèles, divulgation au tiers, `send_digits` (menus), attente en ligne, connexion de la personne sur acceptation, issue | 8 à 12 j |
 | **P5 Rétention et enregistrement** | Enregistrement audio optionnel par personne avec annonce, purge J+30 (Twilio et fil), lecture de l'audio par proxy | 2 à 3 j |
 | Plus tard | Chatterbox phrase par phrase, OpenAI Realtime en délégation sur choix explicite, serveur solo (R8), autres pays (R10) | à évaluer |
 
-**Première version = P0 à P5 : environ 36 à 52 jours**, au Canada,
+**Première version = P0 à P5 : environ 35 à 51 jours**, au Canada,
 organisation et Cloud liés à Perspicax. P0 + P1 (SMS seulement, avec la garde
 et la configuration par les bots) peuvent sortir avant, en 12 à 17 jours.
 L'ÉFVP Loi 25 doit être terminée avant d'ouvrir les tiers (P4) en
@@ -804,27 +863,9 @@ production.
 
 ## 8. Décisions restantes
 
-Toutes les questions R1 à R14 ont une réponse de JC (section 0), sauf :
+Toutes les questions R1 à R16 ont une réponse de JC (section 0), sauf :
 
-- **R2. Délégation téléphone ?** Non tranché. Par défaut, à confirmer :
-  (a) nouveau type `telephony` dans Perspicax, consentement séparé,
-  révocable seul [retenu par défaut] ; (b) réutiliser la délégation de
-  routine.
-- **R13. `voicebridge`** : inspection en lecture seule en cours ailleurs ; la
-  spec ne s'appuie pas dessus.
-- **R14. Pilote** : en attente.
-
-Questions nouvelles nées de la deuxième série :
-
-- **R15. Un changement fait par le bot qui élargit l'exposition** (ajout d'un
-  numéro de tiers au carnet, heures étendues la nuit, plafond retiré,
-  capacité tiers activée) ?
-  (a) Effet immédiat, ligne dans le fil, notification et Annuler [retenu par
-  défaut dans 5.12] ; (b) effet seulement après confirmation de la personne
-  par une carte.
-- **R16. Appel à une personne vérifiée par `CreateCall` direct** : la garde
-  remplace l'`Url` ou le `Twiml` du bot par le crochet de la ligne (6.5).
-  (a) Oui, toujours, pour garder divulgation et authentification
-  [recommandé] ; (b) laisser le TwiML du bot quand il commence par la phrase
-  de divulgation.
-
+- **R14. Pilote ?** Ouvert.
+  (a) La ligne de JC (le numéro repris de `voicebridge`), JC seul sur la
+  liste, cryptic comme premier bot joignable [recommandé] ; (b) une ligne
+  d'équipe GOX ; (c) attendre P3.
