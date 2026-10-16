@@ -669,6 +669,100 @@ rules, covered by `server/owner-approval.test.ts`,
   permission registry's per-resource key (PR #508, `resourceKeyForCall`):
   #508 is the role guard before the call, this is the approval after it.
 
+## Custom auto-review rules and sendable email drafts (2026-10-16)
+
+Custom rules are a person's approval rules in their own words
+(`shared/custom-rules.ts`, store `custom-approval-rules.json` 0600 in
+`server/custom-rules-store.ts`, routes `server/routes/custom-rules.ts`,
+editor `src/components/bot-settings/CustomRulesCard.tsx`). Keep these rules,
+covered by `shared/custom-rules.test.ts`, `server/auto-approve.custom-rules.test.ts`,
+`server/routes/custom-rules.test.ts` and `src/components/CustomRuleNotice.test.ts`:
+
+- A rule is "Quand <bot> veut :" a phrase plus Autoriser automatiquement,
+  Demander d'abord or Refuser, for one bot or all of the person's bots. The
+  phrase is compiled into a narrow matcher (actions, objects, folders, tools
+  in backticks, products); a phrase it cannot read allows nothing.
+- Precedence: deny > ask > allow, a bot's own rule before one for all bots.
+  A deny refuses at `request.opened` before any grant; an ask keeps the card
+  even under Full access, a saved command or an owner allow; an allow
+  answers only what nothing else answered and never an admin card, a
+  guest's turn, a safety hold, a sandbox widening or a question
+  (`autoVerdict` sources `custom-rule`, `custom-rule-ask`, `custom-rule-deny`;
+  owner deny and ask rules still win over a custom allow).
+- An allow never covers a destructive, irreversible, money or external-send
+  call unless the person ticked that class on the rule (`riskScope`).
+  Tool arguments are untrusted: they only narrow a match (chained shell,
+  `..`, relative paths never match a folder rule).
+- Every automatic decision writes a decision row with the rule id; the
+  transcript step and the card carry a rule notice with Edit rule. "Toujours
+  permettre ceci" saves a rule from a card only when it covers that card
+  (409 `rule_not_covering` otherwise); the check runs before anything is
+  saved, so a refusal never changes or removes a rule the person had.
+- The shell (decided after four security reviews, 2026-10-16): an allow
+  rule never names a family of commands. "exécuter des commandes",
+  "commandes dans <dossier>" and the like are refused as allow rules
+  (route 400 `shell_family_allow`, the editor says "Pour le shell, seules
+  des commandes exactes peuvent être permises automatiquement"); they stay
+  valid as Refuser or Demander d'abord. A shell line is allowed only by
+  "la commande exacte `...`" made from its card with "Toujours permettre
+  ceci" (route 400 `exact_command_from_card` otherwise), bound to that exact
+  line (outer spaces and tabs trimmed, nothing else), that bot (never all
+  bots; its bot cannot be changed), that tool and server, the session's
+  launch folder the engine reports (the shell may `cd` between calls; a card
+  without one cannot be allowed, 409 `exact_command_no_cwd`) and that engine
+  instance, risk classes still ticked
+  (any git is irreversible: hooks and repository settings run code); or by
+  a folder read rule when the engine's own shell (never an MCP shell tool,
+  which may run on another machine) runs a plain read: cat, head, tail, wc, ls or stat, their own short
+  flags only (no long flag, no `=`, no attached value, no `-L`/`-H`), every
+  operand an absolute path inside the folder, no link on the way, no
+  `,`, `%`, `^` or `@` (PowerShell and cmd read them). A folder allow never
+  covers an MCP tool at all: this server's disk says nothing about another
+  machine's folders. git, fd,
+  rg, sort, uniq, tree, less, more, file and the grep family are never
+  covered by a family rule. Chaining, redirection, substitution, quotes,
+  control characters, `!` or a wildcard make a line opaque.
+- Deny and ask rules match broadly and fail closed: words are read
+  anywhere in the line (`/bin/rm`, `env rm`, `sudo`, `xargs rm`, `fd -x`,
+  `rg --pre`, `sort -o`, `tree -o`, `git --output`, `git -c`, `git push`
+  after global options); a relative path, a flag value, an operand-less
+  reader, a path under any MCP key that names a place (path, uri, file,
+  dir, src, dest, target), a `file:` URL in any case (tabs and line breaks
+  inside dropped first), a JSON string, `~user`, `$HOME`/`${HOME}`, a UNC or an
+  encoded or Windows path, or a scan cut short by depth or count leaves the
+  paths unknown, which a folder deny catches. A cwd is never taken from the
+  engine or the tool's arguments for an allow.
+- Paths: only this person's home is `~` (`~user`, `~+`, `~-` refused); rule
+  folders and call paths are both resolved; an allow needs every path
+  inside as written and as resolved and none through a symbolic link; a
+  deny or ask catches either, case-insensitively and in one Unicode form.
+  A server's readOnlyHint never makes a call a read. Tools are named whole,
+  server included; products match known server ids (or a Perspicax or
+  Composio gateway's tool prefix). No model reviewer is wired:
+  `customRulesReviewPrompt`, `tightenCustomDecision` and
+  `safetyReviewPrompt(call, policy)` are the tighten-only contract for one.
+- Tests: `server/custom-rules.security.test.ts` holds every probe input of
+  the four reviews; add each new bypass there.
+
+Email drafts (`src/components/EmailCard.tsx`, `shared/email-draft-send.ts`,
+`server/email-draft-send.ts`), covered by `server/email-draft-send.test.ts`
+and `server/email-draft-send.e2e.test.ts`: To, Cc, Subject and body are
+editable (no invisible or direction character; a non-ASCII domain is shown
+as punycode); Envoyer writes an approval card (`POST
+/api/threads/:id/email-drafts`) and never sends. Allow sends once: through
+the bot's own mail connector (Microsoft 365, Outlook or Gmail MCP server or
+app) with a 10-minute one-shot pass bound to that bot, that connector's
+server and a plain send tool (no forward or reply), the exact To, Cc, Bcc
+(every recipient part parsed, IDN and IP literals included; no display
+name; no other mailbox through `userId`), subject and exact approved body (HTML only if the draft was that
+HTML), and no other field (no attachment, reply-to, from or header); or
+through the
+server's mail settings. The pass is consumed before the safety review is
+relaxed for it, and the person's deny rules still apply. Bcc is refused in
+a room and never shown in a card's arguments. A partial send records who
+already received it, and Retry of the same draft skips them. Deny sends nothing. The
+draft shows the status and a send error inline; Retry asks again.
+
 ## Server log on disk and expired approvals (2026-10-11)
 
 - The server log tail behind `GET /api/org/admin/logs`

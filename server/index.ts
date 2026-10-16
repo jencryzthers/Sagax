@@ -300,6 +300,12 @@ import { blockedTarget, buildSpendNotification, deliverableNotification, quietFo
 import { approvalPlain, describeAllowRule, mcpAllowKey } from "../shared/approval-describe.ts";
 import { ownerDecision, ruleCandidateFor, type BotPermissionMode, type OwnerRule } from "./owner-approval.ts";
 import { OwnerApprovalStore } from "./owner-approval-store.ts";
+import { CustomRuleStore } from "./custom-rules-store.ts";
+import { customRuleCandidate, customRuleNotice, reviewCustomRules, ruleCoversCard, serverHome, type CustomRuleCall } from "./custom-rules-review.ts";
+import { createCustomRuleRoutes } from "./routes/custom-rules.ts";
+import { createEmailDraftRoutes } from "./routes/email-drafts.ts";
+import { createEmailSendPasses, emailSendCard, sendWithMailer } from "./email-draft-send.ts";
+import { EMAIL_SEND_REQUEST_PREFIX, emailDraftKey, emailSendInstruction, emailSendSummary, mailConnectorsOf, normalizeDraftForSend, type EmailConnector, type EmailSendRequestCard } from "../shared/email-draft-send.ts";
 import { memberOwnScopeTool } from "./member-tool-scope.ts";
 import { serverApprovalWords } from "./approval-words.ts";
 import {
@@ -1487,6 +1493,9 @@ const commandAllowlist = new CommandAllowlistStore(join(DATA_DIR, "command-allow
 // 2026-10-14: owners' approval rules and their bots' permission modes
 // (docs/superpowers/specs/2026-10-14-bot-owner-permissions.md).
 const ownerApprovals = new OwnerApprovalStore(join(DATA_DIR, "owner-approvals.json"));
+// 2026-10-16: people's custom auto-review rules, in their own words
+// (shared/custom-rules.ts, server/custom-rules-review.ts).
+const customRules = new CustomRuleStore(join(DATA_DIR, "custom-approval-rules.json"));
 const botSettings = createBotSettingsStore(DATA_DIR);
 const SESSION_COOKIE = sessionCookieName(PORT, ENVIRONMENT_ID);
 const HOSTED_WORKSPACE = hostedWorkspaceConfigured();
@@ -11921,8 +11930,17 @@ bus.subscribe((event: RuntimeEvent) => {
       // is an explicit card. A read may run. Shadow changes nothing.
       const safetyName = event.mcpTool ?? event.tool;
       const safetyText = [event.mcpTool, event.tool, event.command?.command, event.summary, event.input].filter((part): part is string => typeof part === "string" && part.length > 0).join("\n");
+      // The person already allowed this exact email draft on its own card
+      // (server/email-draft-send.ts): the pass is bound to this bot, the
+      // approved connector, recipients, subject and body, and is used here,
+      // once. Only then is the outbound step of the safety review (a draft,
+      // then a confirmation) taken as answered; every other check stays.
+      const emailDraftRequest = permission && event.requestId && asker
+        ? takeEmailSendPass(event.threadId, asker.id, event.mcpTool ?? event.tool, event.input)
+        : null;
+      const emailDraftCall = emailDraftRequest !== null;
       const safetyWho = permission && event.requestId ? safetyPrincipal(event.threadId) : undefined;
-      const safetyEffect = safetyWho
+      const reviewedSafety = safetyWho
         ? safetyPermissionEffect({
           text: safetyText,
           surface: /computer/i.test(safetyName) ? "computer" : /propose_routine/.test(safetyName) ? "routine" : event.mcpTool ? "mcp" : "shell",
@@ -11934,7 +11952,12 @@ bus.subscribe((event: RuntimeEvent) => {
           ...(asker ? { botId: asker.id } : {}),
         })
         : null;
+      const safetyEffect = emailDraftCall && reviewedSafety && reviewedSafety.kind !== "allow"
+        && reviewedSafety.classKey === "outbound:send" && (reviewedSafety.verdict.code === "safer" || reviewedSafety.verdict.code === "confirm")
+        ? null
+        : reviewedSafety;
       if (safetyEffect?.kind === "stop" && event.requestId) {
+        if (emailDraftRequest) patchEmailSend(event.threadId, emailDraftRequest, { status: "failed", error: safetyEffect.message });
         stashSafetyNote(event.requestId, safetyEffect.message);
         const instance = event.providerInstanceId ? registry.get(event.providerInstanceId) : asker ? registry.get(asker.modelSelection.instanceId) : undefined;
         void instance?.adapter.respondToRequest(event.threadId, event.requestId, { behavior: "deny", message: safetyEffect.message }).catch(() => {});
@@ -11975,6 +11998,46 @@ bus.subscribe((event: RuntimeEvent) => {
         : null;
       // a Sagax gate card can be remembered as an Allow rule for this exact tool
       const gateAllowKey = permission && event.sagaxGate && event.mcpTool ? mcpAllowKey(event.mcpTool) : undefined;
+      // 2026-10-16: the person's custom rules, in their own words
+      // (shared/custom-rules.ts). Deny refuses here, ask keeps the card
+      // whatever grant would answer, allow answers only what the owner's
+      // own route may (never an admin card, a guest's turn, a safety hold or
+      // a sandbox widening) and only within its risk scope.
+      const customCall: CustomRuleCall | null = permission && asker && event.requestId
+        ? {
+          tool: event.tool,
+          ...(event.mcpTool ? { mcpTool: event.mcpTool } : {}),
+          ...(typeof event.input === "string" ? { input: event.input } : {}),
+          ...(event.command?.command ? { command: event.command.command } : {}),
+          // compared only by an exact command's binding
+          ...(event.command?.cwd ? { cwd: event.command.cwd } : {}),
+          providerInstanceId: event.providerInstanceId ?? asker!.modelSelection.instanceId,
+          ...(event.paths?.length ? { paths: event.paths } : {}),
+          summary: event.summary,
+        }
+        : null;
+      const customReview = customCall && asker
+        ? reviewCustomRules(customRules.rulesOf(approvalOwnerId(asker), asker.id), customCall, asker.id)
+        : null;
+      const customDecision = customReview?.decision.kind === "allow"
+        && (adminApproval || guestDriven || safetyEffect?.kind === "hold" || event.requiresExplicitApproval === true)
+        ? { kind: "none" as const }
+        : customReview?.decision;
+      if (customDecision?.kind === "deny" && asker && event.requestId) {
+        const instance = event.providerInstanceId ? registry.get(event.providerInstanceId) : registry.get(asker.modelSelection.instanceId);
+        void instance?.adapter.respondToRequest(event.threadId, event.requestId, { behavior: "deny", message: "Refused by the person's rule." }).catch(() => {});
+        const notice = customRuleNotice(customDecision);
+        if (emailDraftRequest) patchEmailSend(event.threadId, emailDraftRequest, { status: "failed", error: `Refused by your rule "${customDecision.rule.when.slice(0, 120)}".` });
+        pushMessage({
+          role: "bot", kind: "activity",
+          tool: { name: `Refused ${event.summary.slice(0, 120)}: your rule "${customDecision.rule.when.slice(0, 120)}".`, ok: false, ...(notice ? { ruleNotice: notice } : {}) },
+        });
+        appendDecision(DATA_DIR, {
+          threadId: event.threadId, requestId: event.requestId, botId: asker.id, botName: asker.name,
+          tool: event.tool, summary: event.summary, decision: "auto-denied", source: "custom-rule-deny", rule: customDecision.rule.id,
+        });
+        break;
+      }
       const baseVerdict = permission && asker && event.requestId
         ? autoVerdict(adminApproval ? "ask" : effectiveApprovalMode, event.tool, {
           requiresExplicitApproval: event.requiresExplicitApproval,
@@ -11987,6 +12050,8 @@ bus.subscribe((event: RuntimeEvent) => {
           safetyAllow: safetyEffect?.kind === "allow" && safetyEffect.auto === true && event.sagaxGate !== true,
           widgetApproved: !adminApproval && !guestDriven && !event.requiresExplicitApproval &&
             cwActionPasses.take(event.threadId, event.mcpTool ?? event.tool, event.input) !== null,
+          ...(customDecision?.kind === "ask" ? { customRule: { behavior: "ask" as const, id: customDecision.rule.id } } : {}),
+          emailDraftApproved: emailDraftCall && !adminApproval && !guestDriven && !event.requiresExplicitApproval,
         })
         : null;
       // 2026-10-14 (bot owner permissions): what the owner decided ahead of
@@ -12017,7 +12082,7 @@ bus.subscribe((event: RuntimeEvent) => {
         });
         break;
       }
-      const verdict = owner?.kind === "allow"
+      const ownerVerdict = owner?.kind === "allow" && baseVerdict?.source !== "custom-rule-ask"
         ? {
           approve: owner.source === "owner-rule"
             ? `approved ${event.tool} (your rule)`
@@ -12026,6 +12091,20 @@ bus.subscribe((event: RuntimeEvent) => {
           ...(owner.rule ? { rule: owner.rule.id } : {}),
         }
         : baseVerdict;
+      // The person's allow rule, when nothing answered and the owner's own
+      // rules did not hold the card (an owner ask rule or an admin card win).
+      const customAllow = permission && asker && event.requestId && !ownerVerdict?.approve && customDecision?.kind === "allow"
+        && (!owner || (owner.kind === "card" && (owner.reason === "no-rule" || owner.reason === "destructive")))
+        ? autoVerdict(effectiveApprovalMode, event.tool, {
+          customRule: { behavior: "allow", id: customDecision.rule.id },
+          requiresExplicitApproval: event.requiresExplicitApproval,
+          sagaxGate: event.sagaxGate === true,
+        })
+        : null;
+      const verdict = customAllow?.approve && customDecision?.kind === "allow"
+        ? { ...customAllow, rule: customDecision.rule.id }
+        : ownerVerdict;
+      const customNotice = customDecision ? customRuleNotice(customDecision) : undefined;
       // What "Always allow" or "Always deny" would remember on this card.
       const ownerRuleCandidate = owner?.kind === "card" && owner.reason !== "hold" && owner.reason !== "admin"
         ? ruleCandidateFor({ tool: ownerTool, ...(typeof event.input === "string" ? { input: event.input } : {}) }, serverApprovalWords(cfg.language))
@@ -12077,7 +12156,7 @@ bus.subscribe((event: RuntimeEvent) => {
             if (outcome !== "unavailable") pushMessage({
               role: "bot", kind: "activity",
               tool: outcome === "rejected"
-                ? { name: `The provider rejected this action despite ${verdict.source === "command-allowlist" ? "the saved command permission" : verdict.source === "widget-approval" ? "your approval in the ConnectWise widget" : verdict.source === "owner-rule" ? "your rule" : verdict.source === "owner-auto" ? "automatic approval" : verdict.source === "owner-bypass" ? "bypass" : "Full access"}.`, ok: false }
+                ? { name: `The provider rejected this action despite ${verdict.source === "command-allowlist" ? "the saved command permission" : verdict.source === "widget-approval" ? "your approval in the ConnectWise widget" : verdict.source === "owner-rule" || verdict.source === "custom-rule" ? "your rule" : verdict.source === "email-draft-approval" ? "your approval of the email draft" : verdict.source === "owner-auto" ? "automatic approval" : verdict.source === "owner-bypass" ? "bypass" : "Full access"}.`, ok: false }
                 : failedTurnTool("could not deliver approval to the provider; retry the task after reconnecting."),
             });
             return;
@@ -12085,7 +12164,7 @@ bus.subscribe((event: RuntimeEvent) => {
           pushMessage({
             role: "bot",
             kind: "activity",
-            tool: { name: `${settled}: ${summary.slice(0, 120)}`, ok: true },
+            tool: { name: `${settled}: ${summary.slice(0, 120)}`, ok: true, ...(verdict.source === "custom-rule" && customNotice ? { ruleNotice: customNotice } : {}) },
           });
           // Log only once the provider has actually taken the answer.
           appendDecision(DATA_DIR, {
@@ -12163,6 +12242,17 @@ bus.subscribe((event: RuntimeEvent) => {
           ...(plain ? { plain: { title: plain.title, line: plain.line, ...(plain.risk ? { risk: plain.risk } : {}) } } : {}),
           ...(permission && event.mcpTool ? { mcpTool: event.mcpTool } : {}),
           ...(ownerRuleCandidate ? { ownerRule: ownerRuleCandidate } : {}),
+          // the rule notice: an ask rule held this card, or an allow rule
+          // matched without covering its risk class
+          ...(permission && customNotice && (customNotice.outcome === "held" || customNotice.outcome === "risk") ? { customRule: customNotice } : {}),
+          // "Toujours permettre ceci": never on an admin card, a guest's
+          // turn, a safety hold, a sandbox widening or under an ask rule
+          ...(permission && customReview && !adminApproval && !guestDriven && safetyEffect?.kind !== "hold" && !event.requiresExplicitApproval && customDecision?.kind !== "ask"
+            ? (() => {
+              const candidate = customRuleCandidate(customReview.facts, cfg.language);
+              return candidate ? { customRuleCandidate: candidate } : {};
+            })()
+            : {}),
           ...(hiddenApproval ? { expiresAt: Date.now() + HIDDEN_APPROVAL_TTL_MS } : {}),
         },
       });
@@ -23689,6 +23779,52 @@ ROUTES.push(createOwnerApprovalRoutes({
     summary: `Permission mode: ${before} to ${after}`, decision: "user-approved", source: "user",
   }),
 }));
+// 2026-10-16: an email draft's Send: an approval card, then the send on Allow
+// (server/routes/email-drafts.ts, server/email-draft-send.ts).
+ROUTES.push(createEmailDraftRoutes({ ask: requestEmailDraftSend, status: emailDraftStatus }));
+// 2026-10-16: a person's custom auto-review rules (server/routes/custom-rules.ts).
+ROUTES.push(createCustomRuleRoutes({
+  store: customRules,
+  manager: ruleManager,
+  ownedBots: botsOwnedBy,
+  home: serverHome(),
+  bindingFor: (personId, where) => {
+    const message = store.messagesFor(where.threadId).find((row) => row.card?.requestId === where.requestId);
+    const card = message?.card;
+    if (!message || !card || card.requestType !== "permission" || card.answered || card.dismissed || card.expired || card.adminApproval) return null;
+    const botId = message.from?.botId ?? store.botByThread(where.threadId)?.id;
+    const bot = botId ? store.bot(botId) : undefined;
+    if (!bot || approvalOwnerId(bot).toLowerCase() !== personId.toLowerCase()) return null;
+    const binding = card.customRuleCandidate?.binding;
+    return binding ? { ...binding, botId: bot.id } : undefined;
+  },
+  fromCard: (personId, where, rule) => {
+    const message = store.messagesFor(where.threadId).find((row) => row.card?.requestId === where.requestId);
+    const card = message?.card;
+    if (!message || !card || card.requestType !== "permission" || !card.tool || card.answered || card.dismissed || card.expired || card.adminApproval) return null;
+    const botId = message.from?.botId ?? store.botByThread(where.threadId)?.id;
+    const bot = botId ? store.bot(botId) : undefined;
+    if (!bot || approvalOwnerId(bot).toLowerCase() !== personId.toLowerCase()) return null;
+    if (rule.botId !== null && rule.botId !== bot.id) return "not-covered";
+    const binding = card.customRuleCandidate?.binding;
+    const call: CustomRuleCall = {
+      tool: card.tool, ...(card.mcpTool ? { mcpTool: card.mcpTool } : {}), ...(card.toolInput ? { input: card.toolInput } : {}), summary: card.subtitle,
+      ...(binding ? { command: binding.command, ...(binding.cwd ? { cwd: binding.cwd } : {}), ...(binding.providerInstanceId ? { providerInstanceId: binding.providerInstanceId } : {}) } : {}),
+    };
+    return ruleCoversCard(rule, call, bot.id) ? "covered" : "not-covered";
+  },
+  markCard: (where, rule) => {
+    const message = store.messagesFor(where.threadId).find((row) => row.card?.requestId === where.requestId);
+    if (message?.card) store.patchMessage(where.threadId, message.id, { card: { ...message.card, customRuleSaved: { id: rule.id, when: rule.when } } });
+  },
+  audit: (row, auth) => orgAudit({
+    category: "approval", action: row.action,
+    target: row.botId ? auditBotTarget(row.botId) : { kind: "person", id: row.personId },
+    ...(row.before ? { before: row.before } : {}),
+    ...(row.after ? { after: row.after } : {}),
+    actor: orgAuditActor(auth),
+  }),
+}));
 ROUTES.push(createAutoReviewRuleRoutes({
   bots: () => store.bots,
   rules: (botId) => commandAllowlist.list(botId),
@@ -24708,6 +24844,214 @@ async function resolveAndSendCwAction(
     return true;
   }
   json(res, 200, { ok: true, outcome: "allowed-once" });
+  return true;
+}
+
+// ── email drafts sent from their card (server/email-draft-send.ts) ──────
+const emailSendPasses = createEmailSendPasses();
+
+/** The bot a thread's email draft speaks for, and whether the caller may ask
+ * to send it (the bot's owner, like a ConnectWise widget change). */
+function emailDraftBot(auth: RequestAuth, threadId: string, botIdHint: unknown): { bot: BotRecord } | { status: number; body: Record<string, unknown> } {
+  const group = store.groupByThread(threadId);
+  let bot: BotRecord | undefined;
+  if (group) {
+    if (group.peopleDm) return { status: 404, body: { error: "no such conversation" } };
+    if (IDENTITY.kind === "perspicax" && !groupPostAllowed(group, channelViewerId(auth))) {
+      return { status: 403, body: { error: "you may read this channel, not post in it", code: "read_only" } };
+    }
+    const botId = typeof botIdHint === "string" ? botIdHint : "";
+    if (!group.memberIds.includes(botId)) return { status: 400, body: { error: "botId must name a bot of this group" } };
+    bot = store.bot(botId) ?? undefined;
+  } else {
+    const owner = store.botByThread(threadId);
+    if (!owner) return { status: 404, body: { error: "no such conversation" } };
+    try {
+      routeThreadId(owner, threadId, "thread.post");
+    } catch (error) {
+      const status = (error as { status?: number }).status ?? 403;
+      return { status, body: { error: status === 404 ? "no such conversation" : "you may not post in this conversation" } };
+    }
+    bot = botForThread(owner.id, threadId) ?? owner;
+  }
+  if (!bot) return { status: 404, body: { error: "no such bot" } };
+  const audience = approvalAudience({ ownerUserId: approvalOwnerId(bot), host: approvalHostOf(bot) });
+  if (!cwActionActor(auth) || approvalAnswerStatus({ question: false, audience, callerUserId: approvalCallerUserId(auth) }) === 403) {
+    return { status: 403, body: { error: "Only the bot owner can send this draft.", code: "email_draft_owner_only" } };
+  }
+  return { bot };
+}
+
+/** Where a draft can be sent from: the bot's own mail connectors first (the
+ * person's mailbox), then the server's mail when it is set up. */
+function emailConnectorsFor(bot: BotRecord): EmailConnector[] {
+  const connectors = mailConnectorsOf(bot);
+  if (mailer()) connectors.push({ kind: "smtp", label: cfg.language?.toLowerCase().startsWith("fr") ? "le courriel du serveur" : "the server's mail" });
+  return connectors;
+}
+
+/** "Envoyer" on an email draft: an approval card in the conversation, never
+ * a send. */
+async function requestEmailDraftSend(auth: RequestAuth, threadId: string, body: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> }> {
+  const target = emailDraftBot(auth, threadId, body.botId);
+  if (!("bot" in target)) return target;
+  const { bot } = target;
+  const normalized = normalizeDraftForSend(body.draft);
+  if ("problems" in normalized) return { status: 400, body: { error: normalized.problems.join("; "), code: "invalid_draft" } };
+  // a room's people read its cards and messages: a Bcc there is not blind
+  if (normalized.draft.bcc.length && store.groupByThread(threadId)) {
+    return { status: 400, body: { error: "Bcc is not available in a room: everyone in it would see the hidden recipients.", code: "bcc_in_room" } };
+  }
+  const connectors = emailConnectorsFor(bot);
+  const wanted = body.connector && typeof body.connector === "object" ? body.connector as { kind?: unknown; id?: unknown } : undefined;
+  const connector = wanted
+    ? connectors.find((candidate) => candidate.kind === wanted.kind && (candidate.id ?? null) === (typeof wanted.id === "string" ? wanted.id : null))
+    : connectors[0];
+  if (!connector) {
+    return { status: 409, body: { error: "No mail connector can send this: connect Microsoft 365, Outlook or Gmail to this bot, or set up the server's mail.", code: "no_mail_connector" } };
+  }
+  const draftKey = typeof body.draftKey === "string" && /^[\w-]{1,64}$/.test(body.draftKey) ? body.draftKey : emailDraftKey(normalized.draft);
+  // a retry of the very same draft skips who already received it
+  const sameDraft = JSON.stringify(normalized.draft);
+  const earlier = [...store.messagesFor(threadId)].reverse()
+    .find((row) => row.card?.emailSendRequest?.draftKey === draftKey && JSON.stringify(row.card.emailSendRequest.draft) === sameDraft)?.card?.emailSendRequest;
+  const sentTo = earlier?.status === "failed" && earlier.sentTo?.length && earlier.connector.kind === connector.kind ? earlier.sentTo : undefined;
+  const request = { ...emailSendCard({ draft: normalized.draft, draftKey, connector, by: actorPrincipalId(auth) }), ...(sentTo ? { sentTo } : {}) };
+  const summary = emailSendSummary(normalized.draft, connector, cfg.language);
+  // the card's arguments never list Bcc addresses, only how many
+  const toolInput = JSON.stringify({
+    to: normalized.draft.to, cc: normalized.draft.cc,
+    ...(normalized.draft.bcc.length ? { bccCount: normalized.draft.bcc.length } : {}),
+    subject: normalized.draft.subject, connector: connector.label,
+    ...(sentTo ? { alreadySentTo: sentTo } : {}),
+  }, null, 2);
+  const message = store.appendMessage(threadId, {
+    role: "bot",
+    kind: "options",
+    from: { botId: bot.id, name: bot.name, color: bot.color },
+    card: {
+      title: "Approval needed",
+      subtitle: summary,
+      options: ["Allow", "Deny"],
+      requestId: request.id,
+      requestType: "permission",
+      tool: "send_email_draft",
+      toolInput,
+      plain: { title: summary, line: summary, risk: "write" },
+      emailSendRequest: request,
+    },
+  });
+  appendDecision(DATA_DIR, {
+    threadId, requestId: request.id, botId: bot.id, botName: bot.name,
+    tool: "send_email_draft", summary, decision: "card-shown", source: "email-draft-approval",
+  });
+  return { status: 201, body: { requestId: request.id, messageId: message.id, status: request.status, connector } };
+}
+
+function emailSendMessage(threadId: string, requestId: string): Message | undefined {
+  return store.messagesFor(threadId).find((row) => row.card?.requestId === requestId && row.card.emailSendRequest);
+}
+
+function patchEmailSend(threadId: string, requestId: string, patch: Partial<EmailSendRequestCard>): void {
+  const message = emailSendMessage(threadId, requestId);
+  const card = message?.card;
+  if (!message || !card?.emailSendRequest) return;
+  store.patchMessage(threadId, message.id, { card: { ...card, emailSendRequest: { ...card.emailSendRequest, ...patch } } });
+}
+
+/** The bot's outbound call is the draft the person allowed: use its pass
+ * once and say the send started. */
+function takeEmailSendPass(threadId: string, botId: string, tool: string, input: string | undefined): string | null {
+  const taken = emailSendPasses.take(threadId, botId, tool, input);
+  if (!taken) return null;
+  patchEmailSend(threadId, taken.requestId, { status: "sending" });
+  return taken.requestId;
+}
+
+/** The latest send of one draft in a thread, as the draft card shows it. A
+ * hand-off whose pass lapsed unused reads as failed. */
+function emailDraftStatus(auth: RequestAuth, threadId: string, draftKey: string): { status: number; body: Record<string, unknown> } {
+  const owner = store.botByThread(threadId);
+  const group = store.groupByThread(threadId);
+  if (!owner && !group) return { status: 404, body: { error: "no such conversation" } };
+  const message = [...store.messagesFor(threadId)].reverse().find((row) => row.card?.emailSendRequest?.draftKey === draftKey);
+  // the same check as asking to send: the conversation, then the bot's owner
+  const target = emailDraftBot(auth, threadId, message?.from?.botId ?? owner?.id);
+  if (!("bot" in target)) return target.status === 400 ? { status: 404, body: { error: "no such conversation" } } : target;
+  const request = message?.card?.emailSendRequest;
+  if (!message || !request) return { status: 200, body: { send: null } };
+  let status = request.status;
+  let error = request.error;
+  if (message.card?.answered === "deny" && status === "pending") status = "denied";
+  if (status === "handed-off" && !emailSendPasses.waiting(threadId, request.id)) {
+    status = "failed";
+    error = cfg.language?.toLowerCase().startsWith("fr")
+      ? "Le robot n'a pas envoyé ce courriel à temps. Réessayez."
+      : "The bot did not send this email in time. Try again.";
+  }
+  return { status: 200, body: { send: { requestId: request.id, status, ...(error ? { error } : {}), connector: request.connector, at: request.at } } };
+}
+
+/** Allow on an email draft's card: the one send the person approved. Deny
+ * closes the card and nothing is sent. False when the card is not a draft's. */
+async function resolveAndSendEmailDraft(res: ServerResponse, auth: RequestAuth, threadId: string, requestId: string, behavior: string): Promise<boolean> {
+  if (!requestId.startsWith(EMAIL_SEND_REQUEST_PREFIX)) return false;
+  const message = emailSendMessage(threadId, requestId);
+  const card = message?.card;
+  if (!message || !card?.emailSendRequest) return false;
+  if (card.answered || card.dismissed || card.expired) {
+    json(res, 409, { error: "The request is no longer open." });
+    return true;
+  }
+  const request = card.emailSendRequest;
+  const botId = message.from?.botId ?? store.botByThread(threadId)?.id;
+  const bot = botId ? store.bot(botId) : undefined;
+  const actor = cwActionActor(auth);
+  const decided = (decision: "user-approved" | "user-denied") => appendDecision(DATA_DIR, {
+    threadId, requestId, ...(bot ? { botId: bot.id, botName: bot.name } : {}),
+    tool: "send_email_draft", summary: card.subtitle, decision, source: "user",
+  });
+  if (behavior !== "allow" || !actor) {
+    store.patchMessage(threadId, message.id, { card: { ...card, answered: "deny", emailSendRequest: { ...request, status: "denied" } } });
+    decided("user-denied");
+    json(res, 200, { ok: true, outcome: "rejected" });
+    return true;
+  }
+  if (!bot) {
+    json(res, 409, { error: "This bot is no longer here." });
+    return true;
+  }
+  decided("user-approved");
+  if (request.connector.kind === "smtp") {
+    store.patchMessage(threadId, message.id, { card: { ...card, answered: "allow", emailSendRequest: { ...request, status: "sending" } } });
+    const sent = await sendWithMailer(mailer(), request.draft, request.sentTo ?? []);
+    patchEmailSend(threadId, requestId, sent.ok
+      ? { status: "sent", sentTo: sent.sentTo }
+      : { status: "failed", error: sent.error, ...(sent.sentTo.length ? { sentTo: sent.sentTo } : {}) });
+    appendDecision(DATA_DIR, {
+      threadId, requestId, botId: bot.id, botName: bot.name, tool: "send_email_draft", summary: card.subtitle,
+      decision: sent.ok ? "auto-approved" : "auto-denied", source: "email-draft-approval",
+    });
+    json(res, 200, { ok: true, outcome: "allowed-once", send: sent.ok ? "sent" : "failed" });
+    return true;
+  }
+  store.patchMessage(threadId, message.id, { card: { ...card, answered: "allow", emailSendRequest: { ...request, status: "handed-off" } } });
+  emailSendPasses.grant(threadId, bot.id, requestId, request.draft, request.connector);
+  const text = emailSendInstruction(request.draft, request.connector, cfg.language);
+  const group = store.groupByThread(threadId);
+  const asked = await performBotActRoute(actor, group
+    ? { kind: "route", method: "POST", path: `/api/groups/${group.id}/messages`, body: { text: `@${bot.name} ${text}`, threadId } }
+    : { kind: "route", method: "POST", path: `/api/bots/${bot.id}/messages`, body: { text, threadId } });
+  if (asked.status >= 300) {
+    emailSendPasses.revoke(threadId, requestId);
+    patchEmailSend(threadId, requestId, {
+      status: "failed",
+      error: cfg.language?.toLowerCase().startsWith("fr") ? "Le robot n'a pas pu recevoir la demande d'envoi. Réessayez." : "The bot could not be asked to send it. Try again.",
+    });
+    json(res, 502, { error: "The bot could not be asked to send this email. Try again." });
+    return true;
+  }
+  json(res, 200, { ok: true, outcome: "allowed-once", send: "handed-off" });
   return true;
 }
 
@@ -37780,6 +38124,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return await answeringCardAs(auth, bot.threadId, String(body.requestId), async () => {
         if (resolveAndSendTrust(res, bot.threadId, String(body.requestId), behavior)) return;
         if (await resolveAndSendCwAction(res, auth, bot.threadId, String(body.requestId), behavior)) return;
+        if (await resolveAndSendEmailDraft(res, auth, bot.threadId, String(body.requestId), behavior)) return;
         if (await resolveAndSendTeamSetup(res, {
           botId: bot.id, threadId: bot.threadId, requestId: String(body.requestId), behavior,
         }, auth.kind === "loopback" ? DESKTOP_MANAGED || Boolean(req.headers.origin) && !store.bots.some((bot) => bot.busy || activeGroupTurnForBot(bot.id)) : auth.scopes.includes("admin"))) return;
@@ -37891,6 +38236,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return await answeringCardAs(auth, threadId, requestId, async () => {
         if (resolveAndSendTrust(res, threadId, requestId, behavior)) return;
         if (await resolveAndSendCwAction(res, auth, threadId, requestId, behavior)) return;
+        if (await resolveAndSendEmailDraft(res, auth, threadId, requestId, behavior)) return;
         const skillCard = store.messagesFor(threadId).find(
           (message) => message.card?.requestId === requestId && message.card.skillRequest,
         );
