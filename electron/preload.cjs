@@ -117,6 +117,14 @@ const bridge = {
     menu: () => ipcRenderer.invoke("workspaces:menu"),
   },
   getCapabilities: () => ipcRenderer.invoke("desktop:capabilities"),
+  /** The workspace as this page last showed it, to draw before the local
+   * server answers (src/lib/ui-snapshot.ts, electron/ui-snapshot.mjs).
+   * The local page only: not in REMOTE_SAFE nor BUNDLED_EXTRA. */
+  uiSnapshot: {
+    read: () => ipcRenderer.invoke("ui-snapshot:read"),
+    write: (text) => ipcRenderer.invoke("ui-snapshot:write", text),
+    clear: () => ipcRenderer.invoke("ui-snapshot:clear"),
+  },
   /** True once when this is the credential the app just brought back from
    * "Sign in with Pulsatrix" to this page (/pair redeems it without asking).
    * Main checks the window, the frame, the origin and the credential. */

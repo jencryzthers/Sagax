@@ -240,7 +240,10 @@ const sagax = {
     this.meta = JSON.parse(readFileSync(path.join(fixture, "perf-fixture.json"), "utf8"));
   },
   launch(runDir) {
-    const data = path.join(runDir, "data");
+    // One data folder path per build, copied fresh each launch: a desktop
+    // keeps its data where it is, and its launch snapshot is keyed by it.
+    const data = path.join(WORK, `${this.name.replace(/[^\w.-]/g, "_")}-data`);
+    rmSync(data, { recursive: true, force: true });
     const userData = path.join(runDir, "userData");
     const home = path.join(runDir, "home");
     execFileSync("cp", ["-cR", this.fixture, data]);
@@ -266,7 +269,9 @@ const sagax = {
   primeScript: `localStorage.setItem("sagax.interfaceMode.v1", "advanced"), true`,
   bootScript: "",
   pageFilter: (t) => t.url.startsWith("http://127.0.0.1:18999/"),
-  ready: `b.qa("[data-sidebar-bot-row], [aria-label^='Actions for ']").length >= 5 && !!b.q("textarea, [contenteditable=true]") && !b.q("[aria-busy=true][data-chat-loading]")`,
+  // Same bar as Grok Bot's: the bots, the composer and the open
+  // conversation's text on screen.
+  ready: `b.qa("[data-sidebar-bot-row], [aria-label^='Actions for ']").length >= 5 && !!b.q("textarea, [contenteditable=true]") && b.qa("div.overflow-y-auto").some((e) => e.getBoundingClientRect().left >= 250 && b.text(e).length > 100)`,
   bots: ["Katarina", "Ember"],
   row: (name) => `span[aria-label="Rename ${name}"]`,
   botShown: (name) => `(() => { const s = b.qa("div.overflow-y-auto").find((e) => /Hello ${name}, what is on your plate/.test(b.text(e)) && e.getBoundingClientRect().left >= 250); return !!s && /${name}/.test(b.text(b.q("main") || document.body)); })()`,
@@ -431,6 +436,16 @@ async function launch(adapter, round) {
     await sleep(25);
   }
   if (readyAt === null) { killTree(child.pid); throw new Error(`${adapter.name}: never became interactive`); }
+  // Sagax may draw the last launch's snapshot first (src/lib/ui-snapshot.ts):
+  // keep when the server's own replaced it and the window takes input.
+  let liveAt = readyAt;
+  if (adapter.kind === "sagax") {
+    while (Date.now() < deadline) {
+      const r = await cdp.eval(`(() => { const live = performance.getEntriesByName("sagax:live")[0]; if (live) return performance.timeOrigin + live.startTime; return document.documentElement.hasAttribute("data-provisional") ? null : performance.timeOrigin + performance.now(); })()`, 3000).catch(() => null);
+      if (r) { liveAt = r; break; }
+      await sleep(10);
+    }
+  }
   if (adapter.kind === "sagax" && adapter.master) {
     const advanced = await cdp.eval(`localStorage.getItem("sagax.interfaceMode.v1")`);
     if (advanced !== "advanced") throw new Error("sagax: Advanced mode not set before first paint");
@@ -446,7 +461,7 @@ async function launch(adapter, round) {
       }
     } catch {}
   }
-  return { session, runDir, startup: { toInteractive: readyAt - t0, sincePageStart: pageReady, load1: load[0], phases } };
+  return { session, runDir, startup: { toInteractive: readyAt - t0, toLive: liveAt - t0, sincePageStart: pageReady, load1: load[0], phases } };
 }
 
 async function prime(adapter) {
@@ -708,6 +723,7 @@ const summary = {};
 for (const [name, bucket] of Object.entries(results.apps)) {
   summary[name] = {
     startup: stats(bucket.startup.map((s) => s.toInteractive)),
+    live: stats(bucket.startup.map((s) => s.toLive ?? s.toInteractive)),
     memoryIdleMb: stats(bucket.memoryIdle.map((m) => m.totalMb)),
     memoryAfterMb: stats(bucket.memoryAfter.map((m) => m.totalMb)),
     rendererIdleMb: stats(bucket.memoryIdle.map((m) => m.rendererMb)),

@@ -548,6 +548,28 @@ function Shell() {
   );
 }
 
+/** While the window draws the stored snapshot of the last launch
+ * (src/lib/ui-snapshot.ts), it takes no input: no click, key, paste or drop
+ * reaches the page until the server's own snapshot has replaced it, a few
+ * hundred milliseconds. Nothing is drawn: the layer is transparent. */
+function ProvisionalInputGuard() {
+  const { state } = useStore();
+  const provisional = state.provisional === true;
+  useEffect(() => {
+    if (!provisional) return;
+    const stop = (event: Event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    const kinds = ["keydown", "keypress", "keyup", "beforeinput", "paste", "drop", "dragover", "contextmenu", "wheel"] as const;
+    for (const kind of kinds) window.addEventListener(kind, stop, { capture: true, passive: false });
+    return () => {
+      for (const kind of kinds) window.removeEventListener(kind, stop, { capture: true });
+    };
+  }, [provisional]);
+  return provisional ? <div aria-hidden="true" data-provisional-guard="" className="fixed inset-0 z-[2147483647] bg-transparent" /> : null;
+}
+
 function Application() {
   useEffect(() => {
     initAnalytics();
@@ -563,6 +585,7 @@ function Application() {
         <GuidedTour />
         <LiveCallHost />
         <DataWindowViewSync />
+        <ProvisionalInputGuard />
       </StoreProvider>
     </DesktopCapabilitiesProvider>
   );

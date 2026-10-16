@@ -4,6 +4,8 @@
 // pure; everything async lives in the wrapped dispatch + SSE fold.
 import { devPodsTurnField } from "@/components/dev-pods/prefs";
 import { receiveThreadReadFrame } from "@/lib/read-receipts-feed";
+import { buildUiSnapshot, createUiSnapshotWriter, launchUiSnapshot, UI_SNAPSHOT_PROVISIONAL_MS } from "@/lib/ui-snapshot";
+import { releaseWrites } from "@/lib/write-gate";
 import { personaCategoryForSection } from "@/lib/persona-sections";
 import { withPrimaryBot } from "@/lib/primary-bot";
 import { currentSettingsSection } from "@/lib/settings-sections";
@@ -1398,6 +1400,10 @@ export interface AppState {
   connected: boolean;
   /** Bots and rooms have loaded once: a link opened at launch can resolve. */
   hydrated?: true;
+  /** Bots and rooms are this computer's stored snapshot of the last launch
+   * (src/lib/ui-snapshot.ts), drawn until the server's own replaces them:
+   * read only, never merged into it, and the window takes no input. */
+  provisional?: true;
   error: string | null;
   /** a quiet, non-error line above the transcript; clears itself */
   notice: { kind: "thread-gone" | "bot-gone"; botName: string | null } | null;
@@ -1510,6 +1516,8 @@ function replaceBotQueues(state: AppState, queues: AppState["pendingQueued"]): A
 export type BotAnnouncement = Omit<Bot, "messages"> & { messages?: Message[] };
 
 export type Action =
+  /** A launch that waited too long for the server drops the stored drawing. */
+  | { type: "provisionalExpired" }
   | {
       type: "hydrate";
       bots: Bot[];
@@ -2119,7 +2127,16 @@ export function reducer(state: AppState, action: Action): AppState {
     }
   }
   switch (action.type) {
+    case "provisionalExpired":
+      return state.provisional
+        ? { ...state, provisional: undefined, bots: [], groups: [], sections: [], selectedId: "" }
+        : state;
     case "hydrate": {
+      // A stored drawing (ui-snapshot.ts) is replaced, never merged: none of
+      // its stamps, selection or rows outlive the server's snapshot.
+      if (state.provisional) {
+        return reducer({ ...state, provisional: undefined, bots: [], groups: [], sections: [], selectedId: "" }, action);
+      }
       const known = (id: string) => action.bots.some((b) => b.id === id) || action.groups.some((g) => g.id === id);
       const resume = action.resumeId;
       // A remembered conversation only counts while it still resolves to a
@@ -3786,8 +3803,14 @@ const StoreContext = createContext<{
  * "overview"/false and the reducer never touches localStorage. */
 function restoreBotSettingsSection(state: AppState): AppState {
   const section = readLastBotSection();
-  const withHidden = { ...state, sidebarHiddenKeys: hiddenKeySet(readSidebarHidden()) };
+  const withHidden = withLaunchSnapshot({ ...state, sidebarHiddenKeys: hiddenKeySet(readSidebarHidden()) });
   return section ? { ...withHidden, botSettingsSection: section, botSettingsSectionStored: true } : withHidden;
+}
+
+/** The first state of a launch that has a stored snapshot (main.tsx). */
+export function withLaunchSnapshot(state: AppState, snapshot = launchUiSnapshot()): AppState {
+  if (!snapshot || state.hydrated) return state;
+  return { ...state, provisional: true, bots: snapshot.bots, groups: snapshot.groups, sections: snapshot.sections, selectedId: snapshot.selectedId };
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {
@@ -3799,6 +3822,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, rawDispatch] = useReducer(reducer, initialState, restoreBotSettingsSection);
   const stateRef = useRef(state);
   stateRef.current = state;
+  // A stored drawing (src/lib/ui-snapshot.ts): writes go again once the
+  // server's own snapshot has replaced it; a launch the server never answers
+  // drops it. <html data-provisional> keeps the window from taking input (App).
+  useEffect(() => {
+    const root = document.documentElement;
+    if (state.provisional) {
+      root.dataset.provisional = "";
+      performance.mark("sagax:provisional", { detail: { selectedId: state.selectedId } });
+      const timer = setTimeout(() => rawDispatch({ type: "provisionalExpired" }), UI_SNAPSHOT_PROVISIONAL_MS);
+      return () => clearTimeout(timer);
+    }
+    if (root.hasAttribute("data-provisional")) performance.mark("sagax:live", { detail: { selectedId: state.selectedId } });
+    delete root.dataset.provisional;
+    releaseWrites();
+    return undefined;
+  }, [state.provisional]);
+  // The snapshot the next launch draws, from the server's state only.
+  const snapshotWriter = useMemo(() => createUiSnapshotWriter(() => buildUiSnapshot(stateRef.current, location.origin)), []);
+  useEffect(() => () => snapshotWriter.dispose(), [snapshotWriter]);
+  useEffect(() => {
+    if (state.hydrated && !state.provisional) snapshotWriter.schedule();
+  }, [state.hydrated, state.provisional, state.bots, state.groups, state.sections, state.selectedId, snapshotWriter]);
   const showThreads = useShowThreads();
   const showThreadsRef = useRef(showThreads);
   showThreadsRef.current = showThreads;
