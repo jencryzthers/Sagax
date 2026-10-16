@@ -857,7 +857,7 @@ hors ÉFVP. Les tiers font partie de la première version (R11).
 
 **Première version = P0 à P5 : environ 35 à 51 jours**, au Canada,
 organisation et Cloud liés à Perspicax. P0 + P1 (SMS seulement, avec la garde
-et la configuration par les bots) peuvent sortir avant, en 12 à 17 jours.
+et la configuration par les bots) peuvent sortir avant, en 11 à 16 jours.
 L'ÉFVP Loi 25 doit être terminée avant d'ouvrir les tiers (P4) en
 production.
 
