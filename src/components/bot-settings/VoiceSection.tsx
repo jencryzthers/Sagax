@@ -5,8 +5,7 @@ import { t } from "@/lib/i18n";
 import { requestNotificationPermission } from "@/lib/notify";
 import { useStore, type Bot } from "@/state/store";
 import { saveViewerBotOverride, useViewerBotOverride, viewerLocalBotSettings } from "@/lib/viewer-bot-overrides";
-import { SwitchRow } from "../SettingsPrimitives";
-import { PaneSection } from "./PaneSection";
+import { DescribedRow, SettingsGroup, Switch } from "../SettingsPrimitives";
 import { VoiceSettings } from "../VoiceSettings";
 import type { useBotSettingsDerived } from "./useBotSettingsDerived";
 import { useBotEditor } from "./BotEditorContext";
@@ -31,14 +30,18 @@ export function VoiceSection({
 
   return (
     <div className="flex flex-col gap-5">
+      {/* The page is titled Voice: its card needs no heading of its own. */}
       {showVoice && <VoiceSettings bot={bot} onPatch={patch} />}
 
-      <PaneSection title={t("botPanel.remote.notifications")}>
-        <SwitchRow
+      <SettingsGroup title={t("botPanel.remote.notifications")} groupId="botNotifications">
+        <DescribedRow
           label={t("botPanel.voice.notifyHelp")}
           description={viewerLocal ? t("botPanel.voice.notifyForYou") : undefined}
+        >
+          <Switch
           checked={notifications}
-          onChange={() => {
+          aria-label={t("botPanel.voice.notifyHelp")}
+          onClick={() => {
             const enabled = !notifications;
             if (enabled && !draft) void requestNotificationPermission();
             if (viewerLocal) {
@@ -49,8 +52,9 @@ export function VoiceSection({
             }
             patch({ notifications: enabled });
           }}
-        />
-      </PaneSection>
+          />
+        </DescribedRow>
+      </SettingsGroup>
     </div>
   );
 }

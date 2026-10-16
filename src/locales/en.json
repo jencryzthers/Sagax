@@ -1078,7 +1078,6 @@
   "botPanel.permissions.outbound": "Sending on your behalf",
   "botPanel.permissions.outboundHelp": "Emails, messages, posts, invites, and payments through connected apps. Reading and drafting never count. This applies at every approval level, including Full access.",
   "botPanel.permissions.primary": "Primary Bot",
-  "botPanel.permissions.upTo": "Up to",
   "botPanel.permissions.usedToday": "{today} of {cap} used today",
   "botPanel.prompt.bytes": "{count} bytes",
   "botPanel.prompt.error": "Couldn’t load the prompt preview.",
@@ -6454,8 +6453,6 @@
   "vm.vps.unavailable": "VPS computer inventory unavailable: {reason}",
   "vm.vpsRemoveError": "Could not remove this VPS computer",
   "voice.bot.hostUnset": "The host has not set up a voice engine.",
-  "voice.bot.intro": "This bot's own voice for calls and spoken replies.",
-  "voice.bot.lockedIntro": "Choose this bot's voice and whether replies are spoken.",
   "voice.bot.macIntro": "Choose whether this Mac speaks with its installed voices or audio from the host.",
   "voice.bot.setup": "Set up the voice engine in {settings}.",
   "voice.engine.address": "Chatterbox server address",
@@ -7563,7 +7560,6 @@
   "newBot.routine.remove": "Remove {name}",
   "persona.group.profile": "Profile",
   "persona.group.instructions": "Instructions",
-  "persona.group.memoryFiles": "Memory and files",
   "persona.group.modelTools": "Model and tools",
   "botSettings.nav.skills": "Skills",
   "computer.back": "Back",
@@ -8049,5 +8045,11 @@
   "settings.nav.ai": "AI",
   "settings.nav.workspace": "Workspace",
   "settings.nav.app": "App",
-  "settings.updates.group": "This app"
+  "settings.updates.group": "This app",
+  "persona.overview.summaryTitle": "At a glance",
+  "botPanel.rules.removeTitle": "Delete this rule?",
+  "botPanel.permissions.outboundPolicy": "Before sending",
+  "botPanel.permissions.approvals": "Approvals",
+  "persona.group.security": "Security",
+  "persona.group.activity": "Activity"
 }
