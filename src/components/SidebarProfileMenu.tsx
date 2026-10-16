@@ -33,6 +33,7 @@ import {
   CalendarClock,
   Check,
   CloudDownload,
+  CalendarDays,
   Gauge,
   Info,
   Keyboard,
@@ -270,6 +271,7 @@ export function footerMenuItems(places: SidebarMenuItem[], profileItems: Sidebar
 
 export interface ProfileMenuHandlers {
   onTeamMap: () => void;
+  onAutomations: () => void;
   onSettings: () => void;
   onAchievements: () => void;
   onShortcuts: () => void;
@@ -283,8 +285,9 @@ export interface ProfileMenuHandlers {
 }
 
 /** Grok Bot's account menu (JC, 2026-10-16; src/lib/account-menu.ts):
- * Usage ›, Get Sagax on mobile, Help ›, Settings, Achievements and Team map,
- * a hairline, Switch organization ›, Sign out. */
+ * Usage ›, Get Sagax on mobile, Help ›, Settings, Automations, Achievements
+ * and Team map, a hairline, Switch organization ›, Sign out. Automations came
+ * back here from the settings nav (JC, 2026-10-16). */
 export function profileMenuItems(input: {
   /** null: no plan reports a window, so Usage carries no percent */
   usagePercent: number | null;
@@ -294,6 +297,9 @@ export function profileMenuItems(input: {
   mobile: boolean;
   achievementsLabel: string | null;
   teamMapActive: boolean;
+  automationsActive: boolean;
+  /** a failed routine run not seen yet: a dot on Automations */
+  automationsAttention?: boolean;
   shortcutsTrailing?: ReactNode;
   /** Check for updates, where the desktop app answers */
   updateItem: SidebarMenuItem | null;
@@ -385,6 +391,16 @@ export function profileMenuItems(input: {
       label: t("sidebar.menu.settings"),
       icon: <SettingsIcon size={18} />,
       onSelect: input.handlers.onSettings,
+    },
+    {
+      key: "routines",
+      tourId: "nav-automations",
+      label: t("sidebar.nav.automations"),
+      icon: <CalendarDays size={18} />,
+      active: input.automationsActive,
+      attention: input.automationsAttention,
+      attentionTone: "accent" as const,
+      onSelect: input.handlers.onAutomations,
     },
     ...(input.achievementsLabel
       ? [{
@@ -481,9 +497,6 @@ export function SidebarProfileMenu({ avatarOnly = false, places = [], memberLine
   // The routines badge sits at the right edge of the row; under the name,
   // the viewer's own title and points, each only while its "Show my ..."
   // switch is on. Nothing under the name when both are off.
-  const activeRoutines = activeRoutineCount(state.routines, state.bots, viewerActorId(state.config));
-  const badgeEnabled = useShowRoutinesBadge();
-  const showBadge = badgeEnabled && activeRoutines > 0;
   const snapshot = memberLine && achievements.status === "ready" ? achievements.snapshot : undefined;
   const titleName = snapshot && snapshot.settings.showTitle !== false ? achievementTitleName(snapshot.settings.title) : null;
   const pointsText = snapshot && snapshot.settings.showPoints !== false ? formatPoints(snapshot.points) : null;
@@ -518,6 +531,8 @@ export function SidebarProfileMenu({ avatarOnly = false, places = [], memberLine
     mobile: SAGAX_MOBILE_URL !== null,
     achievementsLabel: achievements.status === "ready" ? t("achievements.menu") : null,
     teamMapActive: state.activeView === "team-map",
+    automationsActive: state.activeView === "routines",
+    automationsAttention: routineAttention,
     shortcutsTrailing: <ShortcutHint id="shortcuts-cheat-sheet" />,
     updateItem: update ? { ...update.item, label: t("sidebar.update.check") } : null,
     switchTargets: lockedServer ? [] : account.targets,
@@ -525,6 +540,7 @@ export function SidebarProfileMenu({ avatarOnly = false, places = [], memberLine
     signOut: lockedServer,
     handlers: {
       onTeamMap: () => dispatch({ type: "showTeamMap" }),
+      onAutomations: () => dispatch({ type: "showRoutines" }),
       onSettings: () => dispatch({ type: "toggleAppSettings" }),
       onAchievements: openAchievements,
       onShortcuts: () => {
@@ -647,34 +663,7 @@ export function SidebarProfileMenu({ avatarOnly = false, places = [], memberLine
       )}
     />
   );
-  const routinesLabel = t(
-    routineAttention
-      ? (activeRoutines === 1 ? "sidebar.profile.activeRoutinesOneAttention" : "sidebar.profile.activeRoutinesAttention")
-      : (activeRoutines === 1 ? "sidebar.profile.activeRoutinesOne" : "sidebar.profile.activeRoutines"),
-    { count: activeRoutines },
-  );
-  const routinesBadge = showBadge && !avatarOnly ? (
-    // the right edge of the row, vertically centred against the avatar
-    <div className="flex shrink-0 items-center" data-routines-line="">
-      <button
-        type="button"
-        data-active-routines={activeRoutines}
-        data-attention={routineAttention ? "" : undefined}
-        title={routinesLabel}
-        aria-label={routinesLabel}
-        onClick={(event) => {
-          event.stopPropagation();
-          dispatch({ type: "showRoutines" });
-        }}
-        className={cn(
-          "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[14px] font-medium leading-[20px] tabular-nums text-accent-text hover:bg-sidebar-hover",
-        )}
-      >
-        <CalendarClock size={18} strokeWidth={2.2} aria-hidden="true" />
-        <span>{activeRoutines}</span>
-      </button>
-    </div>
-  ) : null;
+  const routinesBadge = !avatarOnly ? <SidebarRoutinesBadge /> : null;
 
   const approvalsLabel = t("organization.adminApprovals.badge", { count: adminApprovals });
   const approvalsBadge = adminApprovals > 0 ? (
@@ -740,6 +729,47 @@ export function SidebarProfileMenu({ avatarOnly = false, places = [], memberLine
         </div>
       )}
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
+    </div>
+  );
+}
+
+/** The active routines count (calendar icon and number) that opens
+ * Automations, while "Show active routines" is on and one runs. Beside the
+ * name in the wide row, and to the right of Connect apps in Grok Bot's foot
+ * (JC, 2026-10-16: it had vanished with the avatar-only foot). A failed run
+ * not seen yet turns its label into a warning. */
+export function SidebarRoutinesBadge() {
+  const { state, dispatch } = useStore();
+  const activeRoutines = activeRoutineCount(state.routines, state.bots, viewerActorId(state.config));
+  const badgeEnabled = useShowRoutinesBadge();
+  const routineAttention = state.routineRuns.some((run) => isRoutineProblemRun(run) && !run.seenAt);
+  if (!badgeEnabled || activeRoutines <= 0) return null;
+  const routinesLabel = t(
+    routineAttention
+      ? (activeRoutines === 1 ? "sidebar.profile.activeRoutinesOneAttention" : "sidebar.profile.activeRoutinesAttention")
+      : (activeRoutines === 1 ? "sidebar.profile.activeRoutinesOne" : "sidebar.profile.activeRoutines"),
+    { count: activeRoutines },
+  );
+  return (
+    // the right edge of the row, vertically centred against the avatar
+    <div className="flex shrink-0 items-center" data-routines-line="">
+      <button
+        type="button"
+        data-active-routines={activeRoutines}
+        data-attention={routineAttention ? "" : undefined}
+        title={routinesLabel}
+        aria-label={routinesLabel}
+        onClick={(event) => {
+          event.stopPropagation();
+          dispatch({ type: "showRoutines" });
+        }}
+        className={cn(
+          "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[14px] font-medium leading-[20px] tabular-nums text-accent-text hover:bg-sidebar-hover",
+        )}
+      >
+        <CalendarClock size={18} strokeWidth={2.2} aria-hidden="true" />
+        <span>{activeRoutines}</span>
+      </button>
     </div>
   );
 }
