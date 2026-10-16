@@ -65,8 +65,80 @@ A webhook triggers a MAUS task from outside (`server/webhooks.ts`,
   new token waits in `webhooks.json` (`pendingToken`) until the owner copies
   it once (`POST /api/webhooks/:id/reveal`, 404 afterwards); the editor shows
   "This webhook now needs a bearer token; copy it here".
-- No HMAC or signature scheme exists in Sagax webhooks; if one is added it
-  comes on top of the bearer, never instead of it.
+- No HMAC or signature scheme exists on the bearer path (`/hooks/<id>`); if
+  one is added there it comes on top of the bearer, never instead of it.
+  Typed triggers (below) are a separate path whose providers cannot send a
+  bearer at all.
+
+## Typed triggers: provider-signed sources (2026-10-16)
+
+A typed trigger is a webhook with a `source` (`shared/trigger-sources.ts`
+catalog, `server/trigger-sources.ts` verifiers and normalizers, manager in
+`server/webhooks.ts`, UI in `src/components/TypedTriggers.tsx` inside
+`TriggersPanel.tsx`). Sources: GitHub, GitLab, Slack, Microsoft Teams,
+Outlook mail, Outlook Calendar (the three Microsoft ones through Graph change
+notifications), Sentry, PagerDuty, Linear. Rules, covered by
+`server/trigger-sources.test.ts`, `server/webhook-sources.test.ts`,
+`src/components/TypedTriggers.test.ts` and `TriggersPanel.test.ts`:
+
+- Path `/sources/<endpointId>` on the webhook-only listener. Authenticated by
+  the provider's own scheme, over the raw body, in constant time: GitHub
+  `X-Hub-Signature-256`, GitLab `X-Gitlab-Token`, Slack `v0` signature with a
+  5 minute timestamp window, Graph `clientState` on every notification (and
+  the tenant when set), Sentry `Sentry-Hook-Signature` (its timestamp header
+  is not signed, so its 5 minute window is only a sanity check), PagerDuty
+  `X-PagerDuty-Signature` (any `v1=` during a rotation), Linear
+  `Linear-Signature` with the signed `webhookTimestamp` within 60 seconds.
+  Every dedupe key comes from the signed body (a digest for GitHub, GitLab,
+  Sentry and Linear; the event id inside the body for Slack and PagerDuty;
+  the notification fields for Graph), never an unsigned header such as
+  `X-GitHub-Delivery`: that is what stops a replay where no signed timestamp
+  exists, for as long as the delivery is in the kept window (2,000). A
+  refusal is the same bare 401 as the bearer path. Failures are counted per
+  endpoint id (made-up ids share one bucket that never blocks a real one),
+  not per socket: behind the reverse proxy every caller has the same
+  address. The bearer path never reaches a typed trigger (and `/rotate` on
+  one rotates its signing secret, never a bearer).
+- Handshakes: Graph `?validationToken=` is echoed as `text/plain` with
+  `nosniff` before authentication (Graph sends no clientState there), for
+  Graph sources only; Slack `url_verification` is answered after its
+  signature passes.
+- Secret: `generated` sources (GitHub, GitLab, Graph) get `whsec_...` from
+  the server, returned once in `sourceSetup`; `provided` sources (Slack,
+  Sentry, PagerDuty, Linear) take the provider's secret pasted by the owner
+  (`signingSecret` on create or PATCH, write only). Stored in plaintext in
+  `webhooks.json` (0600) because an HMAC needs it; never in a list, live
+  frame, export, workspace backup, audit row or log (`signingSecretSet` is
+  all that shows; a PATCH that sets it writes a `webhook.set-signing-secret`
+  audit row without the value). Until a secret is set every delivery is
+  refused. A workspace backup carries no `secretHash`, `pendingToken` or
+  `signingSecret`: a restored typed trigger keeps the secret this server
+  already had for the same id, else it has none and the pop-up asks for a
+  new one.
+- Each delivery is normalized (`kind`, `title`, `fields`, `text`, `url`,
+  `resource`), then: selected events, filters (exact or `*` glob,
+  case-insensitive; `keyword` searches title and text; a filter never passes
+  by absence), dedupe on the provider's delivery id, the per-trigger rate
+  limit (`rateLimitPerMinute`, default 10, max 120) and the existing
+  unfinished-runs cap. Bot messages from Slack never start a run (no loops).
+  Graph basic notifications carry no sender or subject: those filters are
+  handed to the run as `[OWNER CONDITIONS]` the bot checks after fetching the
+  item through its connector. They are advisory, not a security boundary,
+  and the pop-up says so. A typed trigger never uses `delivery: "post"`.
+- The run's prompt: the owner's instructions first, then the event inside
+  `[UNTRUSTED <SOURCE> EVENT DATA <random boundary>]` with a line saying it is
+  data, never instructions; any `[UNTRUSTED`, `[USER-CONFIGURED` or `[OWNER`
+  marker inside the provider's text is defanged. The raw body excerpt is
+  never included for Graph sources (their body holds `clientState`), and for
+  the others it loses every credential-named key (`token`, `clientState`,
+  `secret`...) and any occurrence of the trigger's secret before it reaches
+  the model or the transcript. Approvals, run-as and
+  routine safety rules are unchanged (same `enqueueWebhook` path).
+- Test-fire (`POST /api/webhooks/:id/test`) builds a sample from the
+  trigger's own filters and takes the same path as a real delivery.
+  `WebhookManager.ingest(id, event, key)` is the hook for connector pollers
+  (inbound mail without Graph, calendar `event.starting`): same filters,
+  dedupe and fence, no signature.
 
 ## Conversations with a person have threads like a bot (2026-10-09)
 
