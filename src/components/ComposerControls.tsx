@@ -1,7 +1,7 @@
 // The composer's round controls, measured on Grok Bot's prompt bar (0.71):
 // 28 px circles 8 px apart, a quiet "secondary" circle (+, mic) and a filled
 // call to action (Voice, or Send once something is typed) whose glyphs
-// cross-fade (opacity and scale .5 -> 1, 200 ms, cubic-bezier(.22,1,.36,1)).
+// cross-fade (opacity and scale .5 -> 1, 200 ms, ease-out-quint).
 // While dictating, the mic and the CTA give way to a pill: a 10 px stop
 // square, the timer (14/22, tabular) and an 18 x 13 px level meter, then a
 // Send arrow. The + opens a menu above it, aligned on its start edge.
@@ -23,7 +23,7 @@ export const SECONDARY_CIRCLE = cn(
 );
 
 /** Grok Bot's glyph cross-fade. */
-const GLYPH = "absolute inset-0 m-auto transition-[opacity,transform] duration-200 ease-[cubic-bezier(.22,1,.36,1)] motion-reduce:transition-none";
+const GLYPH = "absolute inset-0 m-auto transition-[opacity,transform] duration-moderate ease-out-quint motion-reduce:transition-none";
 const glyphShown = (shown: boolean) => (shown ? "opacity-100 scale-100" : "opacity-0 scale-50");
 /** The seat's fade: no transform once shown, so the Voice button's popover is not trapped in a stacking context. */
 const seatShown = (shown: boolean) => (shown ? "opacity-100" : "opacity-0 scale-50");
@@ -201,12 +201,9 @@ export function ComposerMicButton({ onClick, hidden = false, needsSetup = false,
 }) {
   const label = needsSetup ? t("composer.dictation.needsKey") : t("composer.dictation.start");
   return (
-    <span
-      className={cn(
-        "flex shrink-0 overflow-hidden transition-[width,margin] duration-200 ease-[cubic-bezier(.22,1,.36,1)] motion-reduce:transition-none",
-        hidden ? "me-0 w-0" : "w-7",
-      )}
-    >
+    // The slot's width snaps (an animated width would re-wrap the draft on
+    // every frame); the button itself fades and scales in, compositor only.
+    <span className={cn("flex shrink-0 overflow-hidden", hidden ? "me-0 w-0" : "w-7")}>
       <button
         type="button"
         onClick={onClick}
@@ -215,9 +212,9 @@ export function ComposerMicButton({ onClick, hidden = false, needsSetup = false,
         data-composer-mic={needsSetup ? "setup" : ""}
         tabIndex={hidden ? -1 : undefined}
         aria-hidden={hidden || undefined}
-        className={cn(SECONDARY_CIRCLE, hidden && "invisible opacity-0")}
+        className={cn(SECONDARY_CIRCLE, "transition-[color,background-color,opacity,scale] duration-moderate ease-out-quint motion-reduce:transition-none", hidden && "invisible scale-50 opacity-0")}
       >
-        <Mic size={15} strokeWidth={2.25} aria-hidden="true" className={cn("transition-transform duration-200", hidden && "scale-50")} />
+        <Mic size={15} strokeWidth={2.25} aria-hidden="true" />
       </button>
     </span>
   );
@@ -263,6 +260,11 @@ export function ComposerCtaSeat({ send, voice, typed }: { send: ReactNode; voice
   );
 }
 
+/** A level bar's height (3..13 px) as a share of the meter's 13 px. */
+export function levelBarScale(level: number): number {
+  return Math.round(3 + Math.max(0, Math.min(1, level)) * 10) / 13;
+}
+
 /** The level meter: five 2 px bars, 2 px apart, 3..13 px tall, in the secondary ink. */
 export function LevelMeter({ levels }: { levels: number[] }) {
   return (
@@ -270,8 +272,9 @@ export function LevelMeter({ levels }: { levels: number[] }) {
       {levels.map((level, index) => (
         <span
           key={index}
-          className="w-[2px] rounded-full bg-ink-secondary transition-[height] duration-75 motion-reduce:transition-none"
-          style={{ height: `${Math.round(3 + level * 10)}px` }}
+          // full height, scaled: the meter moves on the compositor, never by layout
+          className="h-[13px] w-[2px] rounded-full bg-ink-secondary transition-transform duration-75 motion-reduce:transition-none"
+          style={{ transform: `scaleY(${levelBarScale(level)})` }}
         />
       ))}
     </span>
@@ -330,8 +333,9 @@ export function VoiceNoteWaveform({ bars }: { bars: number[] }) {
       {bars.map((level, index) => (
         <span
           key={index}
-          className="w-[2px] rounded-full bg-danger/80 transition-[height] duration-75 motion-reduce:transition-none"
-          style={{ height: `${Math.round(3 + level * 13)}px` }}
+          // full height, scaled: the waveform moves on the compositor, never by layout
+          className="h-4 w-[2px] rounded-full bg-danger/80 transition-transform duration-75 motion-reduce:transition-none"
+          style={{ transform: `scaleY(${Math.round(3 + Math.max(0, Math.min(1, level)) * 13) / 16})` }}
         />
       ))}
     </span>

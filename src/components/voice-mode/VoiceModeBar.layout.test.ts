@@ -174,15 +174,14 @@ describe("the card's motion", () => {
   const source = readFileSync(new URL("./VoiceModeBar.tsx", import.meta.url), "utf8");
   const motion = readFileSync(new URL("../MenuMotion.tsx", import.meta.url), "utf8");
 
-  it("the card sits in a clipping shell under the row that animates height and opacity like the menus (200 ms, same easing, none when motion is reduced)", () => {
+  it("the card sits in a clipping reveal shell under the row (a 0fr to 1fr grid row and opacity, none when motion is reduced)", () => {
     const html = render("listening", { defaultPanel: "transcript", transcript: [{ id: "1", who: "you", text: "Hi" }] });
     const shell = classOf(html, "data-voice-card-motion");
     expect(shell).toContain("overflow-hidden");
-    expect(shell).toContain("transition-[height,opacity]");
-    expect(shell).toContain("duration-200");
-    expect(shell).toContain("ease-[cubic-bezier(0.22,1,0.36,1)]");
-    expect(shell).toContain("motion-reduce:transition-none");
-    expect(motion).toMatch(/export const MENU_MOTION_MS = 200;/);
+    expect(shell).toContain("reveal-shell");
+    expect(shell).not.toContain("transition-[height");
+    expect(html).toContain('data-reveal="open"');
+    expect(motion).toMatch(/export const REVEAL_MOTION_MS = MOTION_MS\.moderate;/);
     // shell, then the card, then its scroller: the row is outside it and never moves
     const order = ["data-voice-pill-row", "data-voice-card-motion", "data-voice-card=", "data-voice-callbar-panels", 'data-voice-card-body="transcript"'].map((a) => html.indexOf(a));
     expect(order.every((index) => index > 0), String(order)).toBe(true);
@@ -190,17 +189,15 @@ describe("the card's motion", () => {
     // the pill's corners move only between finite radii, with the card
     const pill = classOf(html, "data-voice-pill");
     expect(pill).toContain("transition-[border-radius]");
-    expect(pill).toContain("duration-200");
-    expect(pill).toContain("ease-[cubic-bezier(0.22,1,0.36,1)]");
+    expect(pill).toContain("duration-moderate");
+    expect(pill).toContain("ease-out-quint");
     expect(pill).not.toContain("rounded-full");
   });
 
-  it("measures the final height once, reveals it, then releases it; the transcript is on its last line before it shows", () => {
-    expect(source).toContain('useHeightReveal(expanded, shell, card, cardKey, panel === "transcript" ? toLastLine : toTop)');
-    // the reveal measures the content (never the clipping shell), and releases the height afterwards
-    expect(motion).toMatch(/const to = closing \? 0 : \(content\.current\?\.offsetHeight \?\? 0\)/);
-    expect(motion).toMatch(/if \(opening \|\| switching\) before\.current\?\.\(\);[\s\S]*box\.style\.height = `\$\{to\}px`/);
-    expect(motion).toMatch(/release\.current = window\.setTimeout\(\(\) => \{[\s\S]*box\.style\.height = "";/);
+  it("reveals the card with no height written from script; the transcript is on its last line before it shows", () => {
+    expect(source).toContain('useReveal(expanded, cardKey, panel === "transcript" ? toLastLine : toTop)');
+    expect(motion).not.toMatch(/style\.height|offsetHeight/);
+    expect(motion).toMatch(/if \(open && \(!previous\.open \|\| previous\.key !== contentKey\)\) before\.current\?\.\(\);/);
     // following the conversation happens before paint too
     expect(source).toMatch(/useLayoutEffect\(\(\) => \{\s*if \(transcriptOpen\) toLastLine\(\);/);
   });
@@ -210,7 +207,7 @@ describe("the card's motion", () => {
     expect(source).toMatch(/<div aria-hidden inert className="animate-card-fade-out pointer-events-none absolute inset-x-0 top-0[^"]*" data-voice-card-leaving=\{leaving\}>/);
     expect(source).toContain('className={leaving ? "animate-card-fade-in" : undefined}');
     const css = readFileSync(new URL("../../styles.css", import.meta.url), "utf8");
-    expect(css).toContain("--animate-card-fade-in: card-fade-in 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;");
+    expect(css).toContain("--animate-card-fade-in: card-fade-in var(--transition-duration-moderate) var(--ease-out-quint) both;");
     expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.animate-caret[^}]*\.animate-card-fade-in, \.animate-card-fade-out \{ animation: none; \}/);
     expect(css).toContain(':root[data-reduced-motion="true"] .animate-card-fade-out,');
   });

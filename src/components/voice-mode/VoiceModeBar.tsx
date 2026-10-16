@@ -4,8 +4,8 @@
 // it takes only its own small row of the layout (ChatView's banner stack).
 // Settings or Transcript expand it downward into a card of the same width
 // that overlays the thread and closes on Escape or a click outside. The card
-// grows out of the pill row's bottom edge (height and opacity, the menus'
-// motion) and folds back into it; the row itself never moves. On a narrow
+// grows out of the pill row's bottom edge (a 0fr to 1fr grid row and opacity,
+// MenuMotion useReveal) and folds back into it; the row itself never moves. On a narrow
 // column the waveform shrinks first, then folds away; the controls never
 // shrink.
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
@@ -25,7 +25,7 @@ import type { VoiceModeRefusalCause } from "../../../shared/voice-mode";
 import { BotAvatar } from "../Avatar";
 import { requestSettingsCard } from "../SettingsPrimitives";
 import { openProviderKeyDialog } from "../settings/ProviderKeys";
-import { HEIGHT_MOTION_CLASS, MENU_MOTION_MS, reducedMotion, useHeightReveal } from "../MenuMotion";
+import { REVEAL_MOTION_MS, REVEAL_SHELL_CLASS, reducedMotion, useReveal } from "../MenuMotion";
 import type { CallMetrics } from "./LiveCall";
 import { formatCallTime, phaseLabel } from "@/lib/voice-mode/call-labels";
 
@@ -299,7 +299,7 @@ export function VoiceModeBar(props: VoiceModeBarProps) {
   if (cardKey !== null) heldPanel.current = panel;
   const shownPanel = cardKey !== null ? panel : heldPanel.current;
   // Settings to Transcript (or back): the old panel fades out over the new
-  // one fading in while the card goes from one height to the other.
+  // one fading in while the card takes the new height.
   const [lastPanel, setLastPanel] = useState<Panel>(panel);
   const [leaving, setLeaving] = useState<Exclude<Panel, null> | null>(null);
   if (panel !== lastPanel) {
@@ -308,12 +308,10 @@ export function VoiceModeBar(props: VoiceModeBarProps) {
   }
   useEffect(() => {
     if (!leaving) return;
-    const timer = window.setTimeout(() => setLeaving(null), MENU_MOTION_MS);
+    const timer = window.setTimeout(() => setLeaving(null), REVEAL_MOTION_MS);
     return () => window.clearTimeout(timer);
   }, [leaving]);
-  const shell = useRef<HTMLDivElement>(null);
-  const card = useRef<HTMLDivElement>(null);
-  const cardMotion = useHeightReveal(expanded, shell, card, cardKey, panel === "transcript" ? toLastLine : toTop);
+  const cardMotion = useReveal(expanded, cardKey, panel === "transcript" ? toLastLine : toTop);
 
   const body = (which: Exclude<Panel, null>) => which === "settings" ? (
     <>
@@ -389,7 +387,7 @@ export function VoiceModeBar(props: VoiceModeBarProps) {
       className={cn(
         // The radius only moves between finite values (half the row, then
         // the card's corners at the bottom), with the card's own motion.
-        "@container/callpill pointer-events-auto mx-auto w-full max-w-[420px] overflow-hidden rounded-t-[32px] border border-hairline-weak bg-elevated text-ink shadow-[0_8px_28px_rgba(0,0,0,0.28)] transition-[border-radius] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+        "@container/callpill pointer-events-auto mx-auto w-full max-w-[420px] overflow-hidden rounded-t-[32px] border border-hairline-weak bg-elevated text-ink shadow-[0_8px_28px_rgba(0,0,0,0.28)] transition-[border-radius] duration-moderate ease-out-quint motion-reduce:transition-none",
         expanded ? "rounded-b-[22px]" : "rounded-b-[32px]",
       )}
       aria-label={t("voiceMode.callWith", { name: bot.name })}
@@ -493,8 +491,8 @@ export function VoiceModeBar(props: VoiceModeBarProps) {
         </div>
       </div>
       {cardMotion.shown && (
-        <div ref={shell} className={cn("relative overflow-hidden", HEIGHT_MOTION_CLASS)} data-voice-card-motion {...cardMotion.exitProps}>
-          <div ref={card} id={cardId} className="border-t border-hairline-weak" data-voice-card>
+        <div className={cn("relative overflow-hidden", REVEAL_SHELL_CLASS)} data-voice-card-motion {...cardMotion.shellProps} {...cardMotion.exitProps}>
+          <div id={cardId} className="overflow-hidden border-t border-hairline-weak" data-voice-card>
             <div ref={scroller} className="max-h-[min(55vh,360px)] overflow-y-auto px-3 py-2.5" data-voice-callbar-panels>
               {shownPanel && (
                 <div key={shownPanel} className={leaving ? "animate-card-fade-in" : undefined} data-voice-card-body={shownPanel}>

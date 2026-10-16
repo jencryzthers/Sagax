@@ -51,6 +51,8 @@ import { cn } from "@/lib/cn";
 import { SIDEBAR_CIRCLE_BUTTON } from "@/lib/circle-button";
 import { searchMatchesThreads, useSearchDisclosure } from "@/lib/search-disclosure";
 import { useHeldMenuMotion } from "./MenuMotion";
+import { animateSidebarSnap } from "@/lib/sidebar-motion";
+import { navigate } from "@/lib/view-transitions";
 import { lastNonReceipt } from "@/lib/receipts";
 import { activityPreview, botEngine } from "@/lib/failed-turn";
 import { activeLocale, t } from "@/lib/i18n";
@@ -431,7 +433,7 @@ export function GroupListItem({
       data-sidebar-group-row={group.id}
       // with no thread list open, the row is the conversation being looked at
       aria-current={selected && !expanded ? "page" : undefined}
-      onClick={() => dispatch({ type: "select", id: group.id })}
+      onClick={() => navigate(() => dispatch({ type: "select", id: group.id }))}
       onContextMenu={(e) => {
         e.preventDefault();
         onMenu({ groupId: group.id, x: e.clientX, y: e.clientY });
@@ -524,10 +526,10 @@ export function GroupThreadList({ group, selected, density = "comfortable", quer
   latest.current = group;
   const groupId = group.id;
   const actions = useMemo(() => ({
-    onSelect: (task: { threadId: string }) => {
+    onSelect: (task: { threadId: string }) => navigate(() => {
       if (task.threadId !== latest.current.threadId) dispatch({ type: "switchGroupTask", groupId, threadId: task.threadId });
       else dispatch({ type: "select", id: groupId });
-    },
+    }),
     onRename: (task: { threadId: string }, title: string) => dispatch({ type: "renameGroupTask", groupId, threadId: task.threadId, title }),
     onDelete: (task: { threadId: string }) => dispatch({ type: "deleteGroupTask", groupId, threadId: task.threadId }),
     onPin: (task: { threadId: string; title: string }, pinned: boolean) => dispatch({ type: "pinGroupTask", groupId, threadId: task.threadId, pinned, title: task.title }),
@@ -1794,7 +1796,7 @@ export function BotThreadList({ bot, selected, density = "comfortable", query = 
         else if (intent === "leave") prefetch.leave(task.threadId);
         else prefetch.focus(task.threadId);
       } : undefined,
-      onSelect: (task: Row) => { if (task.threadId !== latest.current.threadId) dispatch({ type: "switchTask", botId, threadId: task.threadId }); else dispatch({ type: "select", id: botId }); },
+      onSelect: (task: Row) => navigate(() => { if (task.threadId !== latest.current.threadId) dispatch({ type: "switchTask", botId, threadId: task.threadId }); else dispatch({ type: "select", id: botId }); }),
       onRename: (task: Row, title: string) => dispatch({ type: "renameTask", botId, threadId: task.threadId, title }),
       onRegenerateTitle: generatedTitles ? (task: Row, onSettled: (ok: boolean) => void) => dispatch({ type: "regenerateTaskTitle", botId, threadId: task.threadId, onSettled }) : undefined,
       onDelete: (task: Row) => dispatch({ type: "deleteTask", botId, threadId: task.threadId }),
@@ -1876,7 +1878,7 @@ export function PersonThreadList({ group, name, selected, density = "comfortable
     type Row = { threadId: string };
     const patch = (task: Row, change: GroupTaskUpdatePatch) => dispatch({ type: "updateGroupTask", groupId, threadId: task.threadId, patch: change });
     return {
-      onSelect: (task: Row) => { if (task.threadId !== latest.current.threadId) dispatch({ type: "switchGroupTask", groupId, threadId: task.threadId }); else dispatch({ type: "select", id: groupId }); },
+      onSelect: (task: Row) => navigate(() => { if (task.threadId !== latest.current.threadId) dispatch({ type: "switchGroupTask", groupId, threadId: task.threadId }); else dispatch({ type: "select", id: groupId }); }),
       onRename: (task: Row, title: string) => dispatch({ type: "renameGroupTask", groupId, threadId: task.threadId, title }),
       onDelete: (task: Row) => dispatch({ type: "deleteGroupTask", groupId, threadId: task.threadId }),
       onMove: (task: Row, projectId: string | null) => patch(task, { projectId }),
@@ -2055,10 +2057,10 @@ export function BotListItem({
   // lands back on their latest conversation (see thread-home.ts).
   // With threads hidden a server that names the bot's main thread decides
   // (openBot, server/main-thread.ts); an older one without it keeps that rule.
-  const openConversation = () => {
+  const openConversation = () => navigate(() => {
     if (showThreads || bot.mainThreadId) openBot(dispatch, bot, showThreads);
     else for (const action of openBotConversationActions(bot, showThreads)) dispatch(action);
-  };
+  });
   const onSelect = (event: React.MouseEvent) => {
     if (renaming) return;
     const insideRenameInput = event.target instanceof HTMLInputElement;
@@ -2066,7 +2068,7 @@ export function BotListItem({
   };
   const openThread = (threadId: string) => {
     if (selected && threadId === bot.threadId) return;
-    dispatch({ type: "switchTask", botId: bot.id, threadId });
+    navigate(() => dispatch({ type: "switchTask", botId: bot.id, threadId }));
   };
 
   const row = (
@@ -2591,21 +2593,28 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
   // later, and a second crossing in that beat must not toggle twice.
   const sidebarResize = useRef<{ x: number; width: number; current: number; collapsed: boolean } | null>(null);
   const [sidebarResizing, setSidebarResizing] = useState(false);
-  // True for the length of the snap animation, so crossing the snap width
-  // mid-drag eases the jump between the rail and the expanded width.
-  const [sidebarSnapping, setSidebarSnapping] = useState(false);
-  const snapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (snapTimer.current) clearTimeout(snapTimer.current); }, []);
   // The density as of the last toggle, ahead of the store's re-render.
   const densityNow = useRef(density);
   densityNow.current = density;
   const setSidebarCollapsed = (collapsed: boolean) => {
     if ((densityNow.current === "icons") === collapsed) return;
-    setSidebarSnapping(true);
-    if (snapTimer.current) clearTimeout(snapTimer.current);
-    snapTimer.current = setTimeout(() => setSidebarSnapping(false), 220);
     densityNow.current = toggleSidebarCollapsed();
   };
+  // Rail in or out (the edge, its double-click, ⌘B, Settings): the width
+  // changes at once and the snap is drawn with transforms for 200ms
+  // (src/lib/sidebar-motion.ts), so the chat column is laid out once.
+  const railed = density === "icons";
+  const wasRailed = useRef(railed);
+  useLayoutEffect(() => {
+    const was = wasRailed.current;
+    wasRailed.current = railed;
+    const aside = sidebarRef.current;
+    if (was === railed || !aside || !window.matchMedia?.("(min-width: 768px)").matches) return;
+    const follower = aside.parentElement?.querySelector<HTMLElement>(":scope > [data-sidebar-follower]") ?? null;
+    return animateSidebarSnap(aside, follower, was ? SIDEBAR_RAIL_WIDTH : sidebarWidth, railed ? SIDEBAR_RAIL_WIDTH : sidebarWidth);
+    // the width is read when the rail flips, not followed during a drag
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [railed]);
   const resizeSidebar = (clientX: number) => {
     const from = sidebarResize.current;
     if (!from) return;
@@ -2942,9 +2951,8 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
       style={density === "icons" ? { width: SIDEBAR_RAIL_WIDTH } : { width: sidebarWidth }}
       className={cn(
         "relative flex h-full shrink-0 flex-col border-r-[0.5px] border-hairline-weak bg-sidebar",
-        // Ease the width when it snaps (rail in or out, double-click) and
-        // follow the pointer exactly otherwise.
-        (!sidebarResizing || sidebarSnapping) && "md:transition-[width] md:duration-200 md:ease-out",
+        // The width never transitions: it follows the pointer exactly, and a
+        // snap (rail in or out) is drawn with transforms (animateSidebarSnap).
         // Below md only: the sidebar leaves the flow and slides in over the chat.
         // Scoped with max-md: rather than cancelled with md: on purpose — Tailwind
         // v4 emits the native `translate` property, and any value other than
