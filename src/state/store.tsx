@@ -73,6 +73,8 @@ import { useShowThreads } from "@/lib/thread-preferences";
 import { speaker } from "@/lib/tts";
 import { roleProfilePatch, type BotRole } from "@/lib/bot-roles";
 import { t } from "@/lib/i18n";
+import { forgetStepUp, recentStepUp, stepUp, stepUpApprovals } from "@/lib/step-up-client";
+import type { StepUpTarget } from "../../shared/step-up";
 import { permissionMissingMessage } from "@/lib/permissions";
 import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
 import { useChatErrorClear } from "./chat-error";
@@ -1180,6 +1182,8 @@ export type AppSettingsSection =
   | "memory"
   | "privacy"
   | "notifications"
+  /** Security keys and passkeys for sensitive approvals (2026-10-16). */
+  | "security"
   | "organization"
   | "appearance"
   | "experimental"
@@ -3428,10 +3432,10 @@ export async function createBotWithRole(role?: BotRole, request: typeof api = ap
  * transcript window mounts. */
 export const MESSAGE_PAGE_SIZE = 200;
 
-export async function api<T = any>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
+export async function api<T = any>(path: string, init?: RequestInit & { timeoutMs?: number; stepUpTry?: "recent" | "fresh" }): Promise<T> {
   // timeoutMs races the fetch against AbortSignal.timeout, combined with any
   // caller signal so either can cancel. Omitted means no behavior change.
-  const { timeoutMs, signal, ...rest } = init ?? {};
+  const { timeoutMs, signal, stepUpTry, ...rest } = init ?? {};
   const res = await fetch(path, {
     headers: { "content-type": "application/json", [PERSON_THREADS_HEADER]: "1" },
     ...rest,
@@ -3443,6 +3447,19 @@ export async function api<T = any>(path: string, init?: RequestInit & { timeoutM
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
+    // An approval or a change that needs the person's security key
+    // (shared/step-up.ts): ask the key for exactly what the server named,
+    // then send the same request again with the step-up. A step-up made a
+    // moment ago for the same card is tried first (one touch covers a
+    // card's Always allow and its Allow).
+    const target = res.status === 403 && (body?.code === "step_up_required" || body?.code === "step_up_failed") ? body?.target as StepUpTarget | undefined : undefined;
+    const original = typeof rest.body === "string" ? (() => { try { return JSON.parse(rest.body as string); } catch { return null; } })() : rest.body === undefined || rest.body === null ? {} : null;
+    if (target && stepUpTry !== "fresh" && original && typeof original === "object" && !Array.isArray(original)) {
+      const reuse = stepUpTry === undefined ? recentStepUp(target) : undefined;
+      if (stepUpTry === "recent") forgetStepUp(target);
+      const id = reuse ?? await stepUp(target);
+      return api<T>(path, { ...init, body: JSON.stringify({ ...original, stepUp: id }), stepUpTry: reuse ? "recent" : "fresh" });
+    }
     const error = body?.error;
     const message = permissionMissingMessage(body)
       ?? (typeof error === "string" ? error : typeof error?.message === "string" ? error.message : `${res.status} ${res.statusText}`);
@@ -3496,7 +3513,7 @@ export async function persistBotUpdate(
   signal: AbortSignal,
   request: (path: string, init?: RequestInit) => Promise<{ bot: BotAnnouncement }> = api,
   trustedApprovals: TrustedApprovalBridge | undefined =
-    typeof window === "undefined" ? undefined : window.ogb?.approvals,
+    typeof window === "undefined" ? undefined : stepUpApprovals(window.ogb?.approvals),
   currentBot?: BotAnnouncement,
 ): Promise<BotAnnouncement> {
   const {
@@ -3829,7 +3846,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     () =>
       createBotPatchQueue({
         send: (botId, patch, signal, currentBot) =>
-          persistBotUpdate(botId, patch, signal, api, window.ogb?.approvals, currentBot),
+          persistBotUpdate(botId, patch, signal, api, stepUpApprovals(window.ogb?.approvals), currentBot),
         reconcile: async (botId, signal) => {
           const result: { bots: BotAnnouncement[] } = await api(`/api/bots?messages=${MESSAGE_PAGE_SIZE}`, { signal });
           return result.bots.find((candidate) => candidate.id === botId) ?? null;
@@ -3922,7 +3939,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ? [...taskWrites.values()].filter((write) => write.botId === botId) : [];
       const promise = Promise.all([previous?.promise, ...defaults.map((write) => write.promise)].map((save) => save?.catch(() => {})))
         .then(async () => {
-          return persistTaskApproval(botId, threadId, patch, window.ogb?.approvals);
+          return persistTaskApproval(botId, threadId, patch, stepUpApprovals(window.ogb?.approvals));
         });
       // Later edits still get saved after an earlier failure, but a send
       // awaiting this batch must observe every rejected setting in it. A
@@ -4618,7 +4635,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const needsDesktop = mode === "full" || mode === "custom" || current === "custom";
           const refreshed = needsDesktop
             ? window.ogb?.approvals
-              ? window.ogb.approvals.setMode(action.botId, mode, {
+              ? stepUpApprovals(window.ogb.approvals)!.setMode(action.botId, mode, {
                 threadId: action.threadId, threadOnly: true, refreshPermissions: true, acknowledgeLocalAuto,
               })
               : Promise.reject(new Error("This approval change requires the packaged desktop app"))

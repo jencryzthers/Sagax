@@ -195,3 +195,48 @@ describe("botActFrameAllowed", () => {
     expect(botActFrameAllowed("p1", undefined, "operator")).toBe(false);
   });
 });
+
+describe("security review: a bot never widens its own approvals through act", () => {
+  const client = () => "client" as const;
+  const refused = (raw: unknown) => {
+    const decision = decideBotAct({ raw, mode: "full", scopes: ["admin", "client"], neededScope: client });
+    return !decision.ok && decision.status === 403;
+  };
+  it("refuses standing grants, saved commands, rules, modes and keys", () => {
+    expect(refused({ method: "POST", path: "/api/bots/b1/always-allow", body: { allowKey: "Bash", threadId: "t" } })).toBe(true);
+    expect(refused({ method: "PATCH", path: "/api/bots/b1", body: { alwaysAllow: ["Bash"] } })).toBe(true);
+    expect(refused({ method: "POST", path: "/api/bots/b1/command-allowlist", body: { command: "rm -rf /", cwd: "/", providerInstanceId: "x" } })).toBe(true);
+    expect(refused({ method: "DELETE", path: "/api/bots/b1/command-allowlist/r1" })).toBe(true);
+    expect(refused({ method: "PUT", path: "/api/bots/b1/permission-mode", body: { mode: "bypass" } })).toBe(true);
+    expect(refused({ method: "POST", path: "/api/custom-rules", body: { when: "x", behavior: "allow", botId: null } })).toBe(true);
+    expect(refused({ method: "DELETE", path: "/api/approval-rules/rule_1" })).toBe(true);
+    expect(refused({ method: "PUT", path: "/api/security-keys/classes", body: { classes: [] } })).toBe(true);
+    expect(refused({ method: "POST", path: "/api/bots/b1/tool-grants" })).toBe(true);
+    expect(refused({ method: "PATCH", path: "/api/bots/b1/tasks/t1", body: { autoApprove: true } })).toBe(true);
+    expect(refused({ method: "POST", path: "/api/threads/t1/messages", body: { stepUp: "x" } })).toBe(true);
+  });
+  it("still lets an ordinary write through to its card", () => {
+    expect(refused({ method: "PATCH", path: "/api/bots/b1", body: { name: "New name" } })).toBe(false);
+  });
+});
+
+describe("security review: no path trick or nesting gets past the guard", () => {
+  const client = () => "client" as const;
+  const ok = (raw: unknown) => decideBotAct({ raw, mode: "full", scopes: ["admin", "client"], neededScope: client }).ok;
+  it("refuses a dot segment, an empty segment or a path the URL parser would change", () => {
+    expect(ok({ method: "POST", path: "/api/./custom-rules", body: { when: "x", behavior: "allow", botId: null } })).toBe(false);
+    expect(ok({ method: "POST", path: "/api/./security-keys/register", body: { name: "k" } })).toBe(false);
+    expect(ok({ method: "PATCH", path: "/api/./approval-rules/rule_1", body: { behavior: "allow" } })).toBe(false);
+    expect(ok({ method: "DELETE", path: "/api/approval-rules/./rule_1" })).toBe(false);
+    expect(ok({ method: "POST", path: "/api/custom-rules/", body: { when: "x" } })).toBe(false);
+    expect(ok({ method: "POST", path: "/api/%2e/custom-rules" })).toBe(false);
+    expect(ok({ method: "POST", path: "/api\\custom-rules" })).toBe(false);
+  });
+  it("refuses a permission refresh and anything nested deeper than it reads", () => {
+    expect(ok({ method: "PATCH", path: "/api/bots/b1/tasks/t1", body: { refreshPermissions: true } })).toBe(false);
+    expect(ok({ ui: "refreshTaskPermissions", input: { botId: "b1", threadId: "t1" } })).toBe(false);
+    let deep: Record<string, unknown> = { name: "x" };
+    for (let i = 0; i < 12; i++) deep = { inner: deep };
+    expect(ok({ method: "PATCH", path: "/api/bots/b1", body: deep })).toBe(false);
+  });
+});

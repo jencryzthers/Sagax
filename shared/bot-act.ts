@@ -293,22 +293,34 @@ export function decideBotAct(input: {
   };
 }
 
-const ESCALATION_KEYS = new Set(["approvalMode", "confirmFullAccess"]);
+const ESCALATION_KEYS = new Set(["approvalMode", "confirmFullAccess", "autoApprove", "alwaysAllow", "stepUp", "refreshPermissions"]);
+/** Screen commands that give a thread its bot's (wider) permissions. */
+const ESCALATION_COMMANDS = new Set(["decideRequest", "answerCard", "refreshTaskPermissions"]);
 
-/** A card answer, a permission decision, a /respond route, or any
- * approvalMode / confirmFullAccess field. Refused, not held: holding it
- * would still let Allow on this thread raise a sibling to Full. */
+/** Routes that widen what runs without asking, or touch the person's
+ * security keys (2026-10-16): standing grants, saved commands, rules,
+ * permission modes, tool grants. A bot acting for its person never calls
+ * them, whatever the method. */
+const ESCALATION_PATH = /\/(?:always-allow|command-allowlist(?:\/.*)?|permission-mode|tool-grants(?:\/.*)?)$|^\/api\/(?:security-keys|custom-rules|approval-rules)(?:\/|$)/;
+
+/** A card answer, a permission decision, a /respond route, a route that
+ * widens approvals, or any approvalMode / confirmFullAccess / alwaysAllow /
+ * autoApprove / stepUp field. Refused, not held: holding it would still let
+ * Allow on this thread raise a sibling to Full. */
 function escalatesApproval(target: ActTarget): boolean {
   if (target.kind === "ui") {
-    if (target.command === "decideRequest" || target.command === "answerCard") return true;
+    if (ESCALATION_COMMANDS.has(target.command)) return true;
     return recordHasEscalation(target.input);
   }
   if (target.path.endsWith("/respond")) return true;
+  if (ESCALATION_PATH.test(target.path.split("?")[0] ?? target.path)) return true;
   return recordHasEscalation(target.query) || recordHasEscalation(target.body);
 }
 
 function recordHasEscalation(value: unknown, depth = 0): boolean {
-  if (depth > 8 || value === null || typeof value !== "object") return false;
+  if (value === null || typeof value !== "object") return false;
+  // deeper than the check reads: refused, never assumed clean
+  if (depth > 8) return true;
   if (Array.isArray(value)) return value.some((item) => recordHasEscalation(item, depth + 1));
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
     if (ESCALATION_KEYS.has(key)) return true;
@@ -440,6 +452,17 @@ function parseActTarget(raw: unknown): { ok: true; target: ActTarget } | { ok: f
 function acceptablePath(path: string): boolean {
   if (path.length < 5 || path.length > PATH_MAX) return false;
   if (path.includes("%") || path.includes("?") || path.includes("#") || path.includes("\\") || path.includes("..") || path.includes("//")) return false;
+  // 2026-10-16 (security review): the server reads the path through the URL
+  // parser, which folds `/./` away (`/api/./custom-rules` is
+  // `/api/custom-rules`). The guard reads the same path or none: no `.` or
+  // `..` segment, no empty segment, and the parser must leave it unchanged.
+  const segments = path.slice(1).split("/");
+  if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) return false;
+  try {
+    if (new URL(path, "http://localhost").pathname !== path) return false;
+  } catch {
+    return false;
+  }
   if (!/^\/api\/[A-Za-z0-9_./~:@+-]*$/.test(path)) return false;
   if (path === "/api/internal" || path.startsWith("/api/internal/")) return false;
   if (path === "/api/testing" || path.startsWith("/api/testing/")) return false;
