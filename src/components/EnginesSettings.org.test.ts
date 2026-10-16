@@ -176,3 +176,20 @@ describe("Model providers on an organization server", () => {
     expect(await render()).not.toContain("data-harness-connectors");
   });
 });
+
+describe("who sees the Keys group", () => {
+  it("keeps the keys to the admins and to members allowed to manage engines in an organization, to whoever manages keys elsewhere, never in a remote window", async () => {
+    const { keysShown } = await import("./EnginesSettings");
+    const viewer = (role: "owner" | "admin" | "member", operator = false, capabilities?: Record<string, boolean>, permissions?: string[]) =>
+      ({ viewer: { role, operator, principalId: "p", email: "", name: "", canCreateBots: true, ...(capabilities ? { capabilities } : {}), ...(permissions ? { permissions } : {}) } }) as never;
+    expect(keysShown({ member: false, remote: false, organization: true, config: viewer("admin") })).toBe(true);
+    expect(keysShown({ member: false, remote: false, organization: true, config: viewer("owner") })).toBe(true);
+    // a member sees the keys only when their profile includes engines.manage (JC, 2026-10-16)
+    expect(keysShown({ member: false, remote: false, organization: true, config: viewer("member", false, undefined, []) })).toBe(false);
+    expect(keysShown({ member: false, remote: false, organization: true, config: viewer("member", false, undefined, ["engines.manage"]) })).toBe(true);
+    expect(keysShown({ member: true, remote: false, organization: true, config: viewer("member") })).toBe(false);
+    expect(keysShown({ member: false, remote: true, organization: false, config: undefined })).toBe(false);
+    expect(keysShown({ member: false, remote: false, organization: false, config: undefined })).toBe(true);
+    expect(keysShown({ member: false, remote: false, organization: false, config: viewer("admin", false, { manageKeys: false }) })).toBe(false);
+  });
+});

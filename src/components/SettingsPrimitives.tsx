@@ -188,6 +188,12 @@ function useCardOpen(id: string, defaultOpen: boolean) {
   return [open, toggle] as const;
 }
 
+/** A folding row's open state, remembered like a collapsible card's and
+ * opened by `requestSettingsCard(id)` (a search, a deep link). */
+export function useSettingsCardOpen(id: string, defaultOpen: boolean) {
+  return useCardOpen(id, defaultOpen);
+}
+
 type CardProps = {
   title?: string;
   subtitle?: React.ReactNode;
@@ -362,11 +368,20 @@ export function SettingsGroup({
 
 /** Grok Bot's count pill ("2 ⌄"): how many items a row holds, and the
  * button that unfolds them under the row. */
-export function CountPill({ count, open, onToggle, label }: { count: number; open: boolean; onToggle: () => void; label: string }) {
+export function CountPill({ count, open, onToggle, label, controls }: {
+  /** Without a count the pill shows the chevron alone. */
+  count?: number;
+  open: boolean;
+  onToggle: () => void;
+  label: string;
+  /** The id of what it unfolds. */
+  controls?: string;
+}) {
   return (
     <button
       type="button"
       aria-expanded={open}
+      aria-controls={controls}
       aria-label={label}
       onClick={onToggle}
       data-count-pill=""
@@ -585,6 +600,7 @@ export function CompactRow({ label, children, className, rowId }: { label: strin
 export function DescribedRow({
   label,
   description,
+  help,
   icon,
   children,
   below,
@@ -592,6 +608,8 @@ export function DescribedRow({
 }: {
   label: string;
   description?: React.ReactNode;
+  /** The longer explanation, behind an info button after the label. */
+  help?: React.ReactNode;
   icon?: React.ReactNode;
   children?: React.ReactNode;
   below?: React.ReactNode;
@@ -604,7 +622,10 @@ export function DescribedRow({
         <div className="flex min-w-0 flex-1 basis-[240px] items-start gap-2">
           {icon && <span aria-hidden="true" className="mt-px shrink-0 text-ink-secondary">{icon}</span>}
           <div className="min-w-0">
-            <div id={labelId} className="text-[13px] leading-[18px] text-ink">{label}</div>
+            <div className="flex items-center gap-1.5">
+              <div id={labelId} className="text-[13px] leading-[18px] text-ink">{label}</div>
+              {help && <HelpTip label={t("settings.moreAbout", { title: label })}>{help}</HelpTip>}
+            </div>
             {description && <div className="mt-0.5 text-[12px] leading-4 text-ink-secondary">{description}</div>}
           </div>
         </div>
@@ -617,3 +638,39 @@ export function DescribedRow({
 
 /** Grok Bot's filled red pill, for a reset that erases. */
 export const DANGER_PILL = "ui-button bg-danger font-medium text-danger-ink enabled:hover:brightness-110 disabled:opacity-50";
+
+/** A row of a settings group that folds what it holds under a count pill
+ * (Grok Bot's "Other computers 1 ⌄", a CountPill). `cardId` remembers the choice on this
+ * device and lets a search or a link open it (requestSettingsCard). The body
+ * stays mounted while folded, so drafts and saves are unaffected. */
+export function FoldRow({ cardId, defaultOpen = false, label, description, help, icon, count, toggleLabel, controls, children }: {
+  cardId: string;
+  defaultOpen?: boolean;
+  label: string;
+  description?: React.ReactNode;
+  help?: React.ReactNode;
+  icon?: React.ReactNode;
+  count?: number;
+  /** The pill's spoken name; the row's label by default. */
+  toggleLabel?: string;
+  /** Other controls, before the pill. */
+  controls?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const bodyId = useId();
+  const [open, toggle] = useCardOpen(cardId, defaultOpen);
+  return (
+    <div data-settings-card={cardId} data-open={open ? "true" : "false"}>
+      <DescribedRow
+        label={label}
+        description={description}
+        help={help}
+        icon={icon}
+        below={<div id={bodyId} hidden={!open} className="mt-2">{children}</div>}
+      >
+        {controls}
+        <CountPill open={open} onToggle={toggle} label={toggleLabel ?? label} count={count} controls={bodyId} />
+      </DescribedRow>
+    </div>
+  );
+}

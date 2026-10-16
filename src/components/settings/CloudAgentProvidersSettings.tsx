@@ -1,6 +1,7 @@
 // Settings > Models and voice, keys: per-person API keys for external cloud
 // coding agents (Cursor, Claude Code, Codex). Under "More providers" until
 // one is saved (src/components/EnginesSettings.tsx).
+import { cn } from "@/lib/cn";
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "@/state/store";
@@ -13,7 +14,7 @@ import {
   testCloudAgentProvider,
   type CloudAgentProviderRow,
 } from "@/lib/cloud-agent-providers";
-import { Card } from "../SettingsPrimitives";
+import { FoldRow, PILL } from "../SettingsPrimitives";
 
 const inputClass = "w-full rounded-lg border border-border bg-ink/[0.03] px-2.5 py-1.5 text-[13px] text-ink placeholder:text-ink-secondary focus:border-border-strong focus:outline-none";
 
@@ -53,27 +54,31 @@ export function CloudAgentProvidersSettings({ state }: { state: CloudAgentProvid
 
   if (rows && rows.length === 0) return null;
   if (!rows) {
-    return error
-      ? <p role="alert" data-cloud-agent-providers-error className="text-[12.5px] text-danger">{error}</p>
-      : <p className="text-[12.5px] text-ink-secondary">{t("cloudAgentProviders.loading")}</p>;
+    return (
+      <div className="px-3.5 py-2.5">
+        {error
+          ? <p role="alert" data-cloud-agent-providers-error className="text-[12.5px] text-danger">{error}</p>
+          : <p className="text-[12.5px] text-ink-secondary">{t("cloudAgentProviders.loading")}</p>}
+      </div>
+    );
   }
 
+  // 0.5.6: a folding row of the Keys group (Grok Bot's count pill), the
+  // longer explanation behind its info button.
   return (
-    <Card
-      collapsible
+    <FoldRow
       cardId="connections.cloudAgents"
-      defaultOpen={false}
-      title={t("cloudAgentProviders.title")}
-      subtitle={t("cloudAgentProviders.subtitle")}
-      summary={rows.some((row) => row.configured) ? t("cloudAgentProviders.summary.configured") : t("cloudAgentProviders.summary.empty")}
+      label={t("cloudAgentProviders.title")}
+      description={rows.some((row) => row.configured) ? t("cloudAgentProviders.summary.configured") : t("cloudAgentProviders.summary.empty")}
+      help={t("cloudAgentProviders.intro")}
+      count={rows.length}
     >
-      <div className="flex flex-col gap-4" data-cloud-agent-providers>
-        <p className="text-[13px] leading-relaxed text-ink-secondary">{t("cloudAgentProviders.intro")}</p>
+      <div className="flex flex-col gap-2" data-cloud-agent-providers>
         {rows.map((row) => (
           <ProviderRow key={row.provider} row={row} onChanged={refresh} />
         ))}
       </div>
-    </Card>
+    </FoldRow>
   );
 }
 
@@ -98,10 +103,10 @@ function ProviderRow({ row, onChanged }: { row: CloudAgentProviderRow; onChanged
   };
 
   return (
-    <div className="rounded-lg border border-hairline/40 bg-inset px-3 py-3" data-cloud-provider={row.provider}>
+    <div className="rounded-lg bg-inset px-3 py-2.5" data-cloud-provider={row.provider}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <div className="text-[13px] font-medium text-ink">{row.label}</div>
+          <div className="text-[13px] text-ink">{row.label}</div>
           {row.configured && !editing && (
             <p className="text-[12px] text-ink-secondary">
               {t("cloudAgentProviders.masked", { last4: row.last4 ?? "····" })}
@@ -112,7 +117,7 @@ function ProviderRow({ row, onChanged }: { row: CloudAgentProviderRow; onChanged
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              className="rounded-md border border-hairline px-2.5 py-1 text-[12.5px] text-ink-secondary hover:text-ink"
+              className={PILL}
               disabled={busy}
               onClick={() => void run(async () => { await testCloudAgentProvider(api, row.provider); setNote(t("cloudAgentProviders.test.ok")); })}
             >
@@ -120,7 +125,7 @@ function ProviderRow({ row, onChanged }: { row: CloudAgentProviderRow; onChanged
             </button>
             <button
               type="button"
-              className="rounded-md border border-hairline px-2.5 py-1 text-[12.5px] text-ink-secondary hover:text-ink"
+              className={PILL}
               disabled={busy}
               onClick={() => { setEditing(true); setNote(null); }}
             >
@@ -128,7 +133,7 @@ function ProviderRow({ row, onChanged }: { row: CloudAgentProviderRow; onChanged
             </button>
             <button
               type="button"
-              className="rounded-md border border-hairline px-2.5 py-1 text-[12.5px] text-danger"
+              className={cn(PILL, "text-danger")}
               disabled={busy}
               onClick={() => void run(async () => { await removeCloudAgentProvider(api, row.provider); })}
             >
@@ -150,7 +155,7 @@ function ProviderRow({ row, onChanged }: { row: CloudAgentProviderRow; onChanged
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              className="rounded-md bg-accent px-3 py-1.5 text-[12.5px] font-medium text-accent-text disabled:opacity-50"
+              className="ui-button ui-button-primary min-h-[44px] disabled:opacity-50 md:min-h-0"
               disabled={busy || !token.trim()}
               onClick={() => void run(async () => { await saveCloudAgentProvider(api, row.provider, token); })}
             >
@@ -158,14 +163,14 @@ function ProviderRow({ row, onChanged }: { row: CloudAgentProviderRow; onChanged
             </button>
             <button
               type="button"
-              className="rounded-md border border-hairline px-3 py-1.5 text-[12.5px] text-ink-secondary"
+              className={PILL}
               disabled={busy || !token.trim()}
               onClick={() => void run(async () => { await testCloudAgentProvider(api, row.provider, token); setNote(t("cloudAgentProviders.test.ok")); })}
             >
               {t("cloudAgentProviders.test")}
             </button>
             {row.configured && (
-              <button type="button" className="rounded-md px-2 py-1.5 text-[12.5px] text-ink-secondary" disabled={busy} onClick={() => { setEditing(false); setToken(""); setNote(null); }}>
+              <button type="button" className={cn(PILL, "bg-transparent text-ink-secondary")} disabled={busy} onClick={() => { setEditing(false); setToken(""); setNote(null); }}>
                 {t("common.cancel")}
               </button>
             )}
