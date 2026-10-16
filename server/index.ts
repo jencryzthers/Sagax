@@ -245,6 +245,7 @@ import {
   boatComputerEnabled,
   decisionModelEnabled,
   dataWindowEnabled,
+  meetingNotetakerEnabled,
   routineGroupSettingsEnabled,
   claudeUserMcpEnabled,
   skillAuthoringEnabled,
@@ -703,7 +704,7 @@ import { EmailOtpStore } from "./email-otp.ts";
 import { resolveMailSettings } from "./mail-config.ts";
 import { createCaptureMailer, createMailer, type Mailer } from "./mailer.ts";
 import { createMailSettingsRoutes } from "./mail-routes.ts";
-import { createVoiceModeRoutes } from "./voice-mode.ts";
+import { createVoiceModeRoutes, resolveVoiceKey, type VoiceModeDeps, type VoiceSpeaker } from "./voice-mode.ts";
 import { configuredKeyterms, VOICE_KEYTERM_RECENT_MESSAGES, voiceKeyterms } from "./voice-keyterms.ts";
 import { installTerminalFeature } from "./terminal-install.ts";
 import type { TerminalWorkPlace } from "./terminal-requests.ts";
@@ -939,6 +940,12 @@ import { createPeopleDmRoutes } from "./routes/people-dms.ts";
 import { createGroupFolderRoutes } from "./routes/group-folders.ts";
 import { createNudgeRoutes } from "./routes/nudges.ts";
 import { createRoutineAwayRoutes } from "./routes/routine-away.ts";
+import { createMeetingRoutes } from "./routes/meetings.ts";
+import { approvalTypeOf } from "./approval-type.ts";
+import { createMeetingInternalRoutes } from "./routes/meeting-internal.ts";
+import { createMeetingService, type MeetingService } from "./meetings/meeting-requests.ts";
+import { parseEvalJson } from "./meetings/meet-scripts.ts";
+import type { MeetingBrowser } from "./meetings/meeting-session.ts";
 import { createTemplateLinkRoutes, handleTemplateLinkPublic } from "./routes/template-links.ts";
 import { TemplateLinks } from "./template-links.ts";
 import { createTeamBotFromThreadRoutes } from "./routes/team-bot-from-thread.ts";
@@ -979,7 +986,7 @@ import { createAgentApi, refuse as agentRefuse, SEND_FILE_MAX_BYTES as AGENT_SEN
 import { parseHideList, planHiddenAgentThreads, planHiddenBotThreads } from "./agent-threads.ts";
 import { MemberLiveText } from "./member-live-text.ts";
 import { computersRoutes, type ComputersDeps } from "./org-admin-computers.ts";
-import { createOrgAdminRoutes, wireAuditRow, type AccessKind, type AdminApproval, type AdminEngine, type AdminBot, type AdminBotReach, type AdminPerson, type ApprovalAnswer, type ApprovalType, type OrgAdminViewer } from "./org-admin-routes.ts";
+import { createOrgAdminRoutes, wireAuditRow, type AccessKind, type AdminApproval, type AdminEngine, type AdminBot, type AdminBotReach, type AdminPerson, type ApprovalAnswer, type OrgAdminViewer } from "./org-admin-routes.ts";
 import { RevocationQueue } from "./idp-revocations.ts";
 import { IDP_REFRESH_WAIT_MS, IDP_SWEEP_INTERVAL_MS, IdpGrantVault, IdpSessionManager, refreshAfterMs, resolveIdpVaultKey, settledWithin } from "./idp-session.ts";
 import { acceptOpenInvitesForEmail, createPublicInviteRoutes, createSoloOrgRoutes, inviteMailMessage, PUBLIC_INVITE_PATH, type OrgState } from "./org-routes.ts";
@@ -3642,6 +3649,9 @@ function agentsIntegration(
       // end_call is offered only while this thread is on a live phone call.
       // The route re-checks; a turn that is not a call never sees the tool.
       SAGAX_VOICE_CALL: voiceCalls.active(threadId) ? "1" : "0",
+      // join_meeting: Settings > Experimental > Meeting notetaker, direct
+      // conversations only. The internal route re-checks both.
+      SAGAX_MEETINGS: meetingNotetakerEnabled(cfg) && !store.groupByThread(threadId) ? "1" : "0",
       // And for a role: team setup, bot creation and deletion, rooms and
       // retries are shown only to a Chief of Staff, whom their routes require.
       SAGAX_CHIEF_OF_STAFF: store.bot(botId)?.chiefOfStaff === true ? "1" : "0",
@@ -9031,7 +9041,7 @@ function isApprovalCardMessage(message: { kind?: unknown; card?: unknown }): boo
     card.tool || card.allowKey || card.commandAllowlist || card.approvalScope
     || card.skillRequest || card.routineRequest || card.profileRequest
     || card.teamSetupRequest || card.modelRequest || card.tighteningRequest
-    || card.terminalRequest,
+    || card.terminalRequest || card.meetingRequest,
   );
 }
 
@@ -9180,17 +9190,6 @@ function orgAdminStream(client: SseClient): boolean {
 }
 
 /** Slice 7: what kind of decision a card asks for. */
-function approvalTypeOf(card: NonNullable<Message["card"]>): ApprovalType {
-  if (card.skillRequest) return "skill";
-  if (card.routineRequest) return "routine";
-  if (card.profileRequest) return "profile";
-  if (card.modelRequest) return "model";
-  if (card.teamSetupRequest) return "team_setup";
-  if (card.allowKey && !card.allowKey.startsWith("mcp:")) return "peer";
-  if (card.tool || card.commandAllowlist || card.approvalScope) return "tool";
-  return "other";
-}
-
 /** Slice 7: a person as the console reads one (never an email). */
 function adminPerson(principalId: string): AdminPerson {
   const person = isPrincipalId(principalId) ? principals.byId(principalId) : null;
@@ -22444,6 +22443,7 @@ function configStatus() {
       boatComputer: boatComputerEnabled(cfg),
       decisionModel: decisionModelEnabled(cfg),
       dataWindow: dataWindowEnabled(cfg),
+      meetingNotetaker: meetingNotetakerEnabled(cfg),
       routineGroupSettings: routineGroupSettingsEnabled(cfg),
       browser: builtInBrowserEnabled(cfg),
       // Maintainer-only escape hatch, not a Settings toggle: the desktop
@@ -23470,6 +23470,126 @@ const perspicaxNativeReview = async (text: string, capability: InternalCapabilit
     review: safetyReviewer(capability.botId),
   })) ?? null;
 };
+// Meetings (server/meetings): the bot joins a meeting as a notetaker in a
+// private browser of its own, after the person's tap on the consent card.
+// Transcription takes the voice mode's xAI key path and usage ledger.
+function meetingBrowserRefusal(botId: string): string | null {
+  const bot = store.bot(botId);
+  if (!bot) return "unknown bot";
+  if (bot.browser === false || bot.computer === "off" || !builtInBrowserEnabled(cfg)) {
+    return "Your browser is turned off, so you cannot join a meeting. Tell the person; they can turn it on in your settings.";
+  }
+  const status = browserEngineStatus();
+  if (status.kind !== "ready") return `${describeBrowserEngine(status)}. Tell the person; nothing was joined.`;
+  return null;
+}
+async function openMeetingBrowser(_botId: string, meetingId: string): Promise<MeetingBrowser> {
+  const status = browserEngineStatus();
+  if (status.kind !== "ready") throw new Error(describeBrowserEngine(status));
+  const session = `meeting-${meetingId.replace(/[^A-Za-z0-9]/g, "").slice(0, 24)}`;
+  // A guest browser: no saved sign-in, nothing restored, nothing kept.
+  const spec = agentBrowserIntegration({
+    binaryPath: status.binaryPath,
+    session,
+    encryptionKey: browserEngineEncryptionKey(),
+    persistent: false,
+    env: { ...process.env, PATH: augmentedPath() },
+  });
+  usedBrowserSessions.set(session, spec);
+  await prepareBrowserSessionState(status.binaryPath, session, { env: spec.env, persistent: false });
+  const call = (name: string, args: Record<string, unknown>, timeoutMs: number) => browserRuntime.harnessCall(session, spec, name, args, timeoutMs);
+  const failed = (result: unknown) => Boolean(result && typeof result === "object" && (result as { isError?: unknown }).isError === true);
+  return {
+    open: async (url) => {
+      // Remote audio must play without a click for the capture to hear it.
+      const result = await call("agent_browser_open", { url, extraArgs: ["--autoplay-policy=no-user-gesture-required"] }, 90_000);
+      if (failed(result)) throw new Error("the meeting page did not open");
+    },
+    eval: async (script, timeoutMs = 15_000) => {
+      try { return parseEvalJson(await call("agent_browser_eval", { script, timeoutMs }, timeoutMs + 15_000)); }
+      catch { return null; }
+    },
+    click: async (selector) => {
+      try { return !failed(await call("agent_browser_click", { selector }, 30_000)); }
+      catch { return false; }
+    },
+    close: async () => {
+      await browserRuntime.close(session).catch(() => undefined);
+      await closeBrowserSession(spec.command, browserRuntimeEnv({ ...spec.env, AGENT_BROWSER_SESSION: session })).catch(() => false);
+      usedBrowserSessions.delete(session);
+    },
+  };
+}
+function startMeetingSummary(botId: string, threadId: string, prompt: string, attempt = 0): void {
+  const speaker = turnSpeakers.get(threadId);
+  void startTurn(botId, prompt, { threadId, cardContinuation: true, ...(speaker ? { speaker } : {}) }).catch((error) => {
+    if (!store.taskByThread(botId, threadId)) return;
+    if (isTurnAdmissionBlocked(error) && attempt < 20) {
+      setTimeout(() => startMeetingSummary(botId, threadId, prompt, attempt + 1), 30_000).unref();
+      return;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    store.appendMessage(threadId, { role: "bot", kind: "activity", tool: failedTurnTool(`the meeting notes could not start: ${message}`) });
+  });
+}
+const meetingService: MeetingService = createMeetingService({
+  store,
+  dataDir: DATA_DIR,
+  enabled: () => meetingNotetakerEnabled(cfg),
+  browserRefusal: meetingBrowserRefusal,
+  openBrowser: openMeetingBrowser,
+  transcriber: async ({ botId, threadId, speaker }) => {
+    const bot = store.bot(botId);
+    if (!bot) return { error: "unknown bot" };
+    const who: VoiceSpeaker = (speaker as VoiceSpeaker | null | undefined) ?? { principalId: "" };
+    const key = await resolveVoiceKey(voiceModeDeps, who);
+    if (!key.ok) {
+      return { error: key.cause === "no_credentials"
+        ? "Meeting notes need speech to text: add an xAI key in Settings > Models and voice."
+        : `Speech to text is not available for you right now (${key.cause}).` };
+    }
+    const target = { botId, botName: bot.name, threadId };
+    return {
+      transcribe: async (audio, mime) => {
+        const heard = await grokVoice.transcribe(audio, mime, key.key);
+        voiceModeDeps.recordUsage({ target, speaker: who, via: key.via, ...(key.payerPrincipalId ? { payerPrincipalId: key.payerPrincipalId } : {}), model: "grok-stt", input: audio.byteLength });
+        return heard.text;
+      },
+    };
+  },
+  summarize: (botId, threadId, prompt) => startMeetingSummary(botId, threadId, prompt),
+  audit: (event) => console.log(`[meeting] ${event.kind} bot=${event.botId} request=${event.requestId}${event.detail ? ` ${event.detail.slice(0, 120)}` : ""}`),
+});
+try { meetingService.recoverInterrupted(); } catch (error) {
+  console.warn(`meetings: interrupted cards not closed: ${error instanceof Error ? error.message : String(error)}`);
+}
+/** The person's answer on a meeting consent card (join_meeting). */
+async function resolveAndSendMeeting(res: ServerResponse, auth: RequestAuth, threadId: string, requestId: string, behavior: "allow" | "deny" | "answer"): Promise<boolean> {
+  if (!meetingService.isMeetingCard(threadId, requestId)) return false;
+  const principalId = actorPrincipalId(auth) || (IDENTITY.kind === "solo" ? localPrincipalId() : "");
+  const person = principalId && isPrincipalId(principalId) ? principals.byId(principalId) : null;
+  const result = await meetingService.resolve({
+    threadId, requestId, behavior, principalId,
+    speaker: voiceModeDeps.speaker(auth),
+    ...(person?.name ? { personName: person.name } : {}),
+  });
+  if (!result.claimed) return false;
+  if ("status" in result) { json(res, result.status, { error: result.error, ...(result.code ? { code: result.code } : {}) }); return true; }
+  if (!result.alreadySettled) {
+    const bot = store.botByThread(threadId);
+    appendDecision(DATA_DIR, {
+      threadId, requestId, botId: bot?.id ?? "", botName: bot?.name, tool: "join_meeting", summary: "join a meeting as a notetaker",
+      decision: result.outcome === "allowed-once" ? "user-approved" : "user-denied", source: "user",
+    });
+  }
+  json(res, 200, { ok: true, outcome: result.outcome, alreadySettled: result.alreadySettled === true });
+  return true;
+}
+ROUTES.push(createMeetingRoutes({
+  meetings: () => meetingService,
+  enabled: () => meetingNotetakerEnabled(cfg),
+  refusal: (auth, threadId, requestId) => approvalAnswerRefusal(auth, threadId, requestId) ?? cardAnswerRefusal(auth, threadId, requestId, "allow"),
+}));
 const INTERNAL_ROUTES: InternalRouteHandler[] = [
   // request_login (server/routes/credential-vault-internal.ts)
   createCredentialVaultInternalRoutes({
@@ -23513,6 +23633,13 @@ const INTERNAL_ROUTES: InternalRouteHandler[] = [
   }),
   // list_terminal_resources and offer_shell_terminal (server/routes/terminal-internal.ts)
   terminalFeature.internalRoute,
+  // join_meeting (server/routes/meeting-internal.ts)
+  createMeetingInternalRoutes({
+    meetings: () => meetingService,
+    ownsThread: (botId, threadId) => Boolean(connectorThread(botId, threadId)),
+    isDirect: (botId, threadId) => Boolean(store.taskByThread(botId, threadId)) && !store.groupByThread(threadId),
+    enabled: () => meetingNotetakerEnabled(cfg),
+  }),
 ];
 ROUTES.push(createHostedSlackRoutes({ bot: (id) => store.bot(id), hostedReady: () => Boolean(workspaceAccess) && entitled("admin") }));
 ROUTES.push(createBrowserNetworkRoutes({
@@ -27336,7 +27463,7 @@ ROUTES.push(createMailSettingsRoutes({
 // else the server's xAI key (Settings > Models and voice, xai.key; since
 // 2026-10-14 Grok voice has no key of its own). The key never leaves the
 // server; the spoken turn itself goes through the normal send route.
-ROUTES.push(createVoiceModeRoutes({
+const voiceModeDeps: VoiceModeDeps = {
   organization: IDENTITY.kind === "perspicax",
   speaker: (auth) => {
     if (auth.kind === "loopback" && auth.trust === "service") return null;
@@ -27455,7 +27582,8 @@ ROUTES.push(createVoiceModeRoutes({
     };
     noteSpend(DATA_DIR, row, appendUsage(DATA_DIR, row));
   },
-}));
+};
+ROUTES.push(createVoiceModeRoutes(voiceModeDeps));
 
 // The caller's own claude.ai connectors, read through their own Claude
 // account (server/harness-connectors.ts); always on, no server switch.
@@ -38458,6 +38586,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           requestId: String(body.requestId),
           behavior,
         })) return;
+        if (await resolveAndSendMeeting(res, auth, bot.threadId, String(body.requestId), behavior)) return;
         const terminalCardBot = store.messagesFor(bot.threadId).find(
           (message) => message.card?.requestId === String(body.requestId) && message.card.terminalRequest,
         );
@@ -38561,6 +38690,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             reviewedSha256,
           }))) return;
         }
+        if (await resolveAndSendMeeting(res, auth, threadId, requestId, behavior)) return;
         const terminalCard = store.messagesFor(threadId).find(
           (message) => message.card?.requestId === requestId && message.card.terminalRequest,
         );
@@ -40863,6 +40993,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         sharedComputerControl.close();
       }
       if (disablingBuiltInBrowser) { browserLive.closeAll(); browserNetworkDebug.clearAll(); }
+      // The meeting notetaker (or the browser it runs in) was turned off: every
+      // meeting leaves now.
+      if (!meetingNotetakerEnabled(cfg) || disablingBuiltInBrowser) meetingService.leaveAll();
       for (const request of browserCleanupRequests) {
         if (request.kind === "profile") {
           browserLive.closeForSession(browserSessionId("", request.partitionId));
@@ -41788,6 +41921,7 @@ const gracefulShutdown = createGracefulShutdown({
       // Each temporary browser leaves usedBrowserSessions before its first
       // await, so closeServerBrowsers does not close it a second time.
       const temporaries = [...temporaryBrowserSessions.keys()].map((botId) => forgetTemporaryBrowser(botId));
+      meetingService.leaveAll();
       await Promise.all([...temporaries, closeServerBrowsers()]);
       await browserRuntime.closeAll();
     },

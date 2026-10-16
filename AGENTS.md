@@ -183,6 +183,49 @@ notifications), Sentry, PagerDuty, Linear. Rules, covered by
   connector account. The imported copy is off and its import warnings say
   what it still needs (a provided secret, a password or link).
 
+## Meetings: the bot takes notes (2026-10-16)
+
+`join_meeting` (`server/meetings/`, card `meetingRequest`, UI
+`src/components/MeetingCard.tsx`, spec
+`docs/superpowers/specs/2026-10-16-meetings-and-maintenance.md`). Rules,
+covered by `server/meetings/*.test.ts` and `server/routes/meetings.test.ts`:
+
+- Experimental, **off by default**: Settings > Experimental > Meeting
+  notetaker (Google Meet), config `features.meetingNotetaker`
+  (`meetingNotetakerEnabled`, server/config.ts). The server enforces it:
+  while off, `join_meeting` is not in the agents catalog (`SAGAX_MEETINGS`,
+  `agents-catalog-meetings.test.ts`), and the internal route, `/api/meetings/*`
+  and the card's answer refuse with 403 `meetings_disabled`. Turning it (or
+  the built-in browser) off makes every running meeting leave.
+
+- Every join is the person's own tap on its consent card. Nothing applies it
+  for them: no Full access path, no always-allow rule, no Live call answer
+  (`liveCardKind` is `review`), not the composer's approval stepper. Direct
+  conversations only.
+- Nothing is recorded before the consent announcement ("<bot> (transcription)",
+  for whom, xAI outside Québec, audio not kept, type "stop") is visible in
+  the meeting chat and the chat can be read; otherwise the bot leaves without
+  recording (fail closed). It is posted again when someone joins and at least
+  every 10 minutes.
+- Every poll reads the new chat lines: an objection (the bot's name, a bare
+  no, stop, arrête, quitte, leave, recording, consent...; when in doubt,
+  leave) makes it leave at once, dropping the audio not yet transcribed.
+  Lines written while it announces itself count too. Own lines are left
+  out by exact match (what it posted, its own author label), never by
+  substring. After an objection nothing is kept: no summary turn, the
+  in-memory transcript is dropped and the card shows no lines. After a
+  normal end the card's live lines go once the summary turn is asked for.
+  Three unreadable polls in a row end the meeting.
+- The Perspicax console and `sagax_approve` never answer the card
+  (`server/approval-type.ts` types it `other`).
+- One meeting per bot, reserved before any await; at most
+  `MEETING_MAX_CONCURRENT` (2) meeting browsers on a server.
+- The meeting runs in a private guest browser session per meeting, never in
+  the bot's own browser profile. No audio and no transcript file is written:
+  the text lives in memory, then in the bot's summary turn. Only
+  `DATA_DIR/meetings/live.json` (ids of running meetings, 0600) is kept.
+- The transcript reaches the bot's summary turn behind `wrapUntrusted`.
+
 ## Conversations with a person have threads like a bot (2026-10-09)
 
 A direct conversation between two people (`peopleDm`, server/people-dms.ts)
