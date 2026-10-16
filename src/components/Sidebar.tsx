@@ -1,4 +1,6 @@
 import { approvalCardOutcome } from "./ApprovalCard";
+import { useStoreDispatch, useStoreSelector } from "@/state/store-selector";
+import { useThreadPrefetch, type ThreadPrefetchIntent } from "@/state/thread-prefetch";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -1524,7 +1526,7 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
   markRead: (projectId: string) => Promise<void>;
   children?: React.ReactNode;
 }) {
-  const { state } = useStore();
+  const revealThread = useStoreSelector((current) => current.revealThread);
   const now = useRelativeNow();
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set(projects.map((project) => project.id)));
   const [editingProject, setEditingProject] = useState<string | null>(null);
@@ -1564,7 +1566,7 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
     return index < 0 ? Number.POSITIVE_INFINITY : index;
   };
   const orderedProjects = query ? projects : [...projects].sort((a, b) => folderRank(a.id) - folderRank(b.id) || projects.indexOf(a) - projects.indexOf(b));
-  useRevealedThreadRow(state.revealThread, selected ? openThreadId : null);
+  useRevealedThreadRow(revealThread, selected ? openThreadId : null);
   const locale = activeLocale();
   const renderThread = (task: ThreadTreeTask) => {
     return <SidebarThreadRow key={task.threadId} task={{ ...task, ...rowState?.(task) }} ownerId={ownerId} current={selected && task.threadId === openThreadId} compact={density === "compact"} folders={projects} activityLabel={task.threadId === openThreadId ? activeActivityLabel : undefined}
@@ -1761,16 +1763,17 @@ function ThreadTree({ ownerId, ownerName, owner, folderOwner, openThreadId, task
 export function BotThreadList({ bot, selected, density = "comfortable", query = "", hidden = false }: {
   bot: Bot; selected: boolean; density?: SidebarDensity; query?: string; hidden?: boolean;
 }) {
-  const { state, dispatch } = useStore();
+  const dispatch = useStoreDispatch();
+  const pendingQueued = useStoreSelector((current) => current.pendingQueued);
+  const generatedTitles = useStoreSelector((current) => llmThreadTitlesEnabled(current.config));
   const tasks = (bot.tasks ?? [{ threadId: bot.threadId, title: t("task.newShort"), createdAt: 0 }])
     // bot-to-bot threads never show (the selected one stays reachable)
     .filter((task) => !task.routineRunId && (task.threadId === bot.threadId || !isInterBotThread(bot.id, task)))
-    .map((task) => ({ ...task, queued: Boolean(state.pendingQueued[task.threadId]?.length) }));
+    .map((task) => ({ ...task, queued: Boolean(pendingQueued[task.threadId]?.length) }));
   const [permissionRefresh, setPermissionRefresh] = useState<{ threadId: string; kind: "full" | "local-auto" } | null>(null);
   // the same live verb the chat pane derives from the visible tail
   // ("Reading a file"), passed to the active thread's row while it works
   const activeActivityLabel = liveActivityLabel(visibleMessages(bot).at(-1));
-  const generatedTitles = llmThreadTitlesEnabled(state.config);
   // A new thread in a chosen working folder: a host path, so the owner of
   // this computer or an admin, and only in Advanced mode (upstream #2550).
   const canChooseFolder = useOwnerOrAdmin() === true;
@@ -1781,10 +1784,16 @@ export function BotThreadList({ bot, selected, density = "comfortable", query = 
   const latest = useRef(bot);
   latest.current = bot;
   const botId = bot.id;
+  const prefetch = useThreadPrefetch();
   const actions = useMemo(() => {
     type Row = { threadId: string };
     const patch = (task: Row, change: Extract<Parameters<typeof dispatch>[0], { type: "updateTask" }>["patch"]) => dispatch({ type: "updateTask", botId, threadId: task.threadId, patch: change });
     return {
+      onPrefetch: prefetch ? (task: Row, intent: ThreadPrefetchIntent) => {
+        if (intent === "hover") prefetch.hover(task.threadId);
+        else if (intent === "leave") prefetch.leave(task.threadId);
+        else prefetch.focus(task.threadId);
+      } : undefined,
       onSelect: (task: Row) => { if (task.threadId !== latest.current.threadId) dispatch({ type: "switchTask", botId, threadId: task.threadId }); else dispatch({ type: "select", id: botId }); },
       onRename: (task: Row, title: string) => dispatch({ type: "renameTask", botId, threadId: task.threadId, title }),
       onRegenerateTitle: generatedTitles ? (task: Row, onSettled: (ok: boolean) => void) => dispatch({ type: "regenerateTaskTitle", botId, threadId: task.threadId, onSettled }) : undefined,
@@ -1804,7 +1813,7 @@ export function BotThreadList({ bot, selected, density = "comfortable", query = 
         dispatch({ type: "refreshTaskPermissions", botId, threadId: task.threadId });
       },
     };
-  }, [botId, dispatch, generatedTitles]);
+  }, [botId, dispatch, generatedTitles, prefetch]);
   const rowState = (task: ThreadTreeTask) => {
     const thread = currentTaskBot(bot, task.threadId);
     return {

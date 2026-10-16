@@ -3,7 +3,7 @@
 // does not become a wall of competing motion. Plain messages go to the room's
 // default responder; @mentions override that routing.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { activeLocale, t } from "@/lib/i18n";
+import { t } from "@/lib/i18n";
 import { useShowThreads } from "@/lib/thread-preferences";
 import { ArrowDown, ChevronDown, FolderOpen, Pin, X } from "lucide-react";
 import {
@@ -58,7 +58,8 @@ import { useBotMessageMenu, userMessageMenu, type PinAction } from "./message-me
 import { RawMarkdownView, RawToggleAction } from "./RawMarkdownToggle";
 import { SpeakButton } from "./SpeakButton";
 import { useSpeech } from "@/lib/tts/useSpeech";
-import { localSystemVoiceActive } from "@/lib/local-voice";
+import { useActiveLocale, useLocalSystemVoice, useRemoteClient } from "@/lib/render-reads";
+import { useStoreDispatch, useStoreSelector } from "@/state/store-selector";
 import { CancelledTurnRow } from "./CancelledTurnRow";
 import { isCancelledTranscriptRow } from "../../shared/client-cancel";
 import { roomRetryRequest } from "@/lib/room-retry";
@@ -144,21 +145,25 @@ type RoomItem =
  * 1:1 chat shows for the same failure, sign-in card and all, for the engine
  * that member ran on. */
 export function RoomToolChip({ message, roomId }: { message: Message; roomId?: string }) {
-  const { state, dispatch } = useStore();
+  "use memo";
+  const dispatch = useStoreDispatch();
+  const storeBots = useStoreSelector((current) => current.bots);
+  const instances = useStoreSelector((current) => current.instances);
+  const storeGroups = useStoreSelector((current) => current.groups);
   const tool = message.tool;
   if (!tool) return null;
   if (message.threadRef) return <ThreadChip message={message} />;
   if (failedTurnCause(tool.name) !== null) {
-    return <FailedTurnRow tool={tool} engine={botEngine(state.bots.find((b) => b.id === message.from?.botId), state.instances)} botId={message.from?.botId} />;
+    return <FailedTurnRow tool={tool} engine={botEngine(storeBots.find((b) => b.id === message.from?.botId), instances)} botId={message.from?.botId} />;
   }
   const comm = message.comm;
-  const nameOf = botNames(state.bots);
+  const nameOf = botNames(storeBots);
   if (!comm) return <ToolActivity tool={tool} nameOf={nameOf} />;
-  const withBot = state.bots.find((b) => b.id === comm.withBotId);
+  const withBot = storeBots.find((b) => b.id === comm.withBotId);
   const avatar = <BotAvatar bot={withBot ?? { name: comm.withName, color: comm.withColor }} state="happy" size={14} animated={false} />;
   // A bot-to-bot DM is read in this column. Selecting it would leave the
   // room, and a chip about this very room has nowhere to go.
-  const goes = comm.groupId !== roomId && !commIsBotDm(comm, state.groups ?? []);
+  const goes = comm.groupId !== roomId && !commIsBotDm(comm, storeGroups ?? []);
   return (
     <div className="flex justify-start">
       <StepRow
@@ -168,7 +173,7 @@ export function RoomToolChip({ message, roomId }: { message: Message; roomId?: s
         title={goes ? t("room.openBot", { name: comm.withName }) : undefined}
         onActivate={goes ? () => {
           dispatch({ type: "select", id: comm.groupId });
-          const destination = state.groups.find(g => g.id === comm.groupId);
+          const destination = storeGroups.find(g => g.id === comm.groupId);
           if (comm.threadId && destination?.tasks?.some(task => task.threadId === comm.threadId)) {
             dispatch({ type: "switchGroupTask", groupId: comm.groupId, threadId: comm.threadId });
           }
@@ -180,6 +185,7 @@ export function RoomToolChip({ message, roomId }: { message: Message; roomId?: s
 
 /** 16px profile avatar + name in the bot's color, shown once per sender cluster. */
 function ClusterLabel({ bot, name, color }: { bot?: Bot; name: string; color: string }) {
+  "use memo";
   const tint = mausInk(bot?.color ?? color) ?? color;
   return (
     <div className="-mb-1.5 ms-1.5 mt-3 flex items-center gap-1.5 px-1.5">
@@ -243,7 +249,11 @@ function RoomTextMessage({
   /** Who "I" am on a reaction chip (src/lib/reactions.ts). */
   reactionSelf: readonly string[];
 }) {
-  const { state, dispatch } = useStore();
+  "use memo";
+  const dispatch = useStoreDispatch();
+  const focus = useStoreSelector((current) => current.focusMessage);
+  const tts = useStoreSelector((current) => current.config?.tts);
+  const localVoice = useLocalSystemVoice();
   const user = m.role === "user";
   // Emoji reactions (src/components/Reactions.tsx): the smiley of the hover
   // row and the head of its "…" menu; the chips sit under the bubble.
@@ -260,7 +270,6 @@ function RoomTextMessage({
   const [viewRaw, setViewRaw] = useState(false);
   const speech = useSpeech();
   const speaking = speech.messageId === m.id && speech.status !== "idle";
-  const focus = state.focusMessage;
   const focusedSearch = focus?.messageId === m.id && Boolean(focus.matchText) && focus.threadId === group.threadId;
   const collapsible = user && !expanded && (display.length > USER_COLLAPSE_CHARS || display.split("\n").length > USER_COLLAPSE_LINES);
   useEffect(() => {
@@ -274,15 +283,16 @@ function RoomTextMessage({
     botId: speakerBot?.id,
     messageId: m.id,
     voiceId: speakerBot?.voice,
-    tts: state.config?.tts,
-    localVoice: localSystemVoiceActive(),
+    tts: tts,
+    localVoice,
     canSpeak: true,
     viewRaw,
     onToggleRaw: () => setViewRaw((raw) => !raw),
     pin,
   });
   // a reply with text lists its files under the text, without the ones it links inline
-  const replyGroup = useMemo(() => !user && botText.trim() ? replyAttachmentGroup(botText, m.attachments) : null, [user, botText, m.attachments]);
+  // (memoized by the React Compiler on the text and the attachments)
+  const replyGroup = !user && botText.trim() ? replyAttachmentGroup(botText, m.attachments) : null;
   return (
     <div
       data-author={mine ? "self" : user ? "person" : "bot"}
@@ -407,7 +417,7 @@ function RoomTextMessage({
               <>
                 {botText && viewRaw && <RawToggleAction active onToggle={() => setViewRaw(false)} className={messageActionClass} />}
                 {botText && speaking && (
-                  <SpeakButton text={botText} botId={speakerBot?.id} messageId={m.id} voiceId={speakerBot?.voice} tts={state.config?.tts} localVoice={localSystemVoiceActive()} className={cn(messageActionClass, "text-accent")} />
+                  <SpeakButton text={botText} botId={speakerBot?.id} messageId={m.id} voiceId={speakerBot?.voice} tts={tts} localVoice={localVoice} className={cn(messageActionClass, "text-accent")} />
                 )}
               </>
             }
@@ -421,6 +431,11 @@ function RoomTextMessage({
       {!user && m.routedBy && <RoutedByLine routedBy={m.routedBy} />}
     </div>
   );
+}
+
+/** The messages one room item draws. */
+function roomItemMessages(item: RoomItem): readonly Message[] {
+  return item.kind === "message" ? [item.message] : item.kind === "exchange" ? item.run.messages : item.messages;
 }
 
 export const Transcript = memo(function Transcript({
@@ -456,6 +471,7 @@ export const Transcript = memo(function Transcript({
   /** The viewer's own participant id: never drawn. */
   reader?: string | null;
 }) {
+  "use memo";
   const { state, dispatch } = useStore();
   const reactionSelfKey = reactionSelfIds(state.config, reader).join("\n");
   const reactionSelf = useMemo(() => reactionSelfKey.split("\n").filter(Boolean), [reactionSelfKey]);
@@ -613,12 +629,11 @@ export const Transcript = memo(function Transcript({
   // The divider sits above the first drawn row from its message on; hidden
   // tool lines are not items here.
   const unreadIds = useMemo(() => unreadMessageIds(messages, unreadDividerId), [messages, unreadDividerId]);
-  let dividerPlaced = false;
-  const dividerAbove = (rows: readonly Message[]) => {
-    if (!unreadIds || dividerPlaced || !rows.some((row) => unreadIds.has(row.id))) return null;
-    dividerPlaced = true;
-    return <NewMessagesDivider fading={unreadDividerFading} />;
-  };
+  // The New divider goes above the first item holding an unread message.
+  const dividerIndex = useMemo(() => unreadIds
+    ? items.findIndex((item) => roomItemMessages(item).some((row) => unreadIds.has(row.id)))
+    : -1, [items, unreadIds]);
+  const dividerAbove = (index: number) => index === dividerIndex ? <NewMessagesDivider fading={unreadDividerFading} /> : null;
   return (
     <>
       {items.map((item, i) => {
@@ -638,9 +653,7 @@ export const Transcript = memo(function Transcript({
         }
         const first = edgeOf(item).first;
         const newDay = startsNewStretch(prev?.at, first.at);
-        const divider = dividerAbove(
-          item.kind === "message" ? [item.message] : item.kind === "exchange" ? item.run.messages : item.messages,
-        );
+        const divider = dividerAbove(i);
         if (item.kind === "gotoGroup") {
           return (
             <div key={item.id} className="contents">
@@ -1051,7 +1064,22 @@ function RoomWorkingFolder({ group, disabled = false, adminOnlyNote = false }: {
   );
 }
 
+/** Who the remote client is signed in as, and their role in the organization;
+ * no one when either request fails. */
+async function loadRemoteActor(): Promise<{ id: string; role: "owner" | "admin" | "member" | null }> {
+  try {
+    const session = await api<{ email?: string }>("/api/auth/session");
+    const org = await api<{ people?: { id: string; role: "owner" | "admin" | "member" }[] }>("/api/org");
+    const id = typeof session.email === "string" ? session.email.trim().toLowerCase() : "";
+    const role = org.people?.find((person) => person.id.trim().toLowerCase() === id)?.role ?? null;
+    return { id, role };
+  } catch {
+    return { id: "", role: null };
+  }
+}
+
 export function GroupView({ group: stored }: { group: Group }) {
+  "use memo";
   // A direct conversation between two people (server/people-dms.ts) runs on
   // the single-thread path of a bot-to-bot channel: no panel, no tasks. It
   // reads as the other person.
@@ -1061,23 +1089,13 @@ export function GroupView({ group: stored }: { group: Group }) {
   const viewerId = viewerActorId(state.config);
   const peer = peopleDmPeer(stored, viewerId, directPeople);
   const roomNudge = groupNudgeTarget(stored, viewerId, state.config?.profile?.email);
-  const remoteClient = window.ogb?.remoteClient?.active === true;
+  const remoteClient = useRemoteClient();
+  const locale = useActiveLocale();
   const [remoteActor, setRemoteActor] = useState<{ id: string; role: "owner" | "admin" | "member" | null }>({ id: "", role: null });
   useEffect(() => {
     if (!remoteClient) return;
     let cancelled = false;
-    void (async () => {
-      try {
-        const session = await api<{ email?: string }>("/api/auth/session");
-        const org = await api<{ people?: { id: string; role: "owner" | "admin" | "member" }[] }>("/api/org");
-        if (cancelled) return;
-        const id = typeof session.email === "string" ? session.email.trim().toLowerCase() : "";
-        const role = org.people?.find((person) => person.id.trim().toLowerCase() === id)?.role ?? null;
-        setRemoteActor({ id, role });
-      } catch {
-        if (!cancelled) setRemoteActor({ id: "", role: null });
-      }
-    })();
+    void loadRemoteActor().then((actor) => { if (!cancelled) setRemoteActor(actor); });
     return () => { cancelled = true; };
   }, [remoteClient]);
   // Same caption handling as ChatView: drag on the header (macOS and
@@ -1087,7 +1105,7 @@ export function GroupView({ group: stored }: { group: Group }) {
   // Pulsatrix Light's navy top band mirrors the sidebar's own macOS-inset
   // strip, so the two stay vertically aligned; every other skin ignores it.
   const { macInset, browser } = useMacInsetChrome();
-  const exchangeColumn = useExchangeColumn();
+  const { node: exchangeColumnNode, ref: exchangeColumnRef } = useExchangeColumn();
   const composerDockRef = useRef<HTMLDivElement>(null);
   const composerDock = useComposerDockPad(composerDockRef);
   const [bulletinOpen, setBulletinOpen] = useState(false);
@@ -1316,8 +1334,8 @@ export function GroupView({ group: stored }: { group: Group }) {
 
   return (
     <main className="app-glow relative flex h-full min-w-0 flex-1 bg-app">
-      <ExchangeColumnProvider node={exchangeColumn.node}>
-      <div ref={exchangeColumn.ref} className="relative isolate flex min-w-0 flex-1 flex-col">
+      <ExchangeColumnProvider node={exchangeColumnNode}>
+      <div ref={exchangeColumnRef} className="relative isolate flex min-w-0 flex-1 flex-col">
       <GroupCallOverlay group={group} members={members} />
       {membersOpen && !remoteClient && !group.dm && (
         <ManageMembersPanel group={group} onClose={closeMembers} triggerRef={membersTriggerRef} />
@@ -1531,7 +1549,7 @@ export function GroupView({ group: stored }: { group: Group }) {
           <Transcript
             group={group}
             members={members}
-            locale={activeLocale()}
+            locale={locale}
             messages={windowedMessages}
             transcript={group.messages}
             emergingId={popping?.id}
