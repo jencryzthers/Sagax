@@ -3808,6 +3808,124 @@ Parity with Grok Bot (audit items 10, 11, 14 and the emoji picker). Keep:
   (`EmojiCatalogGrid`, `ComposerEmojiButton`); stored in the bare form
   (`canonicalEmoji`) so both pickers make one chip.
 
+## Published pages (2026-10-16, Grok Bot canvases)
+
+A bot proposes a page (HTML, Markdown or a small one-file static app) with
+the agents tool `propose_page`; the person publishes it from its card
+(`shared/published-pages.ts`, store `server/published-pages.ts`, renderer
+`server/published-pages-render.ts`, routes `server/routes/published-pages.ts`,
+UI `src/components/PublishedPages.tsx`: the chat card and Settings > Pages
+publiées). Keep these rules, covered by `server/published-pages.test.ts`,
+`server/published-pages.e2e.test.ts`, `server/published-pages-prelude.test.ts`,
+`src/components/PublishedPages.test.ts` and `electron/page-frame-guard.node-test.mjs`
+(two security reviews of #646 folded in):
+
+- Publishing is an outward action and only the person does it. The tool
+  goes through the internal card route (`createAgentCard`, tool
+  `propose_page`) and stores a `proposed` version plus a bot row with
+  `pagePublish`; whatever the bot sends (access, publish flags) is ignored.
+  `POST /api/pages/:id/publish` needs an explicit `access`. Not available in
+  rooms. Choosing "Toute personne ayant le lien" asks a second press.
+- Whose page it is: the conversation's person (`pageOwnerFor` =
+  `threadOwner` of `server/thread-privacy.ts`: the thread's recorded owner,
+  else the bot owner), never simply the bot's owner. A member's private
+  conversation with someone else's team bot gives the member the page; the
+  bot owner gets 404. Who manages pages: on an organization server the
+  page's person only (a session with that principal); on a one-person server
+  the computer's owner only (`computerOwner`), never another paired session;
+  never a bot's shell on a shared server. Another person's page reads as 404.
+- Who reads it: `private` (its person; on a one-person server the computer's
+  owner), `org` (any human, enabled person signed in to this server, never a
+  guest; on a one-person server any paired session), `link` (anyone holding
+  the link). Expiry: never, or a time within a year. Revoke drops the link
+  id at once (and every frame ticket with it); publishing again mints a new
+  link. A bad signature, a revoked or expired page and a reader who may not
+  see it all get the same 404 page. Nothing of a person disabled or deleted
+  in the organization is served (`ownerActive`). Organization admins see
+  every page and can Revoke one (`GET /api/admin/pages`,
+  `POST /api/admin/pages/:id/revoke`, admin activity row `page.revoke`,
+  category security); they cannot publish, change access or read content.
+- Isolation. The reader never lands on the page itself. `GET
+  /pages/view/<id>.<hmac>` (before the auth gate and the cookie re-issue: no
+  Set-Cookie) is a Sagax wrapper with a permanent banner, "Page publiée par
+  <bot> pour <personne> : ceci n'est pas un écran Sagax, n'y entrez jamais
+  de mot de passe" (English for other readers), no script and nothing to
+  dismiss, that embeds the page in an iframe sandboxed to `allow-scripts`
+  only (Markdown: empty sandbox). The wrapper's CSP has `script-src 'none'`,
+  `frame-ancestors 'none'` and `frame-src`/`child-src` set to this page's
+  frame path (a host-source with the path), so the page cannot navigate its
+  frame anywhere else, cannot navigate the top window (no
+  allow-top-navigation), open a window (no allow-popups), show prompt() (no
+  allow-modals) or submit a form (no allow-forms, `form-action 'none'`).
+  `GET /pages/frame/<token>?t=<ticket>` serves the page only with the
+  wrapper's five-minute HMAC ticket (bound to the page and to the reader the
+  wrapper served) and only when `Sec-Fetch-Dest`, if sent, is `iframe`; the
+  frame checks the reader again: the live session on the app's origin, or
+  the ticket's reader, still an active person, on the separate origin. Its CSP is `sandbox` without allow-same-origin (opaque
+  origin: no Sagax cookie, storage or API), `default-src 'none'`,
+  `connect-src 'none'`, `frame-src 'none'`, data:/blob: images only, and
+  `frame-ancestors` the wrapper's origin. No allow-modals or allow-forms
+  anywhere. Not everything is a CSP request (Chromium fetches a
+  `<link rel=prerender>` whatever the CSP says): the server neuters every
+  HTML version as it serves it (`neuterPageHtml`: every `<link`, `<iframe`,
+  `<frame`, `<frameset`, `<object`, `<embed`, `<portal`, `<fencedframe`
+  becomes an inert `<sagax-removed-...>` element wherever the text appears,
+  and `speculationrules` loses its meaning), and the page starts with
+  `x-dns-prefetch-control: off` and `FRAME_PRELUDE`, a synchronous script
+  that makes the WebRTC constructors undefined and patches every way a
+  script inserts or changes an element (appendChild and kin, append and
+  kin, insertAdjacent*, innerHTML and outerHTML, document.write,
+  createContextualFragment, DOMParser, setAttribute and kin, Attr values,
+  link rel, relList, script type, iframe srcdoc and src, createElement of a
+  frame) so a resource hint or a speculation-rules script is neutered
+  before it is in the document and no nested frame (a fresh realm) can be
+  made. Every patched descriptor is non-configurable and non-writable. Markdown is rendered by our own escaper: no raw HTML, links
+  written as text with their address. Title and content lose secret-shaped
+  text before storage.
+- Separate origin: `SAGAX_PAGES_ORIGIN=https://pages.example.com` (an
+  origin, no path; read once at start) serves the frames there. That host
+  never serves the app: `handlePagesOriginRequest` runs first in
+  `handleRequest` and answers only frame paths, or nothing at all (404)
+  while the separation is off. The separation is on only when the app's own
+  public origin is known (organization public origin or custom domain,
+  checked on each request) and differs; the frames' `frame-ancestors` is
+  then that app origin, and the app origin no longer serves frames. The
+  wrappers stay on the app origin (they check the reader's session).
+- The app's preview is the reader's path, never a srcdoc: `GET
+  /api/pages/:id/versions/:n` answers `previewPath`
+  (`/pages/preview/<id>/<n>`, the page's person only, any version state),
+  the same no-script wrapper with a preview banner ("Aperçu d'une page
+  proposée par ... : ceci n'est pas un écran Sagax ..."), framed by the app
+  (`frame-ancestors 'self'`), which frames `/pages/preview-frame/<id>/<n>`
+  with a preview ticket under the same sandbox and CSP, `frame-src` pinned
+  to that path. In the desktop app `will-frame-navigate` also blocks any
+  navigation of a page frame other than its own exact address
+  (`electron/page-frame-guard.mjs`).
+- Storage and caps: the index `published-pages.json` (0600, no content) is
+  read again only when its mtime or size changes; each version's content is
+  `published-pages/<pageId>/<n>` (0600, folders 0700), cached in memory once
+  read. At most 50 pages per person and per bot, 500 per server, 20
+  versions per page (the published one is never dropped), 512 KB per
+  version, 50 MB per person (checked for new versions too) and 100 MB for
+  all content. The banner shows at most 60 characters of each name.
+- `frame-src` names the app's known public origin (with its scheme) when
+  the request came in on that host, else the Host header (a reverse proxy
+  must pass it through, as Caddy does). The admin list never carries a
+  page's link or path (they hold the token); admins are `orgAdminCaller`
+  (admin scope and organization role admin). The desktop guard fails
+  closed when a subframe navigation names no frame.
+- Cross-browser escape run (Chromium, Firefox, WebKit through Playwright,
+  23 vectors, reader and preview; PR #646): no attacker HTTP request, top
+  never moved, frame stays on its own path. Residual risks (documented, not
+  closed): Chromium opens a TCP connection (and resolves the name, about
+  250 characters, once per load) for a navigation it then blocks with
+  `frame-src`; WebKit opens a TCP connection on a target=_blank click; the
+  page can still draw a fake login form inside its own frame under the
+  banner (nothing it types can leave by HTTP); WebRTC under a name the
+  prelude does not know. Not done: multi-file apps, an admin audit row per publish
+  (the page keeps its own history), the phone apps' card (they show the
+  row's text).
+
 ## Voice notes, microphone choice, logs and feedback (2026-10-16)
 
 - Voice notes (+ > Record a voice note, `src/components/useVoiceNoteRecorder.ts`,

@@ -960,6 +960,8 @@ import { parseEvalJson } from "./meetings/meet-scripts.ts";
 import type { MeetingBrowser } from "./meetings/meeting-session.ts";
 import { createTemplateLinkRoutes, handleTemplateLinkPublic } from "./routes/template-links.ts";
 import { TemplateLinks } from "./template-links.ts";
+import { pageOwnerFor, PublishedPages } from "./published-pages.ts";
+import { createPublishedPageRoutes, handlePagesOriginRequest, handlePublishedPagePublic, type PageViewer, type PublicPageOptions } from "./routes/published-pages.ts";
 import { createTeamBotFromThreadRoutes } from "./routes/team-bot-from-thread.ts";
 import { awaySkipsDetail, LocalAwayTracker, verdictFromPresence, type AwayVerdict } from "./routine-away.ts";
 import { createPersonLabelRoutes } from "./routes/person-labels.ts";
@@ -1093,6 +1095,8 @@ ensureDirs();
 initMediaProxy(DATA_DIR);
 /** Public share links for bot templates (server/template-links.ts). */
 const templateLinks = new TemplateLinks(DATA_DIR);
+/** Pages a bot proposed and the person published (server/published-pages.ts). */
+const publishedPages = new PublishedPages(DATA_DIR);
 // The desktop parent owns the primary lease and delegates one private child
 // claim; a standalone/headless server owns the primary lease itself. Acquire
 // before any durable identity, sessions, config, or Store state is loaded.
@@ -6111,6 +6115,109 @@ async function mountPersonalMcp(
     integrations.custom = { ...integrations.custom, [name]: { type: server.type, url: server.url, headers } };
   }
 }
+// Published pages (routes/published-pages.ts): a person's own pages, managed
+// only by that person on an organization server, or by this computer's owner
+// on a one-person server (never another paired session, never a bot's shell
+// on a shared server).
+ROUTES.push(createPublishedPageRoutes({
+  pages: publishedPages,
+  owner: (auth) => IDENTITY.kind === "perspicax" && auth.kind === "session" ? auth.session.principalId?.trim() || undefined : undefined,
+  isPerson: (auth) => IDENTITY.kind === "perspicax"
+    ? auth.kind === "session" && Boolean(auth.session.principalId?.trim())
+    : computerOwner(auth),
+  origin: (req) => (IDENTITY.kind === "perspicax" ? IDENTITY.publicOrigin : null) ?? publicUrl() ?? requestOrigin(req) ?? "http://127.0.0.1",
+  reachable: (origin) => {
+    try {
+      return !isLoopbackHost(new URL(origin).host);
+    } catch {
+      return false;
+    }
+  },
+  // Revoke for organization admins (audited); on a one-person server its owner.
+  isAdmin: (auth) => IDENTITY.kind === "perspicax" ? orgAdminCaller(auth) : computerOwner(auth),
+  audit: (auth, req, row) => appendAdminAction(DATA_DIR, { category: "security", ...row, actor: adminActorFor(auth, req) }),
+}));
+
+/** Who is reading a published page (handlePublishedPagePublic): a session
+ * cookie, or this computer's owner on a one-person server. On an
+ * organization server only a person of it, never a guest or a disabled one.
+ * On a one-person server only the computer's owner reads a private page;
+ * any other paired session counts as "my organization". */
+function publishedPageViewer(req: IncomingMessage): PageViewer {
+  const cookie = parseCookies(typeof req.headers.cookie === "string" ? req.headers.cookie : undefined).get(SESSION_COOKIE);
+  if (cookie) {
+    const session = sessions.authenticate(cookie);
+    if (!session) return null;
+    if (IDENTITY.kind !== "perspicax") {
+      return { computerOwner: computerOwner({ kind: "session", session, via: "cookie", scopes: session.scopes }) };
+    }
+    const person = session.principalId ? principals.byId(session.principalId) : null;
+    if (!person || person.kind !== "human" || person.disabledAt !== undefined || person.consoleDisabled) return null;
+    return { principalId: person.id, computerOwner: false };
+  }
+  const host = typeof req.headers.host === "string" ? req.headers.host : undefined;
+  if (IDENTITY.kind !== "perspicax" && LOOPBACK.trust !== "service" && !isProxied(req) && isLoopbackHost(host)) return { computerOwner: true };
+  return null;
+}
+
+/** SAGAX_PAGES_ORIGIN: a separate origin for the page frames. Read once at
+ * start. Used only when this app's own public origin is known and differs
+ * from it (the frames' only allowed ancestor); pagesSeparation() checks that
+ * on each request, since the custom domain can change. Whether used or not,
+ * that host never serves the app (handlePagesOriginRequest). */
+const PAGES_ORIGIN = (() => {
+  const raw = process.env.SAGAX_PAGES_ORIGIN?.trim();
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    if ((parsed.protocol === "https:" || parsed.protocol === "http:") && parsed.pathname === "/" && !parsed.search && !parsed.username) return parsed;
+  } catch { /* reported below */ }
+  console.warn("published pages: SAGAX_PAGES_ORIGIN is ignored (an http(s) origin with no path, such as https://pages.example.com)");
+  return null;
+})();
+function pagesSeparation(): { pagesOrigin: URL; appOrigin: URL } | null {
+  if (!PAGES_ORIGIN) return null;
+  try {
+    const app = new URL((IDENTITY.kind === "perspicax" ? IDENTITY.publicOrigin : null) ?? publicUrl() ?? "");
+    return app.host.toLowerCase() === PAGES_ORIGIN.host.toLowerCase() ? null : { pagesOrigin: PAGES_ORIGIN, appOrigin: app };
+  } catch {
+    return null;
+  }
+}
+function publishedPageOptions(): PublicPageOptions {
+  return {
+    pages: publishedPages,
+    viewer: publishedPageViewer,
+    names: (page) => {
+      const botName = store.bot(page.botId)?.name?.trim() || "un bot";
+      const person = page.ownerId ? principals.byId(page.ownerId) : null;
+      const personName = (person ? personDisplayName(person) : cfg.profile?.name?.trim()) || "Sagax";
+      return { botName, personName };
+    },
+    // nothing of a disabled or deleted person is served
+    ownerActive: (page) => {
+      if (IDENTITY.kind !== "perspicax" || !page.ownerId) return true;
+      const person = principals.byId(page.ownerId);
+      return Boolean(person && person.disabledAt === undefined && !person.consoleDisabled);
+    },
+    viewerActive: (viewer) => {
+      if (IDENTITY.kind !== "perspicax" || !viewer?.principalId) return true;
+      const person = principals.byId(viewer.principalId);
+      return Boolean(person && person.kind === "human" && person.disabledAt === undefined && !person.consoleDisabled);
+    },
+    pagesHost: PAGES_ORIGIN?.host ?? null,
+    appOrigin: (() => {
+      try {
+        const known = (IDENTITY.kind === "perspicax" ? IDENTITY.publicOrigin : null) ?? publicUrl();
+        return known ? new URL(known) : null;
+      } catch {
+        return null;
+      }
+    })(),
+    separate: pagesSeparation(),
+  };
+}
+
 // Public share links for bot templates (routes/template-links.ts): the
 // person's New bot defaults frozen as a template, never their starter notes.
 ROUTES.push(createTemplateLinkRoutes({
@@ -30237,6 +30344,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
   let m: RegExpMatchArray | null = null;
   let releaseWorkspaceRequest: (() => void) | undefined;
   try {
+    // The separate pages origin (SAGAX_PAGES_ORIGIN) serves the published
+    // pages' frames and nothing else: before any other route or credential.
+    if (PAGES_ORIGIN && handlePagesOriginRequest(publishedPageOptions(), req, res, path, method)) return;
     // Unlike the legacy reachability probe, this attests the running
     // server's portal-membership capability, including live entitlement.
     if (method === "GET" && path === "/api/health/hosted") {
@@ -30490,6 +30600,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // A bot template's public link: its signed token is the authorization
     // for one read-only template (routes/template-links.ts).
     if (handleTemplateLinkPublic(templateLinks, req, res, path, method)) return;
+    // A published page: served sandboxed (opaque origin, no network) to the
+    // readers its person chose (routes/published-pages.ts).
+    if (handlePublishedPagePublic(publishedPageOptions(), req, res, path, method)) return;
     const gate = resolveRequestAuth(req, {
       sessions,
       cookieName: SESSION_COOKIE,
@@ -31216,9 +31329,24 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           bot: internalSender,
           threadId: internalCapability.threadId,
           input: body, authored: (id) => handoffs.authored(internalCapability.threadId, internalCapability.generation, id),
+          proposePage: (proposal) => {
+            const owning = store.botByThread(internalCapability.threadId) ?? internalSender;
+            const proposed = publishedPages.propose({
+              ...proposal,
+              // secret-shaped text never reaches a page a person may publish
+              title: redactSecretsInText(proposal.title),
+              content: redactSecretsInText(proposal.content),
+              botId: internalSender.id,
+              threadId: internalCapability.threadId,
+              // the conversation's person (a member's private thread with a
+              // team bot is the member's), never simply the bot's owner
+              ...(IDENTITY.kind === "perspicax" ? { ownerId: pageOwnerFor(store.taskByThread(owning.id, internalCapability.threadId), effectiveBotOwner(owning)) } : {}),
+            });
+            return proposed.ok ? { ok: true, pageId: proposed.page.id, version: proposed.version.n } : proposed;
+          },
         });
         return result.ok
-          ? json(res, 201, { messageId: result.messageId, ...("masked" in result && result.masked ? { masked: true } : {}) })
+          ? json(res, 201, { messageId: result.messageId, ...("masked" in result && result.masked ? { masked: true } : {}), ...(result.pageId ? { pageId: result.pageId, version: result.version } : {}) })
           : json(res, result.status, { error: result.error });
       }
       // A group's shared memory (server/group-memory.ts): only a bot of
