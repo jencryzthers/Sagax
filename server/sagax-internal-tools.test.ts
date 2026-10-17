@@ -3,7 +3,12 @@ import { describe, expect, it } from "vitest";
 import { autoVerdict } from "./auto-approve.ts";
 import { memberBotAdminApproval } from "./engine-access.ts";
 import { gateReadOnlyTools } from "./drivers/acp/grok-approval-gate.ts";
-import { dataToolName, sagaxInternalTool } from "./sagax-internal-tools.ts";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { toolChangesRules } from "../shared/step-up.ts";
+import { dataPublicHttps, dataToolName, sagaxInternalSelfAnswers, sagaxInternalTool } from "./sagax-internal-tools.ts";
 
 // JC, 2026-10-16: a member's bot (Moss, Grok Build) asked an approval for
 // data__data_load, and the card went to the organization admins.
@@ -48,8 +53,122 @@ describe("Sagax's own person-scoped tools", () => {
     expect(autoVerdict("ask", "AskUserQuestion", { sagaxInternal: true }).approve).toBeNull();
   });
 
-  it("lets a gated Grok turn run the Data tools unasked", () => {
-    expect(gateReadOnlyTools({ name: "data", builtin: true })).toEqual(expect.arrayContaining(["data_load", "data_sql", "data_show", "data_export", "data_describe"]));
+  it("the Grok gate holds the Data tools: the approval path decides (security review 2026-10-16)", () => {
+    expect(gateReadOnlyTools({ name: "data", builtin: true })).toEqual([]);
     expect(gateReadOnlyTools({ name: "data", builtin: false })).toEqual([]);
+  });
+});
+
+describe("Sagax's own tools, security review 2026-10-16", () => {
+  it("never answers a send by itself: send_to_bot, post_to_room and send_voice_note keep the outbound guard", () => {
+    for (const name of ["agents__send_to_bot", "mcp__agents__post_to_room", "agents__send_voice_note"]) {
+      expect(sagaxInternalTool(name)).toBe("agents");
+      expect(autoVerdict("auto", "other", { sagaxInternal: true, toolName: name })).toEqual({ approve: null, source: "outbound-guard" });
+      expect(autoVerdict("auto", name, { sagaxInternal: true })).toEqual({ approve: null, source: "outbound-guard" });
+      // a gate card of a send stays a card too
+      expect(autoVerdict("auto", "other", { sagaxInternal: true, sagaxGate: true, toolName: name }).approve).toBeNull();
+    }
+    expect(autoVerdict("auto", "other", { sagaxInternal: true, toolName: "agents__delegate_bot" }).source).toBe("sagax-internal");
+  });
+
+  it("never lets rules_update approve itself (rule-change class)", () => {
+    expect(toolChangesRules("agents__rules_update")).toBe(true);
+    expect(toolChangesRules("mcp__agents__rules_update")).toBe(true);
+    expect(toolChangesRules("agents__list_rules")).toBe(false);
+    expect(autoVerdict("auto", "other", { sagaxInternal: true, toolName: "agents__rules_update", ruleChange: true }).approve).toBeNull();
+  });
+
+  it("keeps the card when the person protects one of the call's classes with a security key", () => {
+    expect(autoVerdict("auto", "other", { sagaxInternal: true, stepUpRequired: ["destructive"] }).approve).toBeNull();
+  });
+
+  it("on a confined engine (organization) answers a Data call only while it stays in the bot's workspace", () => {
+    const root = mkdtempSync(join(tmpdir(), "sagax-data-self-"));
+    try {
+      writeFileSync(join(root, "sales.csv"), "a\n1\n");
+      const load = (args: Record<string, unknown>) => sagaxInternalSelfAnswers("data__data_load", JSON.stringify(args), [root], true);
+      expect(load({ source: join(root, "sales.csv") })).toBe(true);
+      expect(load({ source: join(root, "later", "new.csv") })).toBe(true);
+      expect(load({ source: "/etc/passwd", kind: "csv" })).toBe(false);
+      expect(load({ source: join(root, "..", "x.csv") })).toBe(false);
+      expect(load({ source: "~/.ssh/id_rsa" })).toBe(false);
+      expect(load({ source: "relative.csv" })).toBe(false);
+      expect(load({ source: "postgres://u:p@db.example.com/x" })).toBe(false);
+      expect(load({ source: "x", kind: "postgres" })).toBe(false);
+      expect(load({ source: "mysql://db.example.com/x" })).toBe(false);
+      expect(load({ source: "http://example.com/a.csv" })).toBe(false);
+      expect(load({ source: "https://169.254.169.254/latest/meta-data" })).toBe(false);
+      expect(load({ source: "https://10.0.0.5/a.csv" })).toBe(false);
+      expect(load({ source: "https://[::1]/a.csv" })).toBe(false);
+      expect(load({ source: "https://localhost/a.csv" })).toBe(false);
+      expect(load({ source: "https://kubernetes.default.svc/a.csv" })).toBe(false);
+      expect(load({ source: "https://intranet/a.csv" })).toBe(false);
+      expect(load({ source: "s3://bucket/a.csv" })).toBe(false);
+      expect(load({ source: "https://example.com/a.csv" })).toBe(true);
+      expect(load({ source: "https://docs.google.com/spreadsheets/d/abc/edit" })).toBe(true);
+      expect(sagaxInternalSelfAnswers("data__data_load", "not json", [root], true)).toBe(false);
+      const sql = (text: string) => sagaxInternalSelfAnswers("mcp__data__data_sql", JSON.stringify({ sql: text }), [root], true);
+      expect(sql("SELECT region, sum(total) FROM sales GROUP BY 1")).toBe(true);
+      expect(sql("SELECT * FROM read_csv('/etc/passwd')")).toBe(false);
+      expect(sql("SELECT * FROM '/etc/hosts'")).toBe(false);
+      expect(sql("SELECT * FROM read_csv('https://example.com/a.csv')")).toBe(false);
+      expect(sql("SELECT * FROM \"~/secret.csv\"")).toBe(false);
+      expect(sql("ATTACH 'x.db' AS x")).toBe(false);
+      expect(sql("SELECT getenv('HOME')")).toBe(false);
+      // re-review 2026-10-17: places built out of sight keep their card too
+      expect(sql("select * from read_csv($$https://10.0.0.1/x.csv$$)")).toBe(false);
+      expect(sql("select * from read_csv($q$/etc/hosts$q$)")).toBe(false);
+      expect(sql("select * from read_csv('https:'||chr(47)||chr(47)||'kubernetes.default.svc/x')")).toBe(false);
+      expect(sql("select * from read_csv(E'\\x2fetc\\x2fhosts')")).toBe(false);
+      expect(sql("SELECT a || b AS ab, price * 2 FROM sales")).toBe(true);
+      expect(sagaxInternalSelfAnswers("data__data_export", JSON.stringify({ table: "sales", format: "csv", path: "/Users/x/Downloads/sales.csv" }), [root], true)).toBe(true);
+      expect(sagaxInternalSelfAnswers("data__data_show", JSON.stringify({ sql: "SELECT 1", kind: "table", title: "Load by region" }), [root], true)).toBe(true);
+      // the agents tools keep answering, Data or not
+      expect(sagaxInternalSelfAnswers("agents__delegate_bot", "{}", [root], true)).toBe(true);
+      expect(sagaxInternalSelfAnswers("sagax-environment__run_command", "{}", [root], true)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("in solo (unconfined) no SQL, describe, show or export answers itself: the bypass probes get a card", () => {
+    const root = mkdtempSync(join(tmpdir(), "sagax-data-solo-"));
+    try {
+      writeFileSync(join(root, "sales.csv"), "a\n1\n");
+      const solo = (tool: string, args: Record<string, unknown> | string) => sagaxInternalSelfAnswers(tool, typeof args === "string" ? args : JSON.stringify(args), [root], false);
+      for (const text of [
+        "SELECT * FROM read_csv(chr(47)||'etc'||chr(47)||'hosts')",
+        "SELECT * FROM read_csv($$/etc/hosts$$)",
+        "SELECT * FROM read_csv('../../etc/hosts')",
+        "SELECT * FROM read_csv(concat('/et', 'c/hosts'))",
+        "SELECT 1",
+      ]) {
+        for (const tool of ["data__data_sql", "mcp__data__data_show", "data__data_export", "data__data_describe"]) {
+          expect(solo(tool, { sql: text, target: text, table: "sales", format: "csv" }), `${tool}: ${text}`).toBe(false);
+        }
+      }
+      expect(solo("data__data_sql", "")).toBe(false);
+      expect(solo("data__data_sql", "{}")).toBe(false);
+      // a load of a file inside the bot's own workspace still answers itself
+      expect(solo("data__data_load", { source: join(root, "sales.csv") })).toBe(true);
+      // never a remote, a relative or an escaping path in solo
+      expect(solo("data__data_load", { source: "https://example.com/a.csv" })).toBe(false);
+      expect(solo("data__data_load", { source: "../../etc/hosts" })).toBe(false);
+      expect(solo("data__data_load", { source: `${root}/../../etc/hosts` })).toBe(false);
+      expect(solo("data__data_load", { source: "/etc/hosts", kind: "csv" })).toBe(false);
+      // the agents tools are not Data
+      expect(solo("agents__delegate_bot", "{}")).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("a public https address is one whose literal host is public and whose name is not local", () => {
+    expect(dataPublicHttps("https://example.com/x.csv")).toBe(true);
+    expect(dataPublicHttps("https://8.8.8.8/x.csv")).toBe(true);
+    expect(dataPublicHttps("https://192.168.1.10/x.csv")).toBe(false);
+    expect(dataPublicHttps("https://100.64.0.1/x.csv")).toBe(false);
+    expect(dataPublicHttps("https://user:pw@example.com/x.csv")).toBe(false);
+    expect(dataPublicHttps("http://example.com/x.csv")).toBe(false);
   });
 });

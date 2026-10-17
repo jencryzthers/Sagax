@@ -17,7 +17,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import { existsSync, readFileSync, realpathSync, rmSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { ToolGrantStore } from "./tool-grants.ts";
-import { sagaxInternalTool } from "./sagax-internal-tools.ts";
+import { sagaxInternalSelfAnswers, sagaxInternalTool } from "./sagax-internal-tools.ts";
 import { createAgentCardGuard } from "./agent-tool-card-guard.ts";
 import { guardDecision, toolGuardMode } from "./tool-guard.ts";
 import { auditSampleFromEnv, deniedResourcesFromEnv, mcpAuditRow, mcpIdentityEnv, mcpPolicyEnv, permissionModeFromEnv, principalFromEnv } from "./mcp-permissions.ts";
@@ -882,9 +882,9 @@ import { createBotSettingsRoutes } from "./routes/bot-settings.ts";
 import { createAutoReviewRuleRoutes } from "./routes/auto-review-rules.ts";
 import { createOwnerApprovalRoutes } from "./routes/owner-approvals.ts";
 import { SecurityKeys, SecurityKeyStore } from "./security-keys.ts";
-import { alwaysAllowStepUp, approvalGrantsFor, approvalStepUp, cardRiskClasses, type StepUpDecision } from "./step-up-gate.ts";
+import { alwaysAllowStepUp, approvalGrantsFor, approvalStepUp, callStepUpClasses, cardRiskClasses, type StepUpDecision } from "./step-up-gate.ts";
 import { createSecurityKeyRoutes, securityKeyCeremonyRoutes, settingsStepUp } from "./routes/security-keys.ts";
-import { SETTINGS_ACTION_CLASS, approvalModeLoosens, botActClasses, type StepUpAnswer, type StepUpRefusal, type StepUpSettingsAction } from "../shared/step-up.ts";
+import { SETTINGS_ACTION_CLASS, STEP_UP_CLASSES, approvalModeLoosens, botActClasses, toolChangesRules, type StepUpAnswer, type StepUpClass, type StepUpRefusal, type StepUpSettingsAction } from "../shared/step-up.ts";
 import { createComputerStatusRoutes, diskStateForFree } from "./routes/computer-status.ts";
 import { createComputerCareRoutes } from "./routes/computer-care.ts";
 import { createBrowserNetworkRoutes } from "./routes/browser-network.ts";
@@ -1028,7 +1028,7 @@ import { createMcpAuditInternalRoutes } from "./routes/mcp-audit-internal.ts";
 import { createRoutineRunInternalRoutes, routineRunNowAllowed } from "./routes/routine-run-internal.ts";
 import { createPerspicaxOrgRoutes, orgDirectoryEntries, type OrgSettings, type PendingAdminApproval } from "./perspicax-org-routes.ts";
 import { createMemorySyncTokenRoute } from "./perspicax-memory-sync-token.ts";
-import { memberEnvironmentAutonomyAllowed, OWN_ENVIRONMENT_ENV, ownEnvironmentCall } from "./member-environment.ts";
+import { memberEnvironmentAutonomyAllowed, ownEnvironmentAutonomy, ownEnvironmentCall, ownEnvironmentTurnOrigin } from "./member-environment.ts";
 import { MEMBER_AUTO_NOT_ALLOWED, memberAutoApprovalAllowed, memberAutoChangeRefused, memberAutoLevelResets, memberAutoResetPending, memberRoomTurnLevel, memberTurnLevel } from "./member-auto-approval.ts";
 import { ORG_FULL_ACCESS_DEFAULT_MARKER, orgFullAccessAllowed, orgFullAccessGrandfathered, orgFullAccessGrantRefusal, orgFullAccessHolds, orgNewBotApprovalMode, ORG_FULL_ACCESS_DISABLED } from "./org-full-access.ts";
 import { createInterimAttachRoutes, INTERIM_WINDOW_DAYS, interimWindowUntil, windowWithDays } from "./interim-attach-routes.ts";
@@ -1456,6 +1456,10 @@ type TurnWorkplace = {
   /** Works on and, when Auto, the computer the bot chose with
    * computer_select (server/auto-computer.ts). Absent on a solo server. */
   auto?: AutoComputerState;
+  /** The servers mountUserSandbox mounted as the person's environment for
+   * this turn (`sagax-environment`, `sagax-desktop`): how the approval path
+   * recognizes the owner's own environment (member-environment.ts). */
+  ownEnvironmentServers?: ReadonlySet<string>;
 };
 const turnWorkplaces = new Map<string, TurnWorkplace>();
 let egressProxy: EgressProxy | null = null;
@@ -4543,6 +4547,21 @@ if (IDENTITY.kind === "perspicax") dataEngine.setConfinement?.(dataConfinedRoots
 function dataDownloadDir(scopeKey: string): string {
   return join(dataScopeFolder(scopeKey), DATA_DOWNLOADS_DIR);
 }
+/** 2026-10-16 security review: where a Data load may reach and still
+ * answer itself without a card: the bot's workspace and its task workspaces
+ * (sagax-internal-tools.ts sagaxInternalSelfAnswers). In solo, where DuckDB
+ * is not confined, only such a load answers itself; SQL, describe, show and
+ * export keep their card there (2026-10-17). */
+function dataSelfAnswerRoots(bot: BotRecord, threadId: string): string[] {
+  // On an organization server: exactly the folders the turn's own Data
+  // scope is confined to (data/scope.ts), never another person's or a
+  // confidential thread's.
+  if (IDENTITY.kind === "perspicax") {
+    const scopeKey = dataScopeForTurn(bot, threadId);
+    return scopeKey === null ? [] : dataConfinedRoots(scopeKey) ?? [];
+  }
+  return [workspaceDir(bot.id), join(TASK_WORKSPACES_DIR, bot.id)];
+}
 /** Where a bot's exports may land, most preferred first: the person's
  * Downloads when it exists, the bot's working folder, its workspace. On an
  * organization server only the bot's workspace (the server's Downloads and
@@ -4824,32 +4843,32 @@ function mountUserSandbox(
   const auto = input.auto ?? undefined;
   turnWorkplaces.set(input.threadId, { generation: input.generation, botId: input.botId, decision, staging: input.staging, ...(auto ? { auto } : {}) });
   if (!input.customMcp || !decision.principal) return;
-  // 2026-10-16: the owner's own environment is marked for the Grok gate,
-  // which then lets its tools through unasked (member-environment.ts).
-  const bot = store.bot(input.botId);
-  const own = Boolean(bot) && ownEnvironmentCall({
-    identity: IDENTITY.kind, policyAllowed: memberEnvironmentAutonomyAllowed(cfg.organization),
-    tool: `${USER_SANDBOX_MCP_NAME}__run_command`, environmentPrincipalId: decision.principal,
-    ownerPrincipalId: effectiveBotOwner(bot!), guestDriven: false,
-  });
-  const mark = <T extends { env: Record<string, string> }>(spec: T): T => (own ? { ...spec, env: { ...spec.env, [OWN_ENVIRONMENT_ENV]: "1" } } : spec);
+  // 2026-10-16: the servers Sagax mounts here are the person's environment
+  // for this turn, recorded on the turn's workplace: the approval path
+  // recognizes the owner's own environment by this mount, never by a
+  // server's name alone (member-environment.ts ownEnvironmentCall).
+  const mounted = new Set<string>();
+  const sandbox = () => { mounted.add(USER_SANDBOX_MCP_NAME); return userSandboxIntegration(input.botId, input.threadId, input.generation, decision.principal!); };
+  const desktop = () => { mounted.add(DESKTOP_BRIDGE_MCP_NAME); return userDesktopIntegration(input.botId, input.threadId, input.generation, decision.principal!); };
   if (decision.target === "user-sandbox") {
-    integrations.custom = { ...integrations.custom, [USER_SANDBOX_MCP_NAME]: mark(userSandboxIntegration(input.botId, input.threadId, input.generation, decision.principal)) };
+    integrations.custom = { ...integrations.custom, [USER_SANDBOX_MCP_NAME]: sandbox() };
   } else if (decision.target === "user-desktop" && desktopBridges.connected(decision.principal)) {
-    integrations.custom = { ...integrations.custom, [DESKTOP_BRIDGE_MCP_NAME]: mark(userDesktopIntegration(input.botId, input.threadId, input.generation, decision.principal)) };
+    integrations.custom = { ...integrations.custom, [DESKTOP_BRIDGE_MCP_NAME]: desktop() };
   }
   // Auto: the bot picks the computer per step (computer_select); a fixed
   // Works on gets the tool too, and it says the setting is fixed.
   if (auto) {
     integrations.custom = { ...integrations.custom, [AUTO_COMPUTER_MCP_NAME]: workplaceIntegration(input.botId, input.threadId, input.generation) };
     if (auto.auto && auto.desktopMounted && !integrations.custom[DESKTOP_BRIDGE_MCP_NAME]) {
-      integrations.custom = { ...integrations.custom, [DESKTOP_BRIDGE_MCP_NAME]: mark(userDesktopIntegration(input.botId, input.threadId, input.generation, decision.principal)) };
+      integrations.custom = { ...integrations.custom, [DESKTOP_BRIDGE_MCP_NAME]: desktop() };
     }
     // Started on their computer: the cloud stays one switch away.
     if (auto.auto && auto.sandboxConfigured && decision.target === "user-desktop" && !integrations.custom[USER_SANDBOX_MCP_NAME]) {
-      integrations.custom = { ...integrations.custom, [USER_SANDBOX_MCP_NAME]: mark(userSandboxIntegration(input.botId, input.threadId, input.generation, decision.principal)) };
+      integrations.custom = { ...integrations.custom, [USER_SANDBOX_MCP_NAME]: sandbox() };
     }
   }
+  const workplace = turnWorkplaces.get(input.threadId);
+  if (workplace && workplace.generation === input.generation && mounted.size) workplace.ownEnvironmentServers = mounted;
 }
 
 /** The Auto selection of the turn a capability belongs to, or null when the
@@ -12550,6 +12569,20 @@ bus.subscribe((event: RuntimeEvent) => {
       // server environment, their Local VM), mounted for this turn, runs
       // unasked while the organization allows it (member-environment.ts).
       const ownEnvironment = Boolean(permission && asker && event.requestId && ownEnvironmentRequest(asker, event.threadId, event.mcpTool ?? event.tool, guestDriven));
+      // 2026-10-16 security review: what Sagax may answer by itself (its own
+      // tools, the owner's environment) is held for a card when the person
+      // protects one of the call's classes with a security key, so that
+      // card then asks for the key (#648).
+      const internalTool = permission && asker && event.requestId ? sagaxInternalTool(event.mcpTool ?? event.tool) : null;
+      const selfAnswerStepUp = (ownEnvironment || internalTool) && asker
+        ? autoAnswerStepUp(asker, event.threadId, {
+          tool: event.tool,
+          ...(event.mcpTool ? { mcpTool: event.mcpTool } : {}),
+          ...(typeof event.input === "string" ? { input: event.input } : {}),
+          ...(event.command?.command ? { command: event.command.command } : {}),
+          summary: event.summary,
+        })
+        : [];
       const adminApproval = Boolean(memberAsker && asker && memberBotAdminApproval({
         tool: event.mcpTool ?? event.tool, command: event.command, paths: event.paths,
         workspaceRoot: join(realpathSync(DATA_DIR), "task-workspaces", asker.id),
@@ -12630,10 +12663,23 @@ bus.subscribe((event: RuntimeEvent) => {
             cwActionPasses.take(event.threadId, event.mcpTool ?? event.tool, event.input) !== null,
           ...(customDecision?.kind === "ask" ? { customRule: { behavior: "ask" as const, id: customDecision.rule.id } } : {}),
           emailDraftApproved: emailDraftCall && !adminApproval && !guestDriven && !event.requiresExplicitApproval,
-          // 2026-10-16: Sagax's own person-scoped tools never ask
-          // (sagax-internal-tools.ts), on any engine and at any level.
-          sagaxInternal: !adminApproval && !guestDriven && !event.requiresExplicitApproval && sagaxInternalTool(event.mcpTool ?? event.tool) !== null,
-          ownEnvironment,
+          // 2026-10-16: Sagax's own person-scoped tools answer themselves
+          // (sagax-internal-tools.ts) on any engine and at any level, except
+          // a Data call that is not visibly contained (in solo: anything but
+          // a load inside the bot's workspace), a send, a rule change or a
+          // class the person protects with a security key.
+          sagaxInternal: !adminApproval && !guestDriven && !event.requiresExplicitApproval && internalTool !== null
+            && sagaxInternalSelfAnswers(event.mcpTool ?? event.tool, typeof event.input === "string" ? event.input : undefined, asker ? dataSelfAnswerRoots(asker, event.threadId) : [], IDENTITY.kind === "perspicax"),
+          // Only at Auto or Auto-accept edits, only the owner's own turn
+          // (reads excepted), never a call a security key protects.
+          ownEnvironment: Boolean(asker) && ownEnvironmentAutonomy({
+            call: ownEnvironment, mode: adminApproval ? "ask" : effectiveApprovalMode, tool: event.mcpTool ?? event.tool,
+            ...(typeof event.input === "string" ? { input: event.input } : {}),
+            origin: asker ? ownEnvironmentOrigin(asker, event.threadId) : "other", stepUpRequired: selfAnswerStepUp,
+          }),
+          ...(event.mcpTool ? { toolName: event.mcpTool } : {}),
+          stepUpRequired: selfAnswerStepUp,
+          ruleChange: toolChangesRules(event.mcpTool ?? event.tool),
         })
         : null;
       // 2026-10-14 (bot owner permissions): what the owner decided ahead of
@@ -12646,12 +12692,35 @@ bus.subscribe((event: RuntimeEvent) => {
       const ownerCall = ownerLayer && asker
         ? { ownerId: approvalOwnerId(asker, event.threadId), botId: asker.id, tool: ownerTool, ...(typeof event.input === "string" ? { input: event.input } : {}) }
         : null;
+      // 2026-10-17 (re-review of #690): the owner's permission mode (auto,
+      // bypass) and Always allow rules never answer what Sagax itself would
+      // not: a call in a class the person protects with a security key keeps
+      // its card (its Allow then needs the key), and an own-environment call
+      // from a turn that is not the owner's own (another bot, a routine, a
+      // webhook, a trigger, an email) runs unasked only as a plain read,
+      // never of a dotfile or credential path.
+      const ownerStepUp = ownerCall && asker
+        ? (ownEnvironment || internalTool ? selfAnswerStepUp : autoAnswerStepUp(asker, event.threadId, {
+          tool: event.tool,
+          ...(event.mcpTool ? { mcpTool: event.mcpTool } : {}),
+          ...(typeof event.input === "string" ? { input: event.input } : {}),
+          ...(event.command?.command ? { command: event.command.command } : {}),
+          summary: event.summary,
+        }))
+        : [];
+      const ownerOriginRefused = Boolean(ownerCall && asker && ownEnvironment && !ownEnvironmentAutonomy({
+        call: true, mode: "auto", tool: event.mcpTool ?? event.tool,
+        ...(typeof event.input === "string" ? { input: event.input } : {}),
+        origin: ownEnvironmentOrigin(asker, event.threadId), stepUpRequired: [],
+      }));
       const owner = ownerCall && asker
         ? ownerDecision({
           mode: effectivePermissionMode(asker, ownerCall.ownerId),
           rules: ownerApprovals.rulesOf(ownerCall.ownerId, asker.id),
           call: ownerCall,
           personMustAnswer: safetyEffect?.kind === "hold" || event.requiresExplicitApproval === true,
+          stepUpRequired: ownerStepUp.length > 0,
+          autonomyRefused: ownerOriginRefused,
         })
         : null;
       if (owner?.kind === "deny" && asker && event.requestId) {
@@ -12688,7 +12757,9 @@ bus.subscribe((event: RuntimeEvent) => {
         : ownerVerdict;
       const customNotice = customDecision ? customRuleNotice(customDecision) : undefined;
       // What "Always allow" or "Always deny" would remember on this card.
-      const ownerRuleCandidate = owner?.kind === "card" && owner.reason !== "hold" && owner.reason !== "admin"
+      // Never on a card a rule could not answer (a security key class, a
+      // turn that is not the owner's own).
+      const ownerRuleCandidate = owner?.kind === "card" && owner.reason !== "hold" && owner.reason !== "admin" && owner.reason !== "step-up" && owner.reason !== "origin"
         ? ruleCandidateFor({ tool: ownerTool, ...(typeof event.input === "string" ? { input: event.input } : {}) }, serverApprovalWords(cfg.language))
         : undefined;
       // Auto's reviewer is the engine's own. Claude accepts `--permission-mode
@@ -26469,14 +26540,45 @@ function memberOwnedInOrg(bot: { ownerUserId?: unknown }): boolean {
  * (member-environment.ts). */
 function ownEnvironmentRequest(bot: BotRecord, threadId: string, tool: string | undefined, guestDriven: boolean): boolean {
   const workplace = turnWorkplaces.get(threadId);
+  const mine = workplace?.botId === bot.id;
   return ownEnvironmentCall({
     identity: IDENTITY.kind,
     policyAllowed: memberEnvironmentAutonomyAllowed(cfg.organization),
     tool,
-    environmentPrincipalId: workplace?.botId === bot.id ? workplace.decision.principal : null,
+    environmentPrincipalId: mine ? workplace.decision.principal : null,
     ownerPrincipalId: effectiveBotOwner(bot),
     guestDriven,
+    mountedServers: (mine && workplace.ownEnvironmentServers) || new Set<string>(),
   });
+}
+/** 2026-10-16 security review: whose turn asks, for the owner's own
+ * environment (member-environment.ts ownEnvironmentTurnOrigin). Only the
+ * owner's own request counts as theirs; another bot's hop, a routine, a
+ * webhook or trigger, an email or any automation does not. */
+function ownEnvironmentOrigin(bot: BotRecord, threadId: string): "owner" | "other" {
+  return ownEnvironmentTurnOrigin({
+    speaker: turnSpeakers.get(threadId),
+    ownerPrincipalId: effectiveBotOwner(bot),
+    internalTurn: isInternalTurn(threadId),
+    routineLineage: turnRoutineLineage.has(threadId),
+    automation: Boolean(directRequestOwners.get(threadId)?.automation),
+    unattended: isUnattended(bot.id, threadId),
+  });
+}
+/** The security key classes the people who may answer this call's card
+ * chose that the call falls in: the bot's owner, and the person the turn
+ * speaks for (shared/step-up.ts). Non-empty: Sagax never answers the call
+ * itself, the card shows and its Allow needs the key. */
+function autoAnswerStepUp(bot: BotRecord, threadId: string, call: Parameters<typeof callStepUpClasses>[0]): StepUpClass[] {
+  const classes = callStepUpClasses(call);
+  if (!classes.length) return [];
+  // the person who answers this thread's cards (a confidential thread's
+  // owner, ownerDecision's owner too), not only the bot's owner
+  const owner = approvalOwnerId(bot, threadId) || null;
+  const out = new Set<StepUpClass>(securityKeys.required(owner, classes, owner));
+  const speaker = turnSpeakerPrincipals.get(threadId);
+  if (speaker && speaker !== owner) for (const name of securityKeys.required(speaker, classes, owner)) out.add(name);
+  return [...out];
 }
 /** Organization server (org-full-access.ts): the admin policy, on unless
  * an admin turned it off in Settings > Organization. */
@@ -26589,8 +26691,12 @@ function approvalModeStepUpGate(input: {
   person: string | null; botId: string; op: string; thread: string; froms: Array<string | undefined>; to: string;
   stepUp?: unknown; allowance?: unknown; widensAllow?: boolean;
 }): StepUpDecision {
-  const classes: Array<"rule-change" | "always-grant"> = [];
-  if (input.froms.some((from) => approvalModeLoosens(from, input.to))) classes.push("rule-change");
+  const classes: StepUpClass[] = [];
+  const loosens = input.froms.some((from) => approvalModeLoosens(from, input.to));
+  if (loosens) classes.push("rule-change");
+  // Full answers every call, whatever its class (2026-10-17, re-review of
+  // #690): entering it needs the key when the person protects any class.
+  if (loosens && input.to === "full") for (const name of STEP_UP_CLASSES) if (!classes.includes(name)) classes.push(name);
   if (input.widensAllow) classes.push("always-grant");
   if (!classes.length) return null;
   const bot = store.bot(input.botId);
