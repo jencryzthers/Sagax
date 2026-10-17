@@ -195,14 +195,42 @@ member's Data call is never an admin card.
 
 On an organization server Data runs inside the Sagax server, so each bot's
 database is **confined** (`server/data/engine.ts` `confineConnection`):
-after loading `httpfs`, `excel` and `sqlite`, it sets `allowed_directories`
-to the bot's own folder, its workspace and its task workspaces plus
-`https://`, turns `enable_external_access` off and locks the configuration.
-DuckDB then refuses every other file (the server's data, another person's
-attachments), every other scheme (`http://`, `s3://`, `az://`) and database
-connections (`postgres://`, `mysql://`), on the bot's and the panel's
-connections alike; `data_load` says so first (`confinedSourceCheck`).
-Exports land in the bot's workspace. A solo server is unchanged.
+after loading `excel` and `sqlite`, it sets `allowed_directories` to the
+scope's own folder, the bot's workspace and the task folder of each
+ordinary thread of that scope's person (never the whole
+`task-workspaces/<bot>` folder, which holds every person's threads,
+confidential ones included; a confidential thread's scope reaches only its
+own thread's folder; no remote prefix at all; when that list changes, for
+instance when a thread becomes confidential, the database reopens under the
+new list before its next statement), turns `enable_external_access` off and locks the
+configuration. DuckDB then refuses every other file (the server's data,
+another person's attachments) and every remote source from SQL, `https://`
+included, as well as database connections (`postgres://`, `mysql://`), on
+the bot's and the panel's connections alike; `data_load` says so first
+(`confinedSourceCheck`). An https `data_load` (or a Google Sheet's CSV
+export) is downloaded by the server instead (`server/data/download.ts`):
+the media proxy's private-address guard with an empty allow list, every
+hop checked and the socket pinned to the checked address, redirects by
+hand (5 at most, https and public only), 200 MiB and 5 minutes at most,
+into the scope's `data-downloads` folder, read from there and removed.
+Loopback, private, link-local, cluster and cloud metadata addresses are
+refused. Exports land in the bot's workspace. A solo server is unchanged.
+
+Each person has their own Data on a shared bot (`server/data/scope.ts`):
+on an organization server, a turn spoken by someone other than the bot's
+owner, and the Data tab that person opens, use a database and sheet of
+their own (`<botId>~p-<hash>`, stored in `<data>/data-scopes/<botId>/`,
+never inside the bot folder, which the bot's own database may read), so
+nobody reads the tables another person loaded. The owner, routines and a
+solo server keep the bot's own database. A confidential thread
+(`docs/confidential-threads.md`) gets one of its own (`<botId>~t-<hash>`,
+the server wires `setConfidentialThreadResolver` to it), reachable by its
+owner only, on a solo server too; the Data tab asks for it with
+`?thread=<id>` and keeps its sheet apart, and deleting the thread deletes
+it. Live `data`
+frames carry an `audience` and reach only that person (the bot scope only
+its owner). Files in the bot's workspace stay shared by everyone who uses
+the bot.
 
 Auto-accept edits and Ask card whatever the provider asks about. Approve for
 me cards whatever the provider's reviewer leaves for you, with the note "The
