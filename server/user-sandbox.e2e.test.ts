@@ -403,4 +403,63 @@ posixOnly("organization server environments (user-sandbox)", () => {
     expect(got.status, got.text).toBe(200);
     expect(got.body).toMatchObject({ backend: "sandbox", configured: true });
   });
+
+  it("2026-10-16: a member's bot runs Auto unless an admin turns it off; the first time off resets saved levels once", async () => {
+    const configOf = () => (JSON.parse(readFileSync(join(home, ".sagax", "config.json"), "utf8")) as { organization?: { memberAutoResetAt?: unknown; memberAutoApproval?: unknown } }).organization;
+    // by default: allowed, and no reset ran at start
+    expect(configOf()?.memberAutoApproval).toBeUndefined();
+    expect(configOf()?.memberAutoResetAt).toBeUndefined();
+    expect(log).not.toContain("set back to Ask");
+    expect((await api("GET", "/api/org", alice)).body.settings.memberAutoApproval).toBe(true);
+    const fern = await createBot(bob, "Fern");
+    const level = (mode: string) => api("PATCH", `/api/bots/${fern.id}/tasks/${fern.threadId}`, bob, { approvalMode: mode });
+    const permissionMode = () => {
+      const argv = (JSON.parse(readFileSync(engineDump, "utf8")) as { argv: string[] }).argv;
+      return argv[argv.indexOf("--permission-mode") + 1];
+    };
+    const runs = async (text: string) => {
+      rmSync(engineDump, { force: true });
+      await turn(bob, fern, text);
+      return permissionMode();
+    };
+    try {
+      const chosen = await level("auto");
+      expect(chosen.status, chosen.text).toBe(200);
+      expect(await runs("auto by default")).toBe("auto");
+      // only an admin turns it off
+      expect((await api("PATCH", "/api/org/settings", bob, { memberAutoApproval: false })).status).toBe(403);
+      const off = await api("PATCH", "/api/org/settings", alice, { memberAutoApproval: false });
+      expect(off.status, off.text).toBe(200);
+      expect(off.body.settings.memberAutoApproval).toBe(false);
+      // the first time off: the saved Auto went back to Ask, once, with a marker
+      await waitFor(async () => log.includes("1 saved Auto or Auto-accept edits level(s) of members' bots set back to Ask"));
+      const marker = configOf()?.memberAutoResetAt;
+      expect(typeof marker).toBe("number");
+      expect(await runs("after the reset")).toBe("default");
+      for (const mode of ["auto", "edits"]) {
+        const refused = await level(mode);
+        expect(refused.status, refused.text).toBe(403);
+        expect(refused.body).toMatchObject({ code: "member_auto_not_allowed" });
+      }
+      // re-review 2026-10-17: nor the owner's permission mode (Automatic, Bypass)
+      for (const mode of ["auto", "bypass"]) {
+        const refused = await api("PUT", `/api/bots/${fern.id}/permission-mode`, bob, { mode, confirmBypass: true });
+        expect(refused.status, refused.text).toBe(403);
+        // Bypass may already be refused by the Full access policy
+        expect(mode === "bypass" ? ["member_auto_not_allowed", "bypass_not_allowed"] : ["member_auto_not_allowed"], refused.text).toContain(refused.body.code);
+      }
+      expect((await api("PUT", `/api/bots/${fern.id}/permission-mode`, bob, { mode: "approval" })).status).toBe(200);
+      // on again: nothing comes back by itself; the member chooses again
+      expect((await api("PATCH", "/api/org/settings", alice, { memberAutoApproval: true })).status).toBe(200);
+      expect(await runs("on again")).toBe("default");
+      expect((await level("auto")).status).toBe(200);
+      // off a second time: no second reset, the saved Auto runs as Ask
+      expect((await api("PATCH", "/api/org/settings", alice, { memberAutoApproval: false })).status).toBe(200);
+      expect(configOf()?.memberAutoResetAt).toBe(marker);
+      expect(log.split("set back to Ask").length - 1).toBe(1);
+      expect(await runs("off again")).toBe("default");
+    } finally {
+      await api("PATCH", "/api/org/settings", alice, { memberAutoApproval: true });
+    }
+  }, 120_000);
 });

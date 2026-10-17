@@ -1029,6 +1029,7 @@ import { createRoutineRunInternalRoutes, routineRunNowAllowed } from "./routes/r
 import { createPerspicaxOrgRoutes, orgDirectoryEntries, type OrgSettings, type PendingAdminApproval } from "./perspicax-org-routes.ts";
 import { createMemorySyncTokenRoute } from "./perspicax-memory-sync-token.ts";
 import { memberEnvironmentAutonomyAllowed, OWN_ENVIRONMENT_ENV, ownEnvironmentCall } from "./member-environment.ts";
+import { MEMBER_AUTO_NOT_ALLOWED, memberAutoApprovalAllowed, memberAutoChangeRefused, memberAutoLevelResets, memberAutoResetPending, memberRoomTurnLevel, memberTurnLevel } from "./member-auto-approval.ts";
 import { ORG_FULL_ACCESS_DEFAULT_MARKER, orgFullAccessAllowed, orgFullAccessGrandfathered, orgFullAccessGrantRefusal, orgFullAccessHolds, orgNewBotApprovalMode, ORG_FULL_ACCESS_DISABLED } from "./org-full-access.ts";
 import { createInterimAttachRoutes, INTERIM_WINDOW_DAYS, interimWindowUntil, windowWithDays } from "./interim-attach-routes.ts";
 import { createLinkedSubjectsRoute, createOrgExportRoute } from "./org-export.ts";
@@ -6831,12 +6832,17 @@ const approvalModeForTurn = (bot: BotRecord, peerInitiated = false, threadId = b
   if (stored === "full" && orgDeniesFull(bot)) return "ask";
   // A member's bot on an organization server: Custom (a config.toml on the
   // shared server) stays Ask. Its Auto and Auto-accept edits run as such
-  // since 2026-10-16 (JC): every organization turn withholds the engines'
-  // own host tools (withholdHostToolsFor) and a person's shell and files go
-  // to their own environment, so what the provider leaves to Sagax is
-  // routed per tool (memberBotAdminApproval keeps host-level cards for an
+  // unless an organization admin turned them off
+  // (organization.memberAutoApproval, allowed by default,
+  // member-auto-approval.ts); then Ask. When they run, every organization turn withholds the
+  // engines' own host tools (withholdHostToolsFor) and a person's shell and
+  // files go to their own environment, so what the provider leaves to Sagax
+  // is routed per tool (memberBotAdminApproval keeps host-level cards for an
   // admin, always asked).
-  if (memberOwnedInOrg(bot) && stored === "custom") return "ask";
+  if (memberOwnedInOrg(bot)) {
+    if (stored === "custom") return "ask";
+    if (memberTurnLevel(stored, memberAutoApprovalAllowed(cfg.organization)) !== stored) return "ask";
+  }
   // On a Cloud home a turn a guest drives runs in Ask, whatever the bot's
   // own level. Judged by the conversation the turn runs in (a room's, for a
   // room turn), never by whichever of the bot's conversations is active.
@@ -6943,7 +6949,13 @@ function roomTurnApprovalMode(bot: BotRecord, threadId: string, orchestration?: 
   // handoff, only when its owner allowed it and the organization does.
   if (memberOwnedInOrg(bot) && orgDeniesFull(bot)) return "ask";
   const own = approvalModeForTurn(bot, Boolean(orchestration?.roomHandoffId), threadId);
-  return (from && source && delegatedLevel(from, source.threadId, bot, own)) || own;
+  const level = (from && source && delegatedLevel(from, source.threadId, bot, own)) || own;
+  // A member's bot: a Primary Bot's handoff never lifts it past what the
+  // organization allows members' bots (member-auto-approval.ts): Custom
+  // stays Ask, and Auto or Auto-accept edits run as Ask while an admin has
+  // turned organization.memberAutoApproval off (2026-10-17, review of #688).
+  if (memberOwnedInOrg(bot)) return memberRoomTurnLevel(level, memberAutoApprovalAllowed(cfg.organization));
+  return level;
 }
 
 /** Privileged approval-mode transitions are deliberately absent from the
@@ -7203,6 +7215,10 @@ function handleDesktopTrustedApprovalMessage(raw: unknown): boolean {
     const froms = message.allThreads === true ? everyThreadMode(existing)
       : refresh ? [refresh.from]
         : [scoped ? approvalModeFor(store.projectBotForTask(botId, threadId as string) ?? existing) : currentMode];
+    if (memberAutoRefused(existing, froms, mode)) {
+      respond({ ok: false, error: MEMBER_AUTO_NOT_ALLOWED.error });
+      return true;
+    }
     if (approvalModeStepUpGate({
       person: localPrincipalId(), botId, op, thread: scoped ? threadId as string : "*", froms, to: mode,
       allowance: message.stepUpAllowance, widensAllow: refresh?.widensAllow === true,
@@ -24692,6 +24708,12 @@ ROUTES.push(createOwnerApprovalRoutes({
     if (bot) revokeLegacyKey(bot, key);
   },
   bypassRefusal,
+  // a member's bot may not choose Automatic or Bypass while an admin turned
+  // automatic levels off for members' bots (member-auto-approval.ts)
+  modeRefusal: (botId, mode) => {
+    const bot = store.bot(botId);
+    return bot && mode !== "approval" && memberOwnedInOrg(bot) && !memberAutoApprovalAllowed(cfg.organization) ? { ...MEMBER_AUTO_NOT_ALLOWED } : null;
+  },
   audit: (row, auth) => orgAudit({
     category: "approval", action: row.action,
     target: row.botId ? auditBotTarget(row.botId) : { kind: "person", id: row.personId },
@@ -24727,6 +24749,8 @@ ROUTES.push(createSecurityKeyRoutes({
       : refresh ? [refresh.from]
         : [input.thread === "*" ? approvalModeFor(bot) : approvalModeFor(store.projectBotForTask(bot.id, input.thread) ?? bot)];
     const gate = { person, botId: bot.id, op: input.op, thread: input.thread, froms, to: input.mode, widensAllow: refresh?.widensAllow === true };
+    // never a key ceremony for a level the organization refuses
+    if (memberAutoRefused(bot, froms, input.mode)) return { status: 403, body: { ...MEMBER_AUTO_NOT_ALLOWED } };
     // nothing looser: nothing to sign, no allowance
     if (!froms.some((from) => approvalModeLoosens(from, input.mode)) && !gate.widensAllow) return { status: 200, body: { ok: true } };
     const refused = approvalModeStepUpGate({ ...gate, stepUp: input.stepUp });
@@ -26494,6 +26518,10 @@ function ownerScopedMcpServerFor(bot: BotRecord, threadId: string): (server: str
  * Full access policy went off, or their profile lost bots.fullAccess). */
 function effectivePermissionMode(bot: BotRecord, ownerId: string): BotPermissionMode {
   const mode = ownerApprovals.modeOf(bot.id, ownerId);
+  // 2026-10-17 (re-review of #688): a member's bot answers nothing by
+  // itself while an admin turned automatic levels off for members' bots
+  // (member-auto-approval.ts): Automatic and Bypass run as Approval.
+  if (mode !== "approval" && memberOwnedInOrg(bot) && !memberAutoApprovalAllowed(cfg.organization)) return "approval";
   if (mode !== "bypass" || IDENTITY.kind !== "perspicax") return mode;
   if (!orgFullAccessPolicy()) return "approval";
   if (botOwnerOrgRole(bot) === "admin") return mode;
@@ -26571,6 +26599,14 @@ function approvalModeStepUpGate(input: {
   if (!input.person) return { status: 403, body: { error: "A looser approval level needs the person's security key.", code: "step_up_required", classes: required } };
   if (input.allowance !== undefined && securityKeys.takeAllowance(input.allowance, input.person, approvalModeAllowanceKey(input.op, input.botId, input.thread, input.to))) return null;
   return settingsStepUp(securityKeys, input.person, "approval-mode", { op: input.op, botId: input.botId, thread: input.thread, mode: input.to }, input.stepUp, required);
+}
+
+/** 2026-10-16: a change of a member's bot to Auto or Auto-accept edits
+ * while the organization does not allow them (member-auto-approval.ts).
+ * Checked before approvalModeStepUpGate, which still asks the key when the
+ * organization allows them. */
+function memberAutoRefused(bot: BotRecord, froms: Array<string | undefined>, to: string): boolean {
+  return memberAutoChangeRefused({ memberOwned: memberOwnedInOrg(bot), policyAllowed: memberAutoApprovalAllowed(cfg.organization), froms, to });
 }
 
 function approvalModeAllowanceKey(op: string, botId: string, thread: string, mode: string): string {
@@ -26756,6 +26792,7 @@ function orgSettings(): OrgSettings {
     allowFullAccess: orgFullAccessPolicy(),
     memberEnvironmentAutonomy: memberEnvironmentAutonomyAllowed(cfg.organization),
     confidentialThreadsByDefault: confidentialThreadsByDefault(),
+    memberAutoApproval: memberAutoApprovalAllowed(cfg.organization),
     pluginMarketplaces: pluginMarketplacePolicy() ?? { mode: "any" },
     github: { clientId: githubClientId() ?? null, fromEnvironment: !cfg.organization?.githubClientId && Boolean(process.env.SAGAX_GITHUB_CLIENT_ID?.trim()) },
     ...(IDENTITY.kind === "perspicax"
@@ -28287,6 +28324,10 @@ if (IDENTITY.kind === "perspicax") {
     // isolated environment without a card (member-environment.ts).
     saveMemberEnvironmentAutonomy: (allowed, auth) => saveOrgMemberEnvironmentAutonomy(allowed, orgAuditActor(auth)),
     saveConfidentialThreadsByDefault: (on, auth) => saveOrgConfidentialThreadsByDefault(on, orgAuditActor(auth)),
+    // 2026-10-16: members' bots run Auto and Auto-accept edits as such
+    // (member-auto-approval.ts). Allowed by default; the first time it is
+    // turned off, saved member Auto levels go back to Ask once.
+    saveMemberAutoApproval: (allowed, auth) => saveOrgMemberAutoApproval(allowed, orgAuditActor(auth)),
     // Where bots' plugins may come from (server/bot-plugins.ts): any
     // marketplace, or the admin's list of owner/repo, owner/* or URLs.
     savePluginMarketplaces: (raw, auth) => saveOrgPluginMarketplaces(raw, orgAuditActor(auth)),
@@ -29907,6 +29948,7 @@ const orgOpsDeps: OpsDeps = {
     }
     if (changes.allowFullAccess !== undefined) saveOrgAllowFullAccess(changes.allowFullAccess, actor);
     if (changes.memberEnvironmentAutonomy !== undefined) saveOrgMemberEnvironmentAutonomy(changes.memberEnvironmentAutonomy, actor);
+    if (changes.memberAutoApproval !== undefined) saveOrgMemberAutoApproval(changes.memberAutoApproval, actor);
     if (changes.interimAttachDays !== undefined) saveOrgInterimAttachDays(changes.interimAttachDays, actor);
     if (changes.allowedEngines !== undefined) {
       const before = cfg.organization?.allowedEngines ?? null;
@@ -29984,6 +30026,40 @@ function saveOrgConfidentialThreadsByDefault(on: boolean, actor: AdminActor): vo
   });
   // Every open New thread menu follows at once (config frame).
   broadcast({ kind: "config", ...configStatus() });
+}
+/** Organization server, once (organization.memberAutoResetAt): the first
+ * time an admin turns automatic levels for members' bots off (that save, or
+ * a start that finds the setting off), every saved Auto or Auto-accept
+ * edits level of a member's bot (its own and each thread's) goes back to
+ * Ask, so turning the setting on again brings none back by itself
+ * (member-auto-approval.ts). Never by default. The log line has a count,
+ * no names. */
+function resetMemberAutoLevelsOnce(): void {
+  if (!memberAutoResetPending(IDENTITY.kind, cfg.organization)) return;
+  const reset = memberAutoLevelResets(store.bots, (bot) => memberOwnedInOrg(bot as BotRecord));
+  const ask = { approvalMode: "ask" as const, autoApprove: false };
+  for (const thread of reset.threads) store.patchTask(thread.botId, thread.threadId, ask);
+  for (const botId of reset.bots) store.patchBot(botId, ask);
+  const total = reset.bots.length + reset.threads.length;
+  console.log(`organization: ${total} saved Auto or Auto-accept edits level(s) of members' bots set back to Ask (${reset.bots.length} bot default(s), ${reset.threads.length} thread(s)); automatic levels are off for members' bots`);
+  const at = Date.now();
+  try {
+    saveConfig({ organization: { ...cfg.organization, memberAutoResetAt: at } });
+    cfg.organization = { ...cfg.organization, memberAutoResetAt: at };
+  } catch (error) {
+    console.warn("organization: the members' automatic levels marker was not saved", error);
+  }
+}
+function saveOrgMemberAutoApproval(allowed: boolean, actor: AdminActor): void {
+  const before = memberAutoApprovalAllowed(cfg.organization);
+  saveConfig({ organization: { ...cfg.organization, memberAutoApproval: allowed } });
+  cfg.organization = { ...cfg.organization, memberAutoApproval: allowed };
+  orgAudit({
+    category: "org", action: "org.settings", target: { kind: "organization" }, changed: ["memberAutoApproval"],
+    before: { memberAutoApproval: before }, after: { memberAutoApproval: allowed }, actor,
+  });
+  // the first time it is turned off: saved member Auto levels go to Ask once
+  resetMemberAutoLevelsOnce();
 }
 function saveOrgPluginMarketplaces(raw: unknown, actor: AdminActor): void {
   const parsed = marketplacePolicySchema.safeParse(raw);
@@ -38402,6 +38478,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           error: "stop this bot's turn before changing its approval level",
         });
       }
+      if (approvalChangeRequested && existingBot && memberAutoRefused(existingBot, [currentApprovalMode], requestedApprovalMode)) {
+        return json(res, 403, MEMBER_AUTO_NOT_ALLOWED);
+      }
       if (approvalChangeRequested && existingBot) {
         const modeStepUp = approvalModeStepUpGate({ person: ruleManager(auth), botId: existingBot.id, op: "bot", thread: "*", froms: [currentApprovalMode], to: requestedApprovalMode, stepUp: patchStepUp });
         if (modeStepUp) return json(res, modeStepUp.status, modeStepUp.body);
@@ -40428,6 +40507,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const widensMode = approvalRank[nextMode] > approvalRank[approvalModeFor(current)];
         const nextAllow = profile.alwaysAllow ?? [];
         const widensAllow = nextAllow.some((key) => !(current.alwaysAllow ?? []).includes(key));
+        if (memberAutoRefused(current, [approvalModeFor(current)], nextMode)) return json(res, 403, MEMBER_AUTO_NOT_ALLOWED);
         // a refresh that widens needs the person's key, like the desktop channel
         const refreshStepUp = approvalModeStepUpGate({
           person: ruleManager(auth), botId: profile.id, op: "refresh", thread: m[2]!, froms: [approvalModeFor(current)], to: nextMode, stepUp: taskStepUp, widensAllow,
@@ -40510,6 +40590,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (mode === "auto" && current.computer === "local" && approvalModeFor(current) !== "auto" && body.acknowledgeLocalAuto !== true) {
           return json(res, 400, { error: "Auto mode on this computer requires confirming the warning first (acknowledgeLocalAuto)" });
         }
+        if (memberAutoRefused(current, [approvalModeFor(current)], mode)) return json(res, 403, MEMBER_AUTO_NOT_ALLOWED);
         const modeStepUp = approvalModeStepUpGate({ person: ruleManager(auth), botId: current.id, op: "thread", thread: m[2]!, froms: [approvalModeFor(current)], to: mode, stepUp: taskStepUp });
         if (modeStepUp) return json(res, modeStepUp.status, modeStepUp.body);
         patch.approvalMode = mode;
@@ -43158,6 +43239,7 @@ restoreChannelMessages();
 // Organization server, once: every bot thread from before private threads
 // gets its owner (server/thread-privacy.ts), before anyone can read one.
 migrateThreadOwners();
+resetMemberAutoLevelsOnce();
 hideEarlierAgentThreads();
 hideBotThreadsOnce();
 migrateBotRuntimeSettings();

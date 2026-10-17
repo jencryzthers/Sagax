@@ -85,11 +85,36 @@ when such a turn asked.
 
 ### A member's bot on an organization server
 
-A bot whose owner is a member (not an organization admin) runs at its own
-level like any bot since 2026-10-16: Ask, Auto-accept edits and Approve for
-me pass through to the provider. Custom stays Ask (a `config.toml` on the
-shared server is not the member's), and Full keeps the organization rules
-above. Every organization turn withholds the engines' own tools that act on
+A bot whose owner is a member (not an organization admin) runs Ask as Ask.
+Its Auto-accept edits and Approve for me pass through to the provider
+unless an organization admin turned them off: **Settings > Organization >
+Automatic approval levels for members' bots**, or `memberAutoApproval` in
+the admin API's `POST settings` (on unless an admin turns it off; each
+change is an `org.settings` row; `server/member-auto-approval.ts`). While it
+is on, a looser level still needs the person's security key when they
+chose the rule-change class. While it is off those levels run as Ask, and a
+change of a member's bot (or one of its threads) to one of them is refused
+with 403 `member_auto_not_allowed`. The first time it is turned off, every
+saved Auto-accept edits or Approve for me level of a member's bot (the
+bot's own and each thread's) is set back to Ask, once
+(`organization.memberAutoResetAt` records the pass), so turning the setting
+on again brings no earlier level back. The same holds for a room turn: a
+Primary Bot's handoff (`roomTurnApprovalMode`) never lifts a member's bot
+past what this setting allows (`memberRoomTurnLevel`). Custom stays Ask (a
+`config.toml` on the shared server is not the member's), and Full keeps the
+organization rules above.
+
+It also governs the owner's own **permission mode** of a member's bot
+(Automatic, Bypass, `server/owner-approval.ts`): while the setting is off
+the mode runs as Approval, and choosing Automatic or Bypass is refused with
+`member_auto_not_allowed` (re-review of 2026-10-17).
+
+What this setting does not govern: a bot an organization admin owns (its
+Auto stays the admin's choice), and the owner's own environment below (a
+bot working in its owner's environment without a card,
+`memberEnvironmentAutonomy`), which has its own switch. Turning
+`memberAutoApproval` off does not stop owner-environment autonomy; turn
+`memberEnvironmentAutonomy` off for that. Every organization turn withholds the engines' own tools that act on
 the server (shell, files, fetch: `docs/user-sandbox.md`), so what reaches
 Sagax is a Sagax tool, routed per tool: a card that would act on the shared
 server or beyond the owner's own rights still goes to an organization admin

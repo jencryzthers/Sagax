@@ -185,6 +185,7 @@ posixOnly("Perspicax organization: the permission matrix", () => {
     // a new bot cannot carry a folder either
     expect((await api("POST", "/api/bots", bob, { name: "Twig", cwd: folder })).body).toMatchObject({ permission: "folders.botWorkingFolder" });
     bob = await bobWith([...MEMBER_DEFAULT_PERMISSIONS, "bots.approvalLevel", "folders.botWorkingFolder"]);
+    // the organization's automatic levels for members' bots are on by default
     const allowed = await api("PATCH", `/api/bots/${id}`, bob, { approvalMode: "auto" });
     expect(allowed.status, allowed.text).toBe(200);
     const moved = await api("PATCH", `/api/bots/${id}`, bob, { cwd: folder });
