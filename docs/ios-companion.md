@@ -605,11 +605,27 @@ the callback without a device token (its single-use state is the
 authorization, and the code is useless without the server's PKCE verifier).
 Without either, a companion start answers 409 `callback_unreachable`.
 
-**Account deletion.** Perspicax has no account-deletion endpoint for a linked
-server yet, so `DELETE /api/me` answers 501 `perspicax_deletion_unavailable`
-on an organization server and deletes nothing. The Sagax cleanup (owned bots,
-own threads, server environment, saved settings, sessions) is wired behind
-it for when Perspicax adds one. A personal computer answers 400
+**Account deletion.** On an organization server `DELETE /api/me` first asks
+Perspicax to erase the person's account (`POST
+/api/v1/pulsabot/people/me/erase`, Perspicax 2026-10-17 and later), then
+deletes their Sagax data (owned bots, own threads, server environment, saved
+settings, sign-in grants and routine delegation, sessions, and their name,
+address and photo on this server). Nothing is deleted unless Perspicax erased
+the account first. An older Perspicax answers 501
+`perspicax_deletion_unavailable` (the phone says to ask the organization);
+Perspicax erases only after a sign-in of the last five minutes (2026-10-18),
+so the first answer is 409 `reauth_required`: the phone calls `POST
+/api/me/reauth` `{ "client": "phone" }`, opens the address it answers in the
+authentication sheet (`ios/App/AccountReauthSheet.swift`; Perspicax asks for
+the sign-in again), which ends on `sagax://account-reauth?status=ok` (a
+refusal on `?error=<code>`), and sends the deletion again; an expired
+Perspicax sign-in is 409 `account_sign_in_again`; the organization's
+last active admin is 409 `last_admin`; a key a product the administrator
+configured still uses is 409 `perspicax_key_in_use`; any other refusal is
+`perspicax_deletion_failed` (on 502 the message says the deletion may have
+gone through: the account purged push then finishes it); a local failure
+after Perspicax erased the account is 500 `account_deletion_pending`, which
+the same push finishes. A personal computer answers 400
 `personal_server`: the phone forgets the pairing and erases its own data.
 
 ## Stream and state model

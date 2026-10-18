@@ -16,6 +16,7 @@
 // section 2 ("Flux de connexion", "Vérification de l'id_token") and T10.
 import { createHash, createPublicKey, randomBytes, timingSafeEqual, verify as verifySignature, type JsonWebKeyInput, type KeyObject } from "node:crypto";
 
+import { recentSignIn } from "./account-reauth.ts";
 import type { RevocationSink } from "./idp-revocations.ts";
 import { TokenCallPacer, tokenBudget } from "./idp-token-pacer.ts";
 import { authorizationServerMetadataUrls, pkcePair, readBounded, safeEndpoint } from "./mcp-oauth.ts";
@@ -144,8 +145,18 @@ export const ROUTINE_DELEGATION_SCOPE = "pulsabot:routines";
  * name and address on each refresh (principals drop claims a token lacks). */
 export const ROUTINE_DELEGATION_SCOPES = `openid profile email offline_access ${ROUTINE_DELEGATION_SCOPE}`;
 
-/** What a flow is for: a sign-in, or a routine delegation (slice 6). */
-export type OidcFlowPurpose = "signin" | "routines";
+/** 2026-10-18: Perspicax's account erasure marker: only a sign-in that
+ * carried it opens the erasure there (an ordinary sign-in never does), and
+ * its authorize page warns the person. No offline_access: it proves one
+ * sign-in, it is not kept. */
+export const ACCOUNT_ERASURE_SCOPE = "pulsabot:erase";
+export const ACCOUNT_ERASURE_SCOPES = `openid ${ACCOUNT_ERASURE_SCOPE}`;
+
+/** What a flow is for: a sign-in, a routine delegation (slice 6), or the
+ * person signing in again right before deleting their account (2026-10-18,
+ * server/account-reauth.ts: `prompt=login`, `max_age=0`, a recent
+ * `auth_time` checked at the callback). */
+export type OidcFlowPurpose = "signin" | "routines" | "reauth";
 
 /** Who started a routine delegation flow, checked at the callback (D10). */
 export interface RoutineDelegationExpectation {
@@ -313,6 +324,10 @@ export const CONSOLE_ASSERTION_SKEW_SECONDS = 5;
 
 /** The OpenID Connect Back-Channel Logout 1.0 event key. */
 export const BACKCHANNEL_LOGOUT_EVENT = "http://schemas.openid.net/event/backchannel-logout";
+/** The RISC "account purged" event (OpenID RISC Profile 1.0) Perspicax adds
+ * to a logout token once it erased the person's account: this server then
+ * erases their data too (server/oidc-login.ts, OidcGrantKeeper.purgePerson). */
+export const ACCOUNT_PURGED_EVENT = "https://schemas.openid.net/secevent/risc/event-type/account-purged";
 
 interface JwsCheck {
   token: string;
@@ -428,6 +443,9 @@ export interface LogoutClaims {
   jti: string;
   /** Seconds since the epoch. */
   exp: number;
+  /** The token also carries ACCOUNT_PURGED_EVENT: the account was erased at
+   * the provider, so the person's data here goes too. */
+  purged?: true;
 }
 
 /** Verify an OpenID Connect Back-Channel Logout 1.0 logout token: the same
@@ -448,7 +466,24 @@ export async function verifyLogoutToken(input: JwsCheck): Promise<LogoutClaims> 
   if (!jti) throw new OidcError("logout_token_jti", "The logout token has no identifier.");
   const sub = stringClaim(claims.sub, MAX_SUB_LENGTH);
   if (!sub) throw new OidcError("logout_token_sub", "The logout token names no subject.");
-  return { iss: input.issuer, sub, jti, exp: claims.exp as number };
+  // The account purged event (an object) says the account was erased. Its
+  // `subject` (iss_sub), when present, must name this token's person: a
+  // token naming one person and purging another is refused whole.
+  const purgedEvent = (events as Record<string, unknown>)[ACCOUNT_PURGED_EVENT];
+  let purged = false;
+  if (purgedEvent !== undefined) {
+    if (!purgedEvent || typeof purgedEvent !== "object" || Array.isArray(purgedEvent)) throw new OidcError("logout_token_events", "The account purged event is not an object.");
+    const subject = (purgedEvent as Record<string, unknown>).subject;
+    if (subject !== undefined) {
+      if (!subject || typeof subject !== "object" || Array.isArray(subject)) throw new OidcError("logout_token_events", "The account purged event names no subject.");
+      const named = subject as Record<string, unknown>;
+      if ((named.iss !== undefined && named.iss !== input.issuer) || (named.sub !== undefined && named.sub !== sub)) {
+        throw new OidcError("logout_token_events", "The account purged event names another subject.");
+      }
+    }
+    purged = true;
+  }
+  return { iss: input.issuer, sub, jti, exp: claims.exp as number, ...(purged ? { purged: true as const } : {}) };
 }
 
 /** What a verified console assertion names (slice 7). */
@@ -732,8 +767,10 @@ export class OidcRelyingParty {
   async start(options: { client?: OidcClientKind; returnTo?: string; purpose?: OidcFlowPurpose; principalId?: string; subject?: { iss: string; sub: string }; sessionId?: string } = {}): Promise<StartedFlow> {
     const purpose = options.purpose ?? "signin";
     let expect: RoutineDelegationExpectation | undefined;
-    if (purpose === "routines") {
-      if (!options.principalId || !options.subject || !options.sessionId) throw new OidcError("routines_session", "A routine delegation starts from a signed-in session.");
+    if (purpose === "routines" || purpose === "reauth") {
+      if (!options.principalId || !options.subject || !options.sessionId) {
+        throw new OidcError(purpose === "routines" ? "routines_session" : "reauth_session", purpose === "routines" ? "A routine delegation starts from a signed-in session." : "Signing in again starts from a signed-in session.");
+      }
       expect = { principalId: options.principalId, subject: { ...options.subject }, sessionId: options.sessionId };
     }
     const discovery = await this.discover();
@@ -765,7 +802,7 @@ export class OidcRelyingParty {
     url.searchParams.set("response_type", "code");
     url.searchParams.set("client_id", this.clientId);
     url.searchParams.set("redirect_uri", this.redirectUri);
-    url.searchParams.set("scope", purpose === "routines" ? ROUTINE_DELEGATION_SCOPES : this.scope);
+    url.searchParams.set("scope", purpose === "routines" ? ROUTINE_DELEGATION_SCOPES : purpose === "reauth" ? ACCOUNT_ERASURE_SCOPES : this.scope);
     url.searchParams.set("state", state);
     url.searchParams.set("nonce", nonce);
     url.searchParams.set("code_challenge", challenge);
@@ -775,6 +812,12 @@ export class OidcRelyingParty {
     // one for another account that signs in there (it would replace that
     // account's own delegation).
     if (expect) url.searchParams.set("login_hint", expect.subject.sub);
+    // 2026-10-18: a sign-in again, never an existing session at the
+    // provider (OIDC Core 3.1.2.1); the callback checks auth_time.
+    if (purpose === "reauth") {
+      url.searchParams.set("prompt", "login");
+      url.searchParams.set("max_age", "0");
+    }
     return { authorizationUrl: url.toString(), binding, state };
   }
 
@@ -868,6 +911,10 @@ export class OidcRelyingParty {
         keyFor: (kid) => this.keyFor(kid),
         nowSeconds: Math.floor(this.now() / 1000),
       });
+      // max_age was asked: the sign-in must be recent (OIDC Core 3.1.2.1).
+      if (flow.purpose === "reauth" && !recentSignIn(identity.authTime, this.now())) {
+        throw new OidcError("reauth_stale", "Perspicax did not sign you in again just now. Start again.");
+      }
       const grantedScope = typeof got.body.scope === "string" ? got.body.scope.slice(0, 1024) : undefined;
       return {
         identity,

@@ -6,12 +6,13 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+import { AccountReauth } from "./account-reauth.ts";
 import { IDP_SWEEP_SLACK_MS, IdpGrantVault, IdpSessionManager } from "./idp-session.ts";
-import { BACKCHANNEL_MAX_BODY_BYTES, OIDC_NATIVE_BIND_GRACE_MS, OIDC_NATIVE_PAIRING_TTL_MS, createOidcLoginRoutes, desktopReturnLink, identityConfigFromEnv, identityDescriptor, isInterimSignInRoute, orgRoleForRole, phoneErrorLink, phoneReturnLink, profileManagement, sagaxReturnLink, scopesForRole, validLoopbackReturn, writesManagedProfile } from "./oidc-login.ts";
+import { BACKCHANNEL_MAX_BODY_BYTES, OIDC_NATIVE_BIND_GRACE_MS, OIDC_NATIVE_PAIRING_TTL_MS, createOidcLoginRoutes, type OidcGrantKeeper, desktopReturnLink, identityConfigFromEnv, identityDescriptor, isInterimSignInRoute, orgRoleForRole, phoneErrorLink, phoneReturnLink, profileManagement, sagaxReturnLink, scopesForRole, validLoopbackReturn, writesManagedProfile } from "./oidc-login.ts";
 import { RoutineConsents } from "./org-routine-consent.ts";
-import { OidcRelyingParty } from "./oidc-rp.ts";
+import { ACCOUNT_PURGED_EVENT, OidcRelyingParty } from "./oidc-rp.ts";
 import { PrincipalRegistry } from "./principals.ts";
 import { recentInteractiveSignIn } from "./recent-sign-in.ts";
 import { SessionRegistry } from "./sessions.ts";
@@ -165,6 +166,8 @@ describe("the sign-in routes (in process)", () => {
   const signedIn: Array<{ principalId: string; accessToken?: string }> = [];
   let rp: OidcRelyingParty;
   let consents: RoutineConsents;
+  let grantKeeper: OidcGrantKeeper;
+  const reauth = new AccountReauth();
 
   beforeAll(async () => {
     provider = await startFakeOidcProvider({ user: USER });
@@ -180,11 +183,7 @@ describe("the sign-in routes (in process)", () => {
     manager = new IdpSessionManager({ vault, rp, sessions, principals, log: () => {} });
     consents = new RoutineConsents({ vault, rp, principals, log: () => {} });
     sessions.onExchanged((session) => { if (session.idp?.grantRef) manager.bindSession(session.idp.grantRef, session.id); });
-    const routes = createOidcLoginRoutes({
-      config, rp, sessionCookie: "omb_session_test",
-      forSubject: (input) => principals.forSubject(input),
-      issueSession: (input) => sessions.issue(input),
-      grants: {
+    grantKeeper = {
         unavailableReason: () => vaultOk ? null : "no key",
         createGrant: (input) => { createdGrants.push({ bindBy: input.bindBy, at: Date.now() }); return manager.createGrant(input); },
         bindSession: (ref, id) => manager.bindSession(ref, id),
@@ -193,10 +192,16 @@ describe("the sign-in routes (in process)", () => {
         createRoutineDelegation: (input) => consents.create(input),
         sessionPrincipal: (id) => sessions.byId(id)?.principalId ?? null,
         signedIn: (input) => signedIn.push({ principalId: input.principalId, ...(input.accessToken ? { accessToken: input.accessToken } : {}) }),
-      },
+    };
+    const routes = createOidcLoginRoutes({
+      config, rp, sessionCookie: "omb_session_test",
+      forSubject: (input) => principals.forSubject(input),
+      issueSession: (input) => sessions.issue(input),
+      grants: grantKeeper,
       openPairing: (input) => sessions.openPairing(input),
       serverName: () => "Acme & Co bots",
       log: () => {},
+      reauth,
     });
     server.on("request", (req, res) => {
       void routes(req, res, new URL(req.url ?? "/", base)).then((handled) => {
@@ -458,6 +463,106 @@ describe("the sign-in routes (in process)", () => {
     }
   });
 
+  describe("the sign-in again of an account deletion (2026-10-18)", () => {
+    /** A web sign-in, then its session asks to sign in again (`as` signs in at Perspicax instead). */
+    async function again(options: { as?: typeof USER; client?: "web" | "phone"; sessionGone?: boolean; noMarker?: boolean; noRefresh?: boolean; claims?: (c: Record<string, unknown>) => Record<string, unknown> } = {}) {
+      const { callback } = await walk();
+      const cookie = callback!.headers.getSetCookie().find((c) => c.startsWith("omb_session_test="))!;
+      const record = sessions.authenticate(decodeURIComponent(cookie.split(";")[0]!.split("=")[1]!))!;
+      const expect = { principalId: record.principalId!, subject: { iss: provider.issuer, sub: record.idp!.sub }, sessionId: record.id };
+      const { ticket } = reauth.openTicket(expect, options.client ?? "web");
+      if (options.as) provider.user = { ...options.as };
+      if (options.sessionGone) {
+        sessions.revokeWhere((session) => session.id === record.id);
+        manager.release(record.id, { revokeAtIdp: true });
+      }
+      const start = await fetch(`${base}/auth/oidc/reauth?ticket=${ticket}`, { redirect: "manual" });
+      const to = start.headers.get("location") ?? "";
+      if (!to.startsWith(provider.issuer)) return { start, location: to, record, ticket, authorize: null as Record<string, string> | null };
+      const binding = start.headers.getSetCookie().find((c) => c.includes("_oidc="))!.split(";")[0]!;
+      if (options.claims) provider.tamper = { claims: options.claims };
+      if (options.noMarker) provider.tamper = { ...provider.tamper, omitEraseMarker: true };
+      if (options.noRefresh) provider.tamper = { ...provider.tamper, noRefreshToken: true };
+      try {
+        const authorize = await fetch(to, { redirect: "manual" });
+        const back = await fetch(authorize.headers.get("location")!, { redirect: "manual", headers: { cookie: binding } });
+        return { start, location: back.headers.get("location") ?? "", record, ticket, authorize: provider.lastAuthorize };
+      } finally {
+        provider.tamper = {};
+        provider.user = { ...USER };
+      }
+    }
+
+    /** The provider saw a revocation since `before` (the queue is async). */
+    async function revokedSince(before: number) {
+      for (let i = 0; i < 50 && provider.revoked.length <= before; i++) await new Promise((r) => setTimeout(r, 20));
+      expect(provider.revoked.length).toBeGreaterThan(before);
+    }
+
+    it("asks Perspicax for a new sign-in (prompt=login, max_age=0, the person's login_hint) and keeps its access token for that session", async () => {
+      const { location, record, authorize } = await again();
+      expect(location).toBe("/#account-reauth=ok");
+      expect(authorize).toMatchObject({ prompt: "login", max_age: "0", login_hint: USER.sub, scope: "openid pulsabot:erase" });
+      const fresh = reauth.take(record.id, record.principalId!);
+      expect(fresh?.sub).toBe(USER.sub);
+      expect(fresh?.accessToken).toBeTruthy();
+      // the session's own sign-in (and its refreshes) never sits here
+      expect(reauth.take(record.id, record.principalId!)).toBeNull();
+    });
+
+    it("ends a phone's on sagax://account-reauth, and takes a ticket once", async () => {
+      const { location, ticket } = await again({ client: "phone" });
+      expect(location).toBe(`sagax://account-reauth?address=${encodeURIComponent(base)}&status=ok`);
+      const replay = await fetch(`${base}/auth/oidc/reauth?ticket=${ticket}&client=phone`, { redirect: "manual" });
+      expect(replay.headers.get("location")).toBe(`sagax://account-reauth?address=${encodeURIComponent(base)}&error=reauth_ticket`);
+      const unknown = await fetch(`${base}/auth/oidc/reauth?ticket=nope`, { redirect: "manual" });
+      expect(unknown.headers.get("location")).toBe("/#account-reauth-error=reauth_ticket");
+    });
+
+    it("refuses another account, a gone session and a sign-in that is not recent, keeps nothing and revokes", async () => {
+      const other = { ...USER, sub: "01J9OTHER00000000000000000", email: "eve@example.test" };
+      let revokedBefore = provider.revoked.length;
+      const wrong = await again({ as: other });
+      expect(wrong.location).toBe("/#account-reauth-error=reauth_subject");
+      expect(reauth.has(wrong.record.id)).toBe(false);
+      await revokedSince(revokedBefore);
+
+      revokedBefore = provider.revoked.length;
+      const gone = await again({ sessionGone: true });
+      expect(gone.location).toBe("/#account-reauth-error=reauth_session");
+      await revokedSince(revokedBefore);
+
+      // Perspicax answered with an old sign-in (it ignored max_age): refused.
+      revokedBefore = provider.revoked.length;
+      const stale = await again({ claims: (c) => ({ ...c, auth_time: Math.floor(Date.now() / 1000) - 600 }) });
+      expect(stale.location).toBe("/#account-reauth-error=reauth_stale");
+      expect(reauth.has(stale.record.id)).toBe(false);
+      await revokedSince(revokedBefore);
+
+      const none = await again({ claims: (c) => { const { auth_time: _drop, ...rest } = c; return rest; } });
+      expect(none.location).toBe("/#account-reauth-error=reauth_stale");
+
+      // Perspicax did not keep the erasure marker (an older one): refused.
+      revokedBefore = provider.revoked.length;
+      const unmarked = await again({ noMarker: true });
+      expect(unmarked.location).toBe("/#account-reauth-error=reauth_scope");
+      expect(reauth.has(unmarked.record.id)).toBe(false);
+      await revokedSince(revokedBefore);
+
+      // Without a refresh token, the refused sign-in's access token itself goes.
+      revokedBefore = provider.revoked.length;
+      const bare = await again({ sessionGone: true, noRefresh: true });
+      expect(bare.location).toBe("/#account-reauth-error=reauth_session");
+      // (the gone session's own grant is revoked too: look for the access token)
+      for (let i = 0; i < 50 && !provider.revoked.slice(revokedBefore).some((r) => r.token_type_hint === "access_token"); i++) await new Promise((r) => setTimeout(r, 20));
+      expect(provider.revoked.slice(revokedBefore).some((r) => r.token_type_hint === "access_token")).toBe(true);
+    }, 30_000);
+
+    it("answers 405 to another method", async () => {
+      expect((await fetch(`${base}/auth/oidc/reauth`, { method: "POST" })).status).toBe(405);
+    });
+  });
+
   it("binds a web sign-in's grant to its session at once", async () => {
     const { location, callback } = await walk();
     expect(location).toBe("/");
@@ -534,6 +639,72 @@ describe("the sign-in routes (in process)", () => {
       expect(replay.status).toBe(400);
       // an unknown subject verifies and does nothing
       expect((await post(`logout_token=${provider.logoutToken({ sub: "nobody-here" })}`)).status).toBe(200);
+    });
+
+    describe("with the account purged event", () => {
+      const LOGOUT = "http://schemas.openid.net/event/backchannel-logout";
+      const purgedToken = (sub: string) => provider.logoutToken({
+        sub,
+        claims: (c) => ({ ...c, events: { [LOGOUT]: {}, [ACCOUNT_PURGED_EVENT]: { subject: { format: "iss_sub", iss: provider.issuer, sub } } } }),
+      });
+      afterEach(() => { delete grantKeeper.purgePerson; });
+
+      it("logs the person out, erases their data and answers { purged: true, bots, threads }", async () => {
+        const purges: Array<{ iss: string; sub: string; sessionsLeft: number }> = [];
+        grantKeeper.purgePerson = async (input) => {
+          const principal = principals.bySubject(input.iss, input.sub);
+          purges.push({ ...input, sessionsLeft: sessions.list().filter((session) => session.principalId === principal?.id).length });
+          return { bots: 1, threads: 4 };
+        };
+        const { callback } = await walk();
+        const cookie = callback!.headers.getSetCookie().find((c) => c.startsWith("omb_session_test="))!;
+        const token = decodeURIComponent(cookie.split(";")[0]!.split("=")[1]!);
+        const res = await post(`logout_token=${encodeURIComponent(purgedToken(USER.sub))}`);
+        expect(res.status).toBe(200);
+        expect(res.headers.get("cache-control")).toBe("no-store");
+        expect(await res.json()).toEqual({ purged: true, bots: 1, threads: 4 });
+        // the logout ran first, as without the event
+        expect(sessions.authenticate(token)).toBeNull();
+        expect(purges).toEqual([{ iss: provider.issuer, sub: USER.sub, sessionsLeft: 0 }]);
+        // a subject this server never knew is purged too (the keeper says zeros)
+        grantKeeper.purgePerson = async () => ({ bots: 0, threads: 0 });
+        const unknown = await post(`logout_token=${encodeURIComponent(purgedToken("nobody-here"))}`);
+        expect(await unknown.json()).toEqual({ purged: true, bots: 0, threads: 0 });
+      });
+
+      it("answers 500 purge_failed when the erasure throws, and a fresh token is honoured again", async () => {
+        grantKeeper.purgePerson = async () => { throw new Error("disk full"); };
+        const res = await post(`logout_token=${encodeURIComponent(purgedToken(USER.sub))}`);
+        expect(res.status).toBe(500);
+        expect(await res.json()).toEqual({ error: "purge_failed" });
+        grantKeeper.purgePerson = async () => ({ bots: 0, threads: 2 });
+        const retry = await post(`logout_token=${encodeURIComponent(purgedToken(USER.sub))}`);
+        expect(retry.status).toBe(200);
+        expect(await retry.json()).toEqual({ purged: true, bots: 0, threads: 2 });
+      });
+
+      it("never says purged without a keeper that erases, nor for a plain logout token", async () => {
+        const plain = await post(`logout_token=${encodeURIComponent(purgedToken(USER.sub))}`);
+        expect(plain.status).toBe(200);
+        expect(await plain.json()).toEqual({});
+        let called = 0;
+        grantKeeper.purgePerson = async () => { called++; return { bots: 0, threads: 0 }; };
+        const logoutOnly = await post(`logout_token=${encodeURIComponent(provider.logoutToken({ sub: USER.sub }))}`);
+        expect(await logoutOnly.json()).toEqual({});
+        expect(called).toBe(0);
+      });
+
+      it("refuses a purge naming another subject with 400 and erases nothing", async () => {
+        let called = 0;
+        grantKeeper.purgePerson = async () => { called++; return { bots: 0, threads: 0 }; };
+        const token = provider.logoutToken({
+          sub: USER.sub,
+          claims: (c) => ({ ...c, events: { [LOGOUT]: {}, [ACCOUNT_PURGED_EVENT]: { subject: { format: "iss_sub", iss: provider.issuer, sub: "someone-else" } } } }),
+        });
+        const res = await post(`logout_token=${encodeURIComponent(token)}`);
+        expect(res.status).toBe(400);
+        expect(called).toBe(0);
+      });
     });
   });
 });
