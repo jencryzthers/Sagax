@@ -878,7 +878,7 @@ import type { BotHost } from "./turn-route.ts";
 import { signInListWithOpenInvites, type OrgRole } from "./org-directory.ts";
 import { createOwnerAvatarRoute, OwnerIdentityStore, parseOwnerIdentityMessage } from "./owner-identity.ts";
 import { configForViewer, personAvatarUrl, personDisplayName, sessionIsOperator, type ViewerIdentity } from "./viewer-identity.ts";
-import { botReactionActorId, normalizeReactions, reactionEmoji, reactionsBy, type ReactionActor } from "../shared/reactions.ts";
+import { BOT_REACTIONS, botReactionActorId, botReactionEmoji, normalizeReactions, reactionEmoji, reactionsBy, type ReactionActor } from "../shared/reactions.ts";
 // Keep these two last: a route module may import any server module, and
 // loading the table after everything above leaves module start-up order as is.
 import { json, onJsonBody, parsedBodyOf, readBody } from "./harness/http.ts";
@@ -1831,8 +1831,8 @@ function botReaction(input: { bot: { id: string; name: string }; threadId: strin
     for (const held of removing) store.reactToMessage(input.threadId, target.id, held, actor, { mode: "remove", legacyUser: legacyReactionUser() });
     return { ok: true, messageId: target.id, emoji: emoji ?? removing[0] ?? "", changed: removing.length > 0, removed: removing };
   }
-  const emoji = reactionEmoji(input.emoji);
-  if (!emoji) return { ok: false, status: 400, code: "reaction_emoji", error: "emoji must be one emoji, such as 👍, ✅ or 👀." };
+  const emoji = botReactionEmoji(input.emoji);
+  if (!emoji) return { ok: false, status: 400, code: "reaction_emoji", error: `emoji must be one of ${BOT_REACTIONS.join(" ")}.` };
   if (mine.includes(emoji)) return { ok: true, messageId: target.id, emoji, changed: false };
   if (mine.length) {
     return { ok: false, status: 409, code: "reaction_one", error: `You already reacted ${mine.join(" ")} to this message: one reaction per message. Use remove_reaction first only if it no longer fits.` };
@@ -1844,6 +1844,38 @@ function botReaction(input: { bot: { id: string; name: string }; threadId: strin
   if (!result) return { ok: false, status: 404, code: "reaction_message", error: "That message is gone." };
   if (result.full) return { ok: false, status: 409, code: "reaction_full", error: "This message has too many different reactions." };
   return { ok: true, messageId: target.id, emoji, changed: result.changed };
+}
+
+/** The reaction a bot added last in a thread (react_to_message), so a reply
+ * that only repeats it can be told from one that answers something. Keyed
+ * by `${threadId}:${botId}`. */
+const placedBotReactions = new Map<string, { messageId: string; emoji: string; at: number }>();
+
+/** Words of an aside that only says there is nothing to say. */
+const NOTHING_TO_ADD = /\b(?:no (?:further|more|other) (?:text|reply|response|words?)|nothing (?:more|else|further) (?:to add|needed)|no (?:reply|response|text) needed|reaction only|aucun texte|rien (?:d'autre|de plus) à (?:ajouter|dire)|pas besoin de (?:texte|réponse))\b/iu;
+
+/** A reply that only repeats the reaction the bot put, in this turn, on the
+ * message it answers: nothing but that emoji ("👍" after 👍), or an aside
+ * such as "*(no further text needed)*" that some models write when told
+ * to end with no text. The reaction says it, so the text is not written
+ * (JC, 2026-10-18: never a reaction and a message that say the same
+ * thing). A real sentence, or a reaction from an earlier turn, keeps it. */
+function echoesOwnReaction(threadId: string, botId: string, text: string): boolean {
+  const reply = text.trim();
+  if (!reply || reply.length > 80) return false;
+  const placed = placedBotReactions.get(`${threadId}:${botId}`);
+  if (!placed || placed.at < (turnStartedAt.get(threadId) ?? Number.POSITIVE_INFINITY)) return false;
+  const soloBot = store.groupByThread(threadId) ? null : store.botByThread(threadId)?.id ?? null;
+  // the message the bot is answering: the newest chat line it did not write
+  const answered = store.activePath(threadId).findLast((message) => message.kind === "text" && (message.role === "user" ? null : message.from?.botId ?? soloBot) !== botId);
+  if (!answered || answered.id !== placed.messageId) return false;
+  const mine = reactionsBy(normalizeReactions(answered.reactions, legacyReactionUser()), botReactionActorId(botId));
+  if (!mine.includes(placed.emoji)) return false;
+  if (/^[*_]*\([^()]{0,70}\)[*_]*$/u.test(reply) && NOTHING_TO_ADD.test(reply)) return true;
+  const bare = (value: string) => value.replace(/\uFE0F/g, "");
+  const said = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(reply)]
+    .map((part) => part.segment).filter((part) => part.trim());
+  return said.length > 0 && said.every((part) => bare(part) === bare(placed.emoji));
 }
 
 /** Who a request's turn speaks for (slice 3 engine access): the signed-in
@@ -12632,6 +12664,10 @@ bus.subscribe((event: RuntimeEvent) => {
       pushStoppedTurn(turnId);
       return;
     }
+    // "👍" written after reacting 👍 says the same thing twice: the
+    // reaction stands alone and no bubble is written.
+    const reactor = bot?.id ?? speaker?.botId;
+    if (reactor && echoesOwnReaction(event.threadId, reactor, spoken.text)) return;
     const ran = bot ? turnRunByThread.get(event.threadId) : undefined;
     pushMessage({ role: "bot", kind: "text", text: spoken.text, turnId, ...(ran ? { turnRun: ran } : {}) });
     lastReply.set(event.threadId, spoken.text);
@@ -17621,7 +17657,7 @@ async function startTurn(
           // model mostly did not think to make.
           ? peerRosterSystemPrompt(sectionPeers, boundedCoordination, botCreationOffered(bot, ownerBotsReadOnly(bot)))
           : "";
-      const credentialPrompt = integrations.agents ? CREDENTIAL_PROMPT + REACTION_PROMPT + (boundedCoordination ? "" : THREADS_PROMPT) + WIDGET_PROMPT + WIDGET_APPROVAL_PROMPT : "";
+      const credentialPrompt = integrations.agents ? CREDENTIAL_PROMPT + (boundedCoordination ? "" : THREADS_PROMPT) + WIDGET_PROMPT + WIDGET_APPROVAL_PROMPT : "";
       const routinePrompt = integrations.agents ? ROUTINE_PROMPT : "";
       const profilePrompt = integrations.agents ? botProfilePrompt(bot) : "";
       const recallPrompt = integrations.agents && bot.memoryEnabled !== false ? SESSION_SEARCH_SYSTEM_PROMPT : "";
@@ -17756,6 +17792,9 @@ async function startTurn(
         { id: "assignment", label: "Teammate task", text: coordinationNode?.parentId ? `\n${coordinationSystemInstructions()}` : "" },
         { id: "outstanding", label: "Outstanding teammate work", text: outstandingAssignmentsPrompt(threadId) },
         { id: "credential", label: "Credentials", text: credentialPrompt },
+        // its own paragraph, so a smaller model reads it as a rule of its
+        // own; never on a call (the tools are not shown there either)
+        { id: "reactions", label: "Reactions", text: integrations.agents && !onCall ? REACTION_PROMPT : "" },
         { id: "recall", label: "Recall", text: recallPrompt },
         { id: "routine", label: "Routines", text: routinePrompt },
         { id: "routine-execution", label: "Routine execution", text: opts?.automationSource === "schedule" || opts?.automationSource === "manual" ? ROUTINE_EXECUTION_PROMPT : "" },
@@ -32967,6 +33006,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (method === "POST" && path === "/api/internal/reaction") {
         const body = await readInternalBody();
         requireActiveInternalCapability();
+        // On a live call the bot answers by voice (the tools are not shown
+        // there either); taking one back stays possible.
+        if (body.remove !== true && voiceCalls.active(internalCapability.threadId)) {
+          return json(res, 409, { error: "You are on a voice call: answer by voice, without reactions.", code: "reaction_call" });
+        }
         const outcome = botReaction({
           bot: internalSender,
           threadId: internalCapability.threadId,
@@ -32975,7 +33019,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           remove: body.remove === true,
           spent: internalCapability.reactions ?? 0,
         });
-        if (outcome.ok && outcome.changed && !body.remove) internalCapability.reactions = (internalCapability.reactions ?? 0) + 1;
+        if (outcome.ok && outcome.changed && !body.remove) {
+          internalCapability.reactions = (internalCapability.reactions ?? 0) + 1;
+          placedBotReactions.set(`${internalCapability.threadId}:${internalSender.id}`, { messageId: outcome.messageId, emoji: outcome.emoji, at: Date.now() });
+        }
         return json(res, outcome.ok ? 200 : outcome.status, outcome.ok ? outcome : { error: outcome.error, code: outcome.code });
       }
       // Notes written from a room fewer people can see than this bot would
