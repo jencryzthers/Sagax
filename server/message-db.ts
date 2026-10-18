@@ -570,6 +570,10 @@ export function deleteThread(threadId: string): void {
     connection.prepare("DELETE FROM messages WHERE thread_id = ?").run(threadId);
     connection.prepare("DELETE FROM thread_state WHERE thread_id = ?").run(threadId);
     connection.prepare("DELETE FROM thread_reads WHERE thread_id = ?").run(threadId);
+    // its idempotency receipts (digest.append, digest.files, hook.ingest,
+    // compaction.append), keyed "<thread>:<turn>...": copies of its digest
+    // and compaction rows. A key range, so no other thread's id matches.
+    connection.prepare("DELETE FROM command_receipts WHERE key >= ? AND key < ?").run(`${threadId}:`, `${threadId};`);
   });
 }
 

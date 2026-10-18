@@ -272,6 +272,20 @@ remembered, exported, logged or shared beyond its owner
   folder (`pinTaskCwd` `privateOnly`); no other `cwd` at creation.
 - Delete wipes the folder, its own attachments, pending capture, browser and
   decision summaries (`wipeConfidentialThread`).
+- Teammate work (`runtime.db`, 2026-10-18): a thread turns confidential only
+  when no work it takes part in is live (409 `confidential_live_work`,
+  `liveCoordination`); then and at delete `coordinator.forgetThread` removes
+  every settled tree it asked and strips its words from its rows in any other
+  tree (`RuntimeStore.forgetThread`, decided on columns, `secure_delete`, WAL
+  truncated); at start `confidentialThreads` forgets older ones once.
+  `roomHandoffProblem` refuses any edge to or from a confidential thread and
+  `store.workThread` never reuses a confidential work thread. The workspace
+  backup drops those trees (`stripConfidentialRuntime`) and, from the message
+  snapshot, its `command_receipts` (`<thread>:` key range), then rebuilds the
+  search index and vacuums both copies, also when a deletion left the
+  `CONFIDENTIAL_FORGOTTEN_MARKER` note (cleared by that backup).
+  `room-handoffs.json.migrated` is never backed up. `deleteThread` drops the
+  thread's `command_receipts` too.
 - Clients: a classification banner top and above the composer (not
   dismissible, height reserved, `role="note"`), lock and « Confidentiel » on
   the row and window title, no off control anywhere (desktop, remote client,
@@ -281,7 +295,9 @@ remembered, exported, logged or shared beyond its owner
   the content; a local (solo) Sagax is the recommendation for the most
   sensitive work.
 - Tests: `server/confidential-threads.test.ts`,
-  `server/confidential-threads.e2e.test.ts` (CT-1 to CT-8),
+  `server/confidential-threads.e2e.test.ts` (CT-1 to CT-15),
+  `server/runtime/store.test.ts`, `server/workspace-backup.test.ts`,
+  `server/message-db.test.ts`,
   `server/bot-zip.test.ts`, `src/components/ConfidentialBanner.test.ts`,
   `src/components/ChatView.confidential.test.ts`,
   `ios/Tests/CompanionCoreTests/ConfidentialThreadTests.swift`.

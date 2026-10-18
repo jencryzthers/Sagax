@@ -101,6 +101,12 @@ export interface RuntimeStore {
   /** Remove terminal trees whose root finished before `before`; never a tree
    * with a non-terminal node. Returns assignment rows removed. */
   prune(before: number): number;
+  /** Forget a confidential thread (docs/confidential-threads.md): every tree
+   * it requested or ran work in goes whole when settled (rows, events, inbox);
+   * in a tree still live, its own rows keep their ids and status but lose
+   * their words (brief, result, question, answer, detail, evidence, quote)
+   * and their events' details. */
+  forgetThread(threadId: string): { removed: number; scrubbed: number };
   close(): void;
 }
 
@@ -148,6 +154,29 @@ const SCHEMA = `
 `;
 
 const terminalList = TERMINAL.map(s => `'${s}'`).join(", ");
+
+const TOUCHING = "SELECT DISTINCT root_id FROM assignments WHERE requester_thread_id = ? OR assignee_thread_id = ?";
+
+function removeTree(db: DatabaseSync, rootId: string): number {
+  db.prepare("DELETE FROM assignment_events WHERE assignment_id IN (SELECT id FROM assignments WHERE root_id = ?)").run(rootId);
+  db.prepare("DELETE FROM inbox WHERE assignment_id IN (SELECT id FROM assignments WHERE root_id = ?)").run(rootId);
+  return Number(db.prepare("DELETE FROM assignments WHERE root_id = ?").run(rootId).changes);
+}
+
+/** A copy of the runtime database without any tree one of these threads
+ * requested or ran work in, live or settled: what a workspace backup keeps
+ * when the threads are confidential (server/workspace-backup.ts). The caller
+ * owns the transaction and the vacuum. Returns assignment rows removed. */
+export function removeThreadTrees(db: DatabaseSync, threads: Iterable<string>): number {
+  const hasTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='assignments'").get();
+  if (!hasTable) return 0;
+  const touching = db.prepare(TOUCHING);
+  let removed = 0;
+  for (const threadId of threads) {
+    for (const row of touching.all(threadId, threadId) as Row[]) removed += removeTree(db, String(row.root_id));
+  }
+  return removed;
+}
 
 type Row = Record<string, unknown>;
 
@@ -203,6 +232,9 @@ export function openRuntimeStore(path: string): RuntimeStore {
     db.exec("PRAGMA journal_mode = WAL");
     db.exec("PRAGMA synchronous = NORMAL");
   }
+  // A forgotten thread's words are overwritten on disk, not left in a free
+  // page (forgetThread, docs/confidential-threads.md).
+  db.exec("PRAGMA secure_delete = ON");
   db.exec(SCHEMA);
 
   const statements = {
@@ -341,6 +373,69 @@ export function openRuntimeStore(path: string): RuntimeStore {
         }
         return removed;
       });
+    },
+    forgetThread(threadId) {
+      let changed = 0;
+      const forgotten = transaction(() => {
+        let removed = 0;
+        let scrubbed = 0;
+        for (const row of db.prepare(TOUCHING).all(threadId, threadId) as Row[]) {
+          const rootId = String(row.root_id);
+          // Decided on the columns, so a row this build cannot read never
+          // stops the forget. A settled tree the thread asked goes whole; in
+          // any other (another conversation's, or still live) only its own
+          // rows lose their words: the asker keeps its other teammates.
+          const live = db.prepare(`SELECT 1 FROM assignments WHERE root_id = ? AND status NOT IN (${terminalList}) LIMIT 1`).get(rootId);
+          const root = db.prepare("SELECT assignee_thread_id FROM assignments WHERE id = ?").get(rootId) as Row | undefined;
+          if (!live && root?.assignee_thread_id === threadId) {
+            removed += removeTree(db, rootId);
+            continue;
+          }
+          for (const raw of db.prepare("SELECT id, json, requester_thread_id, assignee_thread_id FROM assignments WHERE root_id = ?").all(rootId) as Row[]) {
+            const own = raw.requester_thread_id === threadId || raw.assignee_thread_id === threadId;
+            let a: Assignment;
+            try {
+              a = readAssignment(raw);
+            } catch {
+              // unreadable: an own row goes rather than keep its words
+              if (own) {
+                db.prepare("DELETE FROM assignment_events WHERE assignment_id = ?").run(String(raw.id));
+                db.prepare("DELETE FROM inbox WHERE assignment_id = ?").run(String(raw.id));
+                db.prepare("DELETE FROM assignments WHERE id = ?").run(String(raw.id));
+                removed += 1;
+                changed += 1;
+              }
+              continue;
+            }
+            const quoted = a.origin.ref === threadId && a.origin.quote !== undefined;
+            if (!own && !quoted) continue;
+            const before = toJson(a);
+            if (quoted) delete a.origin.quote;
+            if (own) {
+              a.brief = "";
+              a.result = "";
+              delete a.question;
+              delete a.answer;
+              delete a.outcomeDetail;
+              delete a.evidence;
+              delete a.doneWhen;
+              const details = db.prepare("UPDATE assignment_events SET detail = NULL WHERE assignment_id = ? AND detail IS NOT NULL").run(a.id);
+              changed += Number(details.changes);
+            }
+            if (toJson(a) === before) continue;
+            if (own) scrubbed += 1;
+            changed += 1;
+            statements.update.run(...columns(a), a.id);
+          }
+        }
+        return { removed, scrubbed };
+      });
+      // and out of the write-ahead log, which still holds the old pages (a
+      // reader holding it leaves them to the next checkpoint)
+      if (!memory && (forgotten.removed || changed)) {
+        try { db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get(); } catch { /* the next checkpoint does it */ }
+      }
+      return forgotten;
     },
     close() {
       db.close();

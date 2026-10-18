@@ -113,6 +113,9 @@ export interface Coordinator {
    * true when the assignment took the text as its answer and the host must
    * not start an ordinary turn. */
   answer(threadId: string, text: string): boolean;
+  /** A thread turned confidential or a confidential thread was deleted
+   * (docs/confidential-threads.md): its teammate work keeps no words of it. */
+  forgetThread(threadId: string): { removed: number; scrubbed: number };
 }
 
 export interface CoordinatorOptions {
@@ -121,6 +124,9 @@ export interface CoordinatorOptions {
   now?: () => number;
   runtimeLimits?: Partial<Limits>;
   log?: (line: string) => void;
+  /** The confidential threads, read once when the runtime opens: their
+   * teammate work is forgotten (docs/confidential-threads.md). */
+  confidentialThreads?: () => Iterable<string>;
 }
 
 export function createCoordinator(options: CoordinatorOptions): Coordinator {
