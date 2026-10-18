@@ -17,7 +17,7 @@ import { writeFileAtomic } from "./atomic.ts";
 import { mergePrincipalFiles } from "./principals.ts";
 import { escapeAttribute, splitTranscriptAttachments } from "../src/lib/composer-attachments.ts";
 import { WORKSPACE_BACKUP_CLIENT_KEYS } from "../shared/workspace-backup-client.ts";
-import { ephemeralWorkspaceTokenPath, excludedWorkspaceAuthPath, liveDataEnginePath, portableWorkspaceConfig, redownloadedOrgLibraryPath, restoredWorkspaceConfig } from "./workspace-backup-policy.ts";
+import { confidentialDataScopePath, ephemeralWorkspaceTokenPath, excludedWorkspaceAuthPath, liveDataEnginePath, portableWorkspaceConfig, redownloadedOrgLibraryPath, restoredWorkspaceConfig } from "./workspace-backup-policy.ts";
 import type { WorkspaceBackupClientState, WorkspaceBackupPrivateMetadata, WorkspaceBackupSummary } from "../shared/workspace-backup.ts";
 
 export type { WorkspaceBackupSummary, WorkspaceBackupPrivateMetadata } from "../shared/workspace-backup.ts";
@@ -459,7 +459,7 @@ export async function createWorkspaceBackupSnapshot(dataDir: string, options: Cr
       for (const name of readdirSync(directory).sort()) {
         if (!prefix && excluded(name)) continue;
         const path = prefix ? `${prefix}/${name}` : name;
-        if (excludedWorkspaceAuthPath(path) || ephemeralWorkspaceTokenPath(path) || redownloadedOrgLibraryPath(path) || liveDataEnginePath(path)) continue;
+        if (excludedWorkspaceAuthPath(path) || ephemeralWorkspaceTokenPath(path) || redownloadedOrgLibraryPath(path) || liveDataEnginePath(path) || confidentialDataScopePath(path)) continue;
         // Do not silently skip noncanonical source spellings: reject them so
         // a case-sensitive host cannot export auth paths active on Windows/Mac.
         if (forbiddenArchivePath(path)) throw new Error("A workspace filename conflicts with a protected authentication or runtime path.");
@@ -730,7 +730,7 @@ export async function stageWorkspaceBackup(dataDir: string, archivePath: string,
     const staged = join(job.directory, "staged");
     folder(staged);
     await tar.x({ file: plaintext, cwd: staged, strict: true, preservePaths: false, umask: 0o077, noChmod: true, brotli: false, zstd: false });
-    const manifest = validateStaged(staged, expected);
+    const manifest = withoutConfidentialDataScopes(staged, validateStaged(staged, expected));
     const versions = [manifest.summary.appVersion, options.currentAppVersion ?? ""].map((version) => /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(version)?.slice(1).map(Number));
     if (versions[0] && versions[1]) {
       for (let i = 0; i < 3; i++) {
@@ -745,6 +745,28 @@ export async function stageWorkspaceBackup(dataDir: string, archivePath: string,
     rmSync(job.directory, { recursive: true, force: true });
     throw error;
   }
+}
+
+/** An archive from a release that exported a confidential thread's Data
+ * folder (its sheet) passed its checks whole; the folder now leaves the
+ * staged copy at once, with its manifest entries and summary counts, so
+ * the restore preview counts nothing of it and no staged file keeps it on
+ * disk while a restore receipt holds the job (prepareRestore filters it
+ * too). */
+function withoutConfidentialDataScopes(staged: string, manifest: Manifest): Manifest {
+  const dropped = manifest.entries.filter((entry) => confidentialDataScopePath(entry.path));
+  if (!dropped.length) return manifest;
+  for (const entry of dropped) rmSync(join(staged, "data", entry.path), { recursive: true, force: true });
+  const entries = manifest.entries.filter((entry) => !confidentialDataScopePath(entry.path));
+  const summary = {
+    ...manifest.summary,
+    files: entries.filter((entry) => entry.type === "file").length,
+    directories: entries.filter((entry) => entry.type === "directory").length,
+    bytes: entries.reduce((total, entry) => total + (entry.type === "file" ? entry.size : 0), 0),
+  };
+  const next = { ...manifest, entries, summary };
+  writeJson(join(staged, "manifest.json"), next);
+  return validateStaged(staged);
 }
 
 export function readStagedWorkspaceBackup(dataDir: string, id: string): WorkspaceBackupPrivateMetadata & { id: string } {
@@ -871,8 +893,10 @@ function prepareRestore(dataDir: string, id: string, manifest: Manifest): string
   // Keep the authenticated original staging tree intact for reinspection and
   // recovery. Only this installation copy has paths/scheduling adapted.
   // An archive from a release that exported per-turn hook tokens still
-  // restores; the dead tokens themselves are never installed.
-  const installed = manifest.entries.filter((entry) => !ephemeralWorkspaceTokenPath(entry.path));
+  // restores; the dead tokens themselves are never installed. Nor is a
+  // confidential thread's Data folder an older release exported (its sheet):
+  // whoever the restored roster lets in, it never comes back.
+  const installed = manifest.entries.filter((entry) => !ephemeralWorkspaceTokenPath(entry.path) && !confidentialDataScopePath(entry.path));
   for (const entry of installed.filter((entry) => entry.type === "directory")) folder(join(prepared, entry.path));
   for (const entry of installed) {
     const destination = join(prepared, entry.path);
@@ -1152,5 +1176,5 @@ export function removeWorkspaceBackupJob(dataDir: string, id: string): void {
  * rules as the export walk (cloud-move.ts sizes a move with it). Symbolic
  * links are the caller's to skip. */
 export function omittedFromWorkspaceBackup(path: string): boolean {
-  return excluded(path.split("/")[0]) || excludedWorkspaceAuthPath(path) || ephemeralWorkspaceTokenPath(path) || redownloadedOrgLibraryPath(path) || liveDataEnginePath(path);
+  return excluded(path.split("/")[0]) || excludedWorkspaceAuthPath(path) || ephemeralWorkspaceTokenPath(path) || redownloadedOrgLibraryPath(path) || liveDataEnginePath(path) || confidentialDataScopePath(path);
 }

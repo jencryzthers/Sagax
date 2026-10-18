@@ -428,6 +428,72 @@ describe("encrypted full workspace backups", () => {
     await expect(stageWorkspaceBackup(directory(), archive, { password: PASSWORD })).rejects.toThrow(/Compressed payloads are not supported/);
   });
 
+  it("leaves a confidential thread's Data folder out of the backup and keeps every other sheet", async () => {
+    const source = directory();
+    const thread = join(source, "data-scopes", "bot", "t-0123456789abcdef");
+    const person = join(source, "data-scopes", "bot", "p-0123456789abcdef");
+    for (const folderPath of [join(thread, "data-exports"), person, join(source, "bots", "bot")]) mkdirSync(folderPath, { recursive: true });
+    writeFileSync(join(thread, "sheet.json"), '{"cards":[{"sql":"SELECT CONFIDENTIAL_SHEET"}]}');
+    writeFileSync(join(thread, "data-exports", "x.csv"), "CONFIDENTIAL_SHEET");
+    writeFileSync(join(person, "sheet.json"), '{"cards":[{"sql":"SELECT PERSON_SHEET"}]}');
+    writeFileSync(join(source, "bots", "bot", "sheet.json"), '{"cards":[{"sql":"SELECT BOT_SHEET"}]}');
+    const exported = await createWorkspaceBackup(source, { password: PASSWORD });
+    const staged = await stageWorkspaceBackup(source, exported.path, { password: PASSWORD });
+    const staging = join(source, ".backups", staged.id, "staged");
+    const paths: string[] = readJson(join(staging, "manifest.json")).entries.map((entry: { path: string }) => entry.path);
+    expect(paths).toContain("data-scopes/bot/p-0123456789abcdef/sheet.json");
+    expect(paths).toContain("bots/bot/sheet.json");
+    expect(paths.filter((path) => path.includes("t-0123456789abcdef"))).toEqual([]);
+    for (const path of paths) {
+      if (statSync(join(staging, "data", path)).isFile()) expect(readFileSync(join(staging, "data", path), "utf8")).not.toContain("CONFIDENTIAL_SHEET");
+    }
+  });
+
+  it("restores an archive that holds a confidential thread's sheet without ever installing it", async () => {
+    const source = directory();
+    const exported = await createWorkspaceBackup(source, { password: PASSWORD });
+    const probe = await stageWorkspaceBackup(source, exported.path, { password: PASSWORD });
+    const base = readJson(join(source, ".backups", probe.id, "staged", "manifest.json"));
+    const sheet = '{"cards":[{"sql":"SELECT CONFIDENTIAL_SHEET"}]}';
+    const other = '{"cards":[{"sql":"SELECT PERSON_SHEET"}]}';
+    const file = (path: string, content: string) => ({ path, type: "file", size: Buffer.byteLength(content), mode: 0o600, sha256: createHash("sha256").update(content).digest("hex") });
+    const dir = (path: string) => ({ path, type: "directory", size: 0, mode: 0o700 });
+    const confidential = "data-scopes/bot/t-0123456789abcdef";
+    const person = "data-scopes/bot/p-0123456789abcdef";
+    // another spelling of the same folder, and an empty thread folder alone
+    const cased = "data-scopes/other/T-fedcba9876543210";
+    const empty = "data-scopes/bot/t-00000000000000ff";
+    const manifest = {
+      ...base,
+      entries: [dir("data-scopes"), dir("data-scopes/bot"), dir(confidential), file(`${confidential}/sheet.json`, sheet), dir(person), file(`${person}/sheet.json`, other),
+        dir("data-scopes/other"), dir(cased), file(`${cased}/sheet.json`, sheet), dir(empty)],
+      summary: { ...base.summary, directories: 7, files: 3, bytes: 2 * Buffer.byteLength(sheet) + Buffer.byteLength(other) },
+    };
+    const archive = encryptedPayload(source, Buffer.concat([
+      tarEntry("manifest.json", "File", JSON.stringify(manifest)), tarEntry("data", "Directory"), tarEntry("data/data-scopes", "Directory"),
+      tarEntry("data/data-scopes/bot", "Directory"), tarEntry(`data/${confidential}`, "Directory"), tarEntry(`data/${confidential}/sheet.json`, "File", sheet),
+      tarEntry(`data/${person}`, "Directory"), tarEntry(`data/${person}/sheet.json`, "File", other),
+      tarEntry("data/data-scopes/other", "Directory"), tarEntry(`data/${cased}`, "Directory"), tarEntry(`data/${cased}/sheet.json`, "File", sheet),
+      tarEntry(`data/${empty}`, "Directory"), Buffer.alloc(1024),
+    ]));
+    const target = directory();
+    // the destination's own confidential Data is not carried into the restored workspace either
+    mkdirSync(join(target, confidential), { recursive: true });
+    writeFileSync(join(target, confidential, "sheet.json"), "DESTINATION_SHEET");
+    const staged = await stageWorkspaceBackup(target, archive, { password: PASSWORD });
+    // the staged copy keeps nothing of it, and the preview counts nothing of it
+    expect(staged.summary).toMatchObject({ files: 1, directories: 4, bytes: Buffer.byteLength(other) });
+    const staging = join(target, ".backups", staged.id, "staged");
+    const stagedPaths: string[] = readJson(join(staging, "manifest.json")).entries.map((entry: { path: string }) => entry.path);
+    expect(stagedPaths.filter((path) => /\/t-/i.test(path))).toEqual([]);
+    for (const path of [confidential, cased, empty]) expect(existsSync(join(staging, "data", path))).toBe(false);
+    expect(readStagedWorkspaceBackup(target, staged.id).summary).toMatchObject({ files: 1 });
+    commitPendingWorkspaceRestore(target, staged.id);
+    expect(applyPendingWorkspaceRestore(target)).toMatchObject({ restored: true });
+    expect(readFileSync(join(target, person, "sheet.json"), "utf8")).toBe(other);
+    for (const path of [confidential, cased, empty]) expect(existsSync(join(target, path))).toBe(false);
+  });
+
   it("still restores an archive from a release that exported hook tokens, without installing them", async () => {
     const source = directory();
     const exported = await createWorkspaceBackup(source, { password: PASSWORD });
