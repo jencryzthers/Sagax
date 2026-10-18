@@ -1,10 +1,12 @@
 // Settings (iOS parity 12 and 14): the card sheet the account menu opens.
 //
-// One flat list in the desktop's order (SettingsModal.tsx `SECTIONS`, the
-// sections a phone pairing can use: NavigationMenus.settings) under the
-// account card, which is Pair devices (switch, add, sign out, delete). The
-// phone's own settings sit in General; list density and home chrome in
-// Appearance. The search at the top finds any page.
+// The root groups its cards as Grok Bot iOS 1.14 does: the account card
+// (Pair devices: switch, add, sign out, delete) with Usage, Connect apps,
+// the bot's settings, the phone's own (Notifications, Appearance, Language,
+// Haptics), then Sagax's extra pages (General, Organization, Experimental),
+// the links, feedback and Sign Out. Which rows show still comes from
+// NavigationMenus.settings. List density and home chrome sit in Appearance.
+// The search at the top finds any page.
 // Geometry: measure-settings.md §1 to §4.
 import CompanionCore
 import SwiftUI
@@ -122,7 +124,10 @@ private struct SettingsRootPage: View {
     @EnvironmentObject private var navigator: SettingsNavigator
     @ObservedObject private var themes = ThemeStore.shared
     @ObservedObject private var achievements = AchievementStore.shared
+    @AppStorage(PrefKey.language) private var language = AppLanguage.system.rawValue
+    @AppStorage(PrefKey.haptics) private var haptics = true
     @State private var query = ""
+    @State private var confirmingSignOut = false
 
     private var sections: [PhoneSettingsSection] {
         NavigationMenus.settings(
@@ -140,21 +145,14 @@ private struct SettingsRootPage: View {
                 .padding(.horizontal, SettingsMetrics.cardMargin)
             SettingsSpacer(18)
             if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                accountCard
-                SettingsSpacer(SettingsMetrics.cardGap)
-                SettingsCard {
-                    ForEach(Array(sections.enumerated()), id: \.element) { index, section in
-                        if index > 0 { CardHairline(leadingInset: SettingsMetrics.rowInset) }
-                        row(section)
-                    }
-                }
+                groupedRoot
                 footer
             } else {
                 SettingsSearchResults(query: query, open: open)
             }
 #if DEBUG
             if ParityLaunch.current?.screen == .settingsBottom {
-                ScrollOffsetSetter(offset: 400).frame(width: 0, height: 0)
+                ScrollOffsetSetter(offset: 100_000)  // clamped to the end.frame(width: 0, height: 0)
             }
 #endif
         }
@@ -166,41 +164,107 @@ private struct SettingsRootPage: View {
         .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
             Task { await model.syncTimeZoneIfAutomatic() }
         }
+        .task { await session.refreshNotificationAuthorization() }
+    }
+
+    // MARK: Cards
+
+    /// The root as Grok Bot iOS 1.14 groups it: the account with Usage,
+    /// Connect apps, the bot's settings, the phone's own (Notifications,
+    /// Appearance, Language, Haptics), then Sagax's extra pages, the links,
+    /// feedback and Sign Out. Which rows show still comes from
+    /// `NavigationMenus.settings` (gates and connection).
+    @ViewBuilder
+    private var groupedRoot: some View {
+        accountCard
+        if has(.plugins) {
+            SettingsSpacer(SettingsMetrics.cardGap)
+            SettingsCard {
+                SettingsRow(
+                    title: "Connect apps", subtitle: "Tools and skills for Sagax",
+                    accessory: .chevron, identifier: "settings-plugins", textTop: 13.4
+                ) { navigator.push(.plugins) }
+            }
+        }
+        if session.connection != nil {
+            SettingsSectionLabel(text: "Bot")
+            SettingsBotCard(showsComputer: has(.computer))
+        }
+        SettingsSpacer(SettingsMetrics.cardGap)
+        SettingsCard {
+            if has(.notifications) {
+                SettingsRow(title: "Notifications", accessory: .valueChevron(notificationsValue), height: 44.33, identifier: "settings-notifications") { navigator.push(.notifications) }
+                CardHairline(leadingInset: SettingsMetrics.rowInset)
+            }
+            SettingsRow(title: "Appearance", accessory: .valueChevron(appearanceValue), height: 44.33, identifier: "settings-appearance") { navigator.push(.appearance) }
+            CardHairline(leadingInset: SettingsMetrics.rowInset)
+            SettingsRow(title: "Language", accessory: .valueChevron(AppLanguage.resolved(language).shortLabel), height: 43.33, identifier: "settings-language") { navigator.push(.language) }
+            CardHairline(leadingInset: SettingsMetrics.rowInset)
+            SettingsRow(title: "Haptics", accessory: .valueChevron(haptics ? String(localized: "On") : String(localized: "Off")), height: 43.67, identifier: "settings-haptics") { navigator.push(.haptics) }
+        }
+        let more = sections.filter { [.general, .organization, .experimental].contains($0) }
+        if !more.isEmpty {
+            SettingsSpacer(SettingsMetrics.cardGap)
+            SettingsCard {
+                ForEach(Array(more.enumerated()), id: \.element) { index, section in
+                    if index > 0 { CardHairline(leadingInset: SettingsMetrics.rowInset) }
+                    row(section)
+                }
+            }
+        }
+        SettingsSpacer(SettingsMetrics.cardGap)
+        SettingsLinksCard()
+        SettingsSpacer(SettingsMetrics.cardGap)
+        SettingsFeedbackCard()
+        if session.connection != nil {
+            SettingsSpacer(SettingsMetrics.cardGap)
+            SettingsCard {
+                SettingsRow(title: "Sign Out", style: .destructive, height: 44.67, identifier: "settings-sign-out") { confirmingSignOut = true }
+            }
+            .confirmationDialog("Sign out of this computer?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
+                Button("Sign Out", role: .destructive) {
+                    close?()
+                    session.signOut()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This phone forgets this computer. Pair it again to come back.")
+            }
+        }
+    }
+
+    private func has(_ section: PhoneSettingsSection) -> Bool { sections.contains(section) }
+
+    private var notificationsValue: String {
+        SystemNotificationsRow.isOn(session) ? String(localized: "On") : String(localized: "Off")
+    }
+
+    /// The account card: who is signed in, then Usage under it.
+    private var accountCard: some View {
+        SettingsCard {
+            AccountCardRow(name: model.displayName, detail: model.detail, photo: session.accountPhoto, chevron: true) { navigator.push(.account) }
+            if has(.usage) {
+                CardHairline(leadingInset: SettingsMetrics.rowInset)
+                SettingsRow(title: "Usage", accessory: .chevron, height: 44.33, identifier: "settings-usage") { navigator.push(.usage) }
+            }
+        }
     }
 
     // MARK: Rows
 
-    private var accountCard: some View {
-        SettingsCard {
-            AccountCardRow(name: model.displayName, detail: model.detail, photo: session.accountPhoto, chevron: true) { navigator.push(.account) }
-        }
-    }
-
+    /// The rows of the "more" card: the Sagax pages Grok Bot has no row for.
+    /// The other sections have their own cards above.
     @ViewBuilder
     private func row(_ section: PhoneSettingsSection) -> some View {
         switch section {
         case .general:
-            SettingsRow(title: "General", systemImage: "gearshape", accessory: .chevron, height: 44.33, identifier: "settings-general") { navigator.push(.general) }
+            SettingsRow(title: "General", accessory: .chevron, height: 44.33, identifier: "settings-general") { navigator.push(.general) }
         case .organization:
-            SettingsRow(title: "Organization", systemImage: "building.2", accessory: .chevron, height: 44.33, identifier: "settings-organization") { navigator.sheet = .organization }
-        case .appearance:
-            SettingsRow(title: "Appearance", systemImage: "paintpalette", accessory: .valueChevron(appearanceValue), height: 44.33, identifier: "settings-appearance") { navigator.push(.appearance) }
-        case .achievements:
-            SettingsRow(title: "Achievements", systemImage: "trophy", accessory: .chevron, height: 44.33, identifier: "settings-achievements") { navigator.sheet = .achievements }
-        case .notifications:
-            SettingsRow(title: "Notifications", systemImage: "bell", accessory: .chevron, height: 44.33, identifier: "settings-notifications") { navigator.push(.notifications) }
-        case .privacy:
-            SettingsRow(title: "Privacy", systemImage: "hand.raised", accessory: .chevron, height: 44.33, identifier: "settings-privacy") { navigator.push(.privacy) }
+            SettingsRow(title: "Organization", accessory: .chevron, height: 44.33, identifier: "settings-organization") { navigator.sheet = .organization }
         case .experimental:
-            SettingsRow(title: "Experimental", systemImage: "flask", accessory: .chevron, height: 44.33, identifier: "settings-experimental") { navigator.push(.experimental) }
-        case .plugins:
-            SettingsRow(title: "Connect apps", systemImage: "puzzlepiece.extension", accessory: .chevron, height: 44.33, identifier: "settings-plugins") { navigator.push(.plugins) }
-        case .pairDevices:
-            SettingsRow(title: "Pair devices", systemImage: "iphone", accessory: .chevron, height: 44.33, identifier: "settings-account") { navigator.push(.account) }
-        case .computer:
-            SettingsRow(title: "Computer", systemImage: "desktopcomputer", accessory: .chevron, height: 44.33, identifier: "settings-bot-computer") { navigator.push(.botComputer) }
-        case .usage:
-            SettingsRow(title: "Usage", systemImage: "chart.bar", accessory: .chevron, height: 44.33, identifier: "settings-usage") { navigator.push(.usage) }
+            SettingsRow(title: "Experimental", accessory: .chevron, height: 44.33, identifier: "settings-experimental") { navigator.push(.experimental) }
+        default:
+            EmptyView()
         }
     }
 
