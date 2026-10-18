@@ -17,6 +17,7 @@ import { getUserMediaWithFallback, preferredAudioInputId } from "@/lib/audio-inp
 import { useStore, useStreaming, visibleMessages, type Bot } from "@/state/store";
 import { currentCall, endCall } from "@/lib/call";
 import { useVoiceCallMark } from "@/lib/voice-mode/call-mark";
+import { spokenAnswer } from "@/lib/voice-mode/answer-budget";
 import { spokenDecision } from "@/lib/voice-mode/answers";
 import { callTimers } from "@/lib/voice-mode/call-alive";
 import { VoiceCall, type BargeInMetrics, type TurnMetrics } from "@/lib/voice-mode/call";
@@ -55,6 +56,18 @@ export type CallMetrics = LiveCallMetrics;
 
 /** How often the call asks whether a progress line is due. */
 const PROGRESS_TICK_MS = 500;
+
+/** The person's newest words on the thread (one turn's answers share it). */
+function lastUserId(messages: readonly { id: string; role: string; parallelTask?: unknown }[]): string | undefined {
+  return [...messages].reverse().find((message) => message.role === "user" && !message.parallelTask)?.id;
+}
+
+/** The language the call's own lines are said in: the call's, else the
+ * person's last words (French or not) on an English or French page. */
+function callLocale(messages: readonly { role: string; text?: string; parallelTask?: unknown }[]) {
+  const lastUserText = [...messages].reverse().find((message) => message.role === "user" && !message.parallelTask)?.text;
+  return progressLocale({ callLanguage: readVoiceModeSettings().language, lastUserText, pageLocale: activeLocale(), looksFrench });
+}
 
 /** Runs the call with this bot and publishes it; draws nothing. */
 export function LiveCallEngine({ bot }: { bot: Bot }) {
@@ -108,6 +121,8 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
   const pendingSpeak = useRef<Array<SpeakItem & { text: string; kind: "say" | "done" }>>([]);
+  /** the person's words the "rest is in the chat" line was said for */
+  const restSaidFor = useRef<string | null | undefined>(null);
   /** a send's retry belongs to this call: it never fires after the hang-up */
   const timers = useRef(callTimers());
   useEffect(() => {
@@ -128,7 +143,20 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
     if (!item) return;
     pendingSpeak.current = pendingSpeak.current.filter((row) => row.id !== slot.id);
     const played = item.kind === "done" ? live.replyDone(item.text) : live.say(item.text);
-    void Promise.resolve(played).finally(() => drainSpeak());
+    // an answer cut at the sentence cap says once per turn where the rest
+    // is, through this same queue (never over the person); a cut answer
+    // (barge-in) or one that stopped at its question says nothing more
+    const words = lastUserId(messagesRef.current);
+    const restInChat = item.kind === "done" && spokenAnswer(item.text).cut === "length" && restSaidFor.current !== words
+      ? tIn(callLocale(messagesRef.current), "voiceMode.restInChat")
+      : null;
+    void Promise.resolve(played)
+      .then((heard) => {
+        if (!heard || !restInChat) return;
+        restSaidFor.current = words;
+        pendingSpeak.current.push({ id: `rest-${item.id}`, text: restInChat, priority: "user-reply", at: Date.now(), kind: "say" });
+      })
+      .finally(() => drainSpeak());
   }, [call]);
 
   // ── the call itself (one per mount; StrictMode's probe gets its own) ──
@@ -412,7 +440,7 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
       });
       const priority: SpeakPriority = mode === "announce" ? "topic-result" : "user-reply";
       const text = mode === "announce"
-        ? announceTopic(topicLabel(messages.find((message) => message.id === replyUserId)?.text ?? row?.parallelTask?.title ?? "the other thing"), reply.text)
+        ? announceTopic(topicLabel(messages.find((message) => message.id === replyUserId)?.text ?? row?.parallelTask?.title ?? "the other thing"), spokenAnswer(reply.text).text)
         : reply.text;
       if (!pendingSpeak.current.some((item) => item.id === reply.id)) {
         pendingSpeak.current.push({ id: reply.id, text, priority, at: Date.now(), kind: mode === "announce" ? "say" : "done" });
@@ -455,8 +483,7 @@ export function LiveCallEngine({ bot }: { bot: Bot }) {
         tools: turnTools(messagesRef.current),
       });
       if (!line) return;
-      const lastUserText = [...messagesRef.current].reverse().find((message) => message.role === "user" && !message.parallelTask)?.text;
-      const locale = progressLocale({ callLanguage: readVoiceModeSettings().language, lastUserText, pageLocale: activeLocale(), looksFrench });
+      const locale = callLocale(messagesRef.current);
       const text = progressText(line, (key, params) => tIn(locale, key, params));
       // a filler: its own short clip, never the answer's utterance, never
       // its first audio, and a barge-in cuts it like any speech

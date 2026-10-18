@@ -1111,3 +1111,66 @@ final class BotHangupTests: XCTestCase {
         wait(for: [posted], timeout: 1)
     }
 }
+
+final class AnswerBudgetTests: XCTestCase {
+    func testShortAnswerIsSaidWhole() {
+        let answer = SpokenText.spokenAnswer("Yes, the backup ran. It finished at nine.")
+        XCTAssertEqual(answer.text, "Yes, the backup ran. It finished at nine.")
+        XCTAssertNil(answer.cut)
+    }
+
+    func testStopsAfterFourSentences() {
+        let answer = SpokenText.spokenAnswer("Un. Deux, c'est fait. Trois! Quatre… Cinq reste écrit. Six aussi.")
+        XCTAssertEqual(answer.text, "Un. Deux, c'est fait. Trois! Quatre… ")
+        XCTAssertEqual(answer.cut, .length)
+    }
+
+    func testAQuestionEndsWhatIsSaid() {
+        let answer = SpokenText.spokenAnswer("Le serveur est arrêté. Veux-tu que je le redémarre? Ou que j'ouvre un billet?")
+        XCTAssertEqual(answer.text, "Le serveur est arrêté. Veux-tu que je le redémarre? ")
+        XCTAssertEqual(answer.cut, .question)
+        XCTAssertNil(SpokenText.spokenAnswer("It is down. Should I restart it?").cut)
+    }
+
+    func testListLinesCountButNumbersAndAbbreviationsDoNot() {
+        let list = "Three things:\n1. the printer\n2. the badge reader\n3. the camera\n4. the door"
+        XCTAssertEqual(SpokenText.spokenAnswer(list).text, "Three things:\n1. the printer\n2. the badge reader\n3. the camera\n")
+        XCTAssertEqual(
+            SpokenText.spokenAnswer("M. Tremblay a appelé. Il rappelle e.g. demain. Merci. Bonne journée. Fin.").text,
+            "M. Tremblay a appelé. Il rappelle e.g. demain. Merci. Bonne journée. "
+        )
+        XCTAssertEqual(SpokenText.spokenAnswer("The rate is 3.5 percent. Two. Three. Four. Five.").text, "The rate is 3.5 percent. Two. Three. Four. ")
+    }
+
+    func testQuotedOrShortRhetoricalQuestionsDoNotEndIt() {
+        XCTAssertNil(SpokenText.spokenAnswer("You asked \"is it done?\" Yes, it is done.").cut)
+        XCTAssertNil(SpokenText.spokenAnswer("Tu demandes « est-ce fait ? » Oui, c'est fait.").cut)
+        XCTAssertEqual(SpokenText.spokenAnswer("Pourquoi? Parce que le disque est plein.").text, "Pourquoi? Parce que le disque est plein.")
+    }
+
+    func testCodeCountsForNothing() {
+        let answer = "Run this:\n```\nnpm ci\nnpm test\n```\nThen it works. Done."
+        XCTAssertEqual(SpokenText.spokenAnswer(answer).text, answer)
+        XCTAssertNil(SpokenText.spokenAnswer(answer).cut)
+        XCTAssertNil(SpokenText.spokenAnswer("Use `a ? b : c` here. It is fine.").cut)
+    }
+
+    func testCrlfEndsALineLikeTheDesktop() {
+        XCTAssertEqual(SpokenText.spokenAnswer("One\r\nTwo\r\nThree\r\nFour\r\nFive").cut, .length)
+    }
+
+    func testTheCutOnlyGrowsAsTheAnswerIsWritten() {
+        let full = Array("One. Two. Three. Four. Five. Six? Seven.")
+        var previous = ""
+        for end in 1...full.count {
+            let said = SpokenText.spokenAnswer(String(full[..<end])).text
+            XCTAssertTrue(said.hasPrefix(previous), "\(said) after \(previous)")
+            previous = said
+        }
+        XCTAssertEqual(previous, "One. Two. Three. Four. ")
+    }
+
+    func testTheFollowUpIsNeverCounted() {
+        XCTAssertEqual(SpokenText.spokenAnswer("Done, bye.\n---\nOne. Two. Three. Four. Five.").text, "Done, bye.\n")
+    }
+}

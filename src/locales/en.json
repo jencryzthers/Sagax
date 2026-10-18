@@ -7607,6 +7607,7 @@
   "voiceMode.noAccess.notGiven": "Your organization has not given you its xAI voice. Add your own xAI key in Perspicax, or ask an admin.",
   "voiceMode.needsXaiKeyLabel": "Voice mode needs an xAI key",
   "voiceMode.needsXaiKeyReason": "Add an xAI key in Settings > Models and voice. Grok voice uses it.",
+  "voiceMode.restInChat": "The rest is written in the chat.",
   "engineSetup.apiKey.remoteModelsVoice": "Enter the key in Settings > Models and voice on the computer running Sagax.",
   "engineSetup.apiKey.configuredRemoteModelsVoice": "To change the key, open Settings > Models and voice on the computer running Sagax.",
   "dataWindow.open": "Open the Data window",

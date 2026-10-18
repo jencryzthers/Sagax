@@ -5567,6 +5567,7 @@
   "voiceMode.noAccess.notGiven": "Votre organisation ne vous a pas donné sa voix xAI. Ajoutez votre propre clé xAI dans Perspicax, ou demandez à un admin.",
   "voiceMode.needsXaiKeyLabel": "Le mode vocal a besoin d'une clé xAI",
   "voiceMode.needsXaiKeyReason": "Ajoutez une clé xAI dans Réglages > Modèles et voix. La voix Grok l'utilise.",
+  "voiceMode.restInChat": "Le reste est écrit dans la conversation.",
   "engineSetup.apiKey.remoteModelsVoice": "Entrez la clé dans Réglages > Modèles et voix sur l'ordinateur qui exécute Sagax.",
   "engineSetup.apiKey.configuredRemoteModelsVoice": "Pour changer la clé, ouvrez Réglages > Modèles et voix sur l'ordinateur qui exécute Sagax.",
   "call.live.readTyped": "Lire les réponses aux messages tapés",

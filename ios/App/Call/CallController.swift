@@ -707,6 +707,7 @@ final class CallController: ObservableObject {
         let actions = conversation.settle(messages: messages, botName: name, thinking: engine.state.phase == .thinking, playerBusy: player.busy, duplex: callSettings.fullDuplex, botBusy: busy)
         interrupted = conversation.interrupted
         unheard = conversation.unheard
+        var restSaid = false
         for action in actions {
             switch action {
             case let .say(prompt, speakerId):
@@ -715,9 +716,19 @@ final class CallController: ObservableObject {
             case let .replyDone(text, speakerId):
                 player.speaker = speaker(speakerId)
                 engine.replyDoneNow(text)
+                // cut at the sentence cap: say once where the rest is
+                if !restSaid, SpokenText.spokenAnswer(text).cut == .length, let rest = restInChatWords(messages: messages) {
+                    restSaid = true
+                    engine.speakNow(rest)
+                }
             case let .reply(text, speakerId):
                 player.speaker = speaker(speakerId)
-                engine.speakNow(SpokenText.spokenPart(text))
+                let answer = SpokenText.spokenAnswer(text)
+                engine.speakNow(answer.text)
+                if !restSaid, answer.cut == .length, let rest = restInChatWords(messages: messages) {
+                    restSaid = true
+                    engine.speakNow(rest)
+                }
             case let .narrate(text, speakerId):
                 player.speaker = speaker(speakerId)
                 engine.speakNow(text)
@@ -785,6 +796,22 @@ final class CallController: ObservableObject {
                 String(localized: "\(count) steps done, I'm still going.", bundle: $0, locale: locale)
             }
         }
+    }
+
+    /// "The rest is written in the chat." in the call's language (the same
+    /// choice as the progress lines); nil for a language without the words.
+    func restInChatWords(messages: [Message]) -> String? {
+        let language = CallProgress.language(
+            callLanguage: voiceSettings.language,
+            lastUserText: CallProgress.lastUserText(messages),
+            appLanguage: Bundle.main.preferredLocalizations.first ?? "en"
+        )
+        let english = "The rest is written in the chat."
+        if let bundle = Self.wordsBundle(language), Self.hasWords(english, in: bundle) {
+            return String(localized: "The rest is written in the chat.", bundle: bundle, locale: Locale(identifier: language))
+        }
+        let lower = language.lowercased()
+        return lower == "en" || lower.hasPrefix("en-") ? english : nil
     }
 
     /// The app's own words in one language: that language's .lproj (exact,
