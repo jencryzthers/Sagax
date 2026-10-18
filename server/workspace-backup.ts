@@ -16,6 +16,10 @@ import { fromMarkdown } from "mdast-util-from-markdown";
 import { writeFileAtomic } from "./atomic.ts";
 import { mergePrincipalFiles } from "./principals.ts";
 import { removeThreadTrees } from "./runtime/store.ts";
+import {
+  chatOfKeys, confidentialEngineSessionPath, dataEngineHomes, databaseSidecarOf, ENGINE_PURGE_DONE, ENGINE_PURGE_FILE,
+  engineHomeOf, engineStoreFiltered, engineStoreKind, eventLogSessionIds, readPendingPurges, scrubEngineDatabase, taskEngineKeys, widenKeys,
+} from "./engine-transcripts.ts";
 import { escapeAttribute, splitTranscriptAttachments } from "../src/lib/composer-attachments.ts";
 import { WORKSPACE_BACKUP_CLIENT_KEYS } from "../shared/workspace-backup-client.ts";
 import { confidentialDataScopePath, ephemeralWorkspaceTokenPath, excludedWorkspaceAuthPath, liveDataEnginePath, portableWorkspaceConfig, redownloadedOrgLibraryPath, restoredWorkspaceConfig } from "./workspace-backup-policy.ts";
@@ -36,6 +40,9 @@ const EXCLUDED = new Set([
   // room-handoff file the job runtime imported once (runtime/import-legacy.ts):
   // dead data whose briefs and results may be a confidential thread's
   "confidential-forgotten", "room-handoffs.json.migrated",
+  // engine transcript purges left to retry, and the one-time purge's mark
+  // (server/engine-transcripts.ts): this machine's bookkeeping
+  ENGINE_PURGE_FILE, ENGINE_PURGE_DONE,
   ".openmausbot-server-child", "environment-id", "sessions.json", "tunnel-account.json",
   "team-computers.json",
   // Identity provider grants (server/idp-session.ts): bound to this server's
@@ -248,6 +255,12 @@ function copyRegular(source: string, destination: string): { size: number; mode:
     if (output !== undefined) closeSync(output);
   }
 }
+/** A file's text when it is small enough to filter (64 MB), else null:
+ * a larger one is copied as it is. */
+function smallText(path: string): string | null {
+  const stat = lstatSync(path);
+  return stat.isFile() && stat.size <= 64 * 1024 ** 2 ? readFileSync(path, "utf8") : null;
+}
 function hashFile(path: string): string {
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
@@ -385,6 +398,32 @@ export function stripConfidentialRuntime(databasePath: string, threads: Readonly
   }
 }
 
+/** The keys that find the engines' own transcripts of a data folder's
+ * confidential threads (server/engine-transcripts.ts): each one's id, its
+ * folder's hashes and its session ids (its record, its event log), the
+ * purges left to retry, widened over the engine homes in that folder.
+ * `sourceDataDir` is where the folder was when the engines ran (an
+ * archive's source). */
+export function confidentialEngineKeys(root: string, roster: unknown, sourceDataDir: string = root, widen = true): Set<string> {
+  const seed = new Set<string>();
+  if (Array.isArray(roster)) {
+    for (const bot of roster) {
+      if (!record(bot) || typeof bot.id !== "string" || !Array.isArray(bot.tasks)) continue;
+      for (const task of bot.tasks) {
+        if (!record(task) || task.confidential !== true || typeof task.threadId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(task.threadId)) continue;
+        const keys = taskEngineKeys({
+          threadId: task.threadId,
+          resumeCursors: record(task.resumeCursors) ? task.resumeCursors : {},
+          engineSessions: Array.isArray(task.engineSessions) ? task.engineSessions.filter((id): id is string => typeof id === "string") : [],
+        }, [join(sourceDataDir, "task-workspaces", bot.id, task.threadId)], eventLogSessionIds(join(root, "events", `${task.threadId}.ndjson`)));
+        for (const key of keys) seed.add(key);
+      }
+    }
+  }
+  for (const pending of readPendingPurges(root)) for (const key of pending.keys) seed.add(key);
+  return seed.size && widen ? widenKeys(dataEngineHomes(root), seed) : seed;
+}
+
 /** Whether a data-relative path belongs to a confidential thread. */
 export function confidentialBackupPath(path: string, threads: ReadonlyMap<string, string>, attachments: ReadonlySet<string>): boolean {
   if (!threads.size) return false;
@@ -473,10 +512,15 @@ export async function createWorkspaceBackupSnapshot(dataDir: string, options: Cr
   let skippedLinks = 0;
   let skippedDependencies = 0;
   let skippedWorkLinks = 0;
+  let skippedEngineStores = 0;
   try {
     const root = realpathSync(dataDir);
-    const confidential = existsSync(join(root, "bots.json")) ? confidentialRoster(privateJson(join(root, "bots.json"))) : new Map<string, string>();
+    const roster = existsSync(join(root, "bots.json")) ? privateJson(join(root, "bots.json")) : [];
+    const confidential = confidentialRoster(roster);
     let confidentialAttachments = new Set<string>();
+    // the engines' own transcripts of them (Claude Code's projects/*.jsonl,
+    // Codex's rollouts and databases, …) in the engine homes of this folder
+    const engineKeys = confidentialEngineKeys(root, roster);
     // A confidential thread deleted since the last backup left its words in
     // free pages and index segments of the live databases: clean the copies.
     const forgotten = existsSync(join(root, CONFIDENTIAL_FORGOTTEN_MARKER));
@@ -513,9 +557,14 @@ export async function createWorkspaceBackupSnapshot(dataDir: string, options: Cr
         // a case-sensitive host cannot export auth paths active on Windows/Mac.
         if (forbiddenArchivePath(path)) throw new Error("A workspace filename conflicts with a protected authentication or runtime path.");
         if (confidentialBackupPath(path, confidential, confidentialAttachments)) continue;
+        if (confidentialEngineSessionPath(path, engineKeys)) continue;
         if (!validRelative(path)) throw new Error("A workspace filename cannot be safely restored on supported platforms.");
         const source = join(directory, name);
         const stat = lstatSync(source);
+        // an engine database is copied as a scrubbed snapshot (below), which
+        // already holds what its journal committed
+        const sidecarOf = engineKeys.size || forgotten ? databaseSidecarOf(path) : null;
+        if (sidecarOf && engineStoreKind(sidecarOf, join(root, sidecarOf)) === "database") continue;
         // Installed dependencies come back from the project's lockfile, can
         // hold more files than this format allows, and are often a link an
         // agent made to another checkout's install. Leave them out.
@@ -555,7 +604,37 @@ export async function createWorkspaceBackupSnapshot(dataDir: string, options: Cr
           walk(source, path);
         } else if (stat.isFile()) {
           let copied: { size: number; mode: number; sha256: string };
-          if (path === "config.json" || path === "webhooks.json" || (path === "bots.json" && confidential.size)) {
+          // an engine home's own stores (server/engine-transcripts.ts): its
+          // databases are copied as compacted snapshots whenever a confidential
+          // thread exists or one was deleted (no free page or WAL frame of it),
+          // its histories, logs and chat records without the threads' entries
+          const engineKind = (engineKeys.size || forgotten) && engineHomeOf(path) ? engineStoreKind(path, source) : null;
+          const engineText = engineKind && engineKind !== "database" && engineKeys.size ? smallText(source) : null;
+          if (engineKind && engineKind !== "database" && engineKeys.size && engineText === null) {
+            // too large to filter here: left out rather than copied whole
+            skippedEngineStores++;
+            continue;
+          }
+          if (engineKind === "chat" && engineText !== null && chatOfKeys(engineText, engineKeys)) continue;
+          const filtered = engineText === null || engineKind === "chat" || !engineKind || engineKind === "database" ? null : engineStoreFiltered(engineKind, engineText, engineKeys);
+          if (filtered !== null) {
+            writeFileSync(destination, filtered, { mode: 0o600, flag: "wx" });
+            copied = { size: lstatSync(destination).size, mode: 0o600, sha256: hashFile(destination) };
+          } else if (engineKind === "database") {
+            try {
+              // a consistent copy (its WAL included), then without their rows
+              const live = new DatabaseSync(source, { readOnly: true, timeout: 5_000, enableForeignKeyConstraints: false });
+              try { live.prepare("VACUUM INTO ?").run(destination); } finally { live.close(); }
+              scrubEngineDatabase(destination, engineKeys);
+              chmodSync(destination, 0o600);
+            } catch {
+              // a database that cannot be copied clean is left out
+              rmSync(destination, { force: true });
+              skippedEngineStores++;
+              continue;
+            }
+            copied = { size: lstatSync(destination).size, mode: 0o600, sha256: hashFile(destination) };
+          } else if (path === "config.json" || path === "webhooks.json" || (path === "bots.json" && confidential.size)) {
             const value = privateJson(source);
             if (path === "config.json") writeJson(destination, portableWorkspaceConfig(value));
             else if (path === "bots.json") writeJson(destination, rosterWithoutConfidentialContent(value));
@@ -583,6 +662,7 @@ export async function createWorkspaceBackupSnapshot(dataDir: string, options: Cr
     walk(root);
     if (skippedLinks) warnings.push(`${skippedLinks} managed skill discovery link(s) were omitted and are recreated by the app.`);
     if (skippedDependencies) warnings.push(`${skippedDependencies} installed dependency folder(s) (node_modules) were omitted; reinstall them in the project after restoring.`);
+    if (skippedEngineStores) warnings.push(`${skippedEngineStores} engine history, log or database file(s) could not be copied without a confidential thread's entries and were omitted.`);
     if (skippedWorkLinks) warnings.push(`${skippedWorkLinks} symbolic link(s) in conversation work folders were omitted; what they point to is outside this backup.`);
     const summary: WorkspaceBackupSummary = {
       format: "openmaus.workspace-backup", version: 1, id: job.id, createdAt: new Date().toISOString(),
@@ -781,7 +861,7 @@ export async function stageWorkspaceBackup(dataDir: string, archivePath: string,
     const staged = join(job.directory, "staged");
     folder(staged);
     await tar.x({ file: plaintext, cwd: staged, strict: true, preservePaths: false, umask: 0o077, noChmod: true, brotli: false, zstd: false });
-    const manifest = withoutConfidentialDataScopes(staged, validateStaged(staged, expected));
+    const manifest = withoutConfidentialEngineSessions(staged, withoutConfidentialDataScopes(staged, validateStaged(staged, expected)));
     const versions = [manifest.summary.appVersion, options.currentAppVersion ?? ""].map((version) => /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(version)?.slice(1).map(Number));
     if (versions[0] && versions[1]) {
       for (let i = 0; i < 3; i++) {
@@ -817,6 +897,76 @@ function withoutConfidentialDataScopes(staged: string, manifest: Manifest): Mani
   };
   const next = { ...manifest, entries, summary };
   writeJson(join(staged, "manifest.json"), next);
+  return validateStaged(staged);
+}
+
+/** An archive from a release that exported the engines' own transcripts
+ * of its confidential threads (server/engine-transcripts.ts) leaves them in
+ * the staged copy at once: the entries their names give away, the lines of
+ * prompt histories and logs, the rows of engine databases and Gemini-style
+ * chat records of their sessions. The manifest follows, so the preview
+ * counts nothing of them and a restore never installs them. */
+function withoutConfidentialEngineSessions(staged: string, manifest: Manifest): Manifest {
+  const data = join(staged, "data");
+  const keys = confidentialEngineKeys(data, existsSync(join(data, "bots.json")) ? privateJson(join(data, "bots.json")) : [], manifest.sourceDataDir);
+  if (!keys.size) return manifest;
+  const touched = new Set<string>();
+  const dropped = new Set<string>();
+  for (const entry of manifest.entries) {
+    if ([...dropped].some((parent) => entry.path.startsWith(`${parent}/`))) { dropped.add(entry.path); continue; }
+    const path = join(data, entry.path);
+    if (confidentialEngineSessionPath(entry.path, keys)) {
+      rmSync(path, { recursive: true, force: true });
+      dropped.add(entry.path);
+      continue;
+    }
+    if (entry.type !== "file" || !engineHomeOf(entry.path)) continue;
+    const kind = engineStoreKind(entry.path, path);
+    if (kind === "database") {
+      try {
+        if (scrubEngineDatabase(path, keys)) touched.add(entry.path);
+      } catch {
+        // a database that cannot be cleaned is not restored
+        rmSync(path, { force: true });
+        dropped.add(entry.path);
+      }
+      // opening it (to widen the keys, to scrub it) may have folded or left
+      // its journal files: they are recounted, or removed when undeclared
+      for (const suffix of ["-wal", "-shm", "-journal"]) {
+        const sidecar = `${entry.path}${suffix}`;
+        touched.add(sidecar);
+        if (!manifest.entries.some((other) => other.path === sidecar)) rmSync(join(data, sidecar), { force: true });
+      }
+      continue;
+    }
+    if (!kind) continue;
+    const text = smallText(path);
+    if (text === null || (kind === "chat" && chatOfKeys(text, keys))) {
+      // too large to filter, or a chat record of their session: not restored
+      rmSync(path, { force: true });
+      dropped.add(entry.path);
+      continue;
+    }
+    if (kind === "chat") continue;
+    const filtered = engineStoreFiltered(kind, text, keys);
+    if (filtered !== null) { writeFileSync(path, filtered, { mode: 0o600 }); touched.add(entry.path); }
+  }
+  if (!touched.size && !dropped.size) return manifest;
+  const entries: Entry[] = [];
+  for (const entry of manifest.entries) {
+    if (dropped.has(entry.path)) continue;
+    if (!touched.has(entry.path)) { entries.push(entry); continue; }
+    const path = join(data, entry.path);
+    if (!entryExists(path)) continue;
+    entries.push({ ...entry, size: lstatSync(path).size, sha256: hashFile(path) });
+  }
+  const summary = {
+    ...manifest.summary,
+    files: entries.filter((entry) => entry.type === "file").length,
+    directories: entries.filter((entry) => entry.type === "directory").length,
+    bytes: entries.reduce((total, entry) => total + (entry.type === "file" ? entry.size : 0), 0),
+  };
+  writeJson(join(staged, "manifest.json"), { ...manifest, entries, summary });
   return validateStaged(staged);
 }
 
@@ -947,7 +1097,13 @@ function prepareRestore(dataDir: string, id: string, manifest: Manifest): string
   // restores; the dead tokens themselves are never installed. Nor is a
   // confidential thread's Data folder an older release exported (its sheet):
   // whoever the restored roster lets in, it never comes back.
-  const installed = manifest.entries.filter((entry) => !ephemeralWorkspaceTokenPath(entry.path) && !confidentialDataScopePath(entry.path));
+  // Nor the engines' own transcripts of a confidential thread (staged
+  // copies already lost them: withoutConfidentialEngineSessions). Its keys
+  // are not widened here: that would open the staged databases, whose
+  // journal files would then be absent from the manifest.
+  const stagedData = join(job, "staged", "data");
+  const engineKeys = confidentialEngineKeys(stagedData, existsSync(join(stagedData, "bots.json")) ? privateJson(join(stagedData, "bots.json")) : [], manifest.sourceDataDir, false);
+  const installed = manifest.entries.filter((entry) => !ephemeralWorkspaceTokenPath(entry.path) && !confidentialDataScopePath(entry.path) && !confidentialEngineSessionPath(entry.path, engineKeys));
   for (const entry of installed.filter((entry) => entry.type === "directory")) folder(join(prepared, entry.path));
   for (const entry of installed) {
     const destination = join(prepared, entry.path);
