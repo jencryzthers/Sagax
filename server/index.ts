@@ -1049,7 +1049,7 @@ import { createMcpAuditInternalRoutes } from "./routes/mcp-audit-internal.ts";
 import { createRoutineRunInternalRoutes, routineRunNowAllowed } from "./routes/routine-run-internal.ts";
 import { createPerspicaxOrgRoutes, orgDirectoryEntries, type OrgSettings, type PendingAdminApproval } from "./perspicax-org-routes.ts";
 import { createMemorySyncTokenRoute } from "./perspicax-memory-sync-token.ts";
-import { memberEnvironmentAutonomyAllowed, ownEnvironmentAutonomy, ownEnvironmentCall, ownEnvironmentTurnOrigin } from "./member-environment.ts";
+import { memberEnvironmentAutonomyAllowed, normalizedDestinationPath, ownAttachmentRead, ownDestinationCall, ownEnvironmentAutonomy, ownEnvironmentCall, ownEnvironmentTurnOrigin } from "./member-environment.ts";
 import { MEMBER_AUTO_NOT_ALLOWED, memberAutoApprovalAllowed, memberAutoChangeRefused, memberAutoLevelResets, memberAutoResetPending, memberAutoSettle, memberRoomTurnLevel, memberTurnLevel, type MemberAutoReset } from "./member-auto-approval.ts";
 import { ORG_FULL_ACCESS_DEFAULT_MARKER, orgFullAccessAllowed, orgFullAccessGrandfathered, orgFullAccessGrantRefusal, orgFullAccessHolds, orgNewBotApprovalMode, ORG_FULL_ACCESS_DISABLED } from "./org-full-access.ts";
 import { createInterimAttachRoutes, INTERIM_WINDOW_DAYS, interimWindowUntil, windowWithDays } from "./interim-attach-routes.ts";
@@ -9273,8 +9273,9 @@ function terminalPrincipalId(auth: RequestAuth): string | undefined {
  * Sagax app (organization server, server/desktop-terminal.ts). */
 const desktopTerminals = new DesktopTerminals((person, operation) => desktopBridges.request(person, operation, () => true));
 /** What `principalId` may open in the in-chat terminal for `botId`
- * (2026-10-15, JC): the server's hosts stay an organization admin's; a
- * person's own environments are theirs, for their own bot. */
+ * (2026-10-15, JC; 2026-10-19): the server's hosts are an organization
+ * admin's or a holder of host.commands'; a person's own environments are
+ * always theirs (terminal-resources/registry.ts). */
 function terminalAccessFor(principalId: string, botId: string): TerminalAccess {
   const person = principalId.trim().toLowerCase();
   const organization = IDENTITY.kind === "perspicax";
@@ -9287,7 +9288,10 @@ function terminalAccessFor(principalId: string, botId: string): TerminalAccess {
   const admin = record?.local === true || record?.orgRole === "admin";
   const bot = store.bot(botId);
   const ownsBot = Boolean(bot && person && effectiveBotOwner(bot).trim().toLowerCase() === person);
-  return { organization, admin, ownsBot };
+  // 2026-10-19 (JC): the server's hosts also open for a person an admin
+  // gave host.commands to in Perspicax (a person or a team).
+  const serverHosts = !admin && Boolean(record) && record?.disabledAt === undefined && principalCan(person, "host.commands");
+  return { organization, admin, ownsBot, serverHosts };
 }
 /** Where `botId` works in this conversation now, as a terminal destination:
  * the place Auto chose this turn, else its Workspace (or the conversation's
@@ -9886,6 +9890,10 @@ function approvalAnswerRefusal(auth: RequestAuth, threadId: string, requestId: s
 function adminApprovalCheck(auth: RequestAuth, threadId: string, requestId: string): "admin" | "refused" | null {
   if (IDENTITY.kind !== "perspicax") return null;
   const card = store.messagesFor(threadId).find((row) => row.card?.requestId === requestId)?.card;
+  // Security review 2026-10-19: a holder's server-command card is checked
+  // again at the answer: an admin, or someone who still holds host.commands.
+  if (card?.serverCommandHolder && !card.answered && !card.dismissed && !card.expired
+    && !orgAdminCaller(auth) && !callerCan(auth, "host.commands")) return "refused";
   return adminApprovalDecision({ identity: IDENTITY.kind, card, callerIsOrgAdmin: orgAdminCaller(auth) });
 }
 const MEMBER_BOT_FULL_ACCESS = {
@@ -9893,7 +9901,7 @@ const MEMBER_BOT_FULL_ACCESS = {
   code: "member_bot_full_access",
 } as const;
 const ADMIN_APPROVAL_REQUIRED = {
-  error: "This command would run on the server: an organization admin has to approve it.",
+  error: "This command would run on the organization's server: an organization admin has to approve it. To approve the server commands of your own bots yourself, ask an admin to give you \"Run commands on the organization's server\" in Perspicax (Bot rights > Who has what).",
   code: "admin_approval_required",
 } as const;
 
@@ -12919,12 +12927,41 @@ bus.subscribe((event: RuntimeEvent) => {
           summary: event.summary,
         })
         : [];
-      const adminApproval = Boolean(memberAsker && asker && memberBotAdminApproval({
+      // 2026-10-19 (JC): a call on the owner's own destination (their server
+      // environment, their own computer or its Local VM) is the owner's card
+      // at their own level, never an admin's; and an owner who holds
+      // host.commands (given in Perspicax) answers the server commands of
+      // their own bots.
+      const ownDestination = Boolean(permission && asker && event.requestId && ownDestinationRequest(asker, event.threadId, event.mcpTool ?? event.tool, guestDriven));
+      const serverLevelCard = Boolean(memberAsker && asker && memberBotAdminApproval({
         tool: event.mcpTool ?? event.tool, command: event.command, paths: event.paths,
         workspaceRoot: join(realpathSync(DATA_DIR), "task-workspaces", asker.id),
         ownerScopedMcpServer: ownerScopedMcpServerFor(asker, event.threadId),
         ownEnvironment,
+        ownDestination,
         foreignMcpServers: foreignServers,
+      }));
+      // Security review 2026-10-19: a holder of host.commands answers a
+      // server-level card of their own bot only for their own turn, when the
+      // card is theirs to answer (not a confidential thread of someone else),
+      // and always by hand: no permission mode, rule, saved command or
+      // Always allow answers it (`strictCard`), and the right is checked
+      // again when the card is answered (adminApprovalCheck).
+      const serverCommandHolder = Boolean(serverLevelCard && asker && !guestDriven
+        && ownEnvironmentOrigin(asker, event.threadId) === "owner"
+        && approvalOwnerId(asker, event.threadId).trim().toLowerCase() === effectiveBotOwner(asker).trim().toLowerCase()
+        && principalCan(effectiveBotOwner(asker), "host.commands"));
+      const adminApproval = serverLevelCard && !serverCommandHolder;
+      /** A card no grant answers: an admin's, or a holder's server command. */
+      const strictCard = adminApproval || serverCommandHolder;
+      // 2026-10-19: a read of the person's own attachments (the files they
+      // sent, staged in their own destination) needs no card, at any level,
+      // from the owner's own turn; deny and ask rules, a safety hold and a
+      // security key still come first (auto-approve.ts).
+      const attachmentRead = Boolean(ownDestination && asker && !strictCard && ownEnvironmentOrigin(asker, event.threadId) === "owner" && ownAttachmentRead({
+        tool: event.mcpTool ?? event.tool,
+        input: typeof event.input === "string" ? event.input : undefined,
+        roots: ownAttachmentRoots(asker, event.threadId),
       }));
       // A confidential thread's card goes to its owner only: one they could
       // not answer (an organization admin's card, another person's machine)
@@ -12941,7 +12978,7 @@ bus.subscribe((event: RuntimeEvent) => {
         });
         break;
       }
-      const command = permission && asker && event.requestId && !event.requiresExplicitApproval && event.command && !adminApproval && !guestDriven
+      const command = permission && asker && event.requestId && !event.requiresExplicitApproval && event.command && !strictCard && !guestDriven
         ? commandAllowlistCandidate({ ...event.command, providerInstanceId: event.providerInstanceId ?? asker.modelSelection.instanceId })
         : null;
       // a Sagax gate card can be remembered as an Allow rule for this exact tool
@@ -12968,7 +13005,7 @@ bus.subscribe((event: RuntimeEvent) => {
         ? reviewCustomRules(customRules.rulesOf(approvalOwnerId(asker, event.threadId), asker.id), customCall, asker.id)
         : null;
       const customDecision = customReview?.decision.kind === "allow"
-        && (adminApproval || guestDriven || safetyEffect?.kind === "hold" || event.requiresExplicitApproval === true)
+        && (strictCard || guestDriven || safetyEffect?.kind === "hold" || event.requiresExplicitApproval === true)
         ? { kind: "none" as const }
         : customReview?.decision;
       if (customDecision?.kind === "deny" && asker && event.requestId) {
@@ -12987,35 +13024,43 @@ bus.subscribe((event: RuntimeEvent) => {
         break;
       }
       const baseVerdict = permission && asker && event.requestId
-        ? autoVerdict(adminApproval ? "ask" : effectiveApprovalMode, event.tool, {
+        ? autoVerdict(strictCard ? "ask" : effectiveApprovalMode, event.tool, {
           requiresExplicitApproval: event.requiresExplicitApproval,
           sagaxGate: event.sagaxGate === true,
-          ruleAllowed: Boolean(gateAllowKey && !adminApproval && !guestDriven && botForThread(asker.id, event.threadId)?.alwaysAllow?.includes(gateAllowKey)),
+          ruleAllowed: Boolean(gateAllowKey && !strictCard && !guestDriven && botForThread(asker.id, event.threadId)?.alwaysAllow?.includes(gateAllowKey)),
           commandAllowed: Boolean(command && commandAllowlist.matches(asker.id, command)),
           safetyHold: safetyEffect?.kind === "hold",
           // A gate card stays a person's choice. Reads the gate already
           // trusts never reach this branch.
           safetyAllow: safetyEffect?.kind === "allow" && safetyEffect.auto === true && event.sagaxGate !== true,
-          widgetApproved: !adminApproval && !guestDriven && !event.requiresExplicitApproval &&
+          widgetApproved: !strictCard && !guestDriven && !event.requiresExplicitApproval &&
             cwActionPasses.take(event.threadId, event.mcpTool ?? event.tool, event.input) !== null,
           ...(customDecision?.kind === "ask" ? { customRule: { behavior: "ask" as const, id: customDecision.rule.id } } : {}),
-          emailDraftApproved: emailDraftCall && !adminApproval && !guestDriven && !event.requiresExplicitApproval,
+          emailDraftApproved: emailDraftCall && !strictCard && !guestDriven && !event.requiresExplicitApproval,
           // 2026-10-16: Sagax's own person-scoped tools answer themselves
           // (sagax-internal-tools.ts) on any engine and at any level, except
           // a Data call that is not visibly contained (in solo: anything but
           // a load inside the bot's workspace), a send, a rule change or a
           // class the person protects with a security key.
-          sagaxInternal: !adminApproval && !guestDriven && !event.requiresExplicitApproval && internalTool !== null
+          sagaxInternal: !strictCard && !guestDriven && !event.requiresExplicitApproval && internalTool !== null
             && sagaxInternalSelfAnswers(event.mcpTool ?? event.tool, typeof event.input === "string" ? event.input : undefined, asker ? dataSelfAnswerRoots(asker, event.threadId) : [], IDENTITY.kind === "perspicax"),
           // Only at Auto or Auto-accept edits, only the owner's own turn
           // (reads excepted), never a call a security key protects.
           ownEnvironment: Boolean(asker) && ownEnvironmentAutonomy({
-            call: ownEnvironment, mode: adminApproval ? "ask" : effectiveApprovalMode, tool: event.mcpTool ?? event.tool,
+            call: ownEnvironment, mode: strictCard ? "ask" : effectiveApprovalMode, tool: event.mcpTool ?? event.tool,
             ...(typeof event.input === "string" ? { input: event.input } : {}),
             origin: asker ? ownEnvironmentOrigin(asker, event.threadId) : "other", stepUpRequired: selfAnswerStepUp,
           }),
+          ownAttachmentRead: attachmentRead,
           ...(event.mcpTool ? { toolName: event.mcpTool } : {}),
-          stepUpRequired: selfAnswerStepUp,
+          stepUpRequired: attachmentRead && !selfAnswerStepUp.length && asker
+            ? autoAnswerStepUp(asker, event.threadId, {
+              tool: event.tool,
+              ...(event.mcpTool ? { mcpTool: event.mcpTool } : {}),
+              ...(typeof event.input === "string" ? { input: event.input } : {}),
+              summary: event.summary,
+            })
+            : selfAnswerStepUp,
           ruleChange: toolChangesRules(event.mcpTool ?? event.tool),
         })
         : null;
@@ -13024,7 +13069,7 @@ bus.subscribe((event: RuntimeEvent) => {
       // safety hold, a sandbox widening, a question, a guest's turn or a
       // teammate tool (peer review has its own card).
       const ownerTool = event.mcpTool ?? event.tool;
-      const ownerLayer = Boolean(permission && asker && event.requestId && !baseVerdict?.approve && !adminApproval && !guestDriven
+      const ownerLayer = Boolean(permission && asker && event.requestId && !baseVerdict?.approve && !strictCard && !guestDriven
         && !/^(?:mcp__[^_]+__)?(?:askuserquestion|ask_user)$/i.test(ownerTool) && memberOwnScopeTool(ownerTool) !== "conversation");
       const ownerCall = ownerLayer && asker
         ? { ownerId: approvalOwnerId(asker, event.threadId), botId: asker.id, tool: ownerTool, ...(typeof event.input === "string" ? { input: event.input } : {}) }
@@ -13045,11 +13090,19 @@ bus.subscribe((event: RuntimeEvent) => {
           summary: event.summary,
         }))
         : [];
-      const ownerOriginRefused = Boolean(ownerCall && asker && ownEnvironment && !ownEnvironmentAutonomy({
-        call: true, mode: "auto", tool: event.mcpTool ?? event.tool,
-        ...(typeof event.input === "string" ? { input: event.input } : {}),
-        origin: ownEnvironmentOrigin(asker, event.threadId), stepUpRequired: [],
-      }));
+      // Security review 2026-10-19: an own-destination call that is not an
+      // own-environment call Sagax may run unasked (the person's own
+      // computer, or their server environment while the organization turned
+      // autonomy off) is never answered by the owner's mode or rules either:
+      // the card shows (a read of their own attachments excepted).
+      const ownerOriginRefused = Boolean(ownerCall && asker && (
+        (ownEnvironment && !ownEnvironmentAutonomy({
+          call: true, mode: "auto", tool: event.mcpTool ?? event.tool,
+          ...(typeof event.input === "string" ? { input: event.input } : {}),
+          origin: ownEnvironmentOrigin(asker, event.threadId), stepUpRequired: [],
+        }))
+        || (ownDestination && !ownEnvironment && !attachmentRead)
+      ));
       const owner = ownerCall && asker
         ? ownerDecision({
           mode: effectivePermissionMode(asker, ownerCall.ownerId),
@@ -13215,13 +13268,14 @@ bus.subscribe((event: RuntimeEvent) => {
             ? { version: 1, questions, ...(event.origin === "output" ? { origin: "output" as const } : {}) }
             : undefined,
           commandAllowlist: command ?? undefined,
-          ...(gateAllowKey && !adminApproval && !memberAsker && !guestDriven ? { allowKey: gateAllowKey } : {}),
+          ...(gateAllowKey && !strictCard && !memberAsker && !guestDriven ? { allowKey: gateAllowKey } : {}),
           // Provider-owned session grants remain separate from exact commands.
           // a member's bot is approved one action at a time: a session rule
           // (Claude's own suggestion) could reach past its workspace. Never on
           // a guest's turn either: an "always" for it would outlive it.
-          allowSession: permission && event.allowSession && !event.requiresExplicitApproval && !adminApproval && !memberAsker && !guestDriven && safetyEffect?.kind !== "hold" ? true : undefined,
+          allowSession: permission && event.allowSession && !event.requiresExplicitApproval && !strictCard && !memberAsker && !guestDriven && safetyEffect?.kind !== "hold" ? true : undefined,
           ...(adminApproval ? { adminApproval: true } : {}),
+          ...(serverCommandHolder ? { serverCommandHolder: true } : {}),
           // who will answer it, for the member's waiting line
           ...(adminApproval && orgAdminNames().length ? { adminNames: orgAdminNames() } : {}),
           // The text stays for cards saved before heldCode existed, and for
@@ -27215,6 +27269,54 @@ function ownEnvironmentRequest(bot: BotRecord, threadId: string, tool: string | 
     guestDriven,
     mountedServers: (mine && workplace.ownEnvironmentServers) || new Set<string>(),
   });
+}
+/** 2026-10-19 (JC): whether a call acts on the bot owner's own destination
+ * (their server environment, their own computer or its Local VM) that Sagax
+ * mounted for this turn: the owner's card, never an admin's
+ * (member-environment.ts ownDestinationCall). */
+function ownDestinationRequest(bot: BotRecord, threadId: string, tool: string | undefined, guestDriven: boolean): boolean {
+  const workplace = turnWorkplaces.get(threadId);
+  const mine = workplace?.botId === bot.id;
+  return ownDestinationCall({
+    identity: IDENTITY.kind,
+    tool,
+    environmentPrincipalId: mine ? workplace.decision.principal : null,
+    ownerPrincipalId: effectiveBotOwner(bot),
+    guestDriven,
+    mountedServers: (mine && workplace.ownEnvironmentServers) || new Set<string>(),
+  });
+}
+/** 2026-10-19: the attachments folders of the owner's own destinations,
+ * where Sagax staged the files they sent: their desktop app's folder on
+ * their computer, /workspace/attachments in their server environment. */
+function ownAttachmentRoots(bot: BotRecord, threadId: string): Array<{ server: string; path: string; platform: "darwin" | "win32" | "linux" }> {
+  const workplace = turnWorkplaces.get(threadId);
+  if (workplace?.botId !== bot.id) return [];
+  const person = workplace.decision.principal;
+  if (!person) return [];
+  const roots: Array<{ server: string; path: string; platform: "darwin" | "win32" | "linux" }> = [];
+  const mounted = workplace.ownEnvironmentServers ?? new Set<string>();
+  if (mounted.has(DESKTOP_BRIDGE_MCP_NAME)) {
+    const desktop = desktopBridges.current(person);
+    // Security review 2026-10-19: only a folder shaped like the app's own
+    // (<temp>/Sagax/attachments, electron/main.mjs), never a root or a home
+    // folder a modified client could report.
+    const folder = desktop?.attachmentsDir ? normalizedDestinationPath(desktop.attachmentsDir, desktop.platform) : null;
+    if (desktop && folder && /\/sagax\/attachments$/i.test(folder) && folder.split("/").length >= 4) {
+      roots.push({ server: DESKTOP_BRIDGE_MCP_NAME, path: desktop.attachmentsDir, platform: desktop.platform });
+    }
+  }
+  if (mounted.has(USER_SANDBOX_MCP_NAME)) roots.push({ server: USER_SANDBOX_MCP_NAME, path: SANDBOX_ATTACHMENTS_DIR, platform: "linux" });
+  return roots;
+}
+/** 2026-10-19: whether this person holds a permission (an organization
+ * admin holds every one); a disabled or unknown person holds none. */
+function principalCan(principalId: string | undefined | null, key: PermissionKey): boolean {
+  const id = principalId?.trim().toLowerCase() ?? "";
+  if (!id || !isPrincipalId(id)) return false;
+  const person = principals.byId(id);
+  if (!person || person.disabledAt !== undefined) return false;
+  return can(principalPermissions(id), key);
 }
 /** 2026-10-16 security review: whose turn asks, for the owner's own
  * environment (member-environment.ts ownEnvironmentTurnOrigin). Only the
