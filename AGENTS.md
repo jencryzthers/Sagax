@@ -586,6 +586,14 @@ and `server/routes/group-folders.ts`. Keep these rules, covered by
   marker `agent-threads-hidden.v1`). A card waiting in a hidden
   conversation is answered by the AI client (`sagax_approve`), not shown
   to the person.
+- `sagax_send` (`bots/{id}/messages`) and `send_prompt` (`agents/send_prompt`,
+  `conversation()` then `post()` in `server/index.ts`) reach the same hidden
+  conversation through the same `POST /api/bots/:id/messages` turn: a ping
+  costs the same either way. What a ping costs is that conversation's whole
+  history (the engine reads it again every turn) plus the system prompt and
+  tool schemas; only `sagax_send` with `newThread: true` starts empty.
+  Measured by `server/ai-client-turn-context.e2e.test.ts`
+  (`AI_CLIENT_CONTEXT_REPORT=<file>` writes the figures).
 - A conversation that buzzed the phones and is then read anywhere sends
   each phone one silent `read` push; the phone withdraws its banner and
   recounts the badge, and withdraws settled bot banners whenever its unread
