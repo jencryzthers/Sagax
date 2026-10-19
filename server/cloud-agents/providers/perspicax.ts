@@ -78,12 +78,31 @@ export function runSnapshot(run: PerspicaxRun, result?: string): ProviderRunSnap
   };
 }
 
-export function createPerspicaxProvider(fetchImpl: HttpFetch, baseUrl: () => string | null): CloudAgentProviderAdapter {
+/** A personal run's subscription (subscription-depositor.ts): the check
+ * before a launch, and the close watch after it. */
+export interface PersonalSubscriptions {
+  ready(principalId: string, engine: string): { ok: true } | { ok: false; message: string };
+  watch(principalId: string, runId: string): void;
+}
+
+/** Whether a run from this environment uses the person's own subscription:
+ * `personnel`, or `au_choix` (Sagax never picks, so Perspicax's default,
+ * personal, applies). */
+export function personalEnvironment(env: Pick<PerspicaxEnvironment, "token_source">): boolean {
+  return env.token_source === "personnel" || env.token_source === "au_choix";
+}
+
+/** This server's link token (PerspicaxDirectory.linkBearer). */
+export type LinkBearer = (reread?: boolean) => string | null;
+
+export function createPerspicaxProvider(fetchImpl: HttpFetch, baseUrl: () => string | null, personal?: () => PersonalSubscriptions | null, link: LinkBearer = () => null): CloudAgentProviderAdapter {
   const client = new PerspicaxAgentsClient(fetchImpl);
   const access = (token: string): PerspicaxAccess => {
     const base = baseUrl();
     if (!base) throw new ProviderHttpError(501, "not_available", "Perspicax runs need Sagax Business (an organization server signed in with Perspicax).");
-    return { baseUrl: base, token };
+    // `token` is the acting person's sign-in (the record's principal: who
+    // speaks, or the bot's owner for a routine); the link token says which server.
+    return { baseUrl: base, token, link: () => link(), relink: () => link(true) };
   };
   return {
     id: "perspicax",
@@ -97,6 +116,13 @@ export function createPerspicaxProvider(fetchImpl: HttpFetch, baseUrl: () => str
       const where = access(token);
       const env = pickEnvironment(await client.environments(where), { envId: input.envId, repo: input.repos?.[0]?.url });
       const engine = input.engine && (RUN_ENGINES as readonly string[]).includes(input.engine) ? input.engine : undefined;
+      // A personal run needs the person's own sign-in for its engine: refused
+      // here, with the reason, before Perspicax queues a run that cannot work.
+      const subscriptions = personal?.() ?? null;
+      if (subscriptions && input.principalId && personalEnvironment(env)) {
+        const ready = subscriptions.ready(input.principalId, engine ?? env.engine_default);
+        if (!ready.ok) throw new ProviderHttpError(409, "no_subscription", ready.message);
+      }
       const repo = input.repos?.[0]?.url ? repoSlug(input.repos[0].url) ?? undefined : undefined;
       const run = await client.create(where, {
         env_id: env.id,
@@ -108,6 +134,7 @@ export function createPerspicaxProvider(fetchImpl: HttpFetch, baseUrl: () => str
         ...(engine ? { engine } : {}),
         ...(input.model ? { model: input.model } : {}),
       });
+      if (subscriptions && input.principalId && run.token_source === "personnel") subscriptions.watch(input.principalId, run.id);
       return {
         externalId: run.id,
         name: run.title || input.name || run.prompt.slice(0, 80),

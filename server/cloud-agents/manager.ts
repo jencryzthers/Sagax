@@ -82,7 +82,7 @@ export class CloudAgentManager {
   }): Promise<CloudAgentRecord> {
     const adapter = this.provider(input.launch.provider);
     const token = await this.token(input.principalId, input.launch.provider);
-    const launched = await adapter.launch(token, input.launch);
+    const launched = await adapter.launch(token, { ...input.launch, principalId: input.principalId });
     const record = this.deps.store.create({
       botId: input.botId,
       threadId: input.threadId,
@@ -164,7 +164,10 @@ export class CloudAgentManager {
   }
 
   async testCredential(principalId: string, provider: CloudAgentProviderId, token?: string): Promise<void> {
-    const value = token?.trim() || await this.token(principalId, provider);
+    // A provider without a pasted key (perspicax) is tested with the person's
+    // own sign-in only: a token in the request would ride on this server's
+    // link token for someone else.
+    const value = (cloudAgentKeyProvider(provider) ? token?.trim() : "") || await this.token(principalId, provider);
     await this.provider(provider).testToken(value);
   }
 

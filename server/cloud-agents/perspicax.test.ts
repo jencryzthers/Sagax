@@ -27,10 +27,10 @@ afterEach(async () => {
   dataDir = "";
 });
 
-const access = () => ({ baseUrl: fake.url, token: fake.token });
+const access = () => ({ baseUrl: fake.url, token: fake.token, link: () => fake.linkToken });
 
 describe("PerspicaxAgentsClient", () => {
-  it("lists environments and runs with the bearer token", async () => {
+  it("lists environments and runs with the link token and the sign-in as subject", async () => {
     const client = new PerspicaxAgentsClient();
     const envs = await client.environments(access());
     expect(envs.map((env) => env.name)).toEqual(["demo/web-app", "demo/api"]);
@@ -39,11 +39,39 @@ describe("PerspicaxAgentsClient", () => {
     expect(runs.find((run) => run.id === "run_01merged0a3f")?.pr).toMatchObject({ number: 42, state: "merged" });
   });
 
-  it("turns a refused token into a 401 ProviderHttpError without the token in it", async () => {
+  it("turns a refused sign-in token into a 403 ProviderHttpError without the token in it", async () => {
     const client = new PerspicaxAgentsClient();
-    const error = await client.environments({ baseUrl: fake.url, token: "wrong-token-value" }).catch((e: unknown) => e);
-    expect(error).toMatchObject({ status: 401 });
+    const error = await client.environments({ baseUrl: fake.url, token: "wrong-token-value", link: () => fake.linkToken }).catch((e: unknown) => e);
+    expect(error).toMatchObject({ status: 403 });
     expect(String((error as Error).message)).not.toContain("wrong-token-value");
+  });
+
+  it("sends the link token as the Bearer and the acting person's sign-in as the subject, SSE included", async () => {
+    const seen: Headers[] = [];
+    const client = new PerspicaxAgentsClient(async (input, init) => { seen.push(new Headers(init?.headers)); return fetch(input, init); });
+    await client.runs(access(), { mine: true });
+    const abort = new AbortController();
+    for await (const event of client.stream(access(), "run_01merged0a3f", 0, abort.signal)) { if (event.seq >= 1) abort.abort(); }
+    expect(seen.length).toBeGreaterThanOrEqual(2);
+    for (const headers of seen) {
+      expect(headers.get("authorization")).toBe(`Bearer ${fake.linkToken}`);
+      expect(headers.get("x-perspicax-subject-token")).toBe(fake.token);
+    }
+  });
+
+  it("is refused when the sign-in token is the Bearer alone, as Perspicax refuses it", async () => {
+    const res = await fetch(`${fake.url}/api/v1/agents/runs?mine=true`, { headers: { authorization: `Bearer ${fake.token}` } });
+    expect(res.status).toBe(401);
+    const client = new PerspicaxAgentsClient();
+    await expect(client.runs({ baseUrl: fake.url, token: fake.token, link: () => null })).rejects.toMatchObject({ status: 501, code: "not_linked" });
+  });
+
+  it("reads the link token again once after a 401 (it rotated)", async () => {
+    const client = new PerspicaxAgentsClient();
+    let rereads = 0;
+    const rotated = { baseUrl: fake.url, token: fake.token, link: () => "old-link-token", relink: () => { rereads++; return fake.linkToken; } };
+    expect((await client.environments(rotated)).length).toBeGreaterThan(0);
+    expect(rereads).toBe(1);
   });
 
   it("refuses an id that is not a run id before it reaches a path", async () => {
@@ -151,7 +179,7 @@ describe("PerspicaxAgentsClient before Perspicax P1.5 (no artifact routes)", () 
   let early: FakePerspicaxAgents;
   beforeEach(async () => { early = await startFakePerspicaxAgents({ tickMs: 0, artifactRoutes: false }); });
   afterEach(async () => { await early.close(); });
-  const earlyAccess = () => ({ baseUrl: early.url, token: early.token });
+  const earlyAccess = () => ({ baseUrl: early.url, token: early.token, link: () => early.linkToken });
 
   it("reads the diff and the commits from the run's latest diff and commits events", async () => {
     const client = new PerspicaxAgentsClient();
@@ -200,7 +228,7 @@ describe("CloudAgentManager with the perspicax provider", () => {
     const mgr = new CloudAgentManager({
       store,
       credentials,
-      providers: new Map([["perspicax", createPerspicaxProvider(fetch, () => fake.url)]]),
+      providers: new Map([["perspicax", createPerspicaxProvider(fetch, () => fake.url, undefined, () => fake.linkToken)]]),
       accessToken: async () => token,
       onComplete: (event) => { completions.push(event.summary); },
     });
@@ -240,6 +268,29 @@ describe("CloudAgentManager with the perspicax provider", () => {
     expect(completions).toHaveLength(2);
   });
 
+  it("refuses a personal run without the person's sign-in for its engine, and watches one it launched", async () => {
+    dataDir = mkdtempSync(join(tmpdir(), "sagax-perspicax-"));
+    const watched: string[] = [];
+    let signedIn = false;
+    const personal = { ready: (_p: string, engine: string) => signedIn ? { ok: true as const } : { ok: false as const, message: `no ${engine} sign-in` }, watch: (_p: string, runId: string) => { watched.push(runId); } };
+    const mgr = new CloudAgentManager({
+      store: new CloudAgentStore(dataDir),
+      credentials: new CloudAgentCredentialStore(dataDir, () => ({ kind: "key", key: Buffer.alloc(32, 7) })),
+      providers: new Map([["perspicax", createPerspicaxProvider(fetch, () => fake.url, () => personal, () => fake.linkToken)]]),
+      accessToken: async () => fake.token,
+    });
+    const launch = { botId: "bot-1", threadId: "thread-1", principalId: "pr_alice", launch: { provider: "perspicax" as const, prompt: "Corrige", repos: [{ url: "https://github.com/demo/web-app" }] } };
+    await expect(mgr.launch(launch)).rejects.toMatchObject({ status: 409, code: "no_subscription", message: "no claude-code sign-in" });
+    expect(fake.runs().filter((r) => r.prompt === "Corrige")).toHaveLength(0);
+    signedIn = true;
+    const record = await mgr.launch(launch);
+    expect(watched).toEqual([record.externalId]);
+    // A team environment uses the organization's key: no check, no watch.
+    signedIn = false;
+    await mgr.launch({ ...launch, launch: { ...launch.launch, repos: [{ url: "https://github.com/demo/api" }] } });
+    expect(watched).toHaveLength(1);
+  });
+
   it("asks which environment when the repository is missing and several exist", async () => {
     const { mgr } = manager(fake.token);
     await expect(mgr.launch({ botId: "bot-1", threadId: "thread-1", principalId: "pr_alice", launch: { provider: "perspicax", prompt: "x" } }))
@@ -253,7 +304,7 @@ describe("CloudAgentManager with the perspicax provider", () => {
     const mgr = new CloudAgentManager({
       store,
       credentials: new CloudAgentCredentialStore(dataDir, () => ({ kind: "key", key: Buffer.alloc(32, 7) })),
-      providers: new Map([["perspicax", createPerspicaxProvider(fetch, () => fake.url)]]),
+      providers: new Map([["perspicax", createPerspicaxProvider(fetch, () => fake.url, undefined, () => fake.linkToken)]]),
       accessToken: async () => token,
     });
     const record = await mgr.launch({ botId: "b", threadId: "t", principalId: "p", launch: { provider: "perspicax", prompt: "x", envId: "env_01demoweb" } });
@@ -292,5 +343,20 @@ describe("CloudAgentStore files", () => {
     const legacy = JSON.parse(readFileSync(join(dataDir, "cloud-agents", "records.json"), "utf8"));
     expect(legacy.agents[0].status).toBe("failed");
     expect(store.get(row.id)?.status).toBe("expired");
+  });
+});
+
+describe("testing the perspicax provider", () => {
+  it("never tests a token pasted in the request, only the person's own sign-in", async () => {
+    dataDir = mkdtempSync(join(tmpdir(), "sagax-perspicax-"));
+    const tested: string[] = [];
+    const mgr = new CloudAgentManager({
+      store: new CloudAgentStore(dataDir),
+      credentials: new CloudAgentCredentialStore(dataDir, () => ({ kind: "key", key: Buffer.alloc(32, 7) })),
+      providers: new Map([["perspicax", { ...createPerspicaxProvider(fetch, () => fake.url, undefined, () => fake.linkToken), testToken: async (token: string) => { tested.push(token); } }]]),
+      accessToken: async () => fake.token,
+    });
+    await mgr.testCredential("pr_alice", "perspicax", "someone-elses-sign-in-token");
+    expect(tested).toEqual([fake.token]);
   });
 });
