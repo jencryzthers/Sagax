@@ -6560,7 +6560,8 @@ function publishedPageViewer(req: IncomingMessage): PageViewer {
   const cookie = parseCookies(typeof req.headers.cookie === "string" ? req.headers.cookie : undefined).get(SESSION_COOKIE);
   if (cookie) {
     const session = sessions.authenticate(cookie);
-    if (!session) return null;
+    // Not yet confirmed by the provider after a restart: only the main gate confirms it.
+    if (!session || sessions.needsRecheck(session.id)) return null;
     if (IDENTITY.kind !== "perspicax") {
       return { computerOwner: computerOwner({ kind: "session", session, via: "cookie", scopes: session.scopes }) };
     }
@@ -30275,6 +30276,12 @@ if (oidcRp && idpVault) {
     },
   });
 }
+// A "Sign in with Pulsatrix" session kept across an unclean restart needs the
+// provider to confirm it; without one to ask, it ends as before.
+if (!idpSessions) {
+  const dropped = sessions.dropPendingRechecks();
+  if (dropped) console.log(`sessions: ${dropped} sign-in(s) kept across a restart ended (no identity provider to confirm them)`);
+}
 if (idpSessions) {
   const unavailable = idpSessions.unavailableReason();
   if (unavailable) console.error(`sign-in with Pulsatrix is unavailable: ${unavailable}`);
@@ -32920,6 +32927,20 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (disabled()) return endSession(401, "principal_disabled", "Your account is disabled in Pulsatrix or on this Sagax server. Ask an administrator.");
       // What the gate checked the route against, before any refresh.
       const gated = [...auth.scopes];
+      // 2026-10-19: a session kept across an unclean restart waits for the
+      // provider to confirm it. Refused there, it ends below like any other;
+      // provider not answering yet, a 503 the client retries, never a sign-out.
+      if (sessions.needsRecheck(auth.session.id)) {
+        await settledWithin(idpSessions.recheck(auth.session), IDP_REFRESH_WAIT_MS);
+        const waiting = sessions.byId(auth.session.id);
+        if (waiting && sessions.needsRecheck(waiting.id)) {
+          // No grant left to confirm it (a logout whose write was lost, a
+          // device whose person has no live sign-in): ended, not "retry".
+          if (idpSessions.mustRefuse(waiting) === "idp_session_ended") return endSession(401, "idp_session_ended", "Your Pulsatrix sign-in has ended. Sign in again.");
+          res.setHeader("retry-after", "5");
+          return json(res, 503, { error: "Sagax restarted and is confirming your Pulsatrix sign-in. Try again in a moment.", code: "idp_recheck_pending" });
+        }
+      }
       await settledWithin(idpSessions.touch(auth.session), IDP_REFRESH_WAIT_MS);
       const current = sessions.byId(auth.session.id);
       if (!current || disabled()) {
@@ -44677,7 +44698,8 @@ const desktopTunnelDeps = {
   organization: () => IDENTITY.kind === "perspicax",
   session: (req: IncomingMessage) => {
     const token = parseCookies(req.headers.cookie).get(SESSION_COOKIE);
-    const record = token ? sessions.authenticate(token) : null;
+    const found = token ? sessions.authenticate(token) : null;
+    const record = found && !sessions.needsRecheck(found.id) ? found : null;
     const person = record ? liveSessionPerson(record.id) : null;
     return record && person ? { id: record.id, person } : null;
   },
