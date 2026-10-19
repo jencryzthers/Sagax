@@ -1346,6 +1346,39 @@ marketplaces (Connect apps > Manage > Organization sources and access; any by de
 `SAGAX_CLAUDE_ALLOW` rules for `claude plugin ...` are therefore not needed
 there.
 
+### Pulsatrix Flow for every member (organization server)
+
+On a server linked to Perspicax, the Claude Code plugins of Pulsatrix Flow
+come by default with membership (`server/org-flow-plugins.ts`): Perspicax
+declares them in the directory (`flow_plugins`: the product
+`pulsatrix-flow@pulsatrix` of `pulsatrixtechnologies/marketplace`, plus the
+organization's own configuration plugin when its admin names one), and the
+server installs one copy for the organization, under the reserved plugin key
+`_org-flow-plugins`, as it installs a plugin "For this bot" (no hooks, MCP,
+LSP or bin on the host). Every Claude turn of a bot whose owner is an active
+member loads that copy with `--plugin-dir`, after the bot's own plugins and
+never twice.
+
+- Triggers: the first directory after a link, every directory change (an
+  invitation accepted, a declaration changed), a Perspicax profile added to a
+  bot, and a check every 30 minutes. Each is idempotent; the marketplaces are
+  fetched again at most every 6 hours, or at once when the declaration
+  changes, and a plugin is installed again in place when its marketplace
+  offers another version.
+- Sources: only the GitHub repositories Perspicax declares, and only when the
+  organization's marketplace list allows them (Connect apps > Manage); a
+  refused one is reported in `GET /api/org` (`settings.flowPlugins`), never
+  widened. A private repository is read with the installation's token for it
+  or the organization's GitHub tokens.
+- Off: the Perspicax admin sets `flow_plugins_default` to `off`; the next
+  directory removes the organization's copy. A plugin someone installed on a
+  bot by hand stays.
+- A person who leaves the organization gets none of these plugins on their
+  bots; their own per-bot plugins are not touched.
+- Other engines: Codex, Grok and the rest have no Claude Code plugin system;
+  they reach Flow through the Perspicax profiles of the turn (`flow` and
+  `flow_action`, served by Perspicax from its signed pack).
+
 An allow rule never overrides a denial. Rules only go into
 `permissions.allow`; they never remove a tool from `--disallowedTools` or from
 a deny list, and in Claude Code a deny always wins over an allow. On an

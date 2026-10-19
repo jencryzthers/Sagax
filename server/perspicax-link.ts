@@ -169,12 +169,26 @@ const teamSchema = z.object({
   managers: z.array(z.string().max(255)).max(100_000),
   members: z.array(z.string().max(255)).max(100_000),
 });
+const FLOW_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const FLOW_GITHUB_REPO = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+/** Perspicax 2026-10-18 (model/flow_plugins.rs): the Claude Code plugins of
+ * Pulsatrix Flow every member gets by default (server/org-flow-plugins.ts).
+ * GitHub owner/repo marketplaces and plugin names only, never a secret. */
+export const flowPluginsSchema = z.object({
+  enabled: z.boolean(),
+  marketplaces: z.array(z.object({ name: z.string().regex(FLOW_NAME), source: z.string().regex(FLOW_GITHUB_REPO) })).max(10),
+  plugins: z.array(z.object({ name: z.string().regex(FLOW_NAME), marketplace: z.string().regex(FLOW_NAME), tenant: z.boolean() })).max(10),
+});
+export type FlowPluginsDeclaration = z.infer<typeof flowPluginsSchema>;
+
 export const directorySchema = z.object({
   server_id: z.string().min(1).max(64),
   people: z.array(personSchema).max(100_000),
   teams: z.array(teamSchema).max(100_000),
   /** Slice 5: every MCP profile of the organization (catalog). */
   profiles: z.array(profileSchema).max(10_000).optional(),
+  /** Absent from an older Perspicax; malformed is read as absent. */
+  flow_plugins: flowPluginsSchema.optional().catch(undefined),
 });
 export type DirectoryProfile = z.infer<typeof profileSchema>;
 export type DirectoryPerson = z.infer<typeof personSchema>;
@@ -333,6 +347,8 @@ export interface PerspicaxDirectoryOptions {
    * right stays the same. The new right is passed in: `integrationRights`
    * still reads the previous directory until this answer is stored. */
   onIntegrationRights?: (principalId: string, rights: "manage" | "off") => void;
+  /** A new directory body was applied (not called on 304). */
+  onDirectory?: (directory: Directory) => void;
   /** Pulsa Bot's version, sent as X-Pulsabot-Version. */
   version: string;
   /** Slice 7: the link file was loaded, changed to another server id, or
@@ -443,6 +459,12 @@ export class PerspicaxDirectory {
   /** The last directory Perspicax sent, or null before the first answer. */
   directory(): Directory | null {
     return this.data;
+  }
+
+  /** Pulsatrix Flow's default plugins from the last directory; undefined
+   * when it sent none (an older Perspicax, or before the first answer). */
+  flowPlugins(): FlowPluginsDeclaration | undefined {
+    return this.data?.flow_plugins ?? undefined;
   }
 
   people(): DirectoryPerson[] {
@@ -1191,6 +1213,11 @@ export class PerspicaxDirectory {
     }
     this.apply(parsed, fetchStartedAt);
     this.data = parsed;
+    try {
+      this.options.onDirectory?.(parsed);
+    } catch (error) {
+      this.log(`perspicax directory: a listener failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
     this.loggedUnknownPermissions.clear();
     this.reportDelegations(parsed, fetchStartedAt);
     const etag = response.headers.get("etag");

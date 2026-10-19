@@ -817,6 +817,7 @@ import { isLoginDriver, LOGIN_MARKER, loginCliFor, PrincipalEngineLogins } from 
 import { createSectionChannelRoutes, migrationOwner, recordAccess, SectionChannels, sectionShareGrants } from "./section-channels.ts";
 import { createBotGrantRoutes, visibleGrants, wireGrants } from "./bot-grants.ts";
 import { createBotPerspicaxRoutes } from "./bot-perspicax.ts";
+import { OrgFlowPlugins } from "./org-flow-plugins.ts";
 import { applyIdentityMigration, principalIdFor, rewritePeopleForAttach } from "./identity-migration.ts";
 import { ThreadStarters } from "./thread-starters.ts";
 import {
@@ -6326,6 +6327,26 @@ const botPlugins = new BotPlugins({
   tokens: marketplaceTokens,
   policy: pluginMarketplacePolicy,
 });
+// Pulsatrix Flow's Claude Code plugins for every member of the organization
+// (server/org-flow-plugins.ts): Perspicax declares them in the directory, the
+// organization's copy loads on the Claude turns of a member's bots.
+const orgFlowPlugins = new OrgFlowPlugins({
+  dataDir: DATA_DIR,
+  plugins: botPlugins,
+  marketplaces: pluginMarketplaces,
+  policy: pluginMarketplacePolicy,
+  declaration: () => (IDENTITY.kind === "perspicax" ? perspicaxDirectory?.flowPlugins() : undefined),
+  isMember: (principalId) => orgMemberActive(principalId),
+});
+/** An active member of the organization now: a principal the last Perspicax
+ * directory lists as active (never on a solo server). */
+function orgMemberActive(principalId: string): boolean {
+  if (IDENTITY.kind !== "perspicax" || !isPrincipalId(principalId)) return false;
+  const person = principals.byId(principalId);
+  if (!person || person.disabledAt !== undefined || person.subject?.iss !== IDENTITY.issuer) return false;
+  const sub = person.subject.sub;
+  return perspicaxDirectory?.people().some((entry) => entry.sub === sub && entry.status === "active") === true;
+}
 {
   const migrated = migrateBotMarketplaces(DATA_DIR, pluginMarketplaces);
   if (migrated.bots || migrated.failed.length) {
@@ -6659,7 +6680,13 @@ function botLoadsPlugins(bot: { modelSelection: { instanceId: string } }): boole
 }
 /** Enabled plugin folders for a Claude turn (`--plugin-dir`). Empty for every other engine, and when that person's integrations are off. */
 function pluginDirsFor(bot: { id: string; ownerUserId?: unknown }, instance: { driverKind: string }): { pluginDirs?: string[] } {
-  const dirs = claudePluginDirs(instance.driverKind, personIntegrationsOff(effectiveBotOwner(bot)), botPlugins.pluginDirs(bot.id));
+  const owner = effectiveBotOwner(bot);
+  const own = claudePluginDirs(instance.driverKind, personIntegrationsOff(owner), botPlugins.pluginDirs(bot.id));
+  // The organization's Flow plugins (an admin's choice in Perspicax, so they
+  // load even when an admin manages this person's integrations), after the
+  // bot's own and never twice.
+  const org = instance.driverKind === "claudeAgent" ? orgFlowPlugins.dirsFor(owner, own) : [];
+  const dirs = [...own, ...org];
   return dirs.length ? { pluginDirs: dirs } : {};
 }
 /** The same enabled skills and commands, for a workspace engine that is not Claude. Claude uses --plugin-dir instead, and integrations off lists nothing. */
@@ -27631,6 +27658,7 @@ function orgSettings(): OrgSettings {
     memberAutoApproval: memberAutoApprovalAllowed(cfg.organization),
     allowVaultExport: vaultExportAllowed(),
     pluginMarketplaces: pluginMarketplacePolicy() ?? { mode: "any" },
+    ...(IDENTITY.kind === "perspicax" ? { flowPlugins: orgFlowPlugins.status() } : {}),
     github: { clientId: githubClientId() ?? null, fromEnvironment: !cfg.organization?.githubClientId && Boolean(process.env.SAGAX_GITHUB_CLIENT_ID?.trim()) },
     ...(IDENTITY.kind === "perspicax"
       ? { interimAttach: { until: interimWindowUntil(cfg.organization?.interimAttach, Date.now()), people: principals.listInterim().length } }
@@ -28713,6 +28741,8 @@ if (IDENTITY.kind === "perspicax") {
     onChanged: (id) => {
       const bot = store.bot(id);
       if (bot) broadcast({ kind: "bot", bot: wireBot(bot) });
+      // a profile added is also a trigger of the organization's Flow plugins
+      void orgFlowPlugins.sync("profile").catch(() => undefined);
     },
   }));
   // D14: the bots whose sharing the caller administers, with their grants,
@@ -29942,9 +29972,14 @@ if (IDENTITY.kind === "perspicax" && oidcRp && idpSessions && process.env.SAGAX_
       const connection = personGithub(principalId);
       if (connection) void syncGithubToSandbox(principalId, connection);
     },
+    // Membership is the trigger of the Flow plugins: the first directory,
+    // an invitation accepted, a declaration changed in Perspicax.
+    onDirectory: () => { void orgFlowPlugins.sync("directory").catch(() => undefined); },
     version,
   });
   perspicaxDirectory.start(intervalMs);
+  // a newer Flow version: the sync fetches the marketplaces again when due
+  setInterval(() => { void orgFlowPlugins.sync("schedule").catch(() => undefined); }, 30 * 60_000).unref();
   // Slice 5: per-turn MCP tokens for the person who speaks.
   const directory = perspicaxDirectory;
   perspicaxMemory = new PerspicaxMemory({ link: () => directory });

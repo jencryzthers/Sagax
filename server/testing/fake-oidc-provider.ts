@@ -182,6 +182,8 @@ export interface FakeOidcProvider {
   /** Slice 5: the profile catalog, who holds what (by sub), every exchange
    * (sub, profile, outcome), revocations of exchanged tokens, and /mcp. */
   profiles: Array<{ id: string; slug: string; name: string; description: string }>;
+  /** Pulsatrix Flow's default plugins (`flow_plugins`), sent when set. */
+  flowPlugins?: unknown;
   profilesBySub: Map<string, string[]>;
   exchanges: Array<{ sub: string | null; profile: string | null; ok: boolean; error?: string; token?: string }>;
   exchangeRevoked: string[];
@@ -413,6 +415,7 @@ export async function startFakeOidcProvider(options: { clientId?: string; user?:
         })),
         ...(provider.profiles.length ? { profiles: [...provider.profiles].sort((a, b) => a.id.localeCompare(b.id)) } : {}),
         teams: [...provider.directoryTeams].sort((a, b) => a.id.localeCompare(b.id)).map((team) => ({ ...team, managers: [...team.managers].sort(), members: [...team.members].sort() })),
+        ...(provider.flowPlugins !== undefined ? { flow_plugins: provider.flowPlugins } : {}),
       });
       const etag = `"${createHash("sha256").update(body).digest("hex").slice(0, 32)}"`;
       if (headers["if-none-match"] === etag) {
