@@ -9009,6 +9009,11 @@ store.onChange((change) => {
     }
     case "bot.deleted":
       sentThreads.delete(change.botId);
+      // its memory upkeep state (waiting turns, deferred batches, status),
+      // whatever path deleted it (port de OpenMausBot #2856)
+      // (a deletion during startup may come before the upkeep exists)
+      try { memoryUpkeep.forgetBot(change.botId); }
+      catch { console.error("[memory-upkeep] Could not forget deleted bot's upkeep state."); }
       try { commandAllowlist.clear(change.botId); }
       catch { console.error("[command-allowlist] Could not remove deleted bot's saved rules."); }
       // Its plugins and the tokens saved for its marketplaces go with it.
