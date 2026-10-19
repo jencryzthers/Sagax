@@ -1,201 +1,240 @@
-// Pulsatrix Flow's default plugins for the organization's members
-// (server/org-flow-plugins.ts), on the real plugin stores with a git runner
-// that copies local repositories.
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+// Pulsatrix Flow for every member (server/org-flow-plugins.ts) against a fake
+// Claude Code (testing/fake-claude-plugin-cli.ts) and a fake Perspicax
+// marketplace that serves only with the member's token.
+import { createHash } from "node:crypto";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { BotPluginError, type GitRunner, type MarketplacePolicy } from "./bot-plugins.ts";
-import { ORG_FLOW_PLUGINS_KEY, OrgFlowPlugins, REFRESH_MS } from "./org-flow-plugins.ts";
-import { directorySchema, type FlowPluginsDeclaration } from "./perspicax-link.ts";
-import { PluginMarketplaces } from "./plugin-marketplaces.ts";
-import { BotPlugins } from "./bot-plugins.ts";
+import { OrgFlowPlugins, TOKEN_ENV } from "./org-flow-plugins.ts";
+import { flowPluginsSchema, type FlowPluginsDeclaration } from "./perspicax-link.ts";
 
-const dirs: string[] = [];
-const temp = () => {
-  const dir = mkdtempSync(join(tmpdir(), "sagax-org-flow-"));
-  dirs.push(dir);
-  return dir;
-};
-afterEach(() => {
-  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-});
+const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "testing", "fake-claude-plugin-cli.ts");
+const TOKEN = "pxlo1.member.0123456789abcdef";
+const posixOnly = describe.skipIf(process.platform === "win32");
 
-function write(root: string, path: string, content: string) {
-  mkdirSync(join(root, path, ".."), { recursive: true });
-  writeFileSync(join(root, path), content);
+interface Plugin { name: string; version: string; tenant: boolean }
+
+/** The fake Perspicax: its manifest and archives behind the member's token. */
+class Marketplace {
+  server!: Server;
+  origin = "";
+  plugins: Plugin[] = [];
+  tamper = false;
+  requests: Array<{ path: string; auth: boolean }> = [];
+
+  archive(p: Plugin): Buffer {
+    return Buffer.from(JSON.stringify({ files: {
+      ".claude-plugin/plugin.json": JSON.stringify({ name: p.name, version: p.version }),
+      "skills/entry/SKILL.md": `---\nname: entry\ndescription: ${p.name} ${p.version}\n---\nBody`,
+      "hooks/hooks.json": JSON.stringify({ hooks: {} }),
+    } }));
+  }
+
+  async start() {
+    this.server = createServer((req, res) => {
+      const auth = req.headers.authorization === `Bearer ${TOKEN}`;
+      this.requests.push({ path: req.url ?? "", auth });
+      if (!auth) { res.writeHead(401, { "www-authenticate": "Bearer" }).end(); return; }
+      if (req.url === "/flow/marketplace/marketplace.json") {
+        res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({
+          name: "perspicax",
+          plugins: this.plugins.map((p) => ({ name: p.name, version: p.version, source: {
+            source: "archive",
+            url: `${this.origin}/flow/marketplace/plugins/${p.name}-${p.version}.zip`,
+            sha256: this.tamper ? "0".repeat(64) : createHash("sha256").update(this.archive(p)).digest("hex"),
+          } })),
+        }));
+        return;
+      }
+      const found = this.plugins.find((p) => req.url === `/flow/marketplace/plugins/${p.name}-${p.version}.zip`);
+      if (found) { res.writeHead(200).end(this.archive(found)); return; }
+      res.writeHead(404).end();
+    });
+    await new Promise<void>((resolve) => this.server.listen(0, "127.0.0.1", resolve));
+    this.origin = `http://127.0.0.1:${(this.server.address() as AddressInfo).port}`;
+  }
+
+  declaration(over: Partial<FlowPluginsDeclaration> = {}): FlowPluginsDeclaration {
+    return flowPluginsSchema.parse({
+      enabled: true,
+      name: "perspicax",
+      url: `${this.origin}/flow/marketplace/marketplace.json`,
+      resource: `${this.origin}/flow/marketplace`,
+      pack: `sha256:${"a".repeat(64)}`,
+      plugins: this.plugins,
+      ...over,
+    });
+  }
 }
 
-/** A marketplace repository with one plugin carrying a skill and a hook. */
-function marketplace(name: string, plugin: string, version: string): string {
-  const repo = temp();
-  write(repo, ".claude-plugin/marketplace.json", JSON.stringify({ name, plugins: [{ name: plugin, source: `./plugins/${plugin}`, version }] }));
-  write(repo, `plugins/${plugin}/.claude-plugin/plugin.json`, JSON.stringify({ name: plugin, version }));
-  write(repo, `plugins/${plugin}/skills/entry/SKILL.md`, `---\nname: entry\ndescription: ${plugin} ${version}\n---\nBody`);
-  write(repo, `plugins/${plugin}/hooks/hooks.json`, JSON.stringify({ hooks: {} }));
-  return repo;
+/** Every file under a folder, for "the token is never on disk". */
+function allFiles(root: string): string[] {
+  if (!existsSync(root)) return [];
+  const out: string[] = [];
+  for (const name of readdirSync(root)) {
+    const path = join(root, name);
+    if (statSync(path).isDirectory()) out.push(...allFiles(path));
+    else out.push(path);
+  }
+  return out;
 }
 
-const PRODUCT_URL = "https://github.com/pulsatrixtechnologies/marketplace.git";
-const TENANT_URL = "https://github.com/acme/marketplace.git";
-
-function setup(options: { policy?: MarketplacePolicy } = {}) {
-  const dataDir = temp();
-  const repos: Record<string, string> = {
-    [PRODUCT_URL]: marketplace("pulsatrix", "pulsatrix-flow", "0.18.0"),
-    [TENANT_URL]: marketplace("acme", "pulsatrix-flow-acme", "0.1.0"),
-  };
-  const clones: string[] = [];
-  const git: GitRunner = async (args) => {
-    const url = args[args.indexOf("--") + 1]!;
-    const into = args[args.indexOf("--") + 2]!;
-    clones.push(url);
-    const from = repos[url];
-    if (!from) throw new BotPluginError("The repository could not be fetched.", "repository_unreadable", 422);
-    cpSync(from, into, { recursive: true });
-  };
-  let policy = options.policy;
-  const marketplaces = new PluginMarketplaces({ dataDir, git, gitEnvironment: () => ({}), policy: () => policy, inUse: (name) => plugins.botsUsing(name) });
-  const plugins: BotPlugins = new BotPlugins({ dataDir, marketplaces, git, gitEnvironment: () => ({}), policy: () => policy });
+posixOnly("Pulsatrix Flow for every member, from Perspicax's private marketplace", () => {
+  let market: Marketplace;
+  let data: string;
+  let log: string;
   let declaration: FlowPluginsDeclaration | undefined;
-  const members = new Set(["alice"]);
-  let now = 1_000_000;
-  const org = new OrgFlowPlugins({
-    dataDir, plugins, marketplaces, policy: () => policy,
-    declaration: () => declaration,
-    isMember: (id) => members.has(id),
-    now: () => now,
-    log: () => undefined,
+  let token: string | undefined;
+  let tokenAsks: Array<string | undefined>;
+  let flow: OrgFlowPlugins;
+
+  const calls = () => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as { args: string[]; token: boolean }) : []);
+
+  beforeEach(async () => {
+    market = new Marketplace();
+    await market.start();
+    market.plugins = [{ name: "pulsatrix-flow", version: "0.17.0", tenant: false }, { name: "pulsatrix-flow-acme", version: "0.1.21", tenant: true }];
+    data = mkdtempSync(join(tmpdir(), "sagax-org-flow-"));
+    log = join(data, "cli.log");
+    process.env.FAKE_CLAUDE_PLUGIN_LOG = log;
+    declaration = market.declaration();
+    token = TOKEN;
+    tokenAsks = [];
+    flow = new OrgFlowPlugins({
+      dataDir: join(data, "sagax"),
+      issuer: market.origin,
+      declaration: () => declaration,
+      cli: () => FAKE_CLI,
+      token: async (preferred) => { tokenAsks.push(preferred); return token; },
+      isMember: (id) => id === "member",
+      log: () => {},
+    });
   });
-  return {
-    org, plugins, marketplaces, repos, clones, members,
-    declare: (value: FlowPluginsDeclaration | undefined) => { declaration = value; },
-    setPolicy: (value: MarketplacePolicy | undefined) => { policy = value; },
-    advance: (ms: number) => { now += ms; },
-  };
-}
 
-const PRODUCT = { name: "pulsatrix", source: "pulsatrixtechnologies/marketplace" };
-const TENANT = { name: "acme", source: "acme/marketplace" };
-const BOTH: FlowPluginsDeclaration = {
-  enabled: true,
-  marketplaces: [PRODUCT, TENANT],
-  plugins: [
-    { name: "pulsatrix-flow", marketplace: "pulsatrix", tenant: false },
-    { name: "pulsatrix-flow-acme", marketplace: "acme", tenant: true },
-  ],
-};
-
-describe("the directory's flow_plugins", () => {
-  const base = { server_id: "srv", people: [], teams: [] };
-  it("is read when Perspicax sends it, and absent or malformed reads as absent", () => {
-    expect(directorySchema.parse({ ...base, flow_plugins: BOTH }).flow_plugins).toEqual(BOTH);
-    expect(directorySchema.parse(base).flow_plugins).toBeUndefined();
-    // an arbitrary source never passes: GitHub owner/repo only
-    const url = { ...BOTH, marketplaces: [{ name: "x", source: "https://evil.example/repo" }] };
-    expect(directorySchema.parse({ ...base, flow_plugins: url }).flow_plugins).toBeUndefined();
+  afterEach(async () => {
+    delete process.env.FAKE_CLAUDE_PLUGIN_LOG;
+    await new Promise((resolve) => market.server.close(resolve));
+    rmSync(data, { recursive: true, force: true });
   });
-});
 
-describe("OrgFlowPlugins", () => {
-  it("installs the product and the tenant once, for members' Claude turns only", async () => {
-    const t = setup();
-    t.declare(BOTH);
-    const first = await t.org.sync("directory");
-    expect(first).toEqual({
+  it("installs the product and the tenant once, with the member's token never on disk, and loads them for members only", async () => {
+    const status = await flow.sync("sign-in", { principalId: "member" });
+    expect(status).toMatchObject({
       mode: "on",
-      syncedAt: 1_000_000,
-      refreshedAt: 1_000_000,
       plugins: [
-        { key: "pulsatrix-flow@pulsatrix", tenant: false, state: "installed", version: "0.18.0" },
-        { key: "pulsatrix-flow-acme@acme", tenant: true, state: "installed", version: "0.1.0" },
+        { id: "pulsatrix-flow@perspicax", tenant: false, state: "installed", version: "0.17.0" },
+        { id: "pulsatrix-flow-acme@perspicax", tenant: true, state: "installed", version: "0.1.21" },
       ],
     });
-    expect(t.clones).toEqual([PRODUCT_URL, TENANT_URL]);
-    const dirs = t.org.dirsFor("alice", []);
-    expect(dirs.map((dir) => basename(dir))).toEqual(["pulsatrix-flow-acme", "pulsatrix-flow"]);
-    // the host never gets a plugin's hooks
-    for (const dir of dirs) expect(existsSync(join(dir, "hooks"))).toBe(false);
-    expect(t.org.dirsFor("mallory", [])).toEqual([]);
-    expect(t.org.dirsFor(undefined, [])).toEqual([]);
-
-    // Idempotent: again (a profile added, the next poll) clones nothing and
-    // installs nothing.
-    const before = readdirSync(join(dirs[0]!, ".."));
-    await t.org.sync("profile");
-    await t.org.sync("directory");
-    expect(t.clones).toEqual([PRODUCT_URL, TENANT_URL]);
-    expect(readdirSync(join(dirs[0]!, ".."))).toEqual(before);
-  });
-
-  it("updates in place when the marketplace offers a new version, at most every REFRESH_MS", async () => {
-    const t = setup();
-    t.declare(BOTH);
-    await t.org.sync("directory");
-    t.repos[PRODUCT_URL] = marketplace("pulsatrix", "pulsatrix-flow", "0.19.0");
-    await t.org.sync("schedule");
-    expect(t.clones).toHaveLength(2);
-    t.advance(REFRESH_MS);
-    const after = await t.org.sync("schedule");
-    expect(t.clones).toEqual([PRODUCT_URL, TENANT_URL, PRODUCT_URL, TENANT_URL]);
-    expect(after.plugins[0]).toEqual({ key: "pulsatrix-flow@pulsatrix", tenant: false, state: "installed", version: "0.19.0" });
-  });
-
-  it("takes the plugins out when the admin turns the default off, and leaves bots' own plugins", async () => {
-    const t = setup();
-    t.declare(BOTH);
-    await t.org.sync("directory");
-    // a bot that has the product by hand keeps its copy, loaded once
-    await t.plugins.install("bot-1", { marketplace: "pulsatrix", plugin: "pulsatrix-flow" }, "alice");
-    const own = t.plugins.pluginDirs("bot-1");
-    expect(t.org.dirsFor("alice", own).map((dir) => basename(dir))).toEqual(["pulsatrix-flow-acme"]);
-
-    t.declare({ enabled: false, marketplaces: [], plugins: [] });
-    expect(await t.org.sync("directory")).toEqual({ mode: "off", plugins: [], syncedAt: 1_000_000 });
-    expect(t.plugins.listPlugins(ORG_FLOW_PLUGINS_KEY)).toEqual([]);
-    expect(t.org.dirsFor("alice", own)).toEqual([]);
-    expect(t.plugins.pluginDirs("bot-1")).toEqual(own);
-  });
-
-  it("drops a plugin no longer declared and keeps everything when Perspicax sends nothing", async () => {
-    const t = setup();
-    t.declare(BOTH);
-    await t.org.sync("directory");
-    t.declare({ ...BOTH, marketplaces: [PRODUCT], plugins: [BOTH.plugins[0]!] });
-    await t.org.sync("directory");
-    expect(t.plugins.listPlugins(ORG_FLOW_PLUGINS_KEY).map((plugin) => plugin.key)).toEqual(["pulsatrix-flow@pulsatrix"]);
-    t.declare(undefined);
-    expect(await t.org.sync("directory")).toEqual({ mode: "unknown", plugins: [], syncedAt: 1_000_000 });
-    expect(t.plugins.listPlugins(ORG_FLOW_PLUGINS_KEY).map((plugin) => plugin.key)).toEqual(["pulsatrix-flow@pulsatrix"]);
-  });
-
-  it("never reaches past the organization's marketplace list", async () => {
-    const t = setup({ policy: { mode: "list", allow: ["pulsatrixtechnologies/*"] } });
-    t.declare(BOTH);
-    const status = await t.org.sync("directory");
-    expect(status.plugins).toEqual([
-      { key: "pulsatrix-flow@pulsatrix", tenant: false, state: "installed", version: "0.18.0" },
-      { key: "pulsatrix-flow-acme@acme", tenant: true, state: "not_allowed", error: "marketplace_not_allowed: the organization's marketplace list does not include acme/marketplace" },
+    expect(status.error).toBeUndefined();
+    expect(tokenAsks).toEqual(["member"]);
+    // the session start registered the marketplace, then one install each
+    expect(calls().map((c) => c.args.slice(0, 3).join(" "))).toEqual([
+      "-p --input-format stream-json",
+      "plugin list --json",
+      "plugin install pulsatrix-flow@perspicax",
+      "plugin install pulsatrix-flow-acme@perspicax",
+      "plugin list --json",
     ]);
-    expect(t.clones).toEqual([PRODUCT_URL]);
+    expect(calls().every((c) => c.token)).toBe(true);
+    // every request carried the token; nothing reached it without
+    expect(market.requests.every((r) => r.auth)).toBe(true);
+    // the token is in no file Sagax or Claude Code wrote
+    for (const file of allFiles(join(data, "sagax"))) expect(readFileSync(file, "utf8")).not.toContain(TOKEN);
+    const settings = JSON.parse(readFileSync(join(flow.configDir, "settings.json"), "utf8"));
+    expect(settings.extraKnownMarketplaces.perspicax.source.headersHelper).toContain("headers-helper.cjs");
+    expect(readFileSync(join(flow.root, "headers-helper.cjs"), "utf8")).toContain(TOKEN_ENV);
+
+    // the sanitized copies load for a member, after the bot's own, never twice
+    const dirs = flow.dirsFor("member", []);
+    expect(dirs.map((d) => d.split("/").pop())).toEqual(["pulsatrix-flow", "pulsatrix-flow-acme"]);
+    expect(existsSync(join(dirs[0]!, "skills", "entry", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(dirs[0]!, "hooks"))).toBe(false);
+    expect(flow.dirsFor("member", ["/bots/b1/pulsatrix-flow"]).map((d) => d.split("/").pop())).toEqual(["pulsatrix-flow-acme"]);
+    expect(flow.dirsFor("someone-else", [])).toEqual([]);
+    expect(flow.dirsFor(undefined, [])).toEqual([]);
   });
 
-  it("does not take another marketplace's name", async () => {
-    const t = setup();
-    t.repos["https://github.com/someone/else.git"] = marketplace("acme", "other", "1.0.0");
-    await t.plugins.addWorkspaceMarketplace({ source: "someone/else" }, "alice");
-    t.declare(BOTH);
-    const status = await t.org.sync("directory");
-    expect(status.plugins[1]).toEqual({ key: "pulsatrix-flow-acme@acme", tenant: true, state: "failed", error: "name_taken: a marketplace named acme comes from someone/else" });
+  it("is silent when up to date, and updates only what a new pack changed", async () => {
+    await flow.sync("sign-in", { principalId: "member" });
+    const before = calls().length;
+    const requests = market.requests.length;
+    const again = await flow.sync("schedule");
+    expect(again.mode).toBe("on");
+    expect(again.plugins.every((p) => p.state === "installed")).toBe(true);
+    expect(calls().length).toBe(before);
+    expect(market.requests.length).toBe(requests);
+    expect(tokenAsks).toEqual(["member"]);
+
+    market.plugins = [{ name: "pulsatrix-flow", version: "0.17.1", tenant: false }, market.plugins[1]!];
+    declaration = market.declaration({ pack: `sha256:${"b".repeat(64)}` });
+    const updated = await flow.sync("directory");
+    expect(updated.plugins.map((p) => [p.id, p.state, p.version])).toEqual([
+      ["pulsatrix-flow@perspicax", "installed", "0.17.1"],
+      ["pulsatrix-flow-acme@perspicax", "installed", "0.1.21"],
+    ]);
+    expect(calls().slice(before).map((c) => c.args.slice(0, 4).join(" "))).toEqual([
+      "plugin marketplace update perspicax",
+      "plugin list --json",
+      "plugin update pulsatrix-flow@perspicax -y",
+      "plugin list --json",
+    ]);
+    expect(JSON.parse(readFileSync(join(flow.dirsFor("member", [])[0]!, ".claude-plugin", "plugin.json"), "utf8")).version).toBe("0.17.1");
   });
 
-  it("gives a person who leaves the organization none of them", async () => {
-    const t = setup();
-    t.declare(BOTH);
-    await t.org.sync("directory");
-    expect(t.org.dirsFor("alice", [])).toHaveLength(2);
-    t.members.delete("alice");
-    expect(t.org.dirsFor("alice", [])).toEqual([]);
+  it("says why in words when it cannot install, and keeps the copy it has", async () => {
+    token = undefined;
+    const nobody = await flow.sync("start");
+    expect(nobody.mode).toBe("on");
+    expect(nobody.error).toMatch(/no member is signed in/);
+    expect(nobody.plugins.every((p) => p.state === "pending")).toBe(true);
+    expect(calls()).toEqual([]);
+
+    token = TOKEN;
+    await flow.sync("sign-in", { principalId: "member" });
+    market.plugins = [{ name: "pulsatrix-flow", version: "0.18.0", tenant: false }, market.plugins[1]!];
+    declaration = market.declaration({ pack: `sha256:${"c".repeat(64)}` });
+    token = "pxlo1.revoked";
+    const refused = await flow.sync("directory");
+    expect(refused.error).toMatch(/could not be read: .*401/);
+    expect(JSON.stringify(refused)).not.toContain("pxlo1.revoked");
+    // the copy already installed still loads
+    expect(flow.dirsFor("member", []).length).toBe(2);
+
+    token = TOKEN;
+    market.tamper = true;
+    const tampered = await flow.sync("schedule");
+    expect(tampered.plugins[0]).toMatchObject({ id: "pulsatrix-flow@perspicax", state: "failed" });
+    expect(tampered.plugins[0]!.error).toMatch(/integrity check failed/);
+
+    const noCli = new OrgFlowPlugins({ dataDir: join(data, "other"), issuer: market.origin, declaration: () => declaration, cli: () => undefined, token: async () => TOKEN, isMember: () => true, log: () => {} });
+    expect((await noCli.sync("start")).error).toMatch(/no Claude Code engine/);
+  });
+
+  it("never sends a token to a marketplace that is not Perspicax's", async () => {
+    declaration = market.declaration({ url: "https://elsewhere.example.test/flow/marketplace/marketplace.json" });
+    const status = await flow.sync("directory");
+    expect(status.error).toMatch(/not served by Perspicax/);
+    declaration = market.declaration({ resource: `${market.origin}/mcp` });
+    expect((await flow.sync("directory")).error).toMatch(/token audience/);
+    expect(tokenAsks).toEqual([]);
+    expect(calls()).toEqual([]);
+  });
+
+  it("takes everything out when the admin turns it off, and waits on an older Perspicax", async () => {
+    await flow.sync("sign-in", { principalId: "member" });
+    expect(existsSync(flow.root)).toBe(true);
+    declaration = market.declaration({ enabled: false, plugins: [], pack: undefined });
+    const off = await flow.sync("directory");
+    expect(off).toMatchObject({ mode: "off", plugins: [] });
+    expect(existsSync(flow.root)).toBe(false);
+    expect(flow.dirsFor("member", [])).toEqual([]);
+    declaration = undefined;
+    expect((await flow.sync("directory")).mode).toBe("unknown");
   });
 });
