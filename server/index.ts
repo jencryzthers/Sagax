@@ -964,6 +964,8 @@ import { docsIndexPrompt, readWorkspaceText, rulesSystemPrompt, WorkspacePathErr
 import { updateDoc, updateRules } from "./workspace-tools.ts";
 import { markWorkspaceUse, promptSectionPaths } from "./workspace-usage.ts";
 import { createBotActivityRoutes, type ActivityChildRef } from "./routes/bot-activity.ts";
+import { createBotCodeBranchRoutes, type BranchCredentials } from "./routes/bot-code-branches.ts";
+import { BranchArchive } from "./code-branches.ts";
 import { CloudAgentStore } from "./cloud-agents/store.ts";
 import { CloudAgentCredentialStore } from "./cloud-agents/credentials.ts";
 import { CloudAgentManager, type CloudAgentCompletionEvent } from "./cloud-agents/manager.ts";
@@ -26374,6 +26376,72 @@ ROUTES.push(createBotActivityRoutes({
     inRepository: (cwd) => inGitRepository(cwd),
     repository: (cwd) => repositoryInfo(cwd),
   }, viewerId),
+}));
+// The bot panel's Coding branches, acted on by the person
+// (server/routes/bot-code-branches.ts): commit, push, pull request, diff,
+// delete, archive. Their own thread, their own credentials: on a solo
+// server the host's git and gh are theirs; on an organization server only
+// their GitHub connection, never the server's (no global or system git
+// config, no credential helper, no ssh key, an empty gh config).
+const codeBranchArchive = new BranchArchive(join(DATA_DIR, "code-branch-archive.json"));
+function codeBranchCredentials(viewerId: string | undefined): BranchCredentials {
+  if (IDENTITY.kind !== "perspicax") return { git: {}, publish: { push: {}, gh: {} } };
+  // An organization server: nothing of the server's own git or gh (no home,
+  // global or system config, credential helper or ssh key). The route
+  // refuses a request with no person before this.
+  const home = join(DATA_DIR, "code-branches", "home-empty");
+  mkdirSync(home, { recursive: true, mode: 0o700 });
+  const git: Record<string, string> = {
+    HOME: home,
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_SSH_COMMAND: "false",
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_ASKPASS: "/bin/false",
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "credential.helper",
+    GIT_CONFIG_VALUE_0: "",
+  };
+  if (!viewerId) return { isolated: true, git };
+  const person = principals.byId(viewerId);
+  const connection = usablePersonGithub(viewerId);
+  const name = personDisplayName(person) || connection?.login || "";
+  const email = person?.email?.trim();
+  const author = name && email ? { author: { name, email } } : {};
+  if (!connection?.token) return { isolated: true, git, ...author };
+  // The token rides the push call only, as an extra header scoped to github.com.
+  const header = githubGitEnvironment(connection.token);
+  return {
+    isolated: true,
+    git,
+    ...author,
+    publish: {
+      push: { GIT_CONFIG_COUNT: "2", GIT_CONFIG_KEY_1: header.GIT_CONFIG_KEY_0!, GIT_CONFIG_VALUE_1: header.GIT_CONFIG_VALUE_0! },
+      // gh gets a fresh empty home and config folder per call (server/code-branches.ts).
+      gh: { GH_TOKEN: connection.token, GH_HOST: "github.com" },
+    },
+  };
+}
+ROUTES.push(createBotCodeBranchRoutes({
+  bot: (id) => store.bot(id),
+  tasks: (botId) => store.tasks(botId),
+  viewerId: (auth) => channelFilterViewerId(auth),
+  threadWritable: (botId, threadId, viewerId) => {
+    const bot = store.bot(botId);
+    return Boolean(bot) && botThreadReadable(bot!, threadId, viewerId, "thread.post");
+  },
+  messages: (threadId, limit) => ({ messages: store.messagesTail(threadId, limit).messages }),
+  repository: (cwd) => repositoryInfo(cwd),
+  organization: () => IDENTITY.kind === "perspicax",
+  credentials: codeBranchCredentials,
+  archive: codeBranchArchive,
+  audit: (auth, action, target, after) => appendAdminAction(DATA_DIR, {
+    category: "bot",
+    action,
+    target: { kind: "bot", id: target.botId, name: `${target.repo ? `${target.repo} ` : ""}${target.branch}`.slice(0, 200) },
+    ...(after ? { after } : {}),
+    actor: IDENTITY.kind === "perspicax" ? orgAuditActor(auth) : decisionActorFor(auth),
+  }),
 }));
 /** The access card a failed routine run left (refused for lack of
  * credentials, or paused), as this viewer may see it: on an organization
