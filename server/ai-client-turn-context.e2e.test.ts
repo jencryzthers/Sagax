@@ -134,7 +134,9 @@ posixOnly("AI client ping: what the engine is handed (sagax_send vs send_prompt)
       instances: {
         claude: {
           driver: "claudeAgent",
-          environment: { FAKE_CLAUDE_DUMP: dumpPath(), FAKE_CLAUDE_EXIT_AFTER_TURN: "1" },
+          // one-shot calls (a conversation title) write elsewhere, so the
+          // turn dump always holds the turn just measured
+          environment: { FAKE_CLAUDE_DUMP: dumpPath(), FAKE_CLAUDE_TEXT_DUMP: join(home, "one-shot-dump.json"), FAKE_CLAUDE_EXIT_AFTER_TURN: "1" },
           config: { cli: FAKE_CLAUDE, fullAuto: true },
         },
       },
@@ -230,8 +232,13 @@ posixOnly("AI client ping: what the engine is handed (sagax_send vs send_prompt)
     expect(send.resumed).toBe(true);
     expect(prompt.resumed).toBe(true);
     expect(prompt.mcpServers).toEqual(send.mcpServers);
-    expect(Math.abs(prompt.system - send.system)).toBeLessThan(200);
-    expect(Math.abs(prompt.message - send.message)).toBeLessThan(200);
-    expect(prompt.history).toBeGreaterThanOrEqual(send.history);
+    expect(prompt.system).toBe(send.system);
+    expect(prompt.message).toBe(send.message);
+    // send_prompt's history is sagax_send's plus the first ping and its reply
+    expect(prompt.history).toBeGreaterThan(send.history);
+    expect(prompt.history - send.history).toBeLessThan(500);
+    // a fresh conversation carries no history at all
+    expect(blank.resumed).toBe(false);
+    expect(blank.history).toBe(0);
   }, 240_000);
 });

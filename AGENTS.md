@@ -591,7 +591,10 @@ and `server/routes/group-folders.ts`. Keep these rules, covered by
   conversation through the same `POST /api/bots/:id/messages` turn: a ping
   costs the same either way. What a ping costs is that conversation's whole
   history (the engine reads it again every turn) plus the system prompt and
-  tool schemas; only `sagax_send` with `newThread: true` starts empty.
+  tool schemas; only `sagax_send` with `newThread: true` starts empty. A
+  `threadId` passed to `sagax_send` is honoured as given: the one
+  `sagax_bots` lists is the person's own visible conversation, whose whole
+  history the turn then reads.
   Measured by `server/ai-client-turn-context.e2e.test.ts`
   (`AI_CLIENT_CONTEXT_REPORT=<file>` writes the figures).
 - A conversation that buzzed the phones and is then read anywhere sends
