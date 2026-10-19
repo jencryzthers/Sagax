@@ -66,7 +66,7 @@ import { peopleDmPeer } from "@/lib/people-dm";
 import { BotRoleTag, PersonLabelTag } from "./LabelTag";
 import { SidebarUnreadThreads, sidebarUnreadThreads } from "./SidebarUnreadThreads";
 import { nudgeLineText } from "@/lib/nudge-line";
-import { ChevronsRight, Code2, Eye, UserRound } from "lucide-react";
+import { ChevronsRight, Code2, Eye, Inbox, UserRound } from "lucide-react";
 import { entriesToUnhide, hiddenKey, hiddenKeySet, hideFromSidebar, showInSidebar, useSidebarHidden } from "@/lib/sidebar-hidden";
 import { closedDmToReopen, groupHiddenKey, hiddenSidebarRows, withoutHiddenEntries } from "@/lib/sidebar-hidden-entries";
 import { PersonAvatar } from "./MessageAuthor";
@@ -2468,6 +2468,10 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
   };
   const showThreads = useShowThreads();
   const showLogo = useShowSidebarLogo();
+  // the Approvals row's count: conversations waiting on the person's answer
+  const approvalsWaiting = useMemo(() => state.bots
+    .filter((bot) => !bot.hidden)
+    .reduce((total, bot) => total + (bot.tasks ?? []).filter((task) => task.activity === "waiting-on-you").length, 0), [state.bots]);
   const remoteClient = window.ogb?.remoteClient?.active === true;
   const { capabilities } = useDesktopCapabilities();
   const sidebarRef = useRef<HTMLElement>(null);
@@ -3125,7 +3129,11 @@ export function Sidebar({ open, onClose, onCompose, composeOpen = false }: {
         <div className={cn("mb-2", density === "icons" && "flex justify-center")}>
           <SidebarPlaces
             iconOnly={density === "icons"}
-            places={[{ key: "code", label: t("code.title"), icon: Code2, active: state.activeView === "code", onSelect: () => dispatch({ type: "showCode" }) }]}
+            places={[
+              // Approvals: every card waiting on the person, from every bot (src/components/approvals/ApprovalsPage.tsx)
+              { key: "approvals", label: t("approvals.title"), icon: Inbox, count: approvalsWaiting, active: state.activeView === "approvals", onSelect: () => dispatch({ type: "showApprovals" }) },
+              { key: "code", label: t("code.title"), icon: Code2, active: state.activeView === "code", onSelect: () => dispatch({ type: "showCode" }) },
+            ]}
             divider={false}
           />
         </div>
